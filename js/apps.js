@@ -1482,12 +1482,21 @@ async function generateSummary(contact, messages, range) {
 
     const chatText = textMessages.map(m => `${m.role === 'user' ? userName : contact.name}: ${m.content}`).join('\n');
 
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
     const systemPrompt = `你是一个即时通讯软件的聊天记录总结助手。
 请阅读以下聊天记录，并提取出其中重要的信息、事实、用户偏好或发生的事件，生成一条简练的“记忆”。
 记忆应该是陈述句，包含关键信息。
 请务必总结 ${userName} 和 ${contact.name} 聊天的具体内容，不要只总结重要信息。
 如果聊天记录中没有值得记忆的重要信息（例如只是简单的问候或无意义的对话），请返回 "无"。
-不要包含“聊天记录显示”、“用户说”等前缀，直接陈述事实。`;
+不要包含“聊天记录显示”、“用户说”等前缀，直接陈述事实。
+
+【重要要求】：
+请务必在记忆中包含事情发生的具体时间点（YYYY年MM月DD日 HH:mm）。
+请将聊天中的相对时间（如“今天”、“刚才”、“昨天”）根据当前参考时间转换为绝对时间。
+参考时间：${dateStr} ${timeStr}`;
 
     try {
         let fetchUrl = settings.url;

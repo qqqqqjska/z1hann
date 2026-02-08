@@ -2813,6 +2813,14 @@ async function generateAiReply(instruction = null, targetContactId = null) {
         });
     }
 
+    let importantStateContext = '';
+    if (contact.importantStates && contact.importantStates.length > 0) {
+        importantStateContext = '\n【当前重要状态 (时效性信息)】\n⚠️ 请务必记住以下状态，并在回复中体现：\n';
+        contact.importantStates.forEach(s => {
+            importantStateContext += `- ${s}\n`;
+        });
+    }
+
     let memoryContext = '';
     // 增强记忆读取逻辑：结合最近记忆和相关性记忆 (Simple RAG)
     const contactMemories = window.iphoneSimState.memories.filter(m => m.contactId === contact.id);
@@ -2872,10 +2880,10 @@ async function generateAiReply(instruction = null, targetContactId = null) {
         finalMemories.sort((a, b) => a.time - b.time); 
         
         if (finalMemories.length > 0) {
-            memoryContext += '\n【重要记忆 (按时间顺序)】\n';
+            memoryContext += '\n【历史记忆 (已知事实)】\n⚠️ 注意：以下内容是你们过去的共同经历或已知事实，请勿重复向用户复述，除非用户主动询问或需要回忆。\n';
             finalMemories.forEach(m => {
                 const date = new Date(m.time);
-                const dateStr = `${date.getMonth()+1}/${date.getDate()}`;
+                const dateStr = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                 memoryContext += `- [${dateStr}] ${m.content}\n`;
             });
         }
@@ -2940,6 +2948,7 @@ ${contact.persona || '无'}
 聊天风格：${contact.style || '正常'}
 ${userPromptInfo}
 ${userPerceptionContext}
+${importantStateContext}
 ${momentContext}
 ${icityContext}
 ${memoryContext}
@@ -3046,6 +3055,18 @@ ${contact.showThought ? `
 3. 避免重复记录已有信息
 4. 信息可以是用户的任何方面：喜好、厌恶、习惯、特征、经历、能力等
 5. 必须严格检查是否已在身份描述中存在
+
+【重要状态记录指令】
+除了普通记忆，你还可以记录用户的当前状态、时效性信息（如生理期、生病、考试周、出差、假期等）或你们关系的重大变化。
+这类信息非常重要，你必须时刻记住，直到它过期或改变。
+
+记录格式：{"type": "action", "command": "RECORD_IMPORTANT_STATE", "payload": "状态内容"}
+示例：{"type": "action", "command": "RECORD_IMPORTANT_STATE", "payload": "用户正在生理期，身体不适"}
+
+注意：
+1. 只记录有时效性或非常重要的状态。
+2. 避免记录琐碎的日常（如“用户刚才在吃饭”）。
+3. 如果状态已经结束（通过对话推断），请不要再重复记录，或者可以通过新状态覆盖旧状态（系统会自动追加，你只需记录新的）。
 
 ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心独白】(心声)。格式：{"type": "thought", "content": "..."}。\n  *注意*：这是角色的心理活动，不是AI的思考过程。绝不要暴露你是AI，不要分析任务指令，而是描写角色此刻的真实想法。' : '- 如果需要输出角色的内心独白（心声），请使用格式：{"type": "thought", "content": "..."}'}
 
@@ -3484,6 +3505,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         const msClickRegex = /ACTION:\s*MINESWEEPER_CLICK:\s*(\d+)\s*,\s*(\d+)(?:\n|$)/;
         const msFlagRegex = /ACTION:\s*MINESWEEPER_FLAG:\s*(\d+)\s*,\s*(\d+)(?:\n|$)/;
         const witchGuessRegex = /ACTION:\s*WITCH_GUESS:\s*(\d+)\s*,\s*(\d+)(?:\n|$)/;
+        const recordImportantStateRegex = /ACTION:\s*RECORD_IMPORTANT_STATE:\s*(.*?)(?:\n|$)/;
 
         let replyToObj = null;
         let hasUpdatedName = false;
@@ -3493,6 +3515,26 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         for (let i = 0; i < actions.length; i++) {
             let segment = actions[i];
             let processedSegment = segment;
+
+            let recordImportantStateMatch;
+            while ((recordImportantStateMatch = processedSegment.match(recordImportantStateRegex)) !== null) {
+                let info = recordImportantStateMatch[1].trim();
+                info = info.replace(/^(用户|我|他|她)(:|：|,|，|\s)?/, '').trim();
+                if (info) {
+                    if (!contact.importantStates) contact.importantStates = [];
+                    // 简单查重
+                    if (!contact.importantStates.includes(info)) {
+                        contact.importantStates.push(info);
+                        // 保持数量限制，比如最新的 5 条
+                        if (contact.importantStates.length > 5) {
+                            contact.importantStates.shift();
+                        }
+                        saveConfig();
+                        showChatToast('重要状态已记录');
+                    }
+                }
+                processedSegment = processedSegment.replace(recordImportantStateMatch[0], '');
+            }
 
             let recordUserInfoMatch;
             while ((recordUserInfoMatch = processedSegment.match(recordUserInfoRegex)) !== null) {
