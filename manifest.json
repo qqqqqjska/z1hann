@@ -1,0 +1,24 @@
+{
+  "name": "iPhone Simulator",
+  "short_name": "iPhone Sim",
+  "description": "A simulated iPhone interface in your browser",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://i.postimg.cc/DZHdV88x/chan-135.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://i.postimg.cc/DZHdV88x/chan-135.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
