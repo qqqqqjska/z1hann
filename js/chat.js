@@ -3963,9 +3963,9 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 }
 
                 // 用户在聊天界面，使用打字机效果或直接发送
-                if (msg.type === '消息') {
+                if (msg.type === '消息' || msg.type === 'text') {
                     await typewriterEffect(msg.content, contact.avatar, currentThought, currentReplyTo, 'text', contactId);
-                } else if (msg.type === '表情包') {
+                } else if (msg.type === '表情包' || msg.type === 'sticker') {
                     // 尝试查找表情包 URL
                     let stickerUrl = null;
                     if (window.iphoneSimState.stickerCategories) {
@@ -3988,24 +3988,28 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                         // 找不到表情包，降级为文本
                         await typewriterEffect(`[表情包: ${msg.content}]`, contact.avatar, currentThought, currentReplyTo, 'text', contactId);
                     }
-                } else if (msg.type === '语音') {
-                    const parts = msg.content.match(/(\d+)\s+(.*)/);
+                } else if (msg.type === '语音' || msg.type === 'voice') {
                     let duration = 3;
                     let text = msg.content;
-                    if (parts) {
-                        duration = parseInt(parts[1]);
-                        text = parts[2];
+                    
+                    if (typeof msg.content === 'string') {
+                        const parts = msg.content.match(/(\d+)\s+(.*)/);
+                        if (parts) {
+                            duration = parseInt(parts[1]);
+                            text = parts[2];
+                        }
                     }
+                    
                     const voiceData = {
                         duration: duration,
                         text: text,
                         isReal: false
                     };
                     sendMessage(JSON.stringify(voiceData), false, 'voice', null, contactId);
-                } else if (msg.type === '图片') {
+                } else if (msg.type === '图片' || msg.type === 'image') {
                     const defaultImageUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
                     sendMessage(defaultImageUrl, false, 'virtual_image', msg.content, contactId);
-                } else if (msg.type === '旁白') {
+                } else if (msg.type === '旁白' || msg.type === 'description') {
                     await typewriterEffect(msg.content, contact.avatar, null, null, 'description', contactId);
                 }
             } else {
@@ -4013,9 +4017,9 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 let contentToSave = msg.content;
                 let typeToSave = 'text';
                 
-                if (msg.type === '消息') {
+                if (msg.type === '消息' || msg.type === 'text') {
                     typeToSave = 'text';
-                } else if (msg.type === '表情包') {
+                } else if (msg.type === '表情包' || msg.type === 'sticker') {
                     let stickerUrl = null;
                     if (window.iphoneSimState.stickerCategories) {
                         let allowedIds = null;
@@ -4038,14 +4042,18 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                         contentToSave = `[表情包: ${msg.content}]`;
                         typeToSave = 'text';
                     }
-                } else if (msg.type === '语音') {
-                    const parts = msg.content.match(/(\d+)\s+(.*)/);
+                } else if (msg.type === '语音' || msg.type === 'voice') {
                     let duration = 3;
                     let text = msg.content;
-                    if (parts) {
-                        duration = parseInt(parts[1]);
-                        text = parts[2];
+                    
+                    if (typeof msg.content === 'string') {
+                        const parts = msg.content.match(/(\d+)\s+(.*)/);
+                        if (parts) {
+                            duration = parseInt(parts[1]);
+                            text = parts[2];
+                        }
                     }
+
                     const voiceData = {
                         duration: duration,
                         text: text,
@@ -4053,10 +4061,10 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                     };
                     contentToSave = JSON.stringify(voiceData);
                     typeToSave = 'voice';
-                } else if (msg.type === '图片') {
+                } else if (msg.type === '图片' || msg.type === 'image') {
                     contentToSave = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
                     typeToSave = 'virtual_image';
-                } else if (msg.type === '旁白') {
+                } else if (msg.type === '旁白' || msg.type === 'description') {
                     typeToSave = 'description';
                 }
 
