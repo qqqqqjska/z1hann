@@ -9081,7 +9081,6 @@ async function handleAcceptFriend(req, remark) {
     if (req.preGeneratedPersona) {
         persona = req.preGeneratedPersona;
     } else if (req.icityContext && req.icityContext.msgId) {
-        let chatHistory = [];
         // Try to fetch context from iCity chat history
         const icityMsg = window.iphoneSimState.icityMessages ? window.iphoneSimState.icityMessages.find(m => m.id === req.icityContext.msgId) : null;
         if (icityMsg && icityMsg.history) {
@@ -9093,7 +9092,7 @@ async function handleAcceptFriend(req, remark) {
                 if (settings.url && settings.key) {
                     const prompt = `根据以下聊天记录，为"TA"生成一个详细的人物设定，要求极度详细且具有“活人感”。
     请包含以下内容：
-    1. 真实姓名（如果未知请根据气质虚构一个）
+    1. 真实姓名（**请务必随机生成一个富有特色的名字，绝对不要使用'小明'、'李华'、'王伟'等常见名，尝试使用有深意的名字**）
     2. 性别
     3. 外貌描写（详细描述五官、发型、穿搭风格等，具有画面感）
     4. 爱好与特长
@@ -9101,14 +9100,14 @@ async function handleAcceptFriend(req, remark) {
     6. 讨厌的东西或雷点
     7. 成长经历（简述）
     8. 性格深度解析
-    9. 隐藏设定（亲密关系）：XP系统/癖好、经验与表现、敏感点
+    9. 隐藏设定（亲密关系）：XP/癖好、经验、敏感点（**必须以纯文本描述，严禁使用嵌套对象**）
     
-    请直接输出人设描述，确保鲜活生动。
+    请直接输出人设描述，确保鲜活生动。persona 字段必须是一个长字符串，不要嵌套 JSON 对象。
                     
                     ${contextText}`;
                     
                     const messages = [{ role: 'user', content: prompt }];
-                    persona = await safeCallAiApi(messages); // Assuming safeCallAiApi is available globally or need to be exposed
+                    persona = await safeCallAiApi(messages); 
                 }
             } catch (e) {
                 console.error("Failed to generate persona", e);
@@ -9133,6 +9132,35 @@ async function handleAcceptFriend(req, remark) {
     };
     
     window.iphoneSimState.contacts.push(newContact);
+
+    // Transfer Chat History from iCity
+    if (req.icityContext && req.icityContext.msgId) {
+        const icityMsg = window.iphoneSimState.icityMessages ? window.iphoneSimState.icityMessages.find(m => m.id === req.icityContext.msgId) : null;
+        if (icityMsg && icityMsg.history) {
+            if (!window.iphoneSimState.chatHistory) window.iphoneSimState.chatHistory = {};
+            if (!window.iphoneSimState.chatHistory[newContact.id]) window.iphoneSimState.chatHistory[newContact.id] = [];
+            
+            // Map icity history to chat history
+            const transferredMessages = icityMsg.history.map(h => ({
+                id: Date.now() + Math.random(), 
+                role: (h.role === 'me' || h.role === 'user') ? 'user' : 'assistant',
+                content: h.content,
+                time: h.time,
+                type: 'text' // Assume text for simplicity
+            }));
+            
+            // Add a divider
+            transferredMessages.push({
+                id: Date.now(),
+                role: 'system',
+                content: '[系统消息]: 以上是来自 iCity 的历史对话',
+                time: Date.now(),
+                type: 'text'
+            });
+
+            window.iphoneSimState.chatHistory[newContact.id] = transferredMessages;
+        }
+    }
     
     // 3. Update Request Status
     req.status = 'accepted';

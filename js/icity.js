@@ -1807,7 +1807,7 @@ function renderIcityMessages() {
             </div>
             <div style="flex: 1; min-width: 0;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                    <span style="font-weight: bold; font-size: 16px; color: #333;">${msg.sender}${msg.gender === 'male' ? '<span style="color:#007AFF;font-size:14px;margin-left:4px;">♂</span>' : (msg.gender === 'female' ? '<span style="color:#FF2D55;font-size:14px;margin-left:4px;">♀</span>' : '')}</span>
+                    <span style="font-weight: bold; font-size: 16px; color: #333;">${msg.sender}${msg.gender === 'male' ? '<span style="color:#007AFF;font-size:14px;margin-left:4px;vertical-align:3px;">♂</span>' : (msg.gender === 'female' ? '<span style="color:#FF2D55;font-size:14px;margin-left:4px;vertical-align:3px;">♀</span>' : '')}</span>
                     <span style="font-size: 12px; color: #ccc;">${timeStr}</span>
                 </div>
                 <div style="font-size: 14px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -1934,7 +1934,7 @@ function openIcityMessageDetail(msg) {
     const backBtn = document.getElementById('close-icity-message-detail');
 
     if (nameEl) {
-        const genderHtml = msg.gender === 'male' ? '<span style="color:#007AFF;font-size:16px;margin-left:4px;">♂</span>' : (msg.gender === 'female' ? '<span style="color:#FF2D55;font-size:16px;margin-left:4px;">♀</span>' : '');
+        const genderHtml = msg.gender === 'male' ? '<span style="color:#007AFF;font-size:16px;margin-left:4px;vertical-align:3px;">♂</span>' : (msg.gender === 'female' ? '<span style="color:#FF2D55;font-size:16px;margin-left:4px;vertical-align:3px;">♀</span>' : '');
         nameEl.innerHTML = msg.sender + genderHtml;
     }
     if (handleEl) handleEl.textContent = msg.handle;
@@ -3128,9 +3128,16 @@ async function handleWeChatFriendRequestFlow(msgObj, wxid) {
         `${h.role === 'me' ? '我' : '对方'}: ${h.content}`
     ).join('\n');
 
+    // Add User Diaries to context to provide more "memory" of the user
+    const recentDiaries = window.iphoneSimState.icityDiaries ? window.iphoneSimState.icityDiaries.slice(0, 5) : [];
+    const diaryContext = recentDiaries.map(d => `[${new Date(d.time).toLocaleDateString()}] 用户日记: ${d.content}`).join('\n');
+
     const prompt = `你正在扮演一个网络用户（${msgObj.sender}），正在与“我”进行私信聊天。
 以下是聊天记录：
 ${historyContext}
+
+以下是用户最近发布的iCity日记（请阅读以了解用户）：
+${diaryContext}
 
 系统提示：用户刚刚发送了自己的微信号 "${wxid}"。
 请根据当前聊天的亲密度和上下文，决定是否添加对方为微信好友。
@@ -3142,7 +3149,7 @@ JSON 格式如下：
 {
     "willAdd": true或false,
     "reply": "你给用户的自然语言回复",
-    "persona": "如果willAdd为true，请在此处生成详细人设，要求极度详细且具有“活人感”。必须包含：\n1. 真实姓名\n2. 性别\n3. 外貌描写（五官、发型、穿搭风格，要有画面感）\n4. 爱好与特长\n5. 生活习惯（作息、饮食口味、口头禅、常用表情包风格）\n6. 讨厌的东西或雷点\n7. 成长经历（简述）\n8. 性格深度解析\n9. 隐藏设定（亲密关系）：XP/癖好、经验、敏感点\n\n请确保人设鲜活，不要像简历，要有生活气息。"
+    "persona": "如果willAdd为true，请在此处生成详细人设，要求极度详细且具有“活人感”。必须包含：\n1. 真实姓名（**请务必随机生成一个富有特色的名字，绝对不要使用'小明'、'李华'、'王伟'等常见名，尝试使用有深意的名字**）\n2. 性别\n3. 外貌描写（五官、发型、穿搭风格，要有画面感）\n4. 爱好与特长\n5. 生活习惯（作息、饮食口味、口头禅、常用表情包风格）\n6. 讨厌的东西或雷点\n7. 成长经历（简述）\n8. 性格深度解析\n9. 隐藏设定（亲密关系）：XP/癖好、经验、敏感点（**必须以纯文本描述，严禁使用嵌套对象**）\n\n请确保人设鲜活，不要像简历，要有生活气息。persona 字段必须是一个长字符串，不要嵌套 JSON 对象。"
 }
 `;
 
@@ -3183,10 +3190,14 @@ JSON 格式如下：
                     // Convert object to string format if AI returned a JSON object for persona
                     try {
                         persona = Object.entries(data.persona)
-                            .map(([key, value]) => `${key}: ${value}`)
+                            .map(([key, value]) => {
+                                // Recursively stringify objects if value is an object
+                                const valStr = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
+                                return `${key}: ${valStr}`;
+                            })
                             .join('\n');
                     } catch (err) {
-                        persona = JSON.stringify(data.persona);
+                        persona = JSON.stringify(data.persona, null, 2);
                     }
                 } else {
                     persona = String(data.persona);
