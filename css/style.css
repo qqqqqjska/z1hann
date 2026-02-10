@@ -219,11 +219,15 @@ html, body {
   }
   
   /* 如果应用有主容器，比如.phone-screen */
-  .screen-container, 
-  .app-screen, 
-  .sub-screen {
+  .screen-container {
     height: 100vh;
     height: -webkit-fill-available;
+  }
+  
+  /* PWA 修复: 移除高度限制，使用 top/bottom 锚定 */
+  .app-screen,
+  .sub-screen {
+    height: auto;
   }
 }
 
