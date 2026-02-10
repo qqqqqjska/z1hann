@@ -1,7 +1,15 @@
 
 // LookUS 应用功能模块
 
+let currentLookusContactId = null;
+
 function initLookusApp() {
+    // 绑定顶部点击事件
+    const headerBadge = document.getElementById('lookus-header-time-badge');
+    if (headerBadge) {
+        headerBadge.addEventListener('click', openLookusContactPicker);
+    }
+
     renderLookusApp();
     updateLookusTime();
     
@@ -18,9 +26,118 @@ function updateLookusTime() {
     }
 }
 
+function openLookusContactPicker() {
+    // 使用现有的联系人选择弹窗逻辑，但劫持点击事件
+    const modal = document.getElementById('contact-picker-modal');
+    const list = document.getElementById('contact-picker-list');
+    const sendBtn = document.getElementById('contact-picker-send-btn');
+    const closeBtn = document.getElementById('close-contact-picker');
+    
+    if (!modal || !list) return;
+    
+    const headerTitle = modal.querySelector('h3');
+    const originalTitle = headerTitle ? headerTitle.textContent : '选择联系人';
+    if (headerTitle) headerTitle.textContent = '选择查看对象';
+    
+    if (sendBtn) sendBtn.style.display = 'none'; // 隐藏发送按钮
+    
+    list.innerHTML = '';
+    
+    if (!window.iphoneSimState.contacts || window.iphoneSimState.contacts.length === 0) {
+        list.innerHTML = '<div class="list-item center-content" style="color:#999;">暂无联系人</div>';
+    } else {
+        window.iphoneSimState.contacts.forEach(c => {
+            const item = document.createElement('div');
+            item.className = 'list-item';
+            item.style.cursor = 'pointer';
+            item.innerHTML = `
+                <div class="list-content" style="display:flex; align-items:center; width:100%; padding: 10px;">
+                    <img src="${c.avatar}" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 15px; object-fit: cover;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold;">${c.remark || c.name}</div>
+                    </div>
+                    <i class="fas fa-chevron-right" style="color: #ccc;"></i>
+                </div>
+            `;
+            item.onclick = () => {
+                currentLookusContactId = c.id;
+                renderLookusApp();
+                modal.classList.add('hidden');
+                // 恢复标题
+                if (headerTitle) headerTitle.textContent = originalTitle;
+                if (sendBtn) sendBtn.style.display = '';
+            };
+            list.appendChild(item);
+        });
+    }
+    
+    modal.classList.remove('hidden');
+    
+    const closeHandler = () => {
+        modal.classList.add('hidden');
+        if (sendBtn) sendBtn.style.display = '';
+        if (headerTitle) headerTitle.textContent = originalTitle;
+        closeBtn.removeEventListener('click', closeHandler);
+    };
+    closeBtn.addEventListener('click', closeHandler);
+}
+
+function getLookusData(contactId) {
+    if (!contactId) {
+        return {
+            name: 'iii',
+            distance: '--',
+            device: 'iPhone17Pro',
+            network: '未知',
+            battery: '75%',
+            stops: '*',
+            screenTime: '*时*分',
+            unlockCount: '*次',
+            lastUnlock: '未知',
+            appUsage: '手机APP使用记录',
+            networkRecord: '网络记录'
+        };
+    }
+
+    const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+    const name = contact ? (contact.remark || contact.name) : '未知用户';
+    
+    // 基于ID生成伪随机数，保证同一联系人数据固定
+    let seed = 0;
+    const str = String(contactId) + name;
+    for (let i = 0; i < str.length; i++) {
+        seed = ((seed << 5) - seed) + str.charCodeAt(i);
+        seed |= 0;
+    }
+    seed = Math.abs(seed);
+    
+    const distance = (seed % 900) / 10 + 0.1; // 0.1 - 90.0 km
+    const battery = (seed % 80) + 20;
+    const deviceModels = ['iPhone 15 Pro', 'iPhone 14', 'iPhone 13 mini', 'iPhone 15 Pro Max', 'iPhone SE'];
+    const device = deviceModels[seed % deviceModels.length];
+    const screenTimeH = (seed % 10) + 1;
+    const screenTimeM = (seed % 60);
+    const unlockCount = (seed % 100) + 5;
+    const stops = (seed % 8) + 1;
+
+    return {
+        name: name,
+        distance: distance.toFixed(1),
+        device: device,
+        network: (seed % 2 === 0) ? 'WiFi' : '5G',
+        battery: battery + '%',
+        stops: stops,
+        screenTime: `${screenTimeH}小时${screenTimeM}分`,
+        unlockCount: unlockCount + '次',
+        lastUnlock: `${(seed % 24).toString().padStart(2, '0')}:${(seed % 60).toString().padStart(2, '0')}`
+    };
+}
+
 function renderLookusApp() {
     const container = document.getElementById('lookus-content');
     if (!container) return;
+
+    const data = getLookusData(currentLookusContactId);
 
     // Clear container
     container.innerHTML = '';
@@ -33,7 +150,7 @@ function renderLookusApp() {
         <div class="lookus-status-card">
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div>
-                    <div class="lookus-distance">我们相距 -- km</div>
+                    <div class="lookus-distance">我们相距 ${data.distance} km</div>
                     <div class="lookus-location-status">对方未授权定位，无法查看距离</div>
                 </div>
                 <div style="display: flex; gap: 10px;">
@@ -45,26 +162,26 @@ function renderLookusApp() {
         </div>
 
         <div class="lookus-card">
-            <div class="lookus-card-title">iii 在这里</div>
+            <div class="lookus-card-title">${data.name} 在这里</div>
             <div class="lookus-device-info">
                 <div class="lookus-device-item">
                     <i class="fas fa-mobile-alt lookus-device-icon"></i>
-                    <span>iPhone17Pro</span>
+                    <span>${data.device}</span>
                 </div>
                 <div class="lookus-device-item">
                     <i class="fas fa-wifi lookus-device-icon"></i>
-                    <span>未知 <i class="far fa-question-circle"></i></span>
+                    <span>${data.network} <i class="far fa-question-circle"></i></span>
                 </div>
                 <div class="lookus-device-item">
                     <i class="fas fa-battery-three-quarters lookus-device-icon"></i>
-                    <span>75%</span>
+                    <span>${data.battery}</span>
                 </div>
             </div>
         </div>
 
         <div class="lookus-card">
             <div class="lookus-card-title">
-                <span><i class="fas fa-map-marker-alt" style="color: #000;"></i> 对方今天停留*个地方</span>
+                <span><i class="fas fa-map-marker-alt" style="color: #000;"></i> 对方今天停留${data.stops}个地方</span>
             </div>
             <div class="lookus-map-placeholder">
                 <img src="https://placehold.co/600x200/e0e0e0/999?text=Map" class="lookus-map-img">
@@ -101,17 +218,17 @@ function renderLookusApp() {
                         </div>
                     </div>
                     <div style="margin-top: 15px; font-weight: bold;">屏幕使用时间</div>
-                    <div style="font-size: 18px; font-weight: bold; margin-top: 5px;">*时*分</div>
+                    <div style="font-size: 18px; font-weight: bold; margin-top: 5px;">${data.screenTime}</div>
                 </div>
                 <div style="flex: 1; display: flex; flex-direction: column; gap: 15px;">
                     <div class="lookus-stat-box" style="flex: 1;">
                         <div class="lookus-stat-label"><span style="color: #000;">●</span> 解锁手机次数</div>
-                        <div class="lookus-stat-value">*次</div>
+                        <div class="lookus-stat-value">${data.unlockCount}</div>
                         <i class="fas fa-lock lookus-lock-icon"></i>
                     </div>
                     <div class="lookus-stat-box" style="flex: 1;">
                         <div class="lookus-stat-label"><span style="color: #000;">●</span> 最近解锁手机</div>
-                        <div class="lookus-stat-value">未知</div>
+                        <div class="lookus-stat-value">${data.lastUnlock}</div>
                         <i class="far fa-clock lookus-lock-icon"></i>
                     </div>
                 </div>
@@ -178,14 +295,14 @@ function renderLookusApp() {
         <div class="lookus-grid-2" style="padding: 0 15px;">
             <div class="lookus-card" style="margin: 0;">
                 <div class="lookus-card-title">打开Lookus <i class="fas fa-chevron-right" style="color: #ccc; font-size: 12px;"></i></div>
-                <div style="font-size: 14px; font-weight: bold; margin-top: 10px;">*次</div>
+                <div style="font-size: 14px; font-weight: bold; margin-top: 10px;">${Math.floor(Math.random() * 20)}次</div>
                 <div style="text-align: right; margin-top: 10px;">
                     <i class="fas fa-eye" style="font-size: 30px; color: #eee;"></i>
                 </div>
             </div>
             <div class="lookus-card" style="margin: 0;">
                 <div class="lookus-card-title">敏感记录 <i class="fas fa-chevron-right" style="color: #ccc; font-size: 12px;"></i></div>
-                <div style="font-size: 14px; font-weight: bold; margin-top: 10px;">*次</div>
+                <div style="font-size: 14px; font-weight: bold; margin-top: 10px;">0次</div>
                 <div style="text-align: right; margin-top: 10px;">
                     <i class="fas fa-cog" style="font-size: 30px; color: #eee;"></i>
                 </div>

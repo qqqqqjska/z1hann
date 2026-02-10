@@ -1,0 +1,263 @@
+
+/* LookUS App Styles - Monochrome Theme */
+#lookus-app {
+    background: #f2f2f7; /* Standard iOS light gray background */
+    font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #000;
+}
+
+#lookus-content {
+    padding-bottom: 120px; /* Ensure content clears the bottom tab bar */
+    min-height: 100vh;
+}
+
+#lookus-app .app-header {
+    background: transparent !important;
+    border: none !important;
+}
+
+.lookus-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 15px;
+    margin: 15px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.lookus-card-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #000;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.lookus-new-badge {
+    background: #000;
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 5px;
+    vertical-align: middle;
+}
+
+.lookus-blur-content {
+    filter: blur(4px);
+    user-select: none;
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.lookus-vip-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    width: 100%;
+    z-index: 10;
+}
+
+.lookus-vip-btn {
+    background: #000;
+    color: #fff;
+    font-weight: bold;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    width: fit-content;
+    margin: 0 auto;
+}
+
+.lookus-vip-text {
+    font-size: 12px;
+    color: #666;
+    margin-top: 8px;
+}
+
+/* Top Section */
+.lookus-status-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 15px;
+    margin: 15px;
+    margin-top: 0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.lookus-distance {
+    font-size: 14px;
+    color: #000;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.lookus-location-status {
+    font-size: 16px;
+    color: #666;
+    font-weight: 500;
+    margin-bottom: 15px;
+}
+
+.lookus-device-info {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    margin-top: 15px;
+}
+
+.lookus-device-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: #333;
+}
+
+.lookus-device-icon {
+    font-size: 20px;
+    margin-bottom: 5px;
+    color: #000;
+}
+
+/* Map placeholder */
+.lookus-map-placeholder {
+    height: 120px;
+    background: #f0f0f0;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    margin-top: 10px;
+}
+
+.lookus-map-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: grayscale(100%) blur(2px);
+}
+
+/* Middle Section */
+.lookus-usage-circle {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 15px solid #e0e0e0; /* Gray ring */
+    margin: 0 auto;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.lookus-usage-circle::after {
+    content: '';
+    position: absolute;
+    top: -15px;
+    left: -15px;
+    right: -15px;
+    bottom: -15px;
+    border-radius: 50%;
+    border: 15px solid #000; /* Black progress */
+    border-right-color: transparent;
+    border-bottom-color: transparent;
+    transform: rotate(45deg);
+}
+
+.lookus-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.lookus-stat-box {
+    background: #f9f9f9;
+    border-radius: 12px;
+    padding: 15px;
+    position: relative;
+}
+
+.lookus-stat-label {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #666;
+}
+
+.lookus-stat-value {
+    font-size: 14px;
+    color: #000;
+    font-weight: bold;
+}
+
+.lookus-lock-icon {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    font-size: 24px;
+    color: #e0e0e0;
+}
+
+/* Bottom Section */
+.lookus-list-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.lookus-list-item:last-child {
+    border-bottom: none;
+}
+
+.lookus-action-btn {
+    background: #fff;
+    border-radius: 12px;
+    padding: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+}
+
+.lookus-lock-phone-btn {
+    background: #000; /* Black */
+    color: #fff;
+    font-weight: bold;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 25px;
+    margin: 0 auto;
+    display: block;
+    width: 60%;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+
+.lookus-notice-bar {
+    background: #f0f0f0; /* Light Gray */
+    color: #666;
+    font-size: 12px;
+    padding: 10px 15px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 15px;
+}
+
+.lookus-icon-black {
+    color: #000 !important;
+}
+
+.lookus-icon-gray {
+    color: #999 !important;
+}

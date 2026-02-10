@@ -1,0 +1,119 @@
+/* iCity Chat Styles - Restored Bubble Style */
+.icity-msg-row {
+    display: flex;
+    margin-bottom: 20px;
+    align-items: flex-start;
+    padding: 0 10px;
+}
+
+.icity-msg-row.me {
+    justify-content: flex-end;
+}
+
+.icity-msg-row.other {
+    justify-content: flex-start;
+}
+
+.icity-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background-size: cover;
+    background-position: center;
+    background-color: #ccc;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 20px;
+}
+
+.icity-msg-row.other .icity-avatar {
+    margin-right: 12px;
+}
+
+.icity-msg-row.me .icity-avatar {
+    margin-left: 12px;
+    order: 2; /* Move to right */
+    background-color: #000; /* Default black for me */
+}
+
+.icity-bubble {
+    padding: 8px 12px;
+    border-radius: 6px; /* Slightly rounded, but boxy as per image */
+    max-width: 70%;
+    font-size: 16px;
+    line-height: 1.5;
+    position: relative;
+    word-break: break-word;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05); /* Subtle shadow */
+}
+
+/* Received Message (Other) */
+.icity-bubble.other {
+    background: #fff;
+    color: #333;
+    border: 1px solid #e5e5ea;
+}
+
+/* Tail for Other */
+.icity-bubble.other::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 12px;
+    width: 0;
+    height: 0;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-right: 8px solid #fff;
+    z-index: 2;
+}
+
+.icity-bubble.other::after {
+    content: '';
+    position: absolute;
+    left: -10px;
+    top: 12px;
+    width: 0;
+    height: 0;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-right: 8px solid #e5e5ea;
+    z-index: 1;
+}
+
+/* Sent Message (Me) */
+.icity-bubble.me {
+    background: #E8F4FF;
+    color: #333;
+    border: 1px solid #C4E0FF;
+}
+
+/* Tail for Me */
+.icity-bubble.me::before {
+    content: '';
+    position: absolute;
+    right: -8px;
+    top: 12px;
+    width: 0;
+    height: 0;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-left: 8px solid #E8F4FF;
+    z-index: 2;
+}
+
+.icity-bubble.me::after {
+    content: '';
+    position: absolute;
+    right: -10px;
+    top: 12px;
+    width: 0;
+    height: 0;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-left: 8px solid #C4E0FF;
+    z-index: 1;
+}
