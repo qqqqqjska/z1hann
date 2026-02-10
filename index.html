@@ -30,6 +30,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="chat_tail_style.css">
+    <link rel="stylesheet" href="forum_style.css">
+    <link rel="stylesheet" href="lookus_style.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -3378,6 +3380,16 @@
         </div>
     </div>
 
+    <!-- 论坛全屏App (仿 Instagram) -->
+    <div id="forum-app" class="app-screen hidden">
+        <div class="app-header">
+            <button id="close-forum-app" class="back-btn"><i class="fas fa-chevron-left"></i> 返回</button>
+            <h3>Instagram</h3>
+            <div style="width: 60px;"></div>
+        </div>
+        <!-- 内容由 js/forum.js 动态生成 -->
+    </div>
+
     <!-- 购物全屏App -->
     <div id="shopping-app" class="app-screen hidden" style="background-color: #f2f2f7; position: fixed; height: 100dvh; height: 100vh; top: 0; left: 0; width: 100%; z-index: 100;">
         <!-- 加入购物车成功反馈弹窗 -->
@@ -3862,6 +3874,35 @@
         </div>
     </div>
 
+    <!-- LookUS App -->
+    <div id="lookus-app" class="app-screen hidden" style="background-color: #f9f9f9; z-index: 100;">
+        <div class="app-header" style="background: transparent; border: none; padding-top: max(10px, env(safe-area-inset-top));">
+            <div style="flex: 1;"></div>
+            <div style="background: rgba(0,0,0,0.6); padding: 5px 15px; border-radius: 20px; color: #fff; font-size: 12px; display: flex; align-items: center; gap: 5px;">
+                <i class="fas fa-check"></i> 更新于: <span id="lookus-update-time">--:--:--</span>
+            </div>
+            <div style="flex: 1;"></div>
+        </div>
+        
+        <div class="app-body" style="padding: 0; padding-bottom: 80px; overflow-y: auto;">
+            <div id="lookus-content">
+                <!-- Content injected by js/lookus.js -->
+            </div>
+        </div>
+
+        <!-- Bottom Tab Bar -->
+        <div class="lookus-tab-bar" style="position: absolute; bottom: 0; left: 0; width: 100%; background: #fff; display: flex; align-items: center; justify-content: space-around; padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-top: 10px; border-top: 1px solid #f0f0f0;">
+            <div class="tab-item active" style="display: flex; flex-direction: column; align-items: center; gap: 4px; color: #000; cursor: pointer;" onclick="document.getElementById('lookus-app').classList.add('hidden')">
+                <i class="fas fa-home" style="font-size: 20px;"></i>
+                <span style="font-size: 10px;">首页</span>
+            </div>
+            <div class="tab-item" style="display: flex; flex-direction: column; align-items: center; gap: 4px; color: #999; cursor: pointer;">
+                <i class="fas fa-file-alt" style="font-size: 20px;"></i>
+                <span style="font-size: 10px;">报备</span>
+            </div>
+        </div>
+    </div>
+
     <!-- 音频元素 -->
     <audio id="bg-music" loop></audio>
 
@@ -3883,8 +3924,10 @@
     <script src="js/check_phone.js"></script>
     <script src="js/chat.js"></script>
     <script src="js/shopping.js"></script>
+    <script src="js/forum.js"></script>
     <script src="js/games.js"></script>
     <script src="js/call_history.js"></script>
+    <script src="js/lookus.js"></script>
 
 <!-- 在 index.html 中找到 <!-- 编辑记忆弹窗 --> 附近，添加以下代码 -->
 

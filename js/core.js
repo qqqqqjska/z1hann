@@ -137,7 +137,8 @@ const knownApps = {
     'shopping-app': { name: '购物', icon: 'fas fa-shopping-bag', color: '#FF9500' },
     'forum-app': { name: '论坛', icon: 'fas fa-comments', color: '#30B0C7' },
     'phone-app': { name: '查手机', icon: 'fas fa-mobile-alt', color: '#34C759' },
-    'icity-app': { name: 'iCity', icon: 'fas fa-city', color: '#000000' }
+    'icity-app': { name: 'iCity', icon: 'fas fa-city', color: '#000000' },
+    'lookus-app': { name: 'LookUS', icon: 'fas fa-eye', color: '#FF2D55' }
 };
 
 // 获取查手机功能中，当前显示的"我"的头像
