@@ -1267,12 +1267,12 @@
             
             <div class="app-body full-screen" style="padding: 0;">
                 <!-- 头部背景与头像 -->
-                <div class="profile-header-section">
+                <div class="ai-profile-header-section">
                     <div class="profile-bg" id="ai-profile-bg"></div>
-                    <div class="profile-avatar-container">
-                        <img src="" id="ai-profile-avatar" class="profile-avatar-large">
+                    <div class="ai-profile-avatar-container">
+                        <img src="" id="ai-profile-avatar" class="ai-profile-avatar-large">
                     </div>
-                    <div class="profile-info-primary">
+                    <div class="ai-profile-info-primary">
                         <h2 id="ai-profile-name"></h2>
                         <p id="ai-profile-nickname" class="profile-nickname" style="display: none;"></p>
                         <p id="ai-profile-id" class="profile-id"></p>
@@ -3928,6 +3928,26 @@
     <script src="js/games.js"></script>
     <script src="js/call_history.js"></script>
     <script src="js/lookus.js"></script>
+    <script>
+        // 修复 资料卡 背景点击上传图片
+        document.addEventListener('DOMContentLoaded', () => {
+            const aiProfileBg = document.getElementById('ai-profile-bg');
+            const aiProfileBgInput = document.getElementById('ai-profile-bg-input');
+            if (aiProfileBg && aiProfileBgInput) {
+                // 确保移除旧的监听器（如果有的话，虽然这里是新增，但为了安全）
+                // 重新绑定点击事件
+                aiProfileBg.onclick = () => {
+                    aiProfileBgInput.click();
+                };
+                
+                aiProfileBgInput.onchange = (e) => {
+                    if (window.handleAiProfileBgUpload) {
+                        window.handleAiProfileBgUpload(e);
+                    }
+                };
+            }
+        });
+    </script>
 
 <!-- 在 index.html 中找到 <!-- 编辑记忆弹窗 --> 附近，添加以下代码 -->
 
