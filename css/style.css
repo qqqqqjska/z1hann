@@ -262,20 +262,23 @@ body {
 
 /* 6. 确保内容不被安全区域遮挡 */
 .app-body, .wechat-body, .chat-body {
-  padding-bottom: max(50px, env(safe-area-inset-bottom));
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    flex: 1;
 }
 
 /* 7. 全屏页面样式 */
 .app-screen, .sub-screen {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow: hidden; /* 内部滚动 */
-  -webkit-overflow-scrolling: touch;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden; /* 内部滚动 */
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
 }
 
 * {

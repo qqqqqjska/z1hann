@@ -2706,14 +2706,14 @@
         </div>
 
         <!-- Tab 1: Profile (Current Content) -->
-        <div id="icity-tab-content-profile" class="icity-tab-content" style="display: none; height: 100%;">
+        <div id="icity-tab-content-profile" class="icity-tab-content" style="display: none; height: 100%; flex-direction: column;">
             <div class="app-header" style="position: absolute; top: 0; left: 0; width: 100%; z-index: 10; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; justify-content: space-between; padding-left: 10px; padding-right: 10px; padding-top: max(10px, env(safe-area-inset-top)); pointer-events: none;">
                  <button id="close-icity-app" class="icon-btn" style="color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); pointer-events: auto;"><i class="fas fa-cog"></i></button>
                  <div style="flex: 1;"></div>
                  <button class="icon-btn" style="color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); pointer-events: auto;"><i class="fas fa-paper-plane"></i></button>
             </div>
 
-            <div class="app-body" style="padding: 0; padding-bottom: 60px; overflow-y: auto; background-color: #fff; height: 100%;">
+            <div class="app-body" style="padding: 0; padding-bottom: calc(60px + env(safe-area-inset-bottom)); overflow-y: auto; background-color: #fff; flex: 1;">
                  <!-- Header BG -->
                  <div id="icity-bg-trigger" style="height: 280px; background-color: #eee; background-size: cover; background-position: center; position: relative; cursor: pointer;">
                  </div>
@@ -2955,7 +2955,7 @@
              <button class="icon-btn" style="color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); pointer-events: auto;"><i class="fas fa-ellipsis-h"></i></button>
         </div>
 
-        <div class="app-body" style="padding: 0; padding-bottom: max(30px, env(safe-area-inset-bottom)); overflow-y: auto; background-color: #fff; height: 100%;">
+        <div class="app-body" style="padding: 0; padding-bottom: 60px; overflow-y: auto; background-color: #fff; height: 100%;">
              <!-- Header BG -->
              <div id="icity-stranger-profile-bg" style="height: 280px; background-color: #eee; background-size: cover; background-position: center; position: relative;"></div>
              
@@ -3884,14 +3884,14 @@
             <div style="flex: 1;"></div>
         </div>
         
-        <div class="app-body" style="padding: 0; padding-bottom: 80px; overflow-y: auto; flex: 1; height: auto;">
+        <div class="app-body" style="padding: 0; padding-bottom: calc(80px + env(safe-area-inset-bottom)); overflow-y: auto; flex: 1;">
             <div id="lookus-content">
                 <!-- Content injected by js/lookus.js -->
             </div>
         </div>
 
         <!-- Bottom Tab Bar -->
-        <div class="lookus-tab-bar" style="position: absolute; bottom: 0; left: 0; width: 100%; background: #fff; display: flex; align-items: center; justify-content: space-around; padding-bottom: env(safe-area-inset-bottom); padding-top: 10px; border-top: 1px solid #f0f0f0;">
+        <div class="lookus-tab-bar" style="position: absolute; bottom: 0; left: 0; width: 100%; background: #fff; display: flex; align-items: center; justify-content: space-around; padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-top: 10px; border-top: 1px solid #f0f0f0;">
             <div class="tab-item active" style="display: flex; flex-direction: column; align-items: center; gap: 4px; color: #000; cursor: pointer;" onclick="document.getElementById('lookus-app').classList.add('hidden')">
                 <i class="fas fa-home" style="font-size: 20px;"></i>
                 <span style="font-size: 10px;">首页</span>
