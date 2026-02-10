@@ -2955,7 +2955,7 @@
              <button class="icon-btn" style="color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); pointer-events: auto;"><i class="fas fa-ellipsis-h"></i></button>
         </div>
 
-        <div class="app-body" style="padding: 0; padding-bottom: 100px; overflow-y: auto; background-color: #fff; height: 100%;">
+        <div class="app-body" style="padding: 0; padding-bottom: max(30px, env(safe-area-inset-bottom)); overflow-y: auto; background-color: #fff; height: 100%;">
              <!-- Header BG -->
              <div id="icity-stranger-profile-bg" style="height: 280px; background-color: #eee; background-size: cover; background-position: center; position: relative;"></div>
              
@@ -3875,8 +3875,8 @@
     </div>
 
     <!-- LookUS App -->
-    <div id="lookus-app" class="app-screen hidden" style="background-color: #f9f9f9; z-index: 100;">
-        <div class="app-header" style="background: transparent; border: none; padding-top: max(10px, env(safe-area-inset-top));">
+    <div id="lookus-app" class="app-screen hidden" style="background-color: #f9f9f9; z-index: 100; display: flex; flex-direction: column;">
+        <div class="app-header" style="background: transparent; border: none; padding-top: max(10px, env(safe-area-inset-top)); flex-shrink: 0;">
             <div style="flex: 1;"></div>
             <div id="lookus-header-time-badge" style="background: rgba(0,0,0,0.6); padding: 5px 15px; border-radius: 20px; color: #fff; font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer;">
                 <i class="fas fa-check"></i> 更新于: <span id="lookus-update-time">--:--:--</span> <i class="fas fa-caret-down"></i>
@@ -3884,14 +3884,14 @@
             <div style="flex: 1;"></div>
         </div>
         
-        <div class="app-body" style="padding: 0; padding-bottom: 80px; overflow-y: auto;">
+        <div class="app-body" style="padding: 0; padding-bottom: 80px; overflow-y: auto; flex: 1; height: auto;">
             <div id="lookus-content">
                 <!-- Content injected by js/lookus.js -->
             </div>
         </div>
 
         <!-- Bottom Tab Bar -->
-        <div class="lookus-tab-bar" style="position: absolute; bottom: 0; left: 0; width: 100%; background: #fff; display: flex; align-items: center; justify-content: space-around; padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-top: 10px; border-top: 1px solid #f0f0f0;">
+        <div class="lookus-tab-bar" style="position: absolute; bottom: 0; left: 0; width: 100%; background: #fff; display: flex; align-items: center; justify-content: space-around; padding-bottom: env(safe-area-inset-bottom); padding-top: 10px; border-top: 1px solid #f0f0f0;">
             <div class="tab-item active" style="display: flex; flex-direction: column; align-items: center; gap: 4px; color: #000; cursor: pointer;" onclick="document.getElementById('lookus-app').classList.add('hidden')">
                 <i class="fas fa-home" style="font-size: 20px;"></i>
                 <span style="font-size: 10px;">首页</span>
