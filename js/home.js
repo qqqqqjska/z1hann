@@ -26,9 +26,10 @@ let homeScreenData = [
     
     // 其他 App (放在第4行: Index 12-15)
     { index: 24, type: 'app', name: 'icity', iconClass: 'fas fa-book', color: '#333', appId: 'icity-app' },
+    { index: 25, type: 'app', name: 'LookUS', iconClass: 'fas fa-eye', color: '#FF2D55', appId: 'lookus-app' },
     { index: 10, type: 'app', name: '微信', iconClass: 'fab fa-weixin', color: '#07C160', appId: 'wechat-app' },
     { index: 11, type: 'app', name: '世界书', iconClass: 'fas fa-globe', color: '#007AFF', appId: 'worldbook-app' },
-    { index: 25, type: 'app', name: 'LookUS', iconClass: 'fas fa-eye', color: '#FF2D55', appId: 'lookus-app' },
+    // LookUS moved to page 2 (index 25)
     { index: 14, type: 'app', name: '设置', iconClass: 'fas fa-cog', color: '#8E8E93', appId: 'settings-app' },
     { index: 15, type: 'app', name: '美化', iconClass: 'fas fa-paint-brush', color: '#5856D6', appId: 'theme-app' },
 ];
@@ -99,7 +100,7 @@ function initGrid() {
         });
 
         if (isOccupied(targetIndex)) {
-            // 如果 25 被占用，寻找下一个空位
+            // 如果 13 被占用，寻找下一个空位
             for (let i = 0; i < SLOTS_PER_PAGE * totalPages; i++) {
                 if (!isOccupied(i)) {
                     targetIndex = i;

@@ -262,7 +262,7 @@ body {
 
 /* 6. 确保内容不被安全区域遮挡 */
 .app-body, .wechat-body, .chat-body {
-  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  padding-bottom: max(50px, env(safe-area-inset-bottom));
   overflow: auto;
   -webkit-overflow-scrolling: touch;
 }
