@@ -1,4 +1,3 @@
-
 /* LookUS App Styles - Monochrome Theme */
 #lookus-app {
     background: #f2f2f7; /* Standard iOS light gray background */
@@ -17,6 +16,17 @@
     padding: 15px;
     margin: 15px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), box-shadow 0.2s ease;
+}
+
+.lookus-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+
+.lookus-card:active {
+    transform: scale(0.98);
+    box-shadow: 0 1px 5px rgba(0,0,0,0.05);
 }
 
 .lookus-card-title {
@@ -85,6 +95,17 @@
     margin: 15px;
     margin-top: 0;
     box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), box-shadow 0.2s ease;
+}
+
+.lookus-status-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+
+.lookus-status-card:active {
+    transform: scale(0.98);
+    box-shadow: 0 1px 5px rgba(0,0,0,0.05);
 }
 
 .lookus-distance {
@@ -141,30 +162,33 @@
 }
 
 /* Middle Section */
+@property --progress {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
 .lookus-usage-circle {
     width: 120px;
     height: 120px;
     border-radius: 50%;
-    border: 15px solid #e0e0e0; /* Gray ring */
     margin: 0 auto;
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
+    background: conic-gradient(#000 0% var(--progress), #e0e0e0 var(--progress) 100%);
+    transition: --progress 1.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.lookus-usage-circle::after {
+.lookus-usage-circle::before {
     content: '';
     position: absolute;
-    top: -15px;
-    left: -15px;
-    right: -15px;
-    bottom: -15px;
+    width: 90px;
+    height: 90px;
+    background: #f9f9f9;
     border-radius: 50%;
-    border: 15px solid #000; /* Black progress */
-    border-right-color: transparent;
-    border-bottom-color: transparent;
-    transform: rotate(45deg);
+    z-index: 1;
 }
 
 .lookus-grid-2 {
@@ -255,4 +279,52 @@
 
 .lookus-icon-gray {
     color: #999 !important;
+}
+
+/* Report Page Styles */
+.lookus-report-view {
+    padding: 20px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+.lookus-report-time {
+    color: #999;
+    font-size: 13px;
+    font-weight: bold;
+    margin: 20px 0 10px 0;
+}
+
+.lookus-report-item {
+    background: rgba(255, 255, 255, 0.7); /* Semi-transparent white */
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    border-radius: 12px;
+    padding: 6px 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #444;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    max-width: 90%;
+    flex-wrap: wrap;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.lookus-report-link {
+    color: #34C759; /* Green */
+    font-weight: 600;
+    margin-left: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.lookus-report-icon {
+    font-size: 16px;
+    margin-right: 2px;
 }

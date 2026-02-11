@@ -3877,28 +3877,69 @@
     <!-- LookUS App -->
     <div id="lookus-app" class="app-screen hidden" style="background-color: #f9f9f9; z-index: 100; display: flex; flex-direction: column;">
         <div class="app-header" style="background: transparent; border: none; padding-top: max(10px, env(safe-area-inset-top)); flex-shrink: 0;">
-            <div style="flex: 1;"></div>
-            <div id="lookus-header-time-badge" style="background: rgba(0,0,0,0.6); padding: 5px 15px; border-radius: 20px; color: #fff; font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                <i class="fas fa-check"></i> 更新于: <span id="lookus-update-time">--:--:--</span> <i class="fas fa-caret-down"></i>
+            <div style="flex: 1; display: flex; align-items: center;">
+                <button class="back-btn" onclick="closeLookusApp()" style="color: #000; padding-left: 15px; background: transparent; border: none; font-size: 18px;"><i class="fas fa-chevron-left"></i></button>
             </div>
-            <div style="flex: 1;"></div>
+            <div id="lookus-header-time-badge" style="background: rgba(0,0,0,0.6); padding: 5px 15px; border-radius: 20px; color: #fff; font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                <i class="fas fa-check"></i> 更新于: <span id="lookus-update-time">--:--:--</span>
+            </div>
+            <div style="flex: 1; display: flex; justify-content: flex-end; padding-right: 15px;">
+                <button onclick="openLookusSettings()" style="color: #000; background: transparent; border: none; font-size: 18px;"><i class="fas fa-cog"></i></button>
+            </div>
         </div>
         
         <div class="app-body" style="padding: 0; padding-bottom: calc(80px + env(safe-area-inset-bottom)); overflow-y: auto; flex: 1;">
             <div id="lookus-content">
                 <!-- Content injected by js/lookus.js -->
             </div>
+            <div id="lookus-report-view" style="display: none; padding: 50px 20px; text-align: center; color: #999;">报备功能开发中...</div>
         </div>
 
         <!-- Bottom Tab Bar -->
         <div class="lookus-tab-bar" style="position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; display: flex; align-items: center; justify-content: space-around; padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-top: 10px; border-top: 1px solid #f0f0f0; z-index: 101;">
-            <div class="tab-item active" style="display: flex; flex-direction: column; align-items: center; gap: 4px; color: #000; cursor: pointer;" onclick="document.getElementById('lookus-app').classList.add('hidden')">
+            <div class="tab-item active" style="display: flex; flex-direction: column; align-items: center; gap: 4px; color: #000; cursor: pointer;" onclick="switchLookusTab('home')">
                 <i class="fas fa-home" style="font-size: 20px;"></i>
                 <span style="font-size: 10px;">首页</span>
             </div>
-            <div class="tab-item" style="display: flex; flex-direction: column; align-items: center; gap: 4px; color: #999; cursor: pointer;">
+            <div class="tab-item" style="display: flex; flex-direction: column; align-items: center; gap: 4px; color: #999; cursor: pointer;" onclick="switchLookusTab('report')">
                 <i class="fas fa-file-alt" style="font-size: 20px;"></i>
                 <span style="font-size: 10px;">报备</span>
+            </div>
+        </div>
+
+        <!-- Lookus Settings Modal -->
+        <div id="lookus-settings-modal" class="modal hidden" style="z-index: 200; align-items: center; justify-content: center;">
+            <div class="modal-content" style="width: 80%; max-width: 300px; background: #fff; border-radius: 12px; padding: 20px;">
+                <h3 style="text-align: center; margin-top: 0;">状态更新设置</h3>
+                
+                <div class="setting-group">
+                    <label>更新模式</label>
+                    <select id="lookus-update-mode" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; margin-top: 5px; background: #f9f9f9;" onchange="toggleLookusTimeInput()">
+                        <option value="manual">手动刷新</option>
+                        <option value="random">随机间隔</option>
+                        <option value="fixed">定时刷新</option>
+                    </select>
+                </div>
+
+                <div class="setting-group hidden" id="lookus-time-input-group">
+                    <label id="lookus-time-label">时间范围 (分钟)</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="number" id="lookus-update-min" placeholder="最小" style="flex: 1; padding: 8px; border-radius: 8px; border: 1px solid #ddd;" min="1">
+                        <span id="lookus-time-separator">-</span>
+                        <input type="number" id="lookus-update-max" placeholder="最大" style="flex: 1; padding: 8px; border-radius: 8px; border: 1px solid #ddd;" min="1">
+                    </div>
+                    <div style="font-size: 12px; color: #888; margin-top: 5px;" id="lookus-time-hint">将在最小和最大时间之间随机更新</div>
+                </div>
+
+                <div class="setting-group" style="margin-top: 15px;">
+                    <label>手动操作</label>
+                    <button id="lookus-force-update-btn" class="ios-btn-block secondary" style="margin-top: 5px;">立即刷新状态 (AI)</button>
+                </div>
+
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button onclick="saveLookusSettings()" class="ios-btn-block" style="flex: 1; background-color: #000; margin-bottom: 0;">保存</button>
+                    <button onclick="document.getElementById('lookus-settings-modal').classList.add('hidden')" class="ios-btn-block secondary" style="flex: 1; margin-bottom: 0;">关闭</button>
+                </div>
             </div>
         </div>
     </div>

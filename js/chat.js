@@ -2901,6 +2901,29 @@ async function generateAiReply(instruction = null, targetContactId = null) {
         }
     }
 
+    let lookusContext = '';
+    if (contact.lookusData) {
+        const d = contact.lookusData;
+        const lastUpdate = d.lastUpdateTime ? new Date(d.lastUpdateTime).toLocaleTimeString() : '未知';
+        
+        let appUsage = '';
+        if (d.appList && d.appList.length > 0) {
+            appUsage = '\n- 最近使用的APP: ' + d.appList.map(a => `${a.name}(${a.time})`).join(', ');
+        }
+
+        lookusContext = `\n【LookUs 状态 (用户可见)】
+用户可以通过 "LookUs" 应用实时查看你的以下状态 (更新于 ${lastUpdate}):
+- 距离: ${d.distance} km
+- 电量: ${d.battery}
+- 网络: ${d.network}
+- 手机型号: ${d.device}
+- 屏幕使用时间: ${d.screenTimeH}小时${d.screenTimeM}分
+- 解锁次数: ${d.unlockCount}
+- 最近解锁: ${d.lastUnlock}
+- 停留地点数: ${d.stops}${appUsage}
+⚠️ 你知道用户能看到这些信息。如果用户问起你的位置、电量或你在干什么，请结合这些信息回答。如果用户提到这些信息，请不要感到惊讶，因为你知道他在关注你的 LookUs 状态。`;
+    }
+
     let meetingContext = '';
     if (window.iphoneSimState.meetings && window.iphoneSimState.meetings[contact.id] && window.iphoneSimState.meetings[contact.id].length > 0) {
         const meetings = window.iphoneSimState.meetings[contact.id];
@@ -2951,6 +2974,7 @@ ${userPerceptionContext}
 ${importantStateContext}
 ${momentContext}
 ${icityContext}
+${lookusContext}
 ${memoryContext}
 ${meetingContext}
 ${icityBookContext}

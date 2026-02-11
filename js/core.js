@@ -2,6 +2,10 @@
 
 // 状态管理
 const state = {
+    amapSettings: {
+        key: '',
+        securityCode: ''
+    },
     fonts: [],
     wallpapers: [],
     icons: {},
@@ -565,6 +569,7 @@ async function loadConfig() {
             if (!state.aiPresets2) state.aiPresets2 = [];
             if (!state.whisperSettings) state.whisperSettings = { url: '', key: '', model: 'whisper-1' };
             if (!state.minimaxSettings) state.minimaxSettings = { url: 'https://api.minimax.chat/v1/t2a_v2', key: '', groupId: '', model: 'speech-01-turbo' };
+            if (!state.amapSettings) state.amapSettings = { key: '', securityCode: '' };
             if (!state.chatWallpapers) state.chatWallpapers = [];
             if (!state.contacts) state.contacts = [];
             if (!state.chatHistory) state.chatHistory = {};
