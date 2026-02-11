@@ -3,6 +3,101 @@
 
 let currentLookusContactId = null;
 let lookusUpdateTimer = null;
+let amapInstance = null;
+let amapMarker = null;
+let amapContactMarker = null;
+let amapPolyline = null;
+let currentUserLocation = null; // { lat, lng, address }
+
+// 城市坐标映射表 (经度, 纬度)
+const CITY_COORDINATES = {
+    // 中国主要城市
+    "东城区": [116.416357, 39.928353], "西城区": [116.365868, 39.912289], "朝阳区": [116.443108, 39.921469],
+    "丰台区": [116.286968, 39.863642], "石景山区": [116.222982, 39.906611], "海淀区": [116.298056, 39.959912],
+    "通州区": [116.656435, 39.909946], "顺义区": [116.654561, 40.130347], "昌平区": [116.231204, 40.220660],
+    "大兴区": [116.341395, 39.726929], "怀柔区": [116.631706, 40.316053], "平谷区": [117.121383, 40.140701],
+    "密云区": [116.843177, 40.376834], "延庆区": [115.974848, 40.456951], "门头沟区": [116.101719, 39.940338],
+    "房山区": [116.143267, 39.747672],
+    "黄浦区": [121.469240, 31.229860], "徐汇区": [121.436525, 31.188523], "长宁区": [121.424624, 31.220367],
+    "静安区": [121.447453, 31.227906], "普陀区": [121.395555, 31.249840], "虹口区": [121.505133, 31.264600],
+    "杨浦区": [121.526077, 31.259541], "闵行区": [121.381709, 31.112813], "宝山区": [121.489612, 31.405457],
+    "嘉定区": [121.265300, 31.375602], "浦东新区": [121.544379, 31.221517], "金山区": [121.341970, 30.741991],
+    "松江区": [121.227747, 31.032243], "青浦区": [121.124178, 31.150681], "奉贤区": [121.474042, 30.917795],
+    "崇明区": [121.397516, 31.622860],
+    "广州市": [113.264385, 23.129112], "深圳市": [114.057868, 22.543099], "珠海市": [113.576726, 22.270715],
+    "汕头市": [116.681972, 23.354091], "佛山市": [113.121416, 23.021548], "东莞市": [113.751765, 23.020536],
+    "中山市": [113.392782, 22.517646], "惠州市": [114.416196, 23.111847],
+    "杭州市": [120.153576, 30.287459], "宁波市": [121.549792, 29.868388], "温州市": [120.672111, 28.000575],
+    "嘉兴市": [120.750865, 30.762653], "湖州市": [120.102398, 30.867198], "绍兴市": [120.580232, 30.029752],
+    "金华市": [119.649506, 29.089524], "台州市": [121.420757, 28.656386],
+    "南京市": [118.767413, 32.041544], "无锡市": [120.301663, 31.574729], "徐州市": [117.184811, 34.261792],
+    "常州市": [119.946973, 31.772752], "苏州市": [120.619585, 31.299379], "南通市": [120.864608, 32.016212],
+    "扬州市": [119.421003, 32.393159],
+    "成都市": [104.065735, 30.659462], "重庆市": [106.504962, 29.533155], "武汉市": [114.298572, 30.584355],
+    "长沙市": [112.982279, 28.19409], "郑州市": [113.665412, 34.757975], "西安市": [108.948024, 34.263161],
+    "济南市": [117.000923, 36.675807], "青岛市": [120.355173, 36.082982], "大连市": [121.618622, 38.914590],
+    "沈阳市": [123.429096, 41.796767], "哈尔滨市": [126.642464, 45.756967], "长春市": [125.324501, 43.886841],
+    "福州市": [119.306239, 26.075302], "厦门市": [118.11022, 24.490474], "昆明市": [102.712251, 25.040609],
+    "贵阳市": [106.713478, 26.578343], "南宁市": [108.320004, 22.82402], "海口市": [110.353899, 20.017120],
+    "三亚市": [109.508268, 18.247872], "拉萨市": [91.132212, 29.660361], "乌鲁木齐市": [87.617733, 43.792818],
+    "兰州市": [103.823557, 36.058039], "西宁市": [101.778916, 36.623178], "银川市": [106.278179, 38.46637],
+    "呼和浩特市": [111.670801, 40.818311], "石家庄市": [114.502461, 38.045474], "太原市": [112.549248, 37.857014],
+    "合肥市": [117.283042, 31.86119], "南昌市": [115.892151, 28.676493],
+    // 港澳台
+    "中西区": [114.154374, 22.281981], "湾仔区": [114.182847, 22.276547], "油尖旺区": [114.173334, 22.311704],
+    "台北市": [121.565418, 25.032969], "高雄市": [120.311922, 22.620856],
+    // 日本
+    "东京都": [139.691706, 35.689487], "神奈川县": [139.642514, 35.447507], "大阪府": [135.502165, 34.693738],
+    "京都府": [135.768163, 35.011636], "札幌市": [141.354376, 43.062096], "福冈县": [130.401716, 33.590355],
+    "冲绳县": [127.681107, 26.335249], "爱知县": [136.906565, 35.180188],
+    // 美国
+    "洛杉矶": [-118.243685, 34.052234], "旧金山": [-122.419416, 37.774929], "纽约市": [-74.005941, 40.712784],
+    "芝加哥": [-87.629798, 41.878114], "休斯顿": [-95.369803, 29.760427], "西雅图": [-122.332071, 47.606209],
+    "波士顿": [-71.058880, 42.360082], "迈阿密": [-80.191790, 25.761680],
+    // 韩国
+    "首尔特别市": [126.977969, 37.566535], "釜山广域市": [129.075642, 35.179554], "仁川广域市": [126.705206, 37.456256],
+    "济州市": [126.531188, 33.499621],
+    // 英国
+    "伦敦": [-0.127758, 51.507351], "曼彻斯特": [-2.244644, 53.483959], "爱丁堡": [-3.188267, 55.953252],
+    // 法国
+    "巴黎": [2.352222, 48.856614], "马赛": [5.369780, 43.296482], "里昂": [4.835659, 45.764043],
+    // 德国
+    "慕尼黑": [11.581981, 48.135125], "柏林": [13.404954, 52.520007], "法兰克福": [8.682127, 50.110922],
+    // 澳大利亚
+    "悉尼": [151.209296, -33.868820], "墨尔本": [144.963058, -37.813628], "布里斯班": [153.025131, -27.469771],
+    // 加拿大
+    "多伦多": [-79.383184, 43.653226], "温哥华": [-123.120738, 49.282729], "蒙特利尔": [-73.567256, 45.501689],
+    // 俄罗斯
+    "莫斯科": [37.617300, 55.755826], "圣彼得堡": [30.315868, 59.939095]
+};
+
+// Haversine 公式计算两点间真实距离 (km)
+function haversineDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // 地球半径 km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+// 根据联系人位置设置获取坐标
+function getContactCoordinates(contactId) {
+    const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+    if (!contact || !contact.location) return null;
+    
+    const loc = contact.location;
+    // 优先按城市查找，再按省份查找
+    if (loc.city && CITY_COORDINATES[loc.city]) {
+        return CITY_COORDINATES[loc.city];
+    }
+    if (loc.province && CITY_COORDINATES[loc.province]) {
+        return CITY_COORDINATES[loc.province];
+    }
+    return null;
+}
 
 function initLookusApp() {
     // 绑定顶部点击事件
@@ -19,12 +114,214 @@ function initLookusApp() {
         }
     }
 
+    setupAmapSettings();
+    loadAmap();
+
     renderLookusApp();
     updateLookusTime();
     setupLookusTimers();
     
     // Update time display every second (if using live time)
     setInterval(updateLookusTime, 1000);
+}
+
+function setupAmapSettings() {
+    const keyInput = document.getElementById('amap-api-key');
+    const codeInput = document.getElementById('amap-security-code');
+
+    if (keyInput) {
+        keyInput.value = window.iphoneSimState.amapSettings?.key || '';
+        keyInput.addEventListener('change', (e) => {
+            if (!window.iphoneSimState.amapSettings) window.iphoneSimState.amapSettings = {};
+            window.iphoneSimState.amapSettings.key = e.target.value.trim();
+            saveConfig();
+            loadAmap(); // Reload if key changes
+            renderLookusApp(); // Re-render to show/hide map container
+        });
+    }
+
+    if (codeInput) {
+        codeInput.value = window.iphoneSimState.amapSettings?.securityCode || '';
+        codeInput.addEventListener('change', (e) => {
+            if (!window.iphoneSimState.amapSettings) window.iphoneSimState.amapSettings = {};
+            window.iphoneSimState.amapSettings.securityCode = e.target.value.trim();
+            saveConfig();
+        });
+    }
+}
+
+function loadAmap() {
+    const settings = window.iphoneSimState.amapSettings;
+    if (!settings || !settings.key) return;
+
+    if (window.AMap) {
+        return;
+    }
+
+    if (settings.securityCode) {
+        window._AMapSecurityConfig = {
+            securityJsCode: settings.securityCode,
+        };
+    }
+
+    const script = document.createElement('script');
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${settings.key}&plugin=AMap.Geolocation,AMap.Geocoder`;
+    script.async = true;
+    script.onload = () => {
+        console.log('AMap loaded');
+        if (!document.getElementById('lookus-app').classList.contains('hidden')) {
+            initRealMap();
+        }
+    };
+    document.head.appendChild(script);
+}
+
+function initRealMap() {
+    const container = document.getElementById('lookus-map-container');
+    if (!container || !window.AMap) return;
+
+    if (amapInstance) {
+        getCurrentLocation();
+        return;
+    }
+
+    try {
+        amapInstance = new AMap.Map('lookus-map-container', {
+            resizeEnable: true,
+            zoom: 15,
+            center: [116.397428, 39.90923]
+        });
+
+        getCurrentLocation();
+    } catch (e) {
+        console.error('Map init error:', e);
+        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;">地图加载失败</div>';
+    }
+}
+
+function getCurrentLocation() {
+    if (!amapInstance || !window.AMap) return;
+
+    const geolocation = new AMap.Geolocation({
+        enableHighAccuracy: true,
+        timeout: 10000,
+        zoomToAccuracy: true
+    });
+
+    geolocation.getCurrentPosition((status, result) => {
+        if (status === 'complete') {
+            onLocationSuccess(result);
+        } else {
+            console.error('Geolocation failed:', result);
+        }
+    });
+}
+
+function onLocationSuccess(data) {
+    const position = data.position;
+    currentUserLocation = {
+        lat: position.lat,
+        lng: position.lng,
+        address: data.formattedAddress
+    };
+
+    if (amapInstance) {
+        amapInstance.setCenter(position);
+        
+        if (amapMarker) {
+            amapMarker.setPosition(position);
+        } else {
+            amapMarker = new AMap.Marker({
+                position: position,
+                map: amapInstance,
+                icon: new AMap.Icon({
+                    size: new AMap.Size(25, 34),
+                    image: '//a.amap.com/jsapi_demos/static/demo-center/icons/dir-marker.png',
+                    imageSize: new AMap.Size(135, 40),
+                    imageOffset: new AMap.Pixel(-9, -3)
+                })
+            });
+        }
+        
+        // Show contact marker and connection line if contact location is available
+        showContactOnMap();
+    }
+    
+    // Re-render to update distance
+    renderLookusApp();
+}
+
+// Show contact's location marker and connection line on the map
+function showContactOnMap() {
+    if (!amapInstance || !window.AMap) {
+        console.log('[LookUs Map] showContactOnMap: map not ready');
+        return;
+    }
+    if (!currentLookusContactId) {
+        console.log('[LookUs Map] showContactOnMap: no contact selected');
+        return;
+    }
+    
+    // Debug: check contact location data
+    const contact = window.iphoneSimState.contacts.find(c => c.id === currentLookusContactId);
+    if (contact) {
+        console.log('[LookUs Map] Contact:', contact.remark || contact.name, 'Location:', JSON.stringify(contact.location));
+    }
+    
+    const contactCoords = getContactCoordinates(currentLookusContactId);
+    if (!contactCoords) {
+        console.log('[LookUs Map] No coordinates found for contact. Make sure the contact has a location set in chat settings (国家/省份/城市)');
+        return;
+    }
+    console.log('[LookUs Map] Contact coordinates:', contactCoords);
+    
+    const contactLng = contactCoords[0];
+    const contactLat = contactCoords[1];
+    
+    // Remove old contact marker and polyline
+    if (amapContactMarker) {
+        amapContactMarker.setMap(null);
+        amapContactMarker = null;
+    }
+    if (amapPolyline) {
+        amapPolyline.setMap(null);
+        amapPolyline = null;
+    }
+    
+    // Add contact marker (red)
+    const contactName = contact ? (contact.remark || contact.name) : '联系人';
+    
+    amapContactMarker = new AMap.Marker({
+        position: [contactLng, contactLat],
+        map: amapInstance,
+        label: {
+            content: `<div style="background:#000;color:#fff;padding:4px 10px;border-radius:12px;font-size:12px;white-space:nowrap;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.3);">${contactName}</div>`,
+            direction: 'top',
+            offset: new AMap.Pixel(0, -5)
+        }
+    });
+    
+    // Draw connection line between user and contact if user location is available
+    if (currentUserLocation) {
+        amapPolyline = new AMap.Polyline({
+            path: [
+                [currentUserLocation.lng, currentUserLocation.lat],
+                [contactLng, contactLat]
+            ],
+            strokeColor: '#000000',
+            strokeWeight: 2,
+            strokeStyle: 'dashed',
+            strokeOpacity: 0.4,
+            map: amapInstance
+        });
+        
+        // Fit map to show both markers
+        amapInstance.setFitView([amapMarker, amapContactMarker], false, [50, 50, 50, 50]);
+    } else {
+        // Center on contact location if no user location
+        amapInstance.setCenter([contactLng, contactLat]);
+        amapInstance.setZoom(12);
+    }
 }
 
 function isSameDay(timestamp) {
@@ -581,6 +878,16 @@ function renderLookusApp() {
 
     const data = getLookusData(currentLookusContactId);
 
+    // Calculate real distance if both user and contact locations are available
+    const contactCoords = getContactCoordinates(currentLookusContactId);
+    if (currentUserLocation && contactCoords) {
+        const realDist = haversineDistance(
+            currentUserLocation.lat, currentUserLocation.lng,
+            contactCoords[1], contactCoords[0] // CITY_COORDINATES is [lng, lat]
+        );
+        data.distance = realDist.toFixed(1);
+    }
+
     // Calculate Screen Time Percentage
     const h = parseInt(data.screenTimeH) || 0;
     const m = parseInt(data.screenTimeM) || 0;
@@ -928,6 +1235,12 @@ function renderLookusReport() {
         const itemEl = document.createElement('div');
         itemEl.className = 'lookus-report-item';
         
+        // User events get a distinct style
+        if (event.isUserEvent) {
+            itemEl.style.background = 'rgba(0, 122, 255, 0.08)';
+            itemEl.style.border = '1px solid rgba(0, 122, 255, 0.15)';
+        }
+        
         // Icon
         const iconSpan = document.createElement('span');
         iconSpan.innerHTML = `<i class="${event.icon || 'fas fa-info-circle'}" style="color: ${event.iconColor || '#999'};"></i>`;
@@ -961,6 +1274,343 @@ function renderLookusReport() {
     spacer.style.height = '50px';
     container.appendChild(spacer);
 }
+
+// 测试高德地图 API
+function testAmapAPI() {
+    const statusEl = document.getElementById('lookus-map-status');
+    const mapContainer = document.getElementById('lookus-map-container');
+    const btn = document.getElementById('lookus-test-map-btn');
+    
+    if (!statusEl || !mapContainer) return;
+    
+    statusEl.style.display = 'block';
+    
+    // Check if API key is configured
+    const settings = window.iphoneSimState.amapSettings;
+    if (!settings || !settings.key) {
+        statusEl.style.color = '#FF3B30';
+        statusEl.textContent = '❌ 未配置高德地图 API Key，请在设置中填写';
+        mapContainer.style.display = 'none';
+        console.error('[Amap Test] No API key configured');
+        return;
+    }
+    
+    statusEl.style.color = '#FF9500';
+    statusEl.textContent = '⏳ 正在加载高德地图 SDK...';
+    console.log('[Amap Test] API Key:', settings.key.substring(0, 6) + '***');
+    console.log('[Amap Test] Security Code:', settings.securityCode ? '已配置' : '未配置');
+    
+    // Set security config
+    if (settings.securityCode) {
+        window._AMapSecurityConfig = {
+            securityJsCode: settings.securityCode,
+        };
+        console.log('[Amap Test] Security config set');
+    }
+    
+    // Check if AMap is already loaded
+    if (window.AMap) {
+        console.log('[Amap Test] AMap SDK already loaded, initializing map...');
+        statusEl.style.color = '#34C759';
+        statusEl.textContent = '✅ SDK 已加载，正在初始化地图...';
+        initTestMap(statusEl, mapContainer);
+        return;
+    }
+    
+    // Load script
+    btn.disabled = true;
+    btn.textContent = '加载中...';
+    
+    const script = document.createElement('script');
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${settings.key}&plugin=AMap.Geolocation,AMap.Geocoder`;
+    script.async = true;
+    
+    script.onload = () => {
+        console.log('[Amap Test] SDK loaded successfully!');
+        statusEl.style.color = '#34C759';
+        statusEl.textContent = '✅ SDK 加载成功，正在初始化地图...';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-map-marked-alt"></i> 测试高德地图 API';
+        initTestMap(statusEl, mapContainer);
+    };
+    
+    script.onerror = (e) => {
+        console.error('[Amap Test] SDK load failed:', e);
+        statusEl.style.color = '#FF3B30';
+        statusEl.textContent = '❌ SDK 加载失败，请检查网络和 API Key';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-map-marked-alt"></i> 重新测试';
+        mapContainer.style.display = 'none';
+    };
+    
+    document.head.appendChild(script);
+}
+
+function initTestMap(statusEl, mapContainer) {
+    try {
+        mapContainer.style.display = 'block';
+        
+        // Clear any previous content
+        mapContainer.innerHTML = '';
+        
+        const map = new AMap.Map(mapContainer, {
+            resizeEnable: true,
+            zoom: 13,
+            center: [116.397428, 39.90923] // 北京天安门
+        });
+        
+        // Add a marker
+        const marker = new AMap.Marker({
+            position: [116.397428, 39.90923],
+            map: map
+        });
+        
+        // Store for later use
+        amapInstance = map;
+        amapMarker = marker;
+        
+        map.on('complete', () => {
+            console.log('[Amap Test] Map rendered successfully!');
+            statusEl.style.color = '#34C759';
+            statusEl.textContent = '✅ 地图加载成功！默认显示北京天安门';
+        });
+        
+        // Try geolocation
+        try {
+            const geolocation = new AMap.Geolocation({
+                enableHighAccuracy: true,
+                timeout: 10000,
+                zoomToAccuracy: true
+            });
+            
+            geolocation.getCurrentPosition((status, result) => {
+                if (status === 'complete') {
+                    const pos = result.position;
+                    const addr = result.formattedAddress || '已获取';
+                    console.log('[Amap Test] Geolocation success:', addr, 'lat:', pos.lat, 'lng:', pos.lng);
+                    statusEl.textContent = '✅ 地图加载成功！当前位置: ' + addr;
+                    map.setCenter(pos);
+                    map.setZoom(15);
+                    marker.setPosition(pos);
+                    
+                    // Store user location for distance calculation
+                    currentUserLocation = {
+                        lat: pos.lat,
+                        lng: pos.lng,
+                        address: addr
+                    };
+                    
+                    // Show contact marker on the map
+                    showContactOnMap();
+                    
+                    // Re-render to update distance display
+                    renderLookusApp();
+                } else {
+                    console.warn('[Amap Test] Geolocation failed:', result);
+                    statusEl.textContent = '✅ 地图加载成功！(定位失败，显示默认位置)';
+                    
+                    // Even without user geolocation, try to show contact on map
+                    showContactOnMap();
+                }
+            });
+        } catch (geoErr) {
+            console.warn('[Amap Test] Geolocation error:', geoErr);
+        }
+        
+    } catch (e) {
+        console.error('[Amap Test] Map init error:', e);
+        statusEl.style.color = '#FF3B30';
+        statusEl.textContent = '❌ 地图初始化失败: ' + e.message;
+        mapContainer.style.display = 'none';
+    }
+}
+
+window.testAmapAPI = testAmapAPI;
+
+// ==========================================
+// 用户端报备事件监听 (User-side Report Events)
+// ==========================================
+
+// 添加用户端报备事件到当前联系人的 reportLog
+function addUserReportEvent(text, type = 'other') {
+    if (!currentLookusContactId) return;
+    
+    const contact = window.iphoneSimState.contacts.find(c => c.id === currentLookusContactId);
+    if (!contact) return;
+    
+    // Ensure lookusData exists
+    if (!contact.lookusData) {
+        contact.lookusData = { reportLog: [] };
+    }
+    if (!contact.lookusData.reportLog) {
+        contact.lookusData.reportLog = [];
+    }
+    
+    // Icon mapping
+    let icon = 'fas fa-info-circle';
+    let color = '#999';
+    
+    if (type === 'charge') { icon = 'fas fa-bolt'; color = '#FF9500'; }
+    else if (type === 'battery_low') { icon = 'fas fa-battery-quarter'; color = '#FF3B30'; }
+    else if (type === 'battery_full') { icon = 'fas fa-battery-full'; color = '#34C759'; }
+    else if (type === 'screen_off') { icon = 'fas fa-moon'; color = '#8E8E93'; }
+    else if (type === 'screen_on') { icon = 'fas fa-sun'; color = '#FFCC00'; }
+    else if (type === 'offline') { icon = 'fas fa-wifi-slash'; color = '#FF3B30'; }
+    else if (type === 'online') { icon = 'fas fa-wifi'; color = '#34C759'; }
+    else if (type === 'unlock') { icon = 'fas fa-mobile-alt'; color = '#4CAF50'; }
+    
+    const now = new Date();
+    const timeStr = `${(now.getMonth()+1).toString().padStart(2,'0')}-${now.getDate().toString().padStart(2,'0')} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+    
+    const event = {
+        time: timeStr,
+        timestamp: Date.now(),
+        icon: icon,
+        iconColor: color,
+        text: '📱 ' + text, // Prefix with phone emoji to distinguish user events
+        isUserEvent: true
+    };
+    
+    // Add to front of report log
+    contact.lookusData.reportLog.unshift(event);
+    
+    // Limit to 50 entries
+    if (contact.lookusData.reportLog.length > 50) {
+        contact.lookusData.reportLog = contact.lookusData.reportLog.slice(0, 50);
+    }
+    
+    saveConfig();
+    
+    // Update report view if it's currently visible
+    const reportView = document.getElementById('lookus-report-view');
+    if (reportView && reportView.style.display !== 'none') {
+        renderLookusReport();
+    }
+    
+    console.log('[LookUs User Event]', text);
+}
+
+// 监听电池状态变化
+function setupBatteryMonitor() {
+    if (!navigator.getBattery) {
+        console.log('[LookUs] Battery API not available');
+        return;
+    }
+    
+    navigator.getBattery().then(battery => {
+        let lastCharging = battery.charging;
+        let lastLevel = battery.level;
+        let reportedLow = false;
+        let reportedFull = false;
+        
+        // 充电状态变化
+        battery.addEventListener('chargingchange', () => {
+            if (battery.charging && !lastCharging) {
+                addUserReportEvent('你开始给手机充电了', 'charge');
+            } else if (!battery.charging && lastCharging) {
+                const pct = Math.round(battery.level * 100);
+                addUserReportEvent(`你拔掉了充电器 (当前电量 ${pct}%)`, 'charge');
+            }
+            lastCharging = battery.charging;
+        });
+        
+        // 电量变化
+        battery.addEventListener('levelchange', () => {
+            const pct = Math.round(battery.level * 100);
+            
+            // 电量低于 20% 提醒 (只提醒一次)
+            if (pct <= 20 && !reportedLow) {
+                addUserReportEvent(`你的手机电量不足 (${pct}%)`, 'battery_low');
+                reportedLow = true;
+            }
+            if (pct > 20) reportedLow = false;
+            
+            // 充满电提醒 (只提醒一次)
+            if (pct >= 100 && battery.charging && !reportedFull) {
+                addUserReportEvent('你的手机已充满电', 'battery_full');
+                reportedFull = true;
+            }
+            if (pct < 100) reportedFull = false;
+            
+            lastLevel = battery.level;
+        });
+        
+        console.log('[LookUs] Battery monitor started. Charging:', battery.charging, 'Level:', Math.round(battery.level * 100) + '%');
+    }).catch(err => {
+        console.warn('[LookUs] Battery API error:', err);
+    });
+}
+
+// 监听页面可见性变化 (锁屏/切换标签)
+function setupVisibilityMonitor() {
+    let lastHiddenTime = null;
+    
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            lastHiddenTime = Date.now();
+            // Don't report immediately on hide - wait to see if they come back quickly
+        } else {
+            if (lastHiddenTime) {
+                const awayMs = Date.now() - lastHiddenTime;
+                const awayMin = Math.floor(awayMs / 60000);
+                
+                if (awayMin >= 1) {
+                    // Only report if away for more than 1 minute
+                    if (awayMin >= 60) {
+                        const awayHours = Math.floor(awayMin / 60);
+                        const remainMin = awayMin % 60;
+                        addUserReportEvent(`你离开了 ${awayHours}小时${remainMin}分钟后回来了`, 'screen_on');
+                    } else {
+                        addUserReportEvent(`你离开了 ${awayMin} 分钟后回来了`, 'screen_on');
+                    }
+                }
+            }
+            lastHiddenTime = null;
+        }
+    });
+    
+    console.log('[LookUs] Visibility monitor started');
+}
+
+// 监听网络状态变化
+function setupNetworkMonitor() {
+    window.addEventListener('online', () => {
+        addUserReportEvent('你的网络已恢复连接', 'online');
+    });
+    
+    window.addEventListener('offline', () => {
+        addUserReportEvent('你的网络已断开', 'offline');
+    });
+    
+    console.log('[LookUs] Network monitor started');
+}
+
+// 初始化所有用户端监听器
+function setupUserEventMonitors() {
+    setupBatteryMonitor();
+    setupVisibilityMonitor();
+    setupNetworkMonitor();
+    console.log('[LookUs] All user event monitors initialized');
+}
+
+// 在 initLookusApp 之外也可调用，确保监听器尽早启动
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupUserEventMonitors);
+} else {
+    setupUserEventMonitors();
+}
+
+// 导出 UI 更新函数
+window.updateLookusUi = function() {
+    setupAmapSettings();
+    if (window.iphoneSimState.amapSettings && window.iphoneSimState.amapSettings.key) {
+        loadAmap();
+        // 延迟渲染以确保状态已更新
+        setTimeout(() => {
+            renderLookusApp();
+        }, 100);
+    }
+};
 
 // 注册初始化函数
 if (window.appInitFunctions) {

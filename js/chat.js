@@ -1,5 +1,201 @@
 // 聊天功能模块 (聊天, 联系人, AI, 语音)
 
+// ====== AI 位置选择器数据 ======
+const LOCATION_DATA = {
+    "中国": {
+        "北京市": ["东城区","西城区","朝阳区","丰台区","石景山区","海淀区","门头沟区","房山区","通州区","顺义区","昌平区","大兴区","怀柔区","平谷区","密云区","延庆区"],
+        "上海市": ["黄浦区","徐汇区","长宁区","静安区","普陀区","虹口区","杨浦区","闵行区","宝山区","嘉定区","浦东新区","金山区","松江区","青浦区","奉贤区","崇明区"],
+        "广东省": ["广州市","深圳市","珠海市","汕头市","佛山市","韶关市","湛江市","肇庆市","江门市","茂名市","惠州市","梅州市","汕尾市","河源市","阳江市","清远市","东莞市","中山市","潮州市","揭阳市","云浮市"],
+        "浙江省": ["杭州市","宁波市","温州市","嘉兴市","湖州市","绍兴市","金华市","衢州市","舟山市","台州市","丽水市"],
+        "江苏省": ["南京市","无锡市","徐州市","常州市","苏州市","南通市","连云港市","淮安市","盐城市","扬州市","镇江市","泰州市","宿迁市"],
+        "四川省": ["成都市","自贡市","攀枝花市","泸州市","德阳市","绵阳市","广元市","遂宁市","内江市","乐山市","南充市","眉山市","宜宾市","广安市","达州市","雅安市","巴中市","资阳市"],
+        "湖北省": ["武汉市","黄石市","十堰市","宜昌市","襄阳市","鄂州市","荆门市","孝感市","荆州市","黄冈市","咸宁市","随州市","恩施州"],
+        "湖南省": ["长沙市","株洲市","湘潭市","衡阳市","邵阳市","岳阳市","常德市","张家界市","益阳市","郴州市","永州市","怀化市","娄底市","湘西州"],
+        "河南省": ["郑州市","开封市","洛阳市","平顶山市","安阳市","鹤壁市","新乡市","焦作市","濮阳市","许昌市","漯河市","三门峡市","南阳市","商丘市","信阳市","周口市","驻马店市"],
+        "河北省": ["石家庄市","唐山市","秦皇岛市","邯郸市","邢台市","保定市","张家口市","承德市","沧州市","廊坊市","衡水市"],
+        "山东省": ["济南市","青岛市","淄博市","枣庄市","东营市","烟台市","潍坊市","济宁市","泰安市","威海市","日照市","临沂市","德州市","聊城市","滨州市","菏泽市"],
+        "福建省": ["福州市","厦门市","莆田市","三明市","泉州市","漳州市","南平市","龙岩市","宁德市"],
+        "天津市": ["和平区","河东区","河西区","南开区","河北区","红桥区","东丽区","西青区","津南区","北辰区","武清区","宝坻区","滨海新区","宁河区","静海区","蓟州区"],
+        "重庆市": ["万州区","涪陵区","渝中区","大渡口区","江北区","沙坪坝区","九龙坡区","南岸区","北碚区","綦江区","大足区","渝北区","巴南区","黔江区","长寿区","江津区","合川区","永川区","南川区","璧山区","铜梁区","潼南区","荣昌区","开州区","梁平区","武隆区"],
+        "辽宁省": ["沈阳市","大连市","鞍山市","抚顺市","本溪市","丹东市","锦州市","营口市","阜新市","辽阳市","盘锦市","铁岭市","朝阳市","葫芦岛市"],
+        "吉林省": ["长春市","吉林市","四平市","辽源市","通化市","白山市","松原市","白城市","延边州"],
+        "黑龙江省": ["哈尔滨市","齐齐哈尔市","鸡西市","鹤岗市","双鸭山市","大庆市","伊春市","佳木斯市","七台河市","牡丹江市","黑河市","绥化市","大兴安岭地区"],
+        "安徽省": ["合肥市","芜湖市","蚌埠市","淮南市","马鞍山市","淮北市","铜陵市","安庆市","黄山市","滁州市","阜阳市","宿州市","六安市","亳州市","池州市","宣城市"],
+        "江西省": ["南昌市","景德镇市","萍乡市","九江市","新余市","鹰潭市","赣州市","吉安市","宜春市","抚州市","上饶市"],
+        "山西省": ["太原市","大同市","阳泉市","长治市","晋城市","朔州市","晋中市","运城市","忻州市","临汾市","吕梁市"],
+        "陕西省": ["西安市","铜川市","宝鸡市","咸阳市","渭南市","延安市","汉中市","榆林市","安康市","商洛市"],
+        "甘肃省": ["兰州市","嘉峪关市","金昌市","白银市","天水市","武威市","张掖市","平凉市","酒泉市","庆阳市","定西市","陇南市"],
+        "云南省": ["昆明市","曲靖市","玉溪市","保山市","昭通市","丽江市","普洱市","临沧市","大理州","红河州","文山州","西双版纳州","楚雄州","德宏州","怒江州","迪庆州"],
+        "贵州省": ["贵阳市","六盘水市","遵义市","安顺市","毕节市","铜仁市","黔西南州","黔东南州","黔南州"],
+        "广西壮族自治区": ["南宁市","柳州市","桂林市","梧州市","北海市","防城港市","钦州市","贵港市","玉林市","百色市","贺州市","河池市","来宾市","崇左市"],
+        "海南省": ["海口市","三亚市","三沙市","儋州市","五指山市","琼海市","文昌市","万宁市","东方市"],
+        "内蒙古自治区": ["呼和浩特市","包头市","乌海市","赤峰市","通辽市","鄂尔多斯市","呼伦贝尔市","巴彦淖尔市","乌兰察布市"],
+        "西藏自治区": ["拉萨市","日喀则市","昌都市","林芝市","山南市","那曲市","阿里地区"],
+        "宁夏回族自治区": ["银川市","石嘴山市","吴忠市","固原市","中卫市"],
+        "新疆维吾尔自治区": ["乌鲁木齐市","克拉玛依市","吐鲁番市","哈密市","喀什地区","和田地区","阿克苏地区","巴音郭楞州","昌吉州","伊犁州","塔城地区","阿勒泰地区"],
+        "青海省": ["西宁市","海东市","海北州","黄南州","海南州","果洛州","玉树州","海西州"],
+        "香港特别行政区": ["中西区","湾仔区","东区","南区","油尖旺区","深水埗区","九龙城区","黄大仙区","观塘区","葵青区","荃湾区","屯门区","元朗区","北区","大埔区","沙田区","西贡区","离岛区"],
+        "澳门特别行政区": ["花地玛堂区","花王堂区","望德堂区","大堂区","风顺堂区","嘉模堂区","路凼填海区","圣方济各堂区"],
+        "台湾省": ["台北市","新北市","桃园市","台中市","台南市","高雄市","基隆市","新竹市","嘉义市","新竹县","苗栗县","彰化县","南投县","云林县","嘉义县","屏东县","宜兰县","花莲县","台东县","澎湖县"]
+    },
+    "日本": {
+        "关东地方": ["东京都","神奈川县","埼玉县","千叶县","茨城县","栃木县","群马县"],
+        "关西地方": ["大阪府","京都府","奈良县","和歌山县","滋贺县","三重县"],
+        "中部地方": ["爱知县","静冈县","新潟县","长野县","岐阜县","石川县","富山县","福井县","山梨县"],
+        "北海道": ["札幌市","旭川市","函馆市","小樽市"],
+        "东北地方": ["宫城县","福岛县","岩手县","山形县","秋田县","青森县"],
+        "中国地方": ["广岛县","冈山县","山口县","岛根县","�的取县"],
+        "四国地方": ["香川县","爱媛县","高知县","德岛县"],
+        "九州地方": ["福冈县","熊本县","鹿儿岛县","大分县","宫崎县","长崎县","佐贺县","冲绳县"]
+    },
+    "美国": {
+        "加利福尼亚州": ["洛杉矶","旧金山","圣地亚哥","圣何塞","萨克拉门托"],
+        "纽约州": ["纽约市","布法罗","奥尔巴尼"],
+        "德克萨斯州": ["休斯顿","达拉斯","圣安东尼奥","奥斯汀"],
+        "伊利诺伊州": ["芝加哥","斯普林菲尔德"],
+        "佛罗里达州": ["迈阿密","奥兰多","坦帕","杰克逊维尔"],
+        "华盛顿州": ["西雅图","塔科马","斯波坎"],
+        "马萨诸塞州": ["波士顿","剑桥","伍斯特"],
+        "宾夕法尼亚州": ["费城","匹兹堡","哈里斯堡"]
+    },
+    "韩国": {
+        "首都圈": ["首尔特别市","仁川广域市","京畿道"],
+        "庆尚道": ["釜山广域市","大邱广域市","蔚山广域市","庆尚南道","庆尚北道"],
+        "全罗道": ["光州广域市","全罗南道","全罗北道"],
+        "忠清道": ["大田广域市","世宗特别自治市","忠清南道","忠清北道"],
+        "江原道": ["春川市","江陵市","原州市"],
+        "济州道": ["济州市","西归浦市"]
+    },
+    "英国": {
+        "英格兰": ["伦敦","曼彻斯特","伯明翰","利物浦","利兹","布里斯托"],
+        "苏格兰": ["爱丁堡","格拉斯哥","阿伯丁"],
+        "威尔士": ["加的夫","斯旺西"],
+        "北爱尔兰": ["贝尔法斯特","德里"]
+    },
+    "法国": {
+        "法兰西岛": ["巴黎","凡尔赛"],
+        "普罗旺斯-阿尔卑斯-蓝色海岸": ["马赛","尼斯","戛纳"],
+        "奥弗涅-罗纳-阿尔卑斯": ["里昂","格勒诺布尔"],
+        "新阿基坦": ["波尔多","利摩日"],
+        "奥克西塔尼": ["图卢兹","蒙彼利埃"]
+    },
+    "德国": {
+        "巴伐利亚州": ["慕尼黑","纽伦堡","奥格斯堡"],
+        "北莱茵-威斯特法伦州": ["科隆","杜塞尔多夫","多特蒙德"],
+        "柏林": ["柏林"],
+        "汉堡": ["汉堡"],
+        "黑森州": ["法兰克福","威斯巴登"],
+        "巴登-符腾堡州": ["斯图加特","海德堡","弗莱堡"]
+    },
+    "澳大利亚": {
+        "新南威尔士州": ["悉尼","纽卡斯尔","卧龙岗"],
+        "维多利亚州": ["墨尔本","吉朗"],
+        "昆士兰州": ["布里斯班","黄金海岸","凯恩斯"],
+        "西澳大利亚州": ["珀斯"],
+        "南澳大利亚州": ["阿德莱德"],
+        "首都领地": ["堪培拉"]
+    },
+    "加拿大": {
+        "安大略省": ["多伦多","渥太华","密西沙加"],
+        "不列颠哥伦比亚省": ["温哥华","维多利亚"],
+        "魁北克省": ["蒙特利尔","魁北克城"],
+        "阿尔伯塔省": ["卡尔加里","埃德蒙顿"]
+    },
+    "俄罗斯": {
+        "中央联邦管区": ["莫斯科"],
+        "西北联邦管区": ["圣彼得堡"],
+        "远东联邦管区": ["符拉迪沃斯托克","哈巴罗夫斯克"],
+        "西伯利亚联邦管区": ["新西伯利亚","伊尔库茨克"]
+    },
+    "其他": {
+        "其他": ["其他"]
+    }
+};
+
+// 初始化位置选择器
+function initLocationSelectors() {
+    const countrySelect = document.getElementById('chat-setting-location-country');
+    const provinceSelect = document.getElementById('chat-setting-location-province');
+    const citySelect = document.getElementById('chat-setting-location-city');
+    if (!countrySelect || !provinceSelect || !citySelect) return;
+
+    // 填充国家
+    countrySelect.innerHTML = '<option value="">选择国家</option>';
+    Object.keys(LOCATION_DATA).forEach(country => {
+        const opt = document.createElement('option');
+        opt.value = country;
+        opt.textContent = country;
+        countrySelect.appendChild(opt);
+    });
+
+    // 国家变化 -> 更新省份
+    countrySelect.onchange = function() {
+        const country = this.value;
+        provinceSelect.innerHTML = '<option value="">选择省/州</option>';
+        citySelect.innerHTML = '<option value="">选择城市</option>';
+        provinceSelect.disabled = true;
+        citySelect.disabled = true;
+        if (country && LOCATION_DATA[country]) {
+            Object.keys(LOCATION_DATA[country]).forEach(province => {
+                const opt = document.createElement('option');
+                opt.value = province;
+                opt.textContent = province;
+                provinceSelect.appendChild(opt);
+            });
+            provinceSelect.disabled = false;
+        }
+    };
+
+    // 省份变化 -> 更新城市
+    provinceSelect.onchange = function() {
+        const country = countrySelect.value;
+        const province = this.value;
+        citySelect.innerHTML = '<option value="">选择城市</option>';
+        citySelect.disabled = true;
+        if (country && province && LOCATION_DATA[country] && LOCATION_DATA[country][province]) {
+            LOCATION_DATA[country][province].forEach(city => {
+                const opt = document.createElement('option');
+                opt.value = city;
+                opt.textContent = city;
+                citySelect.appendChild(opt);
+            });
+            citySelect.disabled = false;
+        }
+    };
+}
+
+// 加载联系人位置到选择器
+function loadLocationToSelectors(contact) {
+    const countrySelect = document.getElementById('chat-setting-location-country');
+    const provinceSelect = document.getElementById('chat-setting-location-province');
+    const citySelect = document.getElementById('chat-setting-location-city');
+    if (!countrySelect || !provinceSelect || !citySelect) return;
+
+    initLocationSelectors();
+
+    const loc = contact.location || {};
+    if (loc.country) {
+        countrySelect.value = loc.country;
+        countrySelect.onchange(); // trigger province populate
+        if (loc.province) {
+            provinceSelect.value = loc.province;
+            provinceSelect.onchange(); // trigger city populate
+            if (loc.city) {
+                citySelect.value = loc.city;
+            }
+        }
+    }
+}
+
+// 从选择器获取位置数据
+function getLocationFromSelectors() {
+    const country = document.getElementById('chat-setting-location-country')?.value || '';
+    const province = document.getElementById('chat-setting-location-province')?.value || '';
+    const city = document.getElementById('chat-setting-location-city')?.value || '';
+    if (!country && !province && !city) return null;
+    return { country, province, city };
+}
+
 // 语音相关全局变量
 let mediaRecorder = null;
 let audioChunks = [];
@@ -731,6 +927,10 @@ function openChatSettings() {
     window.iphoneSimState.tempSelectedGroup = contact.group || '';
 
     document.getElementById('chat-setting-persona').value = contact.persona || '';
+
+    // 加载位置选择器
+    loadLocationToSelectors(contact);
+
     document.getElementById('chat-setting-context-limit').value = contact.contextLimit || '';
     document.getElementById('chat-setting-summary-limit').value = contact.summaryLimit || '';
     document.getElementById('chat-setting-show-thought').checked = contact.showThought || false;
@@ -1307,6 +1507,7 @@ function handleSaveChatSettings() {
     contact.remark = remark;
     contact.group = window.iphoneSimState.tempSelectedGroup;
     contact.persona = persona;
+    contact.location = getLocationFromSelectors();
     contact.contextLimit = contextLimit ? parseInt(contextLimit) : 0;
     contact.summaryLimit = summaryLimit ? parseInt(summaryLimit) : 0;
     contact.showThought = showThought;
@@ -2922,6 +3123,18 @@ async function generateAiReply(instruction = null, targetContactId = null) {
 - 最近解锁: ${d.lastUnlock}
 - 停留地点数: ${d.stops}${appUsage}
 ⚠️ 你知道用户能看到这些信息。如果用户问起你的位置、电量或你在干什么，请结合这些信息回答。如果用户提到这些信息，请不要感到惊讶，因为你知道他在关注你的 LookUs 状态。`;
+
+        // 添加用户端状态事件到上下文
+        if (d.reportLog && d.reportLog.length > 0) {
+            const userEvents = d.reportLog.filter(e => e.isUserEvent).slice(0, 5);
+            if (userEvents.length > 0) {
+                lookusContext += `\n\n【用户的手机状态通知】\n你同样可以通过 LookUs 看到用户(对方)的手机状态变化：\n`;
+                userEvents.forEach(evt => {
+                    lookusContext += `- ${evt.time}: ${evt.text.replace('📱 ', '')}\n`;
+                });
+                lookusContext += `\n⚠️ 你可以自然地在聊天���提及或关心这些状态。例如用户在充电时你可以说"在充电呀"，用户电量低时你可以提醒他充电，用户离开很久回来你可以问他去哪了。但不要每次都提，要自然。`;
+            }
+        }
     }
 
     let meetingContext = '';

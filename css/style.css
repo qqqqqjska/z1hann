@@ -3932,6 +3932,56 @@ input.msg-select-checkbox {
     margin-top: 15px;
 }
 
+.ai-setting-location-container {
+    width: 100%;
+    margin-top: 15px;
+    padding: 15px 16px;
+    background-color: #fff;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+}
+
+.ai-setting-location-label {
+    font-size: 13px;
+    color: #6d6d72;
+    margin-bottom: 8px;
+    text-align: left;
+    width: 100%;
+    font-weight: 500;
+}
+
+.ai-setting-location-selects {
+    width: 100%;
+    display: flex;
+    gap: 8px;
+}
+
+.ai-setting-location-select {
+    flex: 1;
+    padding: 8px 6px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background-color: #f9f9f9;
+    font-size: 13px;
+    color: #333;
+    outline: none;
+    appearance: auto;
+    -webkit-appearance: auto;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.ai-setting-location-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background-color: #f2f2f2;
+}
+
+.ai-setting-location-select:focus {
+    border-color: #007AFF;
+}
+
 .ai-setting-persona-input {
     width: 100%;
     background-color: #ffffff; /* 灰色背景 */

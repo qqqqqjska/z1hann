@@ -328,3 +328,11 @@
     font-size: 16px;
     margin-right: 2px;
 }
+
+/* Override AMap default label styles - remove border and background */
+.amap-marker-label {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+}

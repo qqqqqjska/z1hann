@@ -348,6 +348,31 @@
                     </div>
                 </div>
 
+                <!-- 高德地图 设置 -->
+                <div class="section-title">高德地图 (LookUS 位置)</div>
+                <div class="ios-list-group">
+                    <div class="list-item">
+                        <div class="list-content column">
+                            <label>API Key (Web端)</label>
+                            <input type="password" id="amap-api-key" placeholder="高德地图 Key">
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-content column">
+                            <label>安全密钥 (Security Code)</label>
+                            <input type="password" id="amap-security-code" placeholder="Web服务 安全密钥">
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-content">
+                            <span style="font-size: 12px; color: #888;">
+                                提示：请前往 <a href="https://console.amap.com/" target="_blank" style="color:#007AFF;">高德控制台</a> 申请 Web端(JS API) Key。<br>
+                                如果遇到跨域问题，请务必填写安全密钥。
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 副 API 设置 -->
                 <div class="section-title">副 API 设置</div>
                 
@@ -608,6 +633,22 @@
                             <!-- 人设 -->
                             <div class="ai-setting-persona-container">
                                 <textarea id="chat-setting-persona" class="ai-setting-persona-input" placeholder="输入人设..."></textarea>
+                            </div>
+                        </div>
+
+                        <!-- 所在位置 -->
+                        <div class="ai-setting-location-container">
+                            <div class="ai-setting-location-label">📍 所在位置</div>
+                            <div class="ai-setting-location-selects">
+                                <select id="chat-setting-location-country" class="ai-setting-location-select">
+                                    <option value="">选择国家</option>
+                                </select>
+                                <select id="chat-setting-location-province" class="ai-setting-location-select" disabled>
+                                    <option value="">选择省份</option>
+                                </select>
+                                <select id="chat-setting-location-city" class="ai-setting-location-select" disabled>
+                                    <option value="">选择城市</option>
+                                </select>
                             </div>
                         </div>
 
@@ -3889,6 +3930,15 @@
         </div>
         
         <div class="app-body" style="padding: 0; padding-bottom: calc(80px + env(safe-area-inset-bottom)); overflow-y: auto; flex: 1;">
+            <!-- Map Container & Test Button -->
+            <div style="padding: 10px 15px;">
+                <button id="lookus-test-map-btn" onclick="testAmapAPI()" style="width: 100%; padding: 12px; background: #007AFF; color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 10px;">
+                    <i class="fas fa-map-marked-alt"></i> 测试高德地图 API
+                </button>
+                <div id="lookus-map-status" style="font-size: 13px; color: #999; text-align: center; margin-bottom: 10px; display: none;"></div>
+                <div id="lookus-map-container" style="width: 100%; height: 250px; border-radius: 12px; overflow: hidden; display: none; border: 1px solid #e0e0e0;"></div>
+            </div>
+
             <div id="lookus-content">
                 <!-- Content injected by js/lookus.js -->
             </div>

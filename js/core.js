@@ -844,6 +844,9 @@ async function init() {
         console.error('加载配置失败:', e);
     }
 
+    // 初始化 LookUS UI (高德地图配置)
+    if (window.updateLookusUi) window.updateLookusUi();
+
     // 初始化购物UI
     if (window.initShoppingUI) window.initShoppingUI();
 
