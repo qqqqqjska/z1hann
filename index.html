@@ -47,6 +47,24 @@
             <div class="chat-notification-handle"></div>
         </div>
 
+        <!-- LookUS 状态通知弹窗 -->
+        <div id="lookus-notification" class="lookus-notification-banner hidden" onclick="window.handleLookusNotificationClick()">
+            <div class="lookus-notification-content">
+                <div class="lookus-notification-icon">
+                    <i id="lookus-notification-icon" class="fas fa-bell" style="font-size: 20px;"></i>
+                </div>
+                <div class="lookus-notification-info">
+                    <div class="lookus-notification-header">
+                        <span class="lookus-notification-app">LookUs</span>
+                        <span class="lookus-notification-time" id="lookus-notification-time">现在</span>
+                    </div>
+                    <div class="lookus-notification-title" id="lookus-notification-title">状态更新</div>
+                    <div class="lookus-notification-message" id="lookus-notification-message">对方状态已更新</div>
+                </div>
+            </div>
+            <div class="lookus-notification-handle"></div>
+        </div>
+
         <!-- 总结通知横幅 -->
         <div id="summary-notification" class="notification-banner hidden">
             <i class="fas fa-spinner fa-spin"></i>
@@ -3933,7 +3951,7 @@
             <!-- Map Container & Test Button -->
             <div style="padding: 10px 15px;">
                 <button id="lookus-test-map-btn" onclick="testAmapAPI()" style="width: 100%; padding: 12px; background: #007AFF; color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 10px;">
-                    <i class="fas fa-map-marked-alt"></i> 测试高德地图 API
+                    <i class="fas fa-map-marked-alt"></i> 加载地图
                 </button>
                 <div id="lookus-map-status" style="font-size: 13px; color: #999; text-align: center; margin-bottom: 10px; display: none;"></div>
                 <div id="lookus-map-container" style="width: 100%; height: 250px; border-radius: 12px; overflow: hidden; display: none; border: 1px solid #e0e0e0;"></div>

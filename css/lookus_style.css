@@ -1,3 +1,95 @@
+/* LookUS 通知弹窗 */
+.lookus-notification-banner {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    z-index: 9999;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 16px;
+    padding: 12px 15px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.lookus-notification-banner.hidden {
+    transform: translateY(-150%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.lookus-notification-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.lookus-notification-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #000, #333);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.lookus-notification-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.lookus-notification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.lookus-notification-app {
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+}
+
+.lookus-notification-time {
+    font-size: 12px;
+    color: #999;
+}
+
+.lookus-notification-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #000;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lookus-notification-message {
+    font-size: 13px;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+}
+
+.lookus-notification-handle {
+    width: 36px;
+    height: 4px;
+    background: #d1d1d6;
+    border-radius: 2px;
+    margin: 8px auto 0;
+}
+
 /* LookUS App Styles - Monochrome Theme */
 #lookus-app {
     background: #f2f2f7; /* Standard iOS light gray background */

@@ -2965,10 +2965,9 @@ ${userContext ? userContext : '菜品种类要极度丰富和随机！不要局�
                 model: settings.model,
                 messages: [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: '生成外卖推荐' }
+                    { role: 'user', content: '请只返回JSON，不要包含任何其他文字或markdown格式。' }
                 ],
-                temperature: 0.7,
-                response_format: { type: "json_object" }
+                temperature: 0.7
             })
         });
 
@@ -2976,6 +2975,7 @@ ${userContext ? userContext : '菜品种类要极度丰富和随机！不要局�
 
         const data = await response.json();
         let content = data.choices[0].message.content;
+        console.log('[Delivery] AI raw response:', content);
         content = content.replace(/```json/g, '').replace(/```/g, '').trim();
         
         let products = [];
@@ -2993,6 +2993,26 @@ ${userContext ? userContext : '菜品种类要极度丰富和随机！不要局�
             }
         } catch (e) {
             console.error('JSON Parse Error:', e);
+            // Try to extract JSON from the content
+            try {
+                const arrayMatch = content.match(/\[[\s\S]*\]/);
+                if (arrayMatch) {
+                    products = JSON.parse(arrayMatch[0]);
+                } else {
+                    const objMatch = content.match(/\{[\s\S]*\}/);
+                    if (objMatch) {
+                        const obj = JSON.parse(objMatch[0]);
+                        for (let key in obj) {
+                            if (Array.isArray(obj[key])) {
+                                products = obj[key];
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (e2) {
+                console.error('Fallback JSON Parse also failed:', e2);
+            }
         }
 
         if (products.length > 0) {

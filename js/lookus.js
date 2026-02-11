@@ -649,10 +649,9 @@ ${itineraryText || "暂无具体行程"}
                 model: settings.model,
                 messages: [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: '请更新状态' }
+                    { role: 'user', content: '请只返回JSON，不要包含任何其他文字或markdown格式。' }
                 ],
-                temperature: 0.7,
-                response_format: { type: "json_object" }
+                temperature: 0.7
             })
         });
         
@@ -663,11 +662,31 @@ ${itineraryText || "暂无具体行程"}
             try {
                 newData = JSON.parse(content);
             } catch (e) {
-                const match = content.match(/\{[\s\S]*\}/);
-                if (match) {
-                    newData = JSON.parse(match[0]);
-                } else {
-                    throw new Error("Invalid JSON response");
+                // Try to extract JSON from markdown code blocks or other wrapping
+                let jsonStr = content;
+                
+                // Remove markdown code block markers (```json ... ``` or ``` ... ```)
+                const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (codeBlockMatch) {
+                    jsonStr = codeBlockMatch[1].trim();
+                }
+                
+                try {
+                    newData = JSON.parse(jsonStr);
+                } catch (e2) {
+                    // Last resort: find the outermost { ... } 
+                    const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
+                    if (braceMatch) {
+                        try {
+                            newData = JSON.parse(braceMatch[0]);
+                        } catch (e3) {
+                            console.error("Failed to parse AI response:", content);
+                            throw new Error("Invalid JSON response");
+                        }
+                    } else {
+                        console.error("No JSON found in AI response:", content);
+                        throw new Error("Invalid JSON response");
+                    }
                 }
             }
             
@@ -745,6 +764,12 @@ ${itineraryText || "暂无具体行程"}
             renderLookusApp();
             renderLookusReport(); // Update report view if open
             updateLookusTime();
+
+            // Show notification banner for new report events (only if not in LookUs app)
+            if (newReports.length > 0) {
+                const latestReport = newReports[0];
+                showLookusNotification(contact.name || '对方', latestReport.text, latestReport.icon);
+            }
         } else {
             throw new Error(`API Error: ${response.status}`);
         }
@@ -1330,7 +1355,7 @@ function testAmapAPI() {
         statusEl.style.color = '#34C759';
         statusEl.textContent = '✅ SDK 加载成功，正在初始化地图...';
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-map-marked-alt"></i> 测试高德地图 API';
+        btn.innerHTML = '<i class="fas fa-map-marked-alt"></i> 加载地图 API';
         initTestMap(statusEl, mapContainer);
     };
     
@@ -1599,6 +1624,86 @@ if (document.readyState === 'loading') {
 } else {
     setupUserEventMonitors();
 }
+
+// ==========================================
+// LookUS 通知弹窗 (Notification Banner)
+// ==========================================
+
+let lookusNotificationTimer = null;
+
+function showLookusNotification(contactName, message, iconClass) {
+    // Don't show if LookUs app is currently open and visible
+    const lookusApp = document.getElementById('lookus-app');
+    if (lookusApp && !lookusApp.classList.contains('hidden')) {
+        return;
+    }
+
+    const banner = document.getElementById('lookus-notification');
+    const titleEl = document.getElementById('lookus-notification-title');
+    const msgEl = document.getElementById('lookus-notification-message');
+    const iconEl = document.getElementById('lookus-notification-icon');
+    const timeEl = document.getElementById('lookus-notification-time');
+
+    if (!banner) return;
+
+    // Set content
+    if (titleEl) titleEl.textContent = contactName + ' 状态更新';
+    if (msgEl) msgEl.textContent = message;
+    if (iconEl && iconClass) {
+        iconEl.className = iconClass;
+        iconEl.style.fontSize = '20px';
+    }
+    if (timeEl) timeEl.textContent = '现在';
+
+    // Clear any existing timer
+    if (lookusNotificationTimer) {
+        clearTimeout(lookusNotificationTimer);
+        lookusNotificationTimer = null;
+    }
+
+    // Show banner with animation
+    banner.classList.remove('hidden');
+
+    // Auto-hide after 5 seconds
+    lookusNotificationTimer = setTimeout(() => {
+        hideLookusNotification();
+    }, 5000);
+
+    console.log('[LookUs Notification]', contactName, message);
+}
+
+function hideLookusNotification() {
+    const banner = document.getElementById('lookus-notification');
+    if (banner) {
+        banner.classList.add('hidden');
+    }
+    if (lookusNotificationTimer) {
+        clearTimeout(lookusNotificationTimer);
+        lookusNotificationTimer = null;
+    }
+}
+
+// Click handler: open LookUs app and navigate to report tab
+window.handleLookusNotificationClick = function() {
+    hideLookusNotification();
+
+    // Open LookUs app
+    const lookusApp = document.getElementById('lookus-app');
+    if (lookusApp) {
+        lookusApp.classList.remove('hidden');
+        lookusApp.style.opacity = '1';
+        lookusApp.style.transform = 'scale(1)';
+    }
+
+    // Switch to report tab
+    setTimeout(() => {
+        switchLookusTab('report');
+    }, 100);
+};
+
+// Expose for external use
+window.showLookusNotification = showLookusNotification;
+window.hideLookusNotification = hideLookusNotification;
 
 // 导出 UI 更新函数
 window.updateLookusUi = function() {
