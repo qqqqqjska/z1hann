@@ -246,7 +246,7 @@
     display: flex;
     justify-content: space-around;
     align-items: center;
-    height: 50px;
+    height: calc(50px + env(safe-area-inset-bottom));
     background-color: #fff;
     border-top: 1px solid #dbdbdb;
     padding-bottom: env(safe-area-inset-bottom);

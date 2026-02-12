@@ -161,6 +161,11 @@ function injectShoppingStyles() {
             border: none;
         }
         
+        .shopping-card:hover {
+            transform: translateY(-4px) scale(1.01);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+        }
+
         .shopping-card:active {
             transform: scale(0.96);
             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
@@ -348,6 +353,11 @@ function injectShoppingStyles() {
             position: relative;
         }
         
+        .delivery-card-modern:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.10);
+        }
+
         .delivery-card-modern:active {
             transform: scale(0.98);
         }
@@ -3143,7 +3153,7 @@ function showOrderNotification(title, message) {
         container.id = 'order-notification-banner';
         container.style.cssText = `
             position: fixed;
-            top: 20px;
+            top: 45px;
             left: 50%;
             transform: translateX(-50%) translateY(-100px);
             background: rgba(255, 255, 255, 0.95);

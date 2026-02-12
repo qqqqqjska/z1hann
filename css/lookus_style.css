@@ -1,7 +1,7 @@
 /* LookUS 通知弹窗 */
 .lookus-notification-banner {
     position: absolute;
-    top: 10px;
+    top: 45px;
     left: 10px;
     right: 10px;
     z-index: 9999;

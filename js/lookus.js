@@ -554,7 +554,35 @@ async function updateLookusStatusWithAI(contactId) {
 
     const currentData = getLookusData(contactId);
     const history = window.iphoneSimState.chatHistory[contactId] || [];
-    const recentHistory = history.slice(-20).map(m => `${m.role === 'user' ? '我' : '你'}: ${m.content}`).join('\n');
+    
+    // 获取最近聊天记录，用于上下文感知
+    const recentHistory = history.slice(-30).map(m => {
+        let content = m.content;
+        // 处理非文本类型
+        if (m.type === 'image') content = '[图片]';
+        else if (m.type === 'sticker') content = '[表情包]';
+        else if (m.type === 'voice') {
+            try {
+                const d = JSON.parse(m.content);
+                content = d.text || '[语音]';
+            } catch(e) { content = '[语音]'; }
+        } else if (m.type === 'transfer') content = '[转账]';
+        else if (m.type === 'voice_call_text') {
+            try {
+                const d = JSON.parse(m.content);
+                content = d.text || '[通话]';
+            } catch(e) { content = '[通话]'; }
+        }
+        
+        // 添加时间戳以帮助AI理解时间线
+        let timeStr = '';
+        if (m.time) {
+            const d = new Date(m.time);
+            timeStr = `[${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}] `;
+        }
+        return `${timeStr}${m.role === 'user' ? '用户' : '你(角色)'}: ${content}`;
+    }).join('\n');
+    
     const itineraryText = getItineraryText(contactId);
     
     // Check if device model needs generation
@@ -578,8 +606,41 @@ async function updateLookusStatusWithAI(contactId) {
         }
     }
 
+    // 构建已有数据上下文，用于增量更新
+    let existingStopsContext = '';
+    if (currentData.stopList && currentData.stopList.length > 0) {
+        existingStopsContext = '\n已有停留记录（请在此基础上新增，不要删除已有记录）：\n' + 
+            currentData.stopList.map((s, i) => `  ${i+1}. ${s.location} - ${s.duration} (${s.startTime}开始)`).join('\n');
+    }
+    
+    let existingAppsContext = '';
+    if (currentData.appList && currentData.appList.length > 0) {
+        existingAppsContext = '\n已有APP使用记录（请在此基础上更新时长或新增，不要删除已有记录）：\n' + 
+            currentData.appList.map(a => `  - ${a.name} (${a.cat}) ${a.time}`).join('\n');
+    }
+    
+    let existingNetContext = '';
+    if (currentData.netLog && currentData.netLog.length > 0) {
+        existingNetContext = '\n已有网络记录（请在此基础上新增，不要删除已有记录，只更新isCurrent标记）：\n' + 
+            currentData.netLog.map(n => `  - ${n.type} ${n.name} ${n.time}${n.isCurrent ? ' (当前)' : ''}`).join('\n');
+    }
+
     const systemPrompt = `你现在扮演 ${contact.name}。
+人设：${contact.persona || '无'}
+
 请根据你的人设、最近的聊天记录以及【行程安排】，更新你在"LookUs"中的状态数据。
+
+【⚠️ 最重要原则：与聊天上下文保持一致 ⚠️】
+你必须仔细阅读下面的【最近聊天记录】，确保生成的LookUs状态与聊天内容完全一致，绝对不能矛盾！
+例如：
+- 如果你在聊天中说"我在家里"，LookUs就必须显示你在家里，不能显示在外面
+- 如果你在聊天中说"我在上班"，LookUs就必须显示你在公司/办公室
+- 如果你在聊天中说"我在打游戏"，APP使用记录里必须有游戏
+- 如果你在聊天中说"我要睡了"或"晚安"，之后的状态应该是手机锁屏、无新解锁
+- 如果你们正在线上聊天，说明你的手机是解锁状态，正在使用微信
+
+【最近聊天记录】
+${recentHistory || '暂无聊天记录'}
 
 【时间逻辑 (关键)】
 - 现在的真实时间是：${new Date().toLocaleTimeString()}
@@ -588,13 +649,24 @@ async function updateLookusStatusWithAI(contactId) {
   1. **电量**：根据间隔时间和使用强度扣减电量。
   2. **屏幕使用时间**：增加量**绝对不能超过**逝去的时间 (${timeElapsedStr})。
   3. **位置/行程**：如果间隔很短，位置通常不变；如果间隔较长，可能已经移动到了下一个地点。
-  4. **报备事件**：请根据逝去的时间生成 1-3 条在此期间发生的状态变更事件（系统提示消息）。如果时间间隔很短，可以没有事件。事件应简短，例如"对方刚刚解锁了手机"、"对方电量低于20%"、"对方离开了[地点]"等。
+  4. **报备事件**：请根据逝去的时间生成 1-3 ��在此期间发生的状态变更事件（系统提示消息）。如果时间间隔很短，可以没有事件。事件应简短，例如"对方刚刚解锁了手机"、"对方电量低于20%"、"对方离开了[地点]"等。事件内容也必须与聊天上下文一致。
 
-【重要原则】
+【增量更新原则 (关键)】
+⚠️ 停留地点(stopList)、APP使用记录(appList)、网络记录(netLog) 必须采用增量更新：
+- **不要删除**已有的记录，只能新增或更新已有项的时长
+- 已有记录的数据请原样保留，可以更新最后一项的时长
+- 如果有新的地点/APP/网络，请追加到列表中
+- stops 数字应该 >= 已有停留数
+${existingStopsContext}
+${existingAppsContext}
+${existingNetContext}
+
+【其他重要原则】
 1. **连续性**：必须基于上次数据演变。
 2. **上下文感知**：
    - 睡觉/忙碌 -> 手机未解锁。
    - 打游戏 -> 屏幕使用增加，正在使用游戏APP。
+   - 正在聊天 -> 微信使用时间增加。
 3. **行程同步**：
    - 参考行程信息生成停留地点。
 ${deviceInstruction}
@@ -604,6 +676,8 @@ ${deviceInstruction}
 - 距离: ${currentData.distance} km
 - 电量: ${currentData.battery}
 - 屏幕使用: ${currentData.screenTimeH}小时${currentData.screenTimeM}分
+- 解锁次数: ${currentData.unlockCount}
+- 停留��点数: ${currentData.stops}
 
 今日行程：
 ${itineraryText || "暂无具体行程"}
@@ -616,9 +690,9 @@ ${itineraryText || "暂无具体行程"}
   ${!contact.deviceModel ? '"deviceModel": "手机型号",' : ''}
   "screenTimeH": "数字 (小时)",
   "screenTimeM": "数字 (分钟)",
-  "unlockCount": "数字 (次数)",
+  "unlockCount": "数字 (次数，应 >= 已有次数)",
   "lastUnlock": "HH:MM",
-  "stops": "数字 (停留数)",
+  "stops": "数字 (停留数，应 >= 已有停留数)",
   "stopList": [ {"location": "地点", "duration": "时长", "startTime": "HH:MM"} ],
   "appList": [ {"name": "应用名", "cat": "分类", "time": "时长"} ],
   "netLog": [ {"type": "WiFi/5G", "name": "名称", "time": "时间段", "isCurrent": true/false} ],
@@ -742,20 +816,84 @@ ${itineraryText || "暂无具体行程"}
             // Limit history size (e.g. keep last 50)
             const limitedReports = allReports.slice(0, 50);
 
+            // ====== 增量合并逻辑 ======
+            // stopList: 保留已有记录，追加新的
+            let mergedStopList = [...(currentData.stopList || [])];
+            if (newData.stopList && Array.isArray(newData.stopList)) {
+                newData.stopList.forEach(newStop => {
+                    const existIdx = mergedStopList.findIndex(s => 
+                        s.location === newStop.location && s.startTime === newStop.startTime
+                    );
+                    if (existIdx >= 0) {
+                        // 更新已有记录的时长
+                        mergedStopList[existIdx].duration = newStop.duration;
+                    } else {
+                        // 检查是否只是时长更新（同地点，不同开始时间视为新记录）
+                        const sameLocIdx = mergedStopList.findIndex(s => s.location === newStop.location);
+                        if (sameLocIdx >= 0 && sameLocIdx === mergedStopList.length - 1) {
+                            // 最后一个同地点记录，更新时长
+                            mergedStopList[sameLocIdx].duration = newStop.duration;
+                        } else {
+                            mergedStopList.push(newStop);
+                        }
+                    }
+                });
+            }
+
+            // appList: 保留已有记录，更新时长或追加新的
+            let mergedAppList = [...(currentData.appList || [])];
+            if (newData.appList && Array.isArray(newData.appList)) {
+                newData.appList.forEach(newApp => {
+                    const existIdx = mergedAppList.findIndex(a => a.name === newApp.name);
+                    if (existIdx >= 0) {
+                        // 更新已有APP的使用时长
+                        mergedAppList[existIdx].time = newApp.time;
+                        if (newApp.cat) mergedAppList[existIdx].cat = newApp.cat;
+                    } else {
+                        mergedAppList.push(newApp);
+                    }
+                });
+            }
+
+            // netLog: 保留已有记录，追加新的，更新isCurrent
+            let mergedNetLog = [...(currentData.netLog || [])];
+            if (newData.netLog && Array.isArray(newData.netLog)) {
+                // 先将所有已有记录的isCurrent设为false
+                mergedNetLog.forEach(n => n.isCurrent = false);
+                
+                newData.netLog.forEach(newNet => {
+                    const existIdx = mergedNetLog.findIndex(n => 
+                        n.name === newNet.name && n.type === newNet.type && n.time === newNet.time
+                    );
+                    if (existIdx >= 0) {
+                        mergedNetLog[existIdx].isCurrent = newNet.isCurrent || false;
+                        mergedNetLog[existIdx].time = newNet.time;
+                    } else {
+                        mergedNetLog.push(newNet);
+                    }
+                });
+            }
+
+            // 确保 stops/unlockCount 只增不减
+            const oldStops = parseInt(currentData.stops) || 0;
+            const newStops = Math.max(parseInt(newData.stops) || 0, oldStops, mergedStopList.length);
+            
+            const oldUnlock = parseInt(currentData.unlockCount) || 0;
+            const newUnlock = Math.max(parseInt(newData.unlockCount) || 0, oldUnlock);
+
             contact.lookusData = {
                 distance: newData.distance || currentData.distance,
                 battery: (newData.battery || 80) + '%',
                 network: newData.network || '5G',
-                // deviceModel is stored in contact root, lookusData.device is for display logic
                 device: contact.deviceModel || newData.deviceModel || 'iPhone', 
                 screenTimeH: newData.screenTimeH || 0,
                 screenTimeM: newData.screenTimeM || 0,
-                unlockCount: (newData.unlockCount || 0) + '次',
+                unlockCount: newUnlock + '次',
                 lastUnlock: newData.lastUnlock || '未知',
-                stops: newData.stops || 1,
-                stopList: newData.stopList || [],
-                appList: newData.appList || [],
-                netLog: newData.netLog || [],
+                stops: newStops,
+                stopList: mergedStopList,
+                appList: mergedAppList,
+                netLog: mergedNetLog,
                 reportLog: limitedReports,
                 lastUpdateTime: Date.now()
             };
