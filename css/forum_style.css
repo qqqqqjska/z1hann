@@ -10,6 +10,7 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    position: relative;
 }
 
 /* Header */
@@ -52,7 +53,7 @@
     flex: 1;
     overflow-y: auto;
     background-color: #fff;
-    padding-bottom: 50px; /* Space for bottom nav */
+    padding-bottom: calc(50px + env(safe-area-inset-bottom)); /* Space for bottom nav */
 }
 
 /* Stories */
@@ -243,6 +244,10 @@
 
 /* Bottom Nav */
 .forum-nav-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
     display: flex;
     justify-content: space-around;
     align-items: center;
@@ -250,6 +255,7 @@
     background-color: #fff;
     border-top: 1px solid #dbdbdb;
     padding-bottom: env(safe-area-inset-bottom);
+    z-index: 10;
 }
 
 .forum-nav-bar .nav-item {
