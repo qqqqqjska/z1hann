@@ -117,13 +117,15 @@
                 contentHtml = renderHomeTab();
         }
 
+        const showNav = forumState.activeTab !== 'edit_profile';
+
         app.innerHTML = `
             <div class="forum-screen">
                 ${headerHtml}
-                <div class="forum-content ${animate ? 'animate-fade' : ''}" id="forum-content-area">
+                <div class="forum-content ${animate ? 'animate-fade' : ''} ${showNav ? 'has-nav' : ''}" id="forum-content-area">
                     ${contentHtml}
                 </div>
-                ${forumState.activeTab === 'edit_profile' ? '' : renderBottomNav()}
+                ${showNav ? renderBottomNav() : ''}
             </div>
         `;
 

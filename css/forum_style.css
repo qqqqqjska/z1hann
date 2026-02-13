@@ -351,6 +351,9 @@
     flex: 1;
     overflow-y: auto;
     background-color: #fff;
+}
+
+.forum-content.has-nav {
     padding-bottom: calc(50px + env(safe-area-inset-bottom));
 }
 
