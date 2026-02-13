@@ -212,7 +212,7 @@
         }
     ];
 
-    function renderCommentsOverlay() {
+    function renderCommentsOverlay(comments = null) {
         // Remove existing overlay if any
         const existing = document.getElementById('comments-overlay');
         if (existing) existing.remove();
@@ -221,7 +221,9 @@
         overlay.id = 'comments-overlay';
         overlay.className = 'comments-overlay';
         
-        const commentsListHtml = mockComments.map(comment => {
+        const commentsData = comments || mockComments;
+
+        const commentsListHtml = commentsData.map(comment => {
             const hasReplies = comment.replies && comment.replies.length > 0;
             const repliesHtml = hasReplies ? `
                 <div class="view-replies-btn" onclick="toggleReplies(${comment.id}, this)">
@@ -374,7 +376,7 @@
                     <i class="fas fa-chevron-down" style="font-size: 12px; margin-left: 5px; margin-top: 12px;"></i>
                 </div>
                 <div class="header-right">
-                    <i class="far fa-heart" style="font-size: 24px; margin-top: 12px;"></i>
+                    <i class="far fa-heart" id="forum-generate-btn" style="font-size: 24px; margin-top: 12px; cursor: pointer;"></i>
                 </div>
             </div>
         `;
@@ -797,6 +799,11 @@
             });
         }
 
+        const generateBtn = document.getElementById('forum-generate-btn');
+        if (generateBtn) {
+            generateBtn.addEventListener('click', generateForumPosts);
+        }
+
         const tabPosts = document.getElementById('profile-tab-posts');
         const tabTagged = document.getElementById('profile-tab-tagged');
 
@@ -903,8 +910,36 @@
 
                 const commentBtn = e.target.closest('.comment-btn');
                 if (commentBtn) {
-                    // const postId = commentBtn.dataset.id; // Can be used later to load specific comments
-                    renderCommentsOverlay();
+                    const postId = commentBtn.dataset.id;
+                    const post = forumState.posts.find(p => p.id === parseInt(postId));
+                    renderCommentsOverlay(post ? post.comments_list : null);
+                }
+
+                // Image Click Listener for Description
+                const postImage = e.target.closest('.post-image');
+                if (postImage) {
+                    const postItem = postImage.closest('.post-item');
+                    if (postItem) {
+                        const likeBtn = postItem.querySelector('.like-btn');
+                        if (likeBtn && likeBtn.dataset.id) {
+                            const post = forumState.posts.find(p => p.id == likeBtn.dataset.id);
+                            if (post && post.image_description) {
+                                // Create simple modal
+                                const modal = document.createElement('div');
+                                modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;justify-content:center;align-items:center;z-index:10000;animation:fadeIn 0.2s;';
+                                modal.innerHTML = `
+                                    <div style="background:white;padding:20px;border-radius:12px;width:80%;max-width:300px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                                        <div style="font-weight:bold;margin-bottom:10px;font-size:16px;">图片描述</div>
+                                        <div style="font-size:14px;color:#333;line-height:1.5;text-align:left;">${post.image_description}</div>
+                                        <div style="margin-top:20px;padding-top:10px;border-top:1px solid #eee;color:#007aff;font-weight:bold;cursor:pointer;" id="close-desc-modal">关闭</div>
+                                    </div>
+                                `;
+                                document.body.appendChild(modal);
+                                modal.querySelector('#close-desc-modal').onclick = () => modal.remove();
+                                modal.onclick = (e) => { if(e.target === modal) modal.remove(); };
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -938,6 +973,159 @@
                 }
             } else {
                 renderForum(false);
+            }
+        }
+    }
+
+    async function generateForumPosts() {
+        const btn = document.getElementById('forum-generate-btn');
+        if (!btn) return;
+
+        if (btn.classList.contains('fa-spin')) return; // Prevent double click
+
+        // Start loading
+        btn.classList.remove('far', 'fa-heart');
+        btn.classList.add('fas', 'fa-spinner', 'fa-spin');
+
+        try {
+            // Get AI settings
+            let settings = { url: '', key: '', model: '' };
+            if (window.iphoneSimState) {
+                if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) {
+                    settings = window.iphoneSimState.aiSettings;
+                } else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) {
+                    settings = window.iphoneSimState.aiSettings2;
+                }
+            }
+
+            if (!settings.url || !settings.key) {
+                alert('请先在设置中配置AI接口信息');
+                throw new Error('No AI settings');
+            }
+
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+
+            const prompt = `
+请模拟真实的社交论坛环境，生成7个陌生人（NPC）发布的帖子数据。
+返回格式必须是纯粹的JSON数组，严禁包含markdown格式标记。
+每个对象包含以下字段：
+- id: 唯一数字ID
+- type: 帖子类型，必须从以下选项中选择一个: "food" (美食), "travel" (旅行), "mood" (心情), "hobby" (爱好), "daily" (日常), "pet" (宠物), "scenery" (风景)
+- image_description: 详细的中文图片画面描述，不要只写关键词，要描绘画面细节（例如：“一只橘猫懒洋洋地躺在洒满阳光的窗台上，旁边放着一杯冒着热气的咖啡”）。
+- user: 对象，包含 name (随机有趣的网名), avatar (使用 https://api.dicebear.com/7.x/lorelei/svg?seed=随机字符串), verified (布尔值, 20%概率为true), subtitle (短签名或位置)
+- stats: 对象，包含 likes (随机数字10-5000), comments (随机数字5-100), shares (随机数字)
+- caption: 帖子正文，内容要非常生活化、丰富有趣、甚至带点狗血或搞笑，像活人发的，必须包含emoji。
+- time: 发布时间字符串（如"5分钟前", "刚刚"）
+- liked: false
+- comments_list: 数组，包含3-5条评论对象，每个包含 id, user (name, avatar使用lorelei风格, verified), text (评论内容，要有趣，有互动感，模仿真实网友), time, likes。
+`;
+
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + settings.key
+                },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: '你是模拟社交网络数据的生成器。只返回JSON数据。' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.8
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('API request failed');
+            }
+
+            const data = await response.json();
+            let content = data.choices[0].message.content;
+            
+            // Clean up content if it contains markdown code blocks
+            content = content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+
+            let newPosts = [];
+            try {
+                newPosts = JSON.parse(content);
+            } catch (e) {
+                console.error("JSON parse failed", content);
+                throw new Error("AI生成的数据格式有误");
+            }
+            
+            // Helper to generate SVG placeholder
+            const generatePlaceholderSvg = (type) => {
+                const colors = ['#F0F8FF', '#FAEBD7', '#F5F5DC', '#FFE4C4', '#FFEBCD', '#E6E6FA', '#FFF0F5', '#E0FFFF', '#FAFAD2', '#D3D3D3', '#90EE90', '#FFB6C1'];
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                
+                const icons = {
+                    food: '<path d="M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z" fill="#fff" opacity="0.8"/>',
+                    travel: '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill="#fff" opacity="0.8"/>',
+                    mood: '<path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z" fill="#fff" opacity="0.8"/>',
+                    hobby: '<path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" fill="#fff" opacity="0.8"/>',
+                    daily: '<path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z" fill="#fff" opacity="0.8"/>',
+                    pet: '<path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="#fff" opacity="0.8"/>',
+                    scenery: '<path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.55 8.26 9 6 9c-3.87 0-7 3.13-7 7s3.13 7 7 7h13c2.76 0 5-2.24 5-5s-2.24-5-5-5c-.55 0-1.07.09-1.57.24C16.8 9.53 15.65 6 14 6z" fill="#fff" opacity="0.8"/>'
+                };
+
+                const iconPath = icons[type] || icons.daily;
+                
+                const svg = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 24 24">
+                    <defs>
+                        <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                            <feDropShadow dx="0.5" dy="1" stdDeviation="0.5" flood-color="#000" flood-opacity="0.15"/>
+                        </filter>
+                    </defs>
+                    <rect width="24" height="24" fill="${color}"/>
+                    <g transform="translate(8, 8) scale(0.33)" filter="url(#shadow)">
+                        ${iconPath}
+                    </g>
+                </svg>
+                `;
+                
+                return 'data:image/svg+xml;base64,' + btoa(svg);
+            };
+
+            // Validate and fix IDs
+            const now = Date.now();
+            if (Array.isArray(newPosts)) {
+                newPosts.forEach((post, index) => {
+                    post.id = now + index; // Ensure unique numeric IDs
+                    
+                    // Generate Image
+                    post.image = generatePlaceholderSvg(post.type || 'daily');
+
+                    if (!post.stats) post.stats = { likes: 0, comments: 0, shares: 0 };
+                    // Ensure stats.comments matches comments_list length if possible
+                    if (post.comments_list && Array.isArray(post.comments_list)) {
+                        post.stats.comments = post.comments_list.length + Math.floor(Math.random() * 20);
+                    }
+                });
+
+                // Add to state
+                forumState.posts = [...newPosts, ...forumState.posts];
+                
+                // Save
+                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+
+                // Render
+                renderForum(false);
+            } else {
+                 throw new Error("AI生成的不是数组");
+            }
+
+        } catch (error) {
+            console.error('Generate posts error:', error);
+            alert('生成帖子失败: ' + error.message);
+        } finally {
+            const newBtn = document.getElementById('forum-generate-btn');
+            if (newBtn) {
+                newBtn.className = 'far fa-heart';
             }
         }
     }
