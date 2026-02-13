@@ -355,6 +355,10 @@
     flex: 1;
     overflow-y: auto;
     background-color: #fff;
+    overscroll-behavior: contain; /* Prevent scroll chaining to parent */
+    padding-bottom: env(safe-area-inset-bottom); /* Base safe area padding */
+    width: 100%;
+    position: relative;
 }
 
 .forum-content.has-nav {
@@ -954,7 +958,7 @@
     padding-top: 20px;
     background-color: #fff;
     min-height: 100%;
-    overscroll-behavior-y: contain;
+    width: 100%;
 }
 
 .edit-profile-avatar-section {
