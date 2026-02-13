@@ -7,11 +7,12 @@
 }
 
 .forum-screen {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -356,10 +357,11 @@
     flex: 1;
     overflow-y: auto;
     background-color: #fff;
-    overscroll-behavior: contain; /* Prevent scroll chaining to parent */
+    overscroll-behavior: none; /* Prevent scroll chaining and rubber band */
     padding-bottom: 0; /* Clean base state */
     width: 100%;
     position: relative;
+    min-height: 0; /* Allow flex shrinking */
 }
 
 .forum-content.has-nav {
@@ -960,7 +962,7 @@
     background-color: #fff;
     min-height: 100%;
     width: 100%;
-    padding-bottom: env(safe-area-inset-bottom); /* Apply safe area here */
+    padding-bottom: calc(env(safe-area-inset-bottom) + 100px); /* Extra padding to prevent gap at bottom */
 }
 
 .edit-profile-avatar-section {
