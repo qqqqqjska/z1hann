@@ -121,15 +121,42 @@
 
         app.innerHTML = `
             <div class="forum-screen">
-                ${headerHtml}
                 <div class="forum-content ${animate ? 'animate-fade' : ''} ${showNav ? 'has-nav' : ''}" id="forum-content-area">
+                    ${headerHtml}
                     ${contentHtml}
                 </div>
                 ${showNav ? renderBottomNav() : ''}
+                <div class="forum-back-to-top" id="forum-back-to-top">
+                    <i class="fas fa-arrow-up"></i>
+                </div>
             </div>
         `;
 
         setupTabListeners();
+        setupBackToTopListener();
+    }
+
+    function setupBackToTopListener() {
+        const contentArea = document.getElementById('forum-content-area');
+        const backToTopBtn = document.getElementById('forum-back-to-top');
+
+        if (contentArea && backToTopBtn) {
+            contentArea.addEventListener('scroll', () => {
+                if (contentArea.scrollTop > 300) {
+                    backToTopBtn.classList.add('visible');
+                } else {
+                    backToTopBtn.classList.remove('visible');
+                }
+            });
+
+            backToTopBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                contentArea.scrollTo({
+                    top: 0,
+                    behavior: 'smooth'
+                });
+            });
+        }
     }
 
     // --- Comments Logic ---
@@ -256,7 +283,7 @@
             </div>
             <div class="comments-header">
                 <div class="comments-header-title">评论</div>
-                <div class="comments-header-close" id="comments-close-btn"><i class="far fa-paper-plane" style="transform: rotate(15deg);"></i></div>
+                <div class="comments-header-close" id="comments-close-btn"><img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="post-action-icon"></div>
             </div>
             <div class="comments-scroll-area">
                 ${commentsListHtml}
@@ -265,10 +292,12 @@
                 <div class="emoji-bar">
                     <span>❤️</span> <span>🙌</span> <span>🔥</span> <span>👏</span> <span>😥</span> <span>😍</span> <span>😮</span> <span>😂</span>
                 </div>
-                <div class="comment-input-box">
+                <div class="comment-input-wrapper">
                     <img src="${forumState.currentUser.avatar}" class="comment-user-avatar-small">
-                    <input type="text" class="comment-input" placeholder="为 ${forumState.currentUser.bio} 添加评论...">
-                    <div class="gif-icon">GIF</div>
+                    <div class="comment-input-box">
+                        <input type="text" class="comment-input" placeholder="为 ${forumState.currentUser.bio} 添加评论...">
+                        <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="comment-send-icon">
+                    </div>
                 </div>
             </div>
         `;
@@ -336,14 +365,16 @@
         return `
             <div class="forum-header">
                 <div class="header-left">
-                    <i class="fas fa-plus" id="forum-back-btn" style="font-size: 26px; cursor: pointer;"></i>
+                    <div id="forum-back-btn" style="cursor: pointer; margin-top: 12px; display: flex; align-items: center;">
+                        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </div>
                 </div>
                 <div class="header-center">
-                    <span class="instagram-logo">Instagram</span>
-                    <i class="fas fa-chevron-down" style="font-size: 12px; margin-left: 5px;"></i>
+                    <img src="https://i.postimg.cc/B6rSJSKs/wu-biao-ti94-20260213222425.png" alt="Instagram" style="height: 60px;">
+                    <i class="fas fa-chevron-down" style="font-size: 12px; margin-left: 5px; margin-top: 12px;"></i>
                 </div>
                 <div class="header-right">
-                    <i class="far fa-heart" style="font-size: 24px;"></i>
+                    <i class="far fa-heart" style="font-size: 24px; margin-top: 12px;"></i>
                 </div>
             </div>
         `;
@@ -648,16 +679,16 @@
                             <span class="action-count">${formatNum(post.stats.likes)}</span>
                         </div>
                         <div class="action-item comment-btn" data-id="${post.id}">
-                            <i class="far fa-comment"></i>
+                            <img src="https://i.postimg.cc/GmHtkm1B/无标题98_20260213233618.png" class="post-action-icon">
                             <span class="action-count">${post.stats.comments}</span>
                         </div>
                         <div class="action-item">
-                            <i class="far fa-paper-plane"></i>
+                            <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="post-action-icon">
                             <span class="action-count">${post.stats.shares}</span>
                         </div>
                     </div>
                     <div class="actions-right-group">
-                        <i class="far fa-bookmark"></i>
+                        <img src="https://i.postimg.cc/cLrCQLNn/无标题98_20260213233659.png" class="post-action-icon">
                     </div>
                 </div>
 
@@ -678,24 +709,43 @@
 
     function renderBottomNav() {
         const activeTab = forumState.activeTab;
-        const userAvatar = forumState.currentUser.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'; // Fallback
+        
+        const iconsUnclicked = [
+            'https://i.postimg.cc/g0JCxCVs/无标题98_20260213231529.png',
+            'https://i.postimg.cc/k54020Qj/无标题98_20260213231635.png',
+            'https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png',
+            'https://i.postimg.cc/W43BdBGW/无标题98_20260213231753.png',
+            'https://i.postimg.cc/TPwzKzVs/无标题98_20260213231825.png'
+        ];
+
+        const iconsClicked = [
+            'https://i.postimg.cc/RFCNJVsV/无标题98_20260213232115.png',
+            'https://i.postimg.cc/85ysRQ9Q/无标题98_20260213232143.png',
+            'https://i.postimg.cc/NMNL6qSv/无标题98_20260213232200.png',
+            'https://i.postimg.cc/26H3QRMf/无标题98_20260213232226.png',
+            'https://i.postimg.cc/MTsX72Nx/无标题98_20260213232300.png'
+        ];
+
+        const getIcon = (tab, index) => {
+            return activeTab === tab ? iconsClicked[index] : iconsUnclicked[index];
+        };
 
         return `
             <div class="forum-nav-bar">
                 <div class="nav-item ${activeTab === 'home' ? 'active' : ''}" data-tab="home">
-                    <i class="${activeTab === 'home' ? 'fas fa-home' : 'fas fa-home'}"></i>
+                    <img src="${getIcon('home', 0)}" class="nav-icon">
                 </div>
                 <div class="nav-item ${activeTab === 'video' ? 'active' : ''}" data-tab="video">
-                    <i class="${activeTab === 'video' ? 'fas fa-play-circle' : 'far fa-play-circle'}"></i>
+                    <img src="${getIcon('video', 1)}" class="nav-icon">
                 </div>
                 <div class="nav-item ${activeTab === 'share' ? 'active' : ''}" data-tab="share">
-                    <i class="${activeTab === 'share' ? 'fas fa-paper-plane' : 'far fa-paper-plane'}"></i>
+                    <img src="${getIcon('share', 2)}" class="nav-icon">
                 </div>
                  <div class="nav-item ${activeTab === 'explore' ? 'active' : ''}" data-tab="explore">
-                    <i class="fas fa-search" style="${activeTab === 'explore' ? 'font-weight: 900;' : ''}"></i>
+                    <img src="${getIcon('explore', 3)}" class="nav-icon">
                 </div>
                 <div class="nav-item ${activeTab === 'profile' ? 'active' : ''}" data-tab="profile">
-                    <i class="${activeTab === 'profile' ? 'fas fa-user-circle' : 'far fa-user-circle'}" style="font-size: 26px;"></i>
+                    <img src="${getIcon('profile', 4)}" class="nav-icon">
                 </div>
             </div>
         `;
