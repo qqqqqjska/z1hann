@@ -3,6 +3,7 @@
 #forum-app {
     background-color: #fff;
     z-index: 100;
+    overscroll-behavior: none; /* Global scroll lock for this app */
 }
 
 .forum-screen {
@@ -356,7 +357,7 @@
     overflow-y: auto;
     background-color: #fff;
     overscroll-behavior: contain; /* Prevent scroll chaining to parent */
-    padding-bottom: env(safe-area-inset-bottom); /* Base safe area padding */
+    padding-bottom: 0; /* Clean base state */
     width: 100%;
     position: relative;
 }
@@ -959,6 +960,7 @@
     background-color: #fff;
     min-height: 100%;
     width: 100%;
+    padding-bottom: env(safe-area-inset-bottom); /* Apply safe area here */
 }
 
 .edit-profile-avatar-section {
