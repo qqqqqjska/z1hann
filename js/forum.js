@@ -24,6 +24,7 @@
                 stats: {
                     likes: 2607,
                     comments: 7,
+                    forwards: 42,
                     shares: 68,
                     sends: 18
                 },
@@ -44,6 +45,7 @@
                 stats: {
                     likes: 1240,
                     comments: 45,
+                    forwards: 15,
                     shares: 12,
                     sends: 5
                 },
@@ -63,6 +65,16 @@
             bio: 'z', // This is acting as the Name 'z'
             signature: '1', // New signature field
             completion: 3 // 3/4 completed
+        },
+        settings: JSON.parse(localStorage.getItem('forum_settings')) || {
+            linkedContacts: [],
+            linkedWorldbook: null,
+            forumWorldview: ''
+        },
+        settings: JSON.parse(localStorage.getItem('forum_settings')) || {
+            linkedContacts: [],
+            linkedWorldbook: null,
+            forumWorldview: ''
         },
         profileActiveTab: 'posts', // 'posts' or 'tagged'
         messages: [
@@ -115,11 +127,19 @@
                 headerHtml = renderEditProfileHeader();
                 contentHtml = renderEditProfile();
                 break;
+            case 'forum_settings':
+                headerHtml = renderForumSettingsHeader();
+                contentHtml = renderForumSettings();
+                break;
+            case 'forum_edit_contact':
+                headerHtml = renderForumEditContactHeader();
+                contentHtml = renderForumEditContact();
+                break;
             default:
                 contentHtml = renderHomeTab();
         }
 
-        const showNav = forumState.activeTab !== 'edit_profile';
+        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact';
 
         const multiSelectBarHtml = forumState.multiSelectMode ? `
             <div class="forum-multi-select-bar">
@@ -290,25 +310,27 @@
             ` : '';
 
             return `
-                <div class="comment-item">
-                    <img src="${comment.user.avatar}" class="comment-avatar">
-                    <div class="comment-content">
-                        <div class="comment-row-1">
-                            <span class="comment-username">${comment.user.name}</span>
-                            ${comment.user.verified ? '<i class="fas fa-check-circle comment-verified"></i>' : ''}
-                            <span class="comment-time">${comment.time}</span>
+                <div class="comment-wrapper">
+                    <div class="comment-item">
+                        <img src="${comment.user.avatar}" class="comment-avatar">
+                        <div class="comment-content">
+                            <div class="comment-row-1">
+                                <span class="comment-username">${comment.user.name}</span>
+                                ${comment.user.verified ? '<i class="fas fa-check-circle comment-verified"></i>' : ''}
+                                <span class="comment-time">${comment.time}</span>
+                            </div>
+                            <div class="comment-text">${comment.text}</div>
+                            <div class="comment-actions">
+                                <span class="comment-action-btn">回复</span>
+                                <span class="comment-action-btn">查看翻译</span>
+                            </div>
                         </div>
-                        <div class="comment-text">${comment.text}</div>
-                        <div class="comment-actions">
-                            <span class="comment-action-btn">回复</span>
-                            <span class="comment-action-btn">查看翻译</span>
+                        <div class="comment-like-container">
+                            <i class="far fa-heart comment-like-icon"></i>
+                            <span class="comment-like-count">${comment.likes}</span>
                         </div>
-                        ${repliesHtml}
                     </div>
-                    <div class="comment-like-container">
-                        <i class="far fa-heart comment-like-icon"></i>
-                        <span class="comment-like-count">${comment.likes}</span>
-                    </div>
+                    ${repliesHtml}
                 </div>
             `;
         }).join('');
@@ -358,23 +380,9 @@
     window.toggleReplies = function(id, btn) {
         const replies = document.getElementById(`replies-${id}`);
         if (replies) {
-             const isHidden = replies.style.display === 'none' || !replies.style.display;
-             const textSpan = btn.querySelector('.view-replies-text');
-             
-             if (isHidden) {
-                 replies.style.display = 'block';
-                 if (textSpan) {
-                     if (!btn.dataset.originalText) {
-                         btn.dataset.originalText = textSpan.textContent;
-                     }
-                     textSpan.textContent = '隐藏回复';
-                 }
-             } else {
-                 replies.style.display = 'none';
-                 if (textSpan && btn.dataset.originalText) {
-                     textSpan.textContent = btn.dataset.originalText;
-                 }
-             }
+             replies.classList.add('visible');
+             // Hide the button after clicking, per requirements
+             btn.style.display = 'none';
         }
     };
 
@@ -391,6 +399,38 @@
                 </div>
                 <div class="header-right">
                     <!-- Right side empty -->
+                </div>
+            </div>
+        `;
+    }
+
+    function renderForumSettingsHeader() {
+        return `
+            <div class="forum-header">
+                <div class="header-left">
+                    <i class="fas fa-chevron-left" id="forum-settings-back" style="font-size: 24px; cursor: pointer;"></i>
+                </div>
+                <div class="header-center">
+                    <span style="font-size: 16px; font-weight: 700;">论坛设置</span>
+                </div>
+                <div class="header-right">
+                    <span id="forum-settings-save" style="font-weight: 600; color: #0095f6; cursor: pointer;">保存</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderForumEditContactHeader() {
+        return `
+            <div class="forum-header">
+                <div class="header-left">
+                    <i class="fas fa-chevron-left" id="forum-edit-contact-back" style="font-size: 24px; cursor: pointer;"></i>
+                </div>
+                <div class="header-center">
+                    <span style="font-size: 16px; font-weight: 700;">编辑角色主页</span>
+                </div>
+                <div class="header-right">
+                    <span id="forum-edit-contact-save" style="font-weight: 600; color: #0095f6; cursor: pointer;">保存</span>
                 </div>
             </div>
         `;
@@ -447,8 +487,8 @@
                     <i class="fas fa-chevron-down header-title-arrow"></i>
                 </div>
                 <div class="header-right">
-                    <i class="fas fa-at" style="font-size: 24px;"></i> <!-- Threads icon approx -->
-                    <i class="fas fa-bars" style="font-size: 24px;"></i>
+                    <img src="https://i.postimg.cc/QCfGKHGC/无标题98_20260215024118.png" style="height: 32px; width: auto; margin-top: 5px;">
+                    <img src="https://i.postimg.cc/vT0FxcF9/无标题98_20260215024227.png" style="height: 32px; width: auto; margin-top: 5px;">
                 </div>
             </div>
         `;
@@ -500,45 +540,169 @@
                 <div class="edit-form-group">
                     <div class="edit-form-row">
                         <label>姓名</label>
-                        <input type="text" id="edit-name-input" value="${user.bio}" placeholder="姓名">
+                        <input type="text" id="edit-name-input" value="${user.bio}" placeholder="姓名" style="background: transparent;">
                     </div>
                     <div class="edit-form-row">
                         <label>账号</label>
-                        <input type="text" id="edit-username-input" value="${user.username}" placeholder="账号">
-                    </div>
-                    <div class="edit-form-row">
-                        <label>人称代词</label>
-                        <input type="text" value="人称代词" placeholder="人称代词" readonly style="color: #8e8e8e;">
+                        <input type="text" id="edit-username-input" value="${user.username}" placeholder="账号" style="background: transparent;">
                     </div>
                     <div class="edit-form-row">
                         <label>个性签名</label>
-                         <input type="text" id="edit-signature-input" value="${user.signature || ''}" placeholder="个性签名">
+                         <input type="text" id="edit-signature-input" value="${user.signature || ''}" placeholder="个性签名" style="background: transparent;">
                     </div>
                     <div class="edit-form-row">
-                        <label>链接</label>
-                        <div class="edit-row-right">添加链接</div>
+                        <label>公众身份</label>
+                        <input type="text" id="edit-public-identity-input" value="${user.publicIdentity || ''}" placeholder="公众形象身份" style="background: transparent;">
                     </div>
                     <div class="edit-form-row">
-                        <label>横幅</label>
-                        <div class="edit-row-right">添加横幅 <i class="fas fa-chevron-right" style="font-size: 12px; margin-left: auto;"></i></div>
-                    </div>
-                     <div class="edit-form-row">
-                        <label>音乐</label>
-                        <div class="edit-row-right">在主页添加音乐 <i class="fas fa-chevron-right" style="font-size: 12px; margin-left: auto;"></i></div>
+                        <label>粉丝数量</label>
+                        <input type="number" id="edit-followers-input" value="${user.followers || 0}" placeholder="粉丝数量" style="background: transparent;">
                     </div>
                      <div class="edit-form-row">
                         <label>性别</label>
-                        <div class="edit-row-right">性别 <i class="fas fa-chevron-right" style="font-size: 12px; margin-left: auto;"></i></div>
+                        <input type="text" id="edit-gender-input" value="${user.gender || '性别'}" placeholder="性别" style="color: #000; background: transparent;">
                     </div>
                 </div>
 
                 <div class="edit-profile-links">
                     <div class="edit-link-item">切换为专业账户</div>
-                    <div class="edit-link-item">个人信息设置</div>
                 </div>
             </div>
         `;
     }
+
+    function renderForumSettings() {
+        const contacts = window.iphoneSimState.contacts || [];
+        const worldbooks = window.iphoneSimState.wbCategories || [];
+        
+        let contactsHtml = '';
+        contacts.forEach(c => {
+            const isChecked = forumState.settings && forumState.settings.linkedContacts && forumState.settings.linkedContacts.includes(c.id);
+            contactsHtml += `
+                <div class="edit-form-row" onclick="const cb = this.querySelector('.forum-contact-checkbox'); if(cb) cb.checked = !cb.checked;">
+                    <label style="flex: 1;">${c.remark || c.name}</label>
+                    <input type="checkbox" class="forum-contact-checkbox" data-id="${c.id}" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation()">
+                </div>
+            `;
+        });
+
+        let linkedListHtml = '';
+        if (forumState.settings && forumState.settings.linkedContacts) {
+            forumState.settings.linkedContacts.forEach(cid => {
+                const c = contacts.find(contact => contact.id === cid);
+                if (c) {
+                    linkedListHtml += `
+                        <div class="edit-form-row" style="cursor: pointer;" onclick="window.openEditForumContact(${c.id})">
+                            <label style="flex: 1;">${c.remark || c.name}</label>
+                            <div style="color: #0095f6; font-size: 14px;">编辑资料 ></div>
+                        </div>
+                    `;
+                }
+            });
+        }
+
+        let worldbooksHtml = '<option value="">-- 选择世界书 --</option>';
+        worldbooks.forEach(wb => {
+            const isSelected = forumState.settings && forumState.settings.linkedWorldbook == wb.id;
+            worldbooksHtml += `<option value="${wb.id}" ${isSelected ? 'selected' : ''}>${wb.name}</option>`;
+        });
+
+        const currentWorldview = (forumState.settings && forumState.settings.forumWorldview) ? forumState.settings.forumWorldview : '';
+
+        return `
+            <div class="edit-profile-container">
+                <div class="edit-form-group">
+                    <div style="font-weight: 600; margin-bottom: 10px;">关联联系人</div>
+                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #efefef; padding: 0 10px; border-radius: 8px;">
+                        ${contactsHtml || '<div style="padding:10px; color:#999;">暂无联系人</div>'}
+                    </div>
+                </div>
+
+                ${linkedListHtml ? `
+                <div class="edit-form-group" style="margin-top: 20px;">
+                    <div style="font-weight: 600; margin-bottom: 10px;">已关联角色的论坛资料</div>
+                    <div style="border: 1px solid #efefef; padding: 0 10px; border-radius: 8px;">
+                        ${linkedListHtml}
+                    </div>
+                </div>
+                ` : ''}
+
+                <div class="edit-form-group">
+                    <div style="font-weight: 600; margin-bottom: 10px;">关联世界书</div>
+                    <select id="forum-worldbook-select" style="width: 100%; padding: 10px; border: 1px solid #dbdbdb; border-radius: 8px; background: #fff;">
+                        ${worldbooksHtml}
+                    </select>
+                </div>
+
+                <div class="edit-form-group">
+                    <div style="font-weight: 600; margin-bottom: 10px;">论坛世界观</div>
+                    <textarea id="forum-worldview-input" placeholder="输入在这个论坛中的世界观设定..." style="width: 100%; height: 150px; padding: 10px; border: 1px solid #dbdbdb; border-radius: 8px; resize: none; font-family: inherit;">${currentWorldview}</textarea>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderForumEditContact() {
+        const contactId = forumState.editingContactId;
+        const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+        if (!contact) return '<div>联系人不存在</div>';
+
+        const profiles = forumState.settings.contactProfiles || {};
+        const profile = profiles[contactId] || {};
+
+        const avatar = profile.avatar || contact.avatar;
+        const name = profile.name || contact.remark || contact.name;
+        const username = profile.username || contact.id; // Default ID
+        const bio = profile.bio || '';
+        const identity = profile.identity || '';
+        const followers = profile.followers !== undefined ? profile.followers : 0;
+        const following = profile.following !== undefined ? profile.following : 0;
+
+        return `
+            <div class="edit-profile-container">
+                <input type="file" id="forum-contact-avatar-input" style="display: none;" accept="image/*">
+                <div class="edit-profile-avatar-section">
+                    <div class="edit-avatar-wrapper" id="forum-contact-avatar-wrapper">
+                         <img src="${avatar}" class="edit-profile-avatar" id="forum-contact-avatar-preview">
+                    </div>
+                    <div class="edit-avatar-text" onclick="document.getElementById('forum-contact-avatar-input').click()">更换头像</div>
+                </div>
+
+                <div class="edit-form-group">
+                    <div class="edit-form-row">
+                        <label>网名</label>
+                        <input type="text" id="fc-name" value="${name}" placeholder="网名">
+                    </div>
+                    <div class="edit-form-row">
+                        <label>ID</label>
+                        <input type="text" id="fc-username" value="${username}" placeholder="用户ID">
+                    </div>
+                    <div class="edit-form-row">
+                        <label>公众身份</label>
+                        <input type="text" id="fc-identity" value="${identity}" placeholder="例如: 知名博主">
+                    </div>
+                    <div class="edit-form-row">
+                        <label>个性签名</label>
+                        <input type="text" id="fc-bio" value="${bio}" placeholder="个性签名">
+                    </div>
+                    <div class="edit-form-row">
+                        <label>粉丝量</label>
+                        <input type="number" id="fc-followers" value="${followers}" placeholder="0">
+                    </div>
+                    <div class="edit-form-row">
+                        <label>关注量</label>
+                        <input type="number" id="fc-following" value="${following}" placeholder="0">
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    window.openEditForumContact = function(contactId) {
+        forumState.editingContactId = contactId;
+        forumState.activeTab = 'forum_edit_contact';
+        renderForum();
+    };
 
     function renderProfileTab() {
         const user = forumState.currentUser;
@@ -597,7 +761,7 @@
                     <div class="profile-actions-row">
                         <button class="profile-btn">编辑主页</button>
                         <button class="profile-btn">分享主页</button>
-                        <button class="profile-btn-icon"><i class="fas fa-user-plus"></i></button>
+                        <button class="profile-btn-icon" id="forum-settings-btn"><i class="fas fa-user-plus"></i></button>
                     </div>
                 </div>
                 
@@ -703,6 +867,10 @@
                     <div class="action-item comment-btn" data-id="${post.id}">
                         <img src="https://i.postimg.cc/GmHtkm1B/无标题98_20260213233618.png" class="post-action-icon">
                         <span class="action-count">${post.stats.comments}</span>
+                    </div>
+                    <div class="action-item">
+                        <img src="https://i.postimg.cc/fyG4XnSn/wu-biao-ti98-20260215020652.png" class="post-action-icon">
+                        <span class="action-count">${post.stats.forwards || 0}</span>
                     </div>
                     <div class="action-item">
                         <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="post-action-icon">
@@ -888,6 +1056,14 @@
             });
         }
 
+        const forumSettingsBtn = document.getElementById('forum-settings-btn');
+        if (forumSettingsBtn) {
+            forumSettingsBtn.addEventListener('click', () => {
+                forumState.activeTab = 'forum_settings';
+                renderForum();
+            });
+        }
+
         const editBackBtn = document.getElementById('edit-profile-back');
         if (editBackBtn) {
             editBackBtn.addEventListener('click', () => {
@@ -895,16 +1071,134 @@
                 const nameInput = document.getElementById('edit-name-input');
                 const usernameInput = document.getElementById('edit-username-input');
                 const signatureInput = document.getElementById('edit-signature-input');
+                const publicIdentityInput = document.getElementById('edit-public-identity-input');
+                const followersInput = document.getElementById('edit-followers-input');
+                const genderInput = document.getElementById('edit-gender-input');
 
                 if (nameInput) forumState.currentUser.bio = nameInput.value;
                 if (usernameInput) forumState.currentUser.username = usernameInput.value;
                 if (signatureInput) forumState.currentUser.signature = signatureInput.value;
+                if (publicIdentityInput) forumState.currentUser.publicIdentity = publicIdentityInput.value;
+                if (followersInput) forumState.currentUser.followers = parseInt(followersInput.value) || 0;
+                if (genderInput) forumState.currentUser.gender = genderInput.value;
 
                 // Save to localStorage
                 localStorage.setItem('forum_currentUser', JSON.stringify(forumState.currentUser));
 
                 forumState.activeTab = 'profile';
                 renderForum();
+            });
+        }
+
+        const forumSettingsBackBtn = document.getElementById('forum-settings-back');
+        if (forumSettingsBackBtn) {
+            forumSettingsBackBtn.addEventListener('click', () => {
+                forumState.activeTab = 'profile';
+                renderForum();
+            });
+        }
+
+        const forumSettingsSaveBtn = document.getElementById('forum-settings-save');
+        if (forumSettingsSaveBtn) {
+            forumSettingsSaveBtn.addEventListener('click', () => {
+                // Save Logic
+                if (!forumState.settings) forumState.settings = {};
+                
+                const selectedContacts = [];
+                document.querySelectorAll('.forum-contact-checkbox').forEach(cb => {
+                    if (cb.checked) selectedContacts.push(parseInt(cb.dataset.id));
+                });
+                forumState.settings.linkedContacts = selectedContacts;
+
+                const wbSelect = document.getElementById('forum-worldbook-select');
+                forumState.settings.linkedWorldbook = wbSelect.value ? parseInt(wbSelect.value) : null;
+
+                const worldviewInput = document.getElementById('forum-worldview-input');
+                forumState.settings.forumWorldview = worldviewInput.value;
+
+                // Persist
+                localStorage.setItem('forum_settings', JSON.stringify(forumState.settings));
+                
+                forumState.activeTab = 'profile';
+                renderForum();
+            });
+        }
+
+        const forumEditContactBackBtn = document.getElementById('forum-edit-contact-back');
+        if (forumEditContactBackBtn) {
+            forumEditContactBackBtn.addEventListener('click', () => {
+                forumState.activeTab = 'forum_settings';
+                renderForum();
+            });
+        }
+
+        const forumEditContactSaveBtn = document.getElementById('forum-edit-contact-save');
+        if (forumEditContactSaveBtn) {
+            forumEditContactSaveBtn.addEventListener('click', () => {
+                const contactId = forumState.editingContactId;
+                if (!contactId) return;
+
+                if (!forumState.settings.contactProfiles) forumState.settings.contactProfiles = {};
+                
+                const profile = forumState.settings.contactProfiles[contactId] || {};
+                
+                profile.name = document.getElementById('fc-name').value;
+                profile.username = document.getElementById('fc-username').value;
+                profile.identity = document.getElementById('fc-identity').value;
+                profile.bio = document.getElementById('fc-bio').value;
+                profile.followers = parseInt(document.getElementById('fc-followers').value) || 0;
+                profile.following = parseInt(document.getElementById('fc-following').value) || 0;
+                
+                // Avatar handling via existing preview img src (assuming uploaded/set)
+                const avatarPreview = document.getElementById('forum-contact-avatar-preview');
+                if (avatarPreview) {
+                    profile.avatar = avatarPreview.src;
+                }
+
+                forumState.settings.contactProfiles[contactId] = profile;
+                
+                localStorage.setItem('forum_settings', JSON.stringify(forumState.settings));
+                
+                forumState.activeTab = 'forum_settings';
+                renderForum();
+            });
+        }
+
+        const forumContactAvatarInput = document.getElementById('forum-contact-avatar-input');
+        if (forumContactAvatarInput) {
+            forumContactAvatarInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.src = event.target.result;
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            const MAX_SIZE = 300;
+                            let width = img.width;
+                            let height = img.height;
+                            if (width > height) {
+                                if (width > MAX_SIZE) {
+                                    height *= MAX_SIZE / width;
+                                    width = MAX_SIZE;
+                                }
+                            } else {
+                                if (height > MAX_SIZE) {
+                                    width *= MAX_SIZE / height;
+                                    height = MAX_SIZE;
+                                }
+                            }
+                            canvas.width = width;
+                            canvas.height = height;
+                            ctx.drawImage(img, 0, 0, width, height);
+                            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                            document.getElementById('forum-contact-avatar-preview').src = compressedDataUrl;
+                        };
+                    };
+                    reader.readAsDataURL(file);
+                }
             });
         }
 
@@ -1229,27 +1523,121 @@
                 throw new Error('No AI settings');
             }
 
+            // Gather Context: Linked Contacts
+            const linkedContactIds = forumState.settings.linkedContacts || [];
+            const contacts = window.iphoneSimState.contacts || [];
+            const profiles = forumState.settings.contactProfiles || {};
+            
+            const linkedContactsData = linkedContactIds.map(id => {
+                const contact = contacts.find(c => c.id === id);
+                if (!contact) return null;
+                const profile = profiles[id] || {};
+                return {
+                    id: contact.id, // Keep original ID type
+                    name: profile.name || contact.remark || contact.name,
+                    username: profile.username || contact.id,
+                    avatar: profile.avatar || contact.avatar,
+                    verified: false,
+                    subtitle: profile.identity || '',
+                    followers: profile.followers || 0,
+                    persona: contact.persona || '普通网友',
+                    bio: profile.bio || ''
+                };
+            }).filter(c => c);
+
+            // Gather Context: Worldbook & Worldview
+            const forumWorldview = forumState.settings.forumWorldview || '';
+            const wbId = forumState.settings.linkedWorldbook;
+            let worldbookContent = '';
+            if (wbId && window.iphoneSimState.wbCategories) {
+                const wb = window.iphoneSimState.wbCategories.find(c => c.id === wbId);
+                if (wb && wb.entries) {
+                    // Limit content to avoid token overflow, prefer key and content
+                    worldbookContent = wb.entries.slice(0, 20).map(e => `${e.key}: ${e.content}`).join('\n').substring(0, 3000);
+                }
+            }
+
+            let prompt = '';
+            const targetTotal = 7;
+            const currentUserName = forumState.currentUser.bio || '我'; // Current user name
+
+            if (linkedContactsData.length > 0) {
+                const charList = linkedContactsData.map(c => 
+                    `- ID: "${c.id}"\n  Name: ${c.name}\n  Identity: ${c.subtitle}\n  Followers: ${c.followers}\n  Persona: ${c.persona}`
+                ).join('\n\n');
+
+                prompt = `
+请模拟社交论坛生成帖子。
+世界观背景: ${forumWorldview}
+世界设定(Worldbook): ${worldbookContent}
+
+任务: 生成总共 ${Math.max(targetTotal, linkedContactsData.length)} 条帖子。
+
+要求 1 (指定用户):
+以下用户必须每人至少发一条帖子 (userId 必须填入对应的 ID):
+${charList}
+
+要求 2 (路人):
+剩余的帖子由随机路人(NPC)发布 (userId 留空或为null).
+
+通用数据要求:
+1. 返回纯JSON数组。
+2. 严禁生成以 "${currentUserName}" 或 "我" 为名字的评论/回复。严禁出现替用户("${currentUserName}")回复的情况。
+3. 评论区严禁出现重复评论。
+4. **重要**: 如果是"指定用户"(联系人)发的帖子，该用户必须在评论区中至少回复一条评论。
+5. 每个帖子对象包含:
+   - userId: 对应上面列表中的 ID (如果是路人则为 null)
+   - user: 如果是路人(userId为null)，必须包含此对象: { "name": "随机网名", "avatar": "https://api.dicebear.com/7.x/lorelei/svg?seed=随机字符串", "verified": false, "subtitle": "签名" }。如果是指定用户，此字段可为 null。
+   - post_type: "image" 或 "text" (随机)
+   - image_ratio: "1:1", "4:5", "16:9" (如果是图片)
+   - type: "food", "travel", "mood", "hobby", "daily", "pet", "scenery"
+   - image_description: 图片画面详细描述(用于生成占位图)
+   - caption: 帖子正文。必须符合该用户的"Persona"(人设)和"Identity"(身份)，并结合"World Setting"和"Worldbook"中的内容。内容要生活化、真实、有梗。
+   - time: "刚刚"
+   - stats: { likes, comments, forwards, shares } -> 数值必须根据用户的 Followers (粉丝数) 和 Identity 合理生成。
+   - comments_list: 数组，包含3-5条评论。
+     每个评论对象必须包含:
+     {
+       "id": 1,
+       "user": { "name": "网友昵称", "avatar": "https://api.dicebear.com/7.x/lorelei/svg?seed=randomString", "verified": false },
+       "text": "评论内容",
+       "time": "1分钟前",
+       "likes": 0,
+       "replies": [] // 包含0-2条回复。**如果是联系人帖子，必须包含至少一条作者本人的回复**。
+     }
+
+只返回JSON，不要Markdown标记。
+`;
+            } else {
+                // Fallback to random strangers if no contacts linked
+                prompt = `
+请模拟社交论坛生成7个陌生人（NPC）发布的帖子。
+世界观背景: ${forumWorldview}
+世界设定(Worldbook): ${worldbookContent}
+
+要求:
+1. 返回纯JSON数组。
+2. 严禁生成以 "${currentUserName}" 或 "我" 为名字的评论。
+3. 严禁出现重复评论。
+4. 每个对象包含:
+   - post_type: "image" 或 "text" (30%概率为纯文字)
+   - image_ratio: "1:1", "4:5", "16:9"
+   - type: "food", "travel", "mood", "hobby", "daily", "pet", "scenery"
+   - image_description: 画面描述
+   - user: { name, avatar (生成随机URL), verified (bool), subtitle }
+   - stats: { likes, comments, forwards, shares }
+   - caption: 正文 (符合世界观，生活化)
+   - time: "刚刚"
+   - comments_list: 评论列表。每个评论必须包含 user 对象 { name, avatar }.
+
+只返回JSON，不要Markdown标记。
+`;
+            }
+
             let fetchUrl = settings.url;
             if (!fetchUrl.endsWith('/chat/completions')) {
                 fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
             }
-
-            const prompt = `
-请模拟真实的社交论坛环境，生成7个陌生人（NPC）发布的帖子数据。
-返回格式必须是纯粹的JSON数组，严禁包含markdown格式标记。
-每个对象包含以下字段：
-- id: 唯一数字ID
-- post_type: 帖子形式，"image" (带图) 或 "text" (纯文字)。请随机分配，约30%为纯文字。
-- image_ratio: 如果是带图帖子，请随机指定图片比例: "1:1" (正方形), "4:5" (竖长), "16:9" (横长)。如果是纯文字，则为 null。
-- type: 帖子主题，必须从以下选项中选择一个: "food" (美食), "travel" (旅行), "mood" (心情), "hobby" (爱好), "daily" (日常), "pet" (宠物), "scenery" (风景)
-- image_description: 如果是带图帖子，提供详细的中文图片画面描述，不要只写关键词，要描绘画面细节（例如：“一只橘猫懒洋洋地躺在洒满阳光的窗台上，旁边放着一杯冒着热气的咖啡”）。如果是纯文字，则为 null。
-- user: 对象，包含 name (随机有趣的网名), avatar (使用 https://api.dicebear.com/7.x/lorelei/svg?seed=随机字符串), verified (布尔值, 20%概率为true), subtitle (短签名或位置)
-- stats: 对象，包含 likes (随机数字10-5000), comments (随机数字5-100), shares (随机数字)
-- caption: 帖子正文，内容要非常生活化、丰富有趣、甚至带点狗血或搞笑，像活人发的，必须包含emoji。如果是纯文字帖子，内容可以稍长一些。
-- time: 发布时间字符串（如"5分钟前", "刚刚"）
-- liked: false
-- comments_list: 数组，包含3-5条评论对象，每个包含 id, user (name, avatar使用lorelei风格, verified), text (评论内容，要有趣，有互动感，模仿真实网友), time, likes。
-`;
 
             const response = await fetch(fetchUrl, {
                 method: 'POST',
@@ -1346,6 +1734,29 @@
                 newPosts.forEach((post, index) => {
                     post.id = now + index; // Ensure unique numeric IDs
                     
+                    // Map User if linked contacts
+                    if (linkedContactsData.length > 0 && post.userId) {
+                        const contact = linkedContactsData.find(c => c.id == post.userId);
+                        if (contact) {
+                            post.user = {
+                                name: contact.name,
+                                avatar: contact.avatar,
+                                verified: false,
+                                subtitle: contact.subtitle
+                            };
+                        }
+                    }
+
+                    // Fallback for user if missing (e.g. AI error or stranger mode)
+                    if (!post.user) {
+                        post.user = {
+                            name: '路人' + Math.floor(Math.random() * 1000),
+                            avatar: 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + Math.random(),
+                            verified: false,
+                            subtitle: ''
+                        };
+                    }
+                    
                     // Generate Image if post_type is not 'text'
                     if (post.post_type === 'text') {
                         post.image = null;
@@ -1354,10 +1765,94 @@
                          post.image = generatePlaceholderSvg(post.type || 'daily', post.image_ratio || '1:1');
                     }
 
-                    if (!post.stats) post.stats = { likes: 0, comments: 0, shares: 0 };
+                    if (!post.stats) post.stats = { likes: 0, comments: 0, forwards: 0, shares: 0 };
                     // Ensure stats.comments matches comments_list length if possible
                     if (post.comments_list && Array.isArray(post.comments_list)) {
                         post.stats.comments = post.comments_list.length + Math.floor(Math.random() * 20);
+                        
+                        // Fix undefined comments and ensure author reply exists
+                        let hasAuthorReply = false;
+                        const isLinkedPost = linkedContactsData.length > 0 && post.userId;
+                        const seenComments = new Set(); // For deduplication
+                        
+                        // Filter out empty or duplicate comments
+                        if (post.comments_list && Array.isArray(post.comments_list)) {
+                            post.comments_list = post.comments_list.filter(comment => {
+                                if (!comment.text) return false;
+                                if (seenComments.has(comment.text)) return false;
+                                seenComments.add(comment.text);
+                                return true;
+                            });
+                        }
+
+                        if (post.comments_list && Array.isArray(post.comments_list)) {
+                            post.comments_list.forEach((comment, cIndex) => {
+                                if (!comment.id) comment.id = now + index * 100 + cIndex;
+                                if (!comment.user) comment.user = {};
+                                
+                                // Prevent impersonation of current user in comments
+                                if (!comment.user.name || comment.user.name === currentUserName || comment.user.name === '我') {
+                                    comment.user.name = '网友' + Math.floor(Math.random()*1000);
+                                }
+                                
+                                if (!comment.user.avatar) comment.user.avatar = `https://api.dicebear.com/7.x/lorelei/svg?seed=${Math.random()}`;
+                                if (!comment.text) comment.text = '...';
+                                if (!comment.time) comment.time = '刚刚';
+                                
+                                // Fix replies
+                                if (comment.replies && Array.isArray(comment.replies)) {
+                                    // Filter out impersonated replies or duplicate replies
+                                    const seenReplies = new Set();
+                                    comment.replies = comment.replies.filter(reply => {
+                                        if (!reply.text) return false;
+                                        if (seenReplies.has(reply.text)) return false;
+                                        seenReplies.add(reply.text);
+                                        return true;
+                                    });
+
+                                    comment.replies.forEach((reply, rIndex) => {
+                                        if (!reply.id) reply.id = comment.id * 1000 + rIndex;
+                                        if (!reply.user) reply.user = {};
+                                        
+                                        // Handle author replies
+                                        if (reply.user.name === 'Author' || reply.user.isAuthor || (post.user && reply.user.name === post.user.name)) {
+                                            reply.user = post.user; // Use post author object
+                                            hasAuthorReply = true;
+                                        } else {
+                                            // Prevent impersonation in replies
+                                            if (!reply.user.name || reply.user.name === currentUserName || reply.user.name === '我') {
+                                                reply.user.name = '网友' + Math.floor(Math.random()*1000);
+                                            }
+                                            if (!reply.user.avatar) reply.user.avatar = `https://api.dicebear.com/7.x/lorelei/svg?seed=${Math.random()}`;
+                                        }
+                                        
+                                        if (!reply.text) reply.text = '...';
+                                        if (!reply.time) reply.time = '刚刚';
+                                    });
+                                }
+                            });
+                        }
+
+                        // Force at least one author reply for Linked Contact posts if not present
+                        if (isLinkedPost && !hasAuthorReply && post.comments_list && post.comments_list.length > 0) {
+                            // Try to find a comment to reply to, preferably one that isn't already full
+                            const targetIndex = Math.floor(Math.random() * post.comments_list.length);
+                            const targetComment = post.comments_list[targetIndex];
+                            
+                            if (!targetComment.replies) targetComment.replies = [];
+                            
+                            // Only add if not already replied by author
+                            const alreadyReplied = targetComment.replies.some(r => r.user.name === post.user.name);
+                            if (!alreadyReplied) {
+                                targetComment.replies.push({
+                                    id: Date.now() + Math.random(),
+                                    user: post.user,
+                                    text: '👀 感谢支持！', 
+                                    time: '刚刚',
+                                    likes: 0
+                                });
+                            }
+                        }
                     }
                 });
 

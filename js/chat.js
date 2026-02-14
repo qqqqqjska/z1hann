@@ -3351,11 +3351,12 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
             systemPrompt += '\n\n【可用表情包列表】\n';
             const descriptions = activeStickers.map(s => s.desc).join(', ');
             systemPrompt += descriptions + '\n';
-            systemPrompt += '\n⚠️ **严格约束**：你只能使用上述列表中的表情包名称，必须**完全匹配**，不允许有任何偏差。\n';
-            systemPrompt += '⚠️ 如果列表中没有合适的表情包，请不要发送表情包，也不要编造不存在的表情包名称。\n';
+            systemPrompt += '\n⚠️ **严格约束**：你只能使用上述列表中的表情包名称，必须**完全匹配**，不允许有任何偏差（包括标点符号）。\n';
+            systemPrompt += '⚠️ **绝对禁止**编造不存在的表情包名称。如果列表中没有你想要表达的表情，请直接使用文字描述，或者放弃发送表情包。';
+            systemPrompt += '\n⚠️ 如果你发送了不在列表中的表情包名称，它将无法显示，导致出现 "[表情包: xxx]" 的错误提示，这是不允许的。\n';
         } else {
             systemPrompt += '\n\n【可用表情包列表】\n（当前没有可用的表情包）\n';
-            systemPrompt += '⚠️ 由于没有可用的表情包，请不要尝试发送任何表情包。\n';
+            systemPrompt += '⚠️ 由于没有可用的表情包，请**绝对不要**尝试发送任何表情包。不要输出 {"type": "sticker", ...}。请仅使用文字回复。\n';
         }
     }
 
@@ -4264,8 +4265,8 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                     if (stickerUrl) {
                         sendMessage(stickerUrl, false, 'sticker', msg.content, contactId);
                     } else {
-                        // 找不到表情包，降级为文本
-                        await typewriterEffect(`[表情包: ${msg.content}]`, contact.avatar, currentThought, currentReplyTo, 'text', contactId);
+                        // 找不到表情包，直接忽略，不发送文本 fallback，以免破坏沉浸感
+                        console.warn(`Sticker not found: ${msg.content}`);
                     }
                 } else if (msg.type === '语音' || msg.type === 'voice') {
                     let duration = 3;

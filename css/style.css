@@ -3597,19 +3597,26 @@ input:checked + .slider:before {
 }
 
 /* Multi-select Styles */
-.chat-body.multi-select-mode .chat-message {
+.chat-body.multi-select-mode .chat-message:not(.system) {
     cursor: pointer;
     padding-left: 40px; /* 为复选框留出空间 */
     transition: padding-left 0.2s ease;
 }
 
+/* 系统消息在多选模式下不偏移，且不可点击 */
+.chat-body.multi-select-mode .chat-message.system {
+    padding-left: 0;
+    padding-right: 0;
+    pointer-events: none;
+}
+
 /* 对于右侧（用户）消息，把留白放到右侧，使勾选圈靠近气泡右侧 */
-.chat-body.multi-select-mode .chat-message.user {
+.chat-body.multi-select-mode .chat-message.user:not(.system) {
     padding-right: 40px;
     padding-left: 0;
 }
 
-.chat-body.multi-select-mode .chat-message.other {
+.chat-body.multi-select-mode .chat-message.other:not(.system) {
     padding-left: 40px;
     padding-right: 0;
 }
@@ -3722,6 +3729,46 @@ input.msg-select-checkbox {
     padding: 8px 10px;
     border-radius: 8px;
     font-size: 14px;
+    cursor: pointer;
+}
+
+/* 多选删除按钮 - 悬浮在右下角 */
+.multi-select-delete {
+    position: absolute;
+    bottom: 70px;
+    bottom: max(70px, env(safe-area-inset-bottom));
+    right: 20px;
+    background-color: rgba(0, 0, 0, 0.85);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 200;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.multi-select-delete.hidden {
+    display: none !important;
+}
+
+.multi-select-delete:active {
+    transform: scale(0.96);
+    background-color: #000;
+}
+
+.multi-select-delete:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background-color: rgba(0, 0, 0, 0.5);
 }
 
 

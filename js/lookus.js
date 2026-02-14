@@ -588,7 +588,7 @@ async function updateLookusStatusWithAI(contactId) {
     // Check if device model needs generation
     let deviceInstruction = "";
     if (!contact.deviceModel) {
-        deviceInstruction = `\n- **首次生成**：该角色尚未设置手机型号。请根据人设推断并返回 "deviceModel" 字段，例如 "iPhone 15 Pro", "Huawei Mate 60" 等。`;
+        deviceInstruction = `\n- **首次生成手机型号**：该角色尚未设置手机型号。请根据人设（特别是经济状况、性格、职业）推断并返回 "deviceModel" 字段。例如富二代可能用 "iPhone 15 Pro Max 1TB"，学生可能用 "Redmi K70"，商务人士可能用 "Huawei Mate 60 Pro"。请生成一个具体的型号。`;
     }
 
     // Calculate time elapsed
@@ -673,7 +673,6 @@ ${deviceInstruction}
 
 【参考信息】
 当前状态：
-- 距离: ${currentData.distance} km
 - 电量: ${currentData.battery}
 - 屏幕使用: ${currentData.screenTimeH}小时${currentData.screenTimeM}分
 - 解锁次数: ${currentData.unlockCount}
@@ -684,7 +683,6 @@ ${itineraryText || "暂无具体行程"}
 
 请返回 JSON (字段名必须一致):
 {
-  "distance": "数字 (例如 5.2, 不要带km)",
   "battery": "数字 (0-100)",
   "network": "WiFi名称 或 5G",
   ${!contact.deviceModel ? '"deviceModel": "手机型号",' : ''}
@@ -767,6 +765,20 @@ ${itineraryText || "暂无具体行程"}
             // Save permanent device model if generated
             if (newData.deviceModel && !contact.deviceModel) {
                 contact.deviceModel = newData.deviceModel;
+            }
+
+            // Fix: Ensure battery consistency with report events
+            // 如果报备中有"电量低于20%"的事件，强制将当前电量修正为低于20，避免首页显示高电量造成矛盾
+            if (newData.reportEvents && Array.isArray(newData.reportEvents)) {
+                newData.reportEvents.forEach(evt => {
+                    if (evt.text.includes('电量低于') && evt.text.includes('20%')) {
+                        let currentBat = parseInt(newData.battery);
+                        // If battery is high but report says low, force it down
+                        if (!isNaN(currentBat) && currentBat >= 20) {
+                            newData.battery = 19;
+                        }
+                    }
+                });
             }
 
             // Process Report Events
@@ -882,7 +894,7 @@ ${itineraryText || "暂无具体行程"}
             const newUnlock = Math.max(parseInt(newData.unlockCount) || 0, oldUnlock);
 
             contact.lookusData = {
-                distance: newData.distance || currentData.distance,
+                distance: '--', // Always reset to placeholder, let renderLookusApp calculate it
                 battery: (newData.battery || 80) + '%',
                 network: newData.network || '5G',
                 device: contact.deviceModel || newData.deviceModel || 'iPhone', 
@@ -989,16 +1001,16 @@ function getLookusData(contactId) {
     }
     seed = Math.abs(seed);
     
-    const randomDistance = ((seed % 900) / 10 + 0.1).toFixed(1);
-    const deviceModels = ['iPhone 15 Pro', 'iPhone 14', 'iPhone 13 mini', 'iPhone 15 Pro Max', 'iPhone SE'];
-    const randomDevice = deviceModels[seed % deviceModels.length];
+    // const randomDistance = ((seed % 900) / 10 + 0.1).toFixed(1);
+    // const deviceModels = ['iPhone 15 Pro', 'iPhone 14', 'iPhone 13 mini', 'iPhone 15 Pro Max', 'iPhone SE'];
+    // const randomDevice = deviceModels[seed % deviceModels.length];
 
     if (contact && contact.lookusData) {
         return {
             name: name,
-            distance: (contact.lookusData.distance && contact.lookusData.distance !== '--') ? contact.lookusData.distance : randomDistance,
+            distance: (contact.lookusData.distance && contact.lookusData.distance !== '--') ? contact.lookusData.distance : '--',
             // Prefer permanent device model if set, else fallback to daily data or random
-            device: contact.deviceModel || contact.lookusData.device || randomDevice,
+            device: contact.deviceModel || contact.lookusData.device || '未知型号',
             network: contact.lookusData.network,
             battery: contact.lookusData.battery,
             stops: contact.lookusData.stops,
@@ -1015,8 +1027,8 @@ function getLookusData(contactId) {
     // Default Fallback
     return {
         name: name,
-        distance: randomDistance,
-        device: contact && contact.deviceModel ? contact.deviceModel : randomDevice,
+        distance: '--',
+        device: contact && contact.deviceModel ? contact.deviceModel : '未知型号',
         network: '未知',
         battery: '--%',
         stops: 0,
