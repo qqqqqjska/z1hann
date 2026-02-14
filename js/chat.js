@@ -3261,7 +3261,7 @@ ${contact.showThought ? `
 - 拨打语音通话 -> command: "START_VOICE_CALL", payload: ""
 - 拨打视频通话 -> command: "START_VIDEO_CALL", payload: ""
 - 转账 -> command: "TRANSFER", payload: "金额 备注" (例如 "88.88 节日快乐")
-- 接收转账 -> command: "ACCEPT_TRANSFER", payload: "ID"
+- 接收转账 -> command: "ACCEPT_TRANSFER", payload: "ID" (当收到转账且决定接受时，必须使用此指令，否则转账状态不会更新)
 - 退回转账 -> command: "RETURN_TRANSFER", payload: "ID"
 - 支付代付请求 -> command: "PAY_FOR_REQUEST", payload: "requestId" (当用户发送了代付请求时，你可以选择帮他支付。requestId在代付消息的JSON中)
 - 送礼物给用户 -> command: "SEND_GIFT", payload: "物品名称 | 价格 | 备注" (例如 "一束鲜花 | 52.0 | 节日快乐")
@@ -3570,7 +3570,7 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                      try {
                          if (h.type === 'transfer') {
                              const data = JSON.parse(content);
-                             return { role: h.role, content: `[转账: ${data.amount}元]` };
+                             return { role: h.role, content: `[转账: ${data.amount}元] (ID: ${data.id})` };
                          }
                      } catch(e) {}
                 }

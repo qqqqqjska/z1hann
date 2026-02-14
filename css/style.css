@@ -2779,16 +2779,16 @@ textarea {
     line-height: 1.5;
 }
 
-.comment-item {
+.moment-comment-item {
     margin-bottom: 2px;
 }
 
-.comment-user {
+.moment-comment-user {
     color: var(--wechat-link);
     font-weight: 500;
 }
 
-.comment-content {
+.moment-comment-content {
     color: #000;
     white-space: pre-wrap; /* 支持换行 */
 }
@@ -3724,18 +3724,6 @@ input.msg-select-checkbox {
     font-size: 14px;
 }
 
-/* 将删除按钮提升到底栏之上，避免遮挡底栏 */
-#multi-select-delete {
-    position: absolute;
-    right: 14px;
-    bottom: calc(50px + env(safe-area-inset-bottom, 0px) + 12px);
-    z-index: 220;
-    background: #000000;
-    color: #fff;
-    border: none;
-    padding: 12px 16px;
-    border-radius: 20px;
-}
 
 /* Location App Styles */
 .timeline-container {

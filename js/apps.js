@@ -137,13 +137,13 @@ function renderMomentsList() {
                         }
                     }
 
-                    let userHtml = `<span class="comment-user">${displayName}</span>`;
+                    let userHtml = `<span class="moment-comment-user">${displayName}</span>`;
                     if (c.replyTo) {
-                        userHtml += `回复<span class="comment-user">${c.replyTo}</span>`;
+                        userHtml += `回复<span class="moment-comment-user">${c.replyTo}</span>`;
                     }
-                    return `<div class="comment-item" onclick="event.stopPropagation(); window.handleCommentClick(this, ${moment.id}, ${index}, '${c.user}')" style="display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; padding: 2px 4px; border-radius: 2px;">
-                        <span style="flex: 1;">${userHtml}：<span class="comment-content">${c.content}</span></span>
-                        <span class="comment-delete-btn" style="display: none; color: #576b95; margin-left: 8px; font-size: 12px; padding: 0 4px;">✕</span>
+                    return `<div class="moment-comment-item" onclick="event.stopPropagation(); window.handleCommentClick(this, ${moment.id}, ${index}, '${c.user}')" style="display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; padding: 2px 4px; border-radius: 2px;">
+                        <span style="flex: 1;">${userHtml}：<span class="moment-comment-content">${c.content}</span></span>
+                        <span class="moment-comment-delete-btn" style="display: none; color: #576b95; margin-left: 8px; font-size: 12px; padding: 0 4px;">✕</span>
                     </div>`;
                 }).join('')}
             </div>`;
@@ -379,13 +379,13 @@ window.deleteMoment = function(id) {
 };
 
 window.handleCommentClick = function(el, momentId, index, user) {
-    const deleteBtn = el.querySelector('.comment-delete-btn');
+    const deleteBtn = el.querySelector('.moment-comment-delete-btn');
     
     if (deleteBtn.style.display !== 'none') {
         window.replyToComment(momentId, user);
     } else {
-        document.querySelectorAll('.comment-delete-btn').forEach(btn => btn.style.display = 'none');
-        document.querySelectorAll('.comment-item').forEach(item => item.style.backgroundColor = '');
+        document.querySelectorAll('.moment-comment-delete-btn').forEach(btn => btn.style.display = 'none');
+        document.querySelectorAll('.moment-comment-item').forEach(item => item.style.backgroundColor = '');
         
         deleteBtn.style.display = 'inline-block';
         el.style.backgroundColor = '#e5e5e5';
@@ -529,7 +529,12 @@ async function generateAiCommentReply(moment, userComment) {
     try {
         let contextDesc = `你的朋友 ${userComment.user} 在下面评论说：“${userComment.content}”`;
         if (userComment.replyTo) {
-            contextDesc = `你的朋友 ${userComment.user} 回复了 ${userComment.replyTo} 说：“${userComment.content}”`;
+            // Check if replying to the persona itself
+            if (userComment.replyTo === contact.name || userComment.replyTo === (contact.remark || contact.nickname)) {
+                contextDesc = `你的朋友 ${userComment.user} 回复了你 说：“${userComment.content}”`;
+            } else {
+                contextDesc = `你的朋友 ${userComment.user} 回复了 ${userComment.replyTo} 说：“${userComment.content}”`;
+            }
         }
 
         // Prepare System Prompt (Text context)
@@ -842,13 +847,13 @@ function renderPersonalMoments(contactId) {
                         }
                     }
 
-                    let userHtml = `<span class="comment-user">${displayName}</span>`;
+                    let userHtml = `<span class="moment-comment-user">${displayName}</span>`;
                     if (c.replyTo) {
-                        userHtml += `回复<span class="comment-user">${c.replyTo}</span>`;
+                        userHtml += `回复<span class="moment-comment-user">${c.replyTo}</span>`;
                     }
-                    return `<div class="comment-item" onclick="event.stopPropagation(); window.handleCommentClick(this, ${moment.id}, ${index}, '${c.user}')" style="display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; padding: 2px 4px; border-radius: 2px;">
-                        <span style="flex: 1;">${userHtml}：<span class="comment-content">${c.content}</span></span>
-                        <span class="comment-delete-btn" style="display: none; color: #576b95; margin-left: 8px; font-size: 12px; padding: 0 4px;">✕</span>
+                    return `<div class="moment-comment-item" onclick="event.stopPropagation(); window.handleCommentClick(this, ${moment.id}, ${index}, '${c.user}')" style="display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; padding: 2px 4px; border-radius: 2px;">
+                        <span style="flex: 1;">${userHtml}：<span class="moment-comment-content">${c.content}</span></span>
+                        <span class="moment-comment-delete-btn" style="display: none; color: #576b95; margin-left: 8px; font-size: 12px; padding: 0 4px;">✕</span>
                     </div>`;
                 }).join('')}
             </div>`;

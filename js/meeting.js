@@ -480,6 +480,18 @@ function constructMeetingPrompt(contactId, newUserInput) {
     let prompt = `你现在是一个小说家，正在进行一场角色扮演描写。\n`;
     prompt += `角色：${contact.name}。\n`;
     prompt += `人设：${contact.persona || '无特定人设'}。\n`; // 修正：使用 persona 字段
+    
+    // 添加用户人设
+    if (contact.userPersonaPromptOverride) {
+        prompt += `用户人设：${contact.userPersonaPromptOverride}。\n`;
+    } else if (contact.userPersonaId) {
+        // 如果没有覆盖，尝试查找预设人设
+        const p = window.iphoneSimState.userPersonas.find(p => p.id === contact.userPersonaId);
+        if (p && p.aiPrompt) {
+            prompt += `用户人设：${p.aiPrompt}。\n`;
+        }
+    }
+
     prompt += `当前场景/文风/地点：${currentMeeting.style || '默认场景'}。\n\n`;
     
     if (chatContext) {
