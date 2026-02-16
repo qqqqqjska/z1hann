@@ -77,8 +77,25 @@
             forumWorldview: ''
         },
         profileActiveTab: 'posts', // 'posts' or 'tagged'
+        otherProfileActiveTab: 'posts',
+        profileMultiSelectMode: false,
+        profileSelectedPostIds: new Set(),
+        activeChatUser: null, // For chat page
+        viewingUser: null, // For other user profile
+        replyingToCommentId: null, // For comment replies
+        replyingToUsername: null,
+        isGeneratingReply: false,
+        commentMultiSelectMode: false,
+        selectedCommentIds: new Set(),
         messages: [
-            { id: 1, name: '中沢 元紀', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Nakazawa', verified: true, subtext: '轻触即可聊天' }
+            { 
+                id: 1, 
+                name: '中沢 元紀', 
+                username: 'motoki.nakazawa_',
+                avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Nakazawa', 
+                verified: true, 
+                subtext: '轻触即可聊天' 
+            }
         ],
         dmNotes: [
              { id: 1, name: '你的便签', avatar: '', isMe: true, note: '分享便签', subtext: '位置共享已关闭' },
@@ -108,6 +125,16 @@
 
     function renderForum(animate = true) {
         const app = document.getElementById('forum-app');
+        
+        // Capture scroll position before re-render if not animating (update mode)
+        let previousScrollTop = 0;
+        if (!animate) {
+            const currentContent = document.getElementById('forum-content-area');
+            if (currentContent) {
+                previousScrollTop = currentContent.scrollTop;
+            }
+        }
+
         let contentHtml = '';
         let headerHtml = renderHeader(); // Default header
 
@@ -135,11 +162,19 @@
                 headerHtml = renderForumEditContactHeader();
                 contentHtml = renderForumEditContact();
                 break;
+            case 'chat':
+                headerHtml = renderChatHeader();
+                contentHtml = renderChatPage();
+                break;
+            case 'other_profile':
+                headerHtml = renderOtherProfileHeader();
+                contentHtml = renderOtherProfile();
+                break;
             default:
                 contentHtml = renderHomeTab();
         }
 
-        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact';
+        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile';
 
         const multiSelectBarHtml = forumState.multiSelectMode ? `
             <div class="forum-multi-select-bar">
@@ -164,6 +199,14 @@
                 </div>
             </div>
         `;
+
+        // Restore scroll position
+        if (!animate && previousScrollTop > 0) {
+            const newContent = document.getElementById('forum-content-area');
+            if (newContent) {
+                newContent.scrollTop = previousScrollTop;
+            }
+        }
 
         setupTabListeners();
         setupBackToTopListener();
@@ -190,15 +233,29 @@
                 
                 // Header Hide/Show logic
                 if (forumHeader) {
-                    if (Math.abs(scrollTop - lastScrollTop) > scrollThreshold) {
-                        if (scrollTop > lastScrollTop && scrollTop > 100) {
-                            // 向下滚动且超过100px，隐藏顶栏
-                            forumHeader.classList.add('header-hidden');
-                        } else {
-                            // 向上滚动，显示顶栏
-                            forumHeader.classList.remove('header-hidden');
+                    if (forumState.activeTab === 'other_profile') {
+                        // 在他人主页，顶栏随内容一起滚动（通过CSS position:absolute/relative实现，或者简单的不隐藏）
+                        // 但这里我们只是取消"header-hidden"类的添加，让它保持原位
+                        // 实际上用户要求"顶栏和别的内容一起上滑"，这意味着顶栏不应该 fixed/sticky，或者应该随着页面滚动而移动
+                        // 现有的CSS是 sticky top:0。如果要一起上滑，需要在滚动时把它推上去，或者改为 position: absolute/relative
+                        // 最简单的方法是禁用这里的自动隐藏逻辑，并修改CSS使其不sticky，或者在这里通过JS控制
+                        // 但根据用户描述 "不用页面下滑时顶栏隐藏上滑时顶栏出现了"，说明不要这个自动显隐动画
+                        // "让顶栏在页面下滑时顶栏和别的内容一起上滑" -> 这意味着顶栏应该是文档流的一部分，而不是 sticky 的
+                        
+                        // 所以这里我们什么都不做，让它保持默认状态（sticky），或者我们需要修改CSS。
+                        // 如果CSS是sticky，它会吸顶。用户想要"一起上滑"，说明不吸顶。
+                        // 我们可以在 renderOtherProfileHeader 中添加内联样式 style="position: relative;" 覆盖默认的 sticky
+                    } else {
+                        if (Math.abs(scrollTop - lastScrollTop) > scrollThreshold) {
+                            if (scrollTop > lastScrollTop && scrollTop > 100) {
+                                // 向下滚动且超过100px，隐藏顶栏
+                                forumHeader.classList.add('header-hidden');
+                            } else {
+                                // 向上滚动，显示顶栏
+                                forumHeader.classList.remove('header-hidden');
+                            }
+                            lastScrollTop = scrollTop;
                         }
-                        lastScrollTop = scrollTop;
                     }
                 }
             });
@@ -267,26 +324,34 @@
     ];
 
     function renderCommentsOverlay(comments = null, post = null) {
-        // Remove existing overlay if any
+        // Remove existing overlay if any (simple check to allow partial update)
         const existing = document.getElementById('comments-overlay');
-        if (existing) existing.remove();
-
-        const overlay = document.createElement('div');
-        overlay.id = 'comments-overlay';
-        overlay.className = 'comments-overlay';
         
-        const commentsData = comments || mockComments;
+        // Initialize post comments if needed
+        if (post && !post.comments_list) {
+            post.comments_list = JSON.parse(JSON.stringify(mockComments));
+        }
+        
+        const commentsData = (post && post.comments_list) ? post.comments_list : (comments || mockComments);
+        const isMultiSelect = forumState.commentMultiSelectMode;
 
         const commentsListHtml = commentsData.map(comment => {
             const hasReplies = comment.replies && comment.replies.length > 0;
+            const isSelected = forumState.selectedCommentIds.has(comment.id);
+            const checkboxHtml = isMultiSelect ? `<div class="comment-select-checkbox ${isSelected ? 'checked' : ''}"></div>` : '';
+
             const repliesHtml = hasReplies ? `
                 <div class="view-replies-btn" onclick="toggleReplies(${comment.id}, this)">
                     <div class="view-replies-line"></div>
                     <span class="view-replies-text">查看另 ${comment.replies.length} 条回复</span>
                 </div>
                 <div class="replies-list" id="replies-${comment.id}">
-                    ${comment.replies.map(reply => `
-                        <div class="comment-item reply-item">
+                    ${comment.replies.map(reply => {
+                        const isReplySelected = forumState.selectedCommentIds.has(reply.id);
+                        const replyCheckboxHtml = isMultiSelect ? `<div class="comment-select-checkbox ${isReplySelected ? 'checked' : ''}"></div>` : '';
+                        return `
+                        <div class="comment-item reply-item" data-id="${reply.id}">
+                             ${replyCheckboxHtml}
                              <img src="${reply.user.avatar}" class="comment-avatar reply-avatar">
                              <div class="comment-content">
                                 <div class="comment-row-1">
@@ -296,22 +361,23 @@
                                 </div>
                                 <div class="comment-text">${reply.text}</div>
                                 <div class="comment-actions">
-                                    <span class="comment-action-btn">回复</span>
+                                    <span class="comment-action-btn reply-trigger" data-id="${comment.id}" data-username="${reply.user.name}">回复</span>
                                     <span class="comment-action-btn">查看翻译</span>
                                 </div>
                              </div>
-                             <div class="comment-like-container">
-                                <i class="far fa-heart comment-like-icon"></i>
+                             <div class="comment-like-container" onclick="toggleCommentLike(${reply.id}, this)">
+                                <i class="${reply.liked ? 'fas' : 'far'} fa-heart comment-like-icon" style="${reply.liked ? 'color: #ed4956;' : ''}"></i>
                                 <span class="comment-like-count">${reply.likes}</span>
                              </div>
                         </div>
-                    `).join('')}
+                    `; }).join('')}
                 </div>
             ` : '';
 
             return `
                 <div class="comment-wrapper">
-                    <div class="comment-item">
+                    <div class="comment-item" data-id="${comment.id}">
+                        ${checkboxHtml}
                         <img src="${comment.user.avatar}" class="comment-avatar">
                         <div class="comment-content">
                             <div class="comment-row-1">
@@ -321,12 +387,12 @@
                             </div>
                             <div class="comment-text">${comment.text}</div>
                             <div class="comment-actions">
-                                <span class="comment-action-btn">回复</span>
+                                <span class="comment-action-btn reply-trigger" data-id="${comment.id}" data-username="${comment.user.name}">回复</span>
                                 <span class="comment-action-btn">查看翻译</span>
                             </div>
                         </div>
-                        <div class="comment-like-container">
-                            <i class="far fa-heart comment-like-icon"></i>
+                        <div class="comment-like-container" onclick="toggleCommentLike(${comment.id}, this)">
+                            <i class="${comment.liked ? 'fas' : 'far'} fa-heart comment-like-icon" style="${comment.liked ? 'color: #ed4956;' : ''}"></i>
                             <span class="comment-like-count">${comment.likes}</span>
                         </div>
                     </div>
@@ -335,44 +401,268 @@
             `;
         }).join('');
 
-        overlay.innerHTML = `
-            <div class="comments-drag-handle-area" id="comments-drag-area">
-                <div class="comments-drag-handle"></div>
-            </div>
-            <div class="comments-header">
-                <div class="comments-header-title">评论</div>
-                <div class="comments-header-close" id="comments-close-btn"><img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="post-action-icon"></div>
-            </div>
-            <div class="comments-scroll-area">
-                ${commentsListHtml}
-            </div>
-            <div class="comments-input-area">
-                <div class="emoji-bar">
-                    <span>❤️</span> <span>🙌</span> <span>🔥</span> <span>👏</span> <span>😥</span> <span>😍</span> <span>😮</span> <span>😂</span>
+        let overlay = document.getElementById('comments-overlay');
+        let backdrop = document.getElementById('comments-backdrop');
+        const isNew = !overlay;
+
+        if (isNew) {
+            // Create Backdrop
+            backdrop = document.createElement('div');
+            backdrop.id = 'comments-backdrop';
+            backdrop.className = 'comments-backdrop';
+            document.getElementById('forum-app').appendChild(backdrop);
+            
+            backdrop.addEventListener('click', () => {
+                const closeBtn = document.getElementById('comments-close-btn');
+                if (closeBtn) closeBtn.click();
+            });
+
+            overlay = document.createElement('div');
+            overlay.id = 'comments-overlay';
+            overlay.className = 'comments-overlay';
+            
+            overlay.innerHTML = `
+                <div class="comments-drag-handle-area" id="comments-drag-area">
+                    <div class="comments-drag-handle"></div>
                 </div>
-                <div class="comment-input-wrapper">
-                    <img src="${forumState.currentUser.avatar}" class="comment-user-avatar-small">
-                    <div class="comment-input-box">
-                        <input type="text" class="comment-input" placeholder="为 ${post ? post.user.name : '作者'} 添加评论...">
-                        <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="comment-send-icon">
+                <div class="comments-header">
+                    <div class="comments-header-title">评论</div>
+                    <div class="comments-header-close" id="comments-close-btn"><img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="post-action-icon"></div>
+                </div>
+                <div class="comments-scroll-area"></div>
+                <div class="comments-input-area">
+                    <div class="emoji-bar">
+                        <span>❤️</span> <span>🙌</span> <span>🔥</span> <span>👏</span> <span>😥</span> <span>😍</span> <span>😮</span> <span>😂</span>
+                    </div>
+                    <div class="comment-input-wrapper">
+                        <img src="${forumState.currentUser.avatar}" class="comment-user-avatar-small">
+                        <div class="comment-input-box">
+                            <input type="text" class="comment-input" id="comment-input-field">
+                            <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="comment-send-icon">
+                        </div>
                     </div>
                 </div>
-            </div>
-        `;
+            `;
+            document.getElementById('forum-app').appendChild(overlay);
+            
+            // Listeners
+            document.getElementById('comments-close-btn').addEventListener('click', () => {
+                overlay.classList.remove('active');
+                if (backdrop) backdrop.classList.remove('active');
+                forumState.replyingToCommentId = null;
+                forumState.commentMultiSelectMode = false;
+                forumState.selectedCommentIds = new Set();
+                setTimeout(() => {
+                    overlay.remove();
+                    if (backdrop) backdrop.remove();
+                }, 300);
+            });
 
-        document.getElementById('forum-app').appendChild(overlay);
+            document.getElementById('comments-drag-area').addEventListener('click', () => {
+                overlay.classList.toggle('expanded');
+            });
 
-        // Event Listeners
-        setTimeout(() => overlay.classList.add('active'), 10);
+            const sendBtn = overlay.querySelector('.comment-send-icon');
+            const input = document.getElementById('comment-input-field');
+            
+            const handleSend = () => {
+                const text = input.value.trim();
+                if (!text) return;
+                
+                if (post) {
+                    const newComment = {
+                        id: Date.now(),
+                        user: {
+                            ...forumState.currentUser,
+                            name: forumState.currentUser.bio || forumState.currentUser.name
+                        },
+                        text: text,
+                        time: '刚刚',
+                        likes: 0,
+                        replies: []
+                    };
+                    
+                    let replyContext = null;
 
-        document.getElementById('comments-close-btn').addEventListener('click', () => {
-            overlay.classList.remove('active');
-            setTimeout(() => overlay.remove(), 300);
+                    if (forumState.replyingToCommentId) {
+                        const parent = post.comments_list.find(c => c.id === parseInt(forumState.replyingToCommentId));
+                        if (parent) {
+                            if (!parent.replies) parent.replies = [];
+                            parent.replies.push(newComment);
+                            replyContext = { parentComment: parent, type: 'reply' };
+                        }
+                        forumState.replyingToCommentId = null;
+                        forumState.replyingToUsername = null;
+                    } else {
+                        post.comments_list.push(newComment);
+                        replyContext = { type: 'comment' };
+                    }
+                    
+                    post.stats.comments++;
+                    localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                    
+                    // Clear input before re-rendering
+                    input.value = '';
+                    
+                    renderCommentsOverlay(post.comments_list, post); // Re-render logic
+
+                    // Trigger AI Reply Logic
+                    generateAIReply(post, newComment, replyContext);
+                }
+            };
+
+            if (sendBtn) sendBtn.onclick = handleSend;
+            if (input) {
+                input.onkeypress = (e) => {
+                    if (e.key === 'Enter') handleSend();
+                };
+            }
+            
+            setTimeout(() => {
+                overlay.classList.add('active');
+                if (backdrop) backdrop.classList.add('active');
+            }, 10);
+        }
+
+        // Update Content
+        const scrollArea = overlay.querySelector('.comments-scroll-area');
+        if (scrollArea) {
+            scrollArea.innerHTML = commentsListHtml;
+            // Scroll to bottom if it's a new comment being added (not initial render)
+            if (!isNew && post && post.comments_list.length > comments.length) {
+                 scrollArea.scrollTop = scrollArea.scrollHeight;
+            }
+        }
+
+        // Generating Indicator
+        let indicator = document.getElementById('reply-generating-indicator');
+        if (forumState.isGeneratingReply) {
+            if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.id = 'reply-generating-indicator';
+                indicator.className = 'reply-generating-indicator';
+                indicator.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>正在回复评论...</span>';
+                
+                const inputArea = overlay.querySelector('.comments-input-area');
+                if (inputArea) {
+                    inputArea.insertBefore(indicator, inputArea.firstChild);
+                }
+            }
+        } else {
+            if (indicator) indicator.remove();
+        }
+
+        // Update Placeholder & Focus
+        const inputField = document.getElementById('comment-input-field');
+        if (inputField) {
+            const isReplying = forumState.replyingToCommentId;
+            const replyUsername = forumState.replyingToUsername || '';
+            const placeholder = isReplying ? `回复 ${replyUsername}...` : (post ? `为 ${post.user.name} 添加评论...` : '添加评论...');
+            inputField.placeholder = placeholder;
+            if (isReplying) inputField.focus();
+        }
+
+        // Multi-select Bar
+        let msBar = document.getElementById('comment-multiselect-bar');
+        if (isMultiSelect) {
+            if (!msBar) {
+                msBar = document.createElement('div');
+                msBar.id = 'comment-multiselect-bar';
+                msBar.className = 'forum-multi-select-bar';
+                msBar.style.position = 'absolute';
+                msBar.style.zIndex = '2005';
+                msBar.innerHTML = `
+                    <div class="multi-select-left-actions">
+                        <button class="multi-select-cancel-btn" id="cms-cancel">取消</button>
+                    </div>
+                    <button class="multi-select-delete-btn" id="cms-delete">删除</button>
+                `;
+                overlay.appendChild(msBar);
+                
+                document.getElementById('cms-cancel').onclick = () => {
+                    forumState.commentMultiSelectMode = false;
+                    forumState.selectedCommentIds = new Set();
+                    renderCommentsOverlay(post.comments_list, post);
+                };
+                
+                document.getElementById('cms-delete').onclick = () => {
+                    if (forumState.selectedCommentIds.size === 0) return;
+                    if (!confirm(`确定要删除选中的 ${forumState.selectedCommentIds.size} 条评论吗？`)) return;
+                    
+                    const ids = forumState.selectedCommentIds;
+                    post.comments_list = post.comments_list.filter(c => !ids.has(c.id));
+                    post.comments_list.forEach(c => {
+                        if (c.replies) {
+                            c.replies = c.replies.filter(r => !ids.has(r.id));
+                        }
+                    });
+                    
+                    let count = post.comments_list.length;
+                    post.comments_list.forEach(c => { if(c.replies) count += c.replies.length; });
+                    post.stats.comments = count;
+                    
+                    localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                    
+                    forumState.commentMultiSelectMode = false;
+                    forumState.selectedCommentIds = new Set();
+                    renderCommentsOverlay(post.comments_list, post);
+                };
+            }
+            const delBtn = document.getElementById('cms-delete');
+            if (delBtn) {
+                if (forumState.selectedCommentIds.size === 0) delBtn.classList.add('is-disabled');
+                else delBtn.classList.remove('is-disabled');
+            }
+        } else {
+            if (msBar) msBar.remove();
+        }
+
+        // Attach Listeners to Comment Items
+        overlay.querySelectorAll('.comment-item').forEach(item => {
+            const id = parseInt(item.dataset.id);
+            if (!id) return;
+
+            item.addEventListener('click', (e) => {
+                if (forumState.commentMultiSelectMode) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (forumState.selectedCommentIds.has(id)) {
+                        forumState.selectedCommentIds.delete(id);
+                    } else {
+                        forumState.selectedCommentIds.add(id);
+                    }
+                    renderCommentsOverlay(post.comments_list, post);
+                }
+            });
+
+            let timer;
+            const start = () => {
+                if (forumState.commentMultiSelectMode) return;
+                timer = setTimeout(() => {
+                    forumState.commentMultiSelectMode = true;
+                    forumState.selectedCommentIds.add(id);
+                    renderCommentsOverlay(post.comments_list, post);
+                }, 500);
+            };
+            const cancel = () => clearTimeout(timer);
+
+            item.addEventListener('mousedown', start);
+            item.addEventListener('touchstart', start);
+            item.addEventListener('mouseup', cancel);
+            item.addEventListener('touchend', cancel);
+            item.addEventListener('mousemove', cancel);
+            item.addEventListener('touchmove', cancel);
         });
 
-        const dragArea = document.getElementById('comments-drag-area');
-        dragArea.addEventListener('click', () => {
-            overlay.classList.toggle('expanded');
+        // Re-attach Reply Triggers
+        overlay.querySelectorAll('.reply-trigger').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                if (forumState.commentMultiSelectMode) return;
+                forumState.replyingToCommentId = btn.dataset.id;
+                forumState.replyingToUsername = btn.dataset.username;
+                renderCommentsOverlay(commentsData, post);
+            };
         });
     }
 
@@ -382,7 +672,67 @@
         if (replies) {
              replies.classList.add('visible');
              // Hide the button after clicking, per requirements
-             btn.style.display = 'none';
+             btn.classList.add('hidden');
+        }
+    };
+
+    window.toggleCommentLike = function(commentId, btn) {
+        // Find the comment across all posts (since overlay doesn't pass post context to global function easily, though we could pass post id)
+        // But finding it in forumState.posts is safe enough or we can find the post in the current rendered overlay context.
+        // Actually, we can search forumState.posts.
+        
+        let targetComment = null;
+        let targetPost = null;
+
+        for (const post of forumState.posts) {
+            if (post.comments_list) {
+                targetComment = post.comments_list.find(c => c.id === commentId);
+                if (targetComment) {
+                    targetPost = post;
+                    break;
+                }
+                // Check replies
+                for (const comment of post.comments_list) {
+                    if (comment.replies) {
+                        targetComment = comment.replies.find(r => r.id === commentId);
+                        if (targetComment) {
+                            targetPost = post;
+                            break;
+                        }
+                    }
+                }
+                if (targetComment) break;
+            }
+        }
+
+        if (targetComment && targetPost) {
+            targetComment.liked = !targetComment.liked;
+            targetComment.likes = Math.max(0, (targetComment.likes || 0) + (targetComment.liked ? 1 : -1));
+            
+            // Save
+            localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+
+            // Update UI
+            if (btn) {
+                const icon = btn.querySelector('.comment-like-icon');
+                const count = btn.querySelector('.comment-like-count');
+                
+                if (targetComment.liked) {
+                    icon.classList.remove('far');
+                    icon.classList.add('fas');
+                    icon.style.color = '#ed4956';
+                    icon.classList.add('animate-like-heart');
+                    setTimeout(() => icon.classList.remove('animate-like-heart'), 300);
+                } else {
+                    icon.classList.remove('fas');
+                    icon.classList.add('far');
+                    icon.style.color = '';
+                }
+                
+                if (count) {
+                    count.textContent = targetComment.likes;
+                }
+            }
         }
     };
 
@@ -489,6 +839,50 @@
                 <div class="header-right">
                     <img src="https://i.postimg.cc/QCfGKHGC/无标题98_20260215024118.png" style="height: 32px; width: auto; margin-top: 5px;">
                     <img src="https://i.postimg.cc/vT0FxcF9/无标题98_20260215024227.png" style="height: 32px; width: auto; margin-top: 5px;">
+                </div>
+            </div>
+        `;
+    }
+
+    function renderOtherProfileHeader() {
+        const user = forumState.viewingUser;
+        if (!user) return '';
+
+        if (forumState.profileMultiSelectMode) {
+            const userPosts = forumState.posts.filter(p => p.user.name === user.name);
+            const isAllSelected = userPosts.length > 0 && forumState.profileSelectedPostIds.size === userPosts.length;
+            const hasSelection = forumState.profileSelectedPostIds.size > 0;
+
+            return `
+                <div class="forum-header">
+                    <div class="header-left" style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                        <span id="profile-multiselect-done" style="font-weight: 400; font-size: 16px; cursor: pointer;">取消</span>
+                    </div>
+                    <div class="header-center">
+                        <span style="font-weight: 700; font-size: 16px;">已选择 ${forumState.profileSelectedPostIds.size} 项</span>
+                    </div>
+                    <div class="header-right" style="gap: 15px;">
+                         <span id="profile-multiselect-all" style="font-weight: 600; color: #0095f6; cursor: pointer; font-size: 14px;">${isAllSelected ? '取消全选' : '全选'}</span>
+                         <span id="profile-multiselect-delete" style="font-weight: 600; color: ${hasSelection ? '#ed4956' : '#ccc'}; cursor: pointer; font-size: 14px;">删除</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="forum-header">
+                <div class="header-left" style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                    <i class="fas fa-chevron-left" id="other-profile-back" style="font-size: 24px; cursor: pointer;"></i>
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <span style="font-weight: 700; font-size: 16px;">${user.username || user.name}</span>
+                        ${user.verified ? '<i class="fas fa-check-circle" style="color: #0095f6; font-size: 14px;"></i>' : ''}
+                    </div>
+                </div>
+                <div class="header-center">
+                    <!-- Empty center -->
+                </div>
+                <div class="header-right">
+                    <i class="fas fa-ellipsis-h" id="other-profile-menu-btn" style="font-size: 20px; color: #000; cursor: pointer;"></i>
                 </div>
             </div>
         `;
@@ -710,9 +1104,9 @@
         
         const postsContent = `
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; padding-bottom: 2px;">
-                 <div style="aspect-ratio: 1; background-color: #efefef;"></div>
-                 <div style="aspect-ratio: 1; background-color: #efefef;"></div>
-                 <div style="aspect-ratio: 1; background-color: #efefef;"></div>
+                 <div style="aspect-ratio: 3/4; background-color: #efefef;"></div>
+                 <div style="aspect-ratio: 3/4; background-color: #efefef;"></div>
+                 <div style="aspect-ratio: 3/4; background-color: #efefef;"></div>
             </div>
             <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
                 暂无帖子
@@ -759,7 +1153,7 @@
                     </div>
 
                     <div class="profile-actions-row">
-                        <button class="profile-btn">编辑主页</button>
+                        <button class="profile-btn" id="my-profile-edit-btn">编辑主页</button>
                         <button class="profile-btn">分享主页</button>
                         <button class="profile-btn-icon" id="forum-settings-btn"><i class="fas fa-user-plus"></i></button>
                     </div>
@@ -789,6 +1183,576 @@
                 </div>
             </div>
         `;
+    }
+
+    function renderOtherProfile() {
+        const user = forumState.viewingUser;
+        if (!user) return '<div>User not found</div>';
+        
+        const isFollowing = user.isFollowing;
+        const followBtnText = isFollowing ? '已关注 <i class="fas fa-chevron-down" style="font-size: 12px; margin-left: 2px;"></i>' : '关注';
+        const followBtnStyle = isFollowing ? '' : 'background-color: #455EFF; color: white;';
+
+        // Mock data if missing
+        const postsCount = user.stats ? (user.stats.posts || 0) : 0;
+        const followersCount = user.stats ? (user.stats.followers || 0) : 0;
+        const followingCount = user.stats ? (user.stats.following || 0) : 0;
+        const realName = user.realName || user.name || ''; 
+        const bio = user.bio || user.subtitle || '';
+        const link = user.link || '';
+        
+        // Loading State
+        if (user.isGeneratingProfile) {
+            return `
+                <div class="profile-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 32px; color: #0095f6; margin-bottom: 20px;"></i>
+                    <div style="color: #8e8e8e;">正在生成主页内容...</div>
+                </div>
+            `;
+        }
+
+        // Generate a grid of images (using the user's posts or placeholders)
+        const userPosts = forumState.posts.filter(p => p.user.name === user.name);
+        
+        // Fill grid to look nice (at least 9 items)
+        let gridHtml = '';
+        const totalGridItems = Math.max(userPosts.length, 9);
+        
+        for (let i = 0; i < totalGridItems; i++) {
+            if (i < userPosts.length) {
+                const post = userPosts[i];
+                const isSelected = forumState.profileMultiSelectMode && forumState.profileSelectedPostIds.has(post.id);
+                const selectAttr = forumState.profileMultiSelectMode ? `onclick="window.toggleProfilePostSelection(${post.id})"` : '';
+                const selectedClass = isSelected ? 'selected' : '';
+                
+                gridHtml += `
+                    <div class="profile-grid-item ${selectedClass}" data-post-id="${post.id}" ${selectAttr} style="aspect-ratio: 3/4; background-color: #efefef; position: relative;">
+                        ${forumState.profileMultiSelectMode ? `<div class="grid-item-checkbox"></div>` : ''}
+                        ${post.image ? `<img src="${post.image}" style="width: 100%; height: 100%; object-fit: cover; display: block;">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #8e8e8e; font-size: 12px; padding: 10px; text-align: center;">${post.caption.substring(0, 20)}...</div>`}
+                    </div>
+                `;
+            } else {
+                // Placeholder
+                gridHtml += `<div class="profile-grid-item" style="aspect-ratio: 3/4; background-color: #efefef;"></div>`;
+            }
+        }
+
+        const activeTab = forumState.otherProfileActiveTab || 'posts';
+        const tabClass = activeTab === 'posts' ? 'tab-posts' : (activeTab === 'tagged' ? 'tab-tagged' : (activeTab === 'tab3' ? 'tab-tab3' : 'tab-tab4'));
+
+        const postsContent = `
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;">
+                ${gridHtml}
+            </div>
+        `;
+
+        const taggedContent = `
+            <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
+                <div style="font-size: 40px; margin-bottom: 10px;"><i class="far fa-play-circle"></i></div>
+                暂无视频
+            </div>
+        `;
+
+        const tab3Content = `
+            <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
+                暂无内容
+            </div>
+        `;
+
+        const tab4Content = `
+            <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
+                暂无内容
+            </div>
+        `;
+
+        return `
+            <div class="profile-container">
+                <div class="profile-header-section">
+                    <div class="profile-top-row" style="margin-bottom: 10px;">
+                        <div class="profile-avatar-wrapper" style="margin-right: 25px;">
+                            <img src="${user.avatar}" class="profile-avatar-large" style="width: 80px; height: 80px; border-radius: 50%;">
+                        </div>
+                        <div class="profile-right-column" style="justify-content: center;">
+                            <div class="profile-username-large" style="font-weight: 700; font-size: 16px; margin-bottom: 0; display: none;">${user.name}</div>
+                            
+                            <div class="profile-stats" style="margin-right: 0; justify-content: space-around;">
+                                <div class="stat-item" style="margin-right: 0;">
+                                    <span class="stat-num">${postsCount}</span>
+                                    <span class="stat-label">帖子</span>
+                                </div>
+                                <div class="stat-item" style="margin-right: 0;">
+                                    <span class="stat-num">${followersCount}</span>
+                                    <span class="stat-label">粉丝</span>
+                                </div>
+                                <div class="stat-item" style="margin-right: 0;">
+                                    <span class="stat-num">${followingCount}</span>
+                                    <span class="stat-label">关注</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="profile-bio-section" style="padding: 0;">
+                        <div style="font-weight: 700; font-size: 14px; margin-bottom: 2px;">${realName}</div>
+                        <div class="profile-bio-text" style="color: #262626; margin-bottom: 2px;">${bio}</div>
+                        <div style="font-weight: 600; font-size: 14px; margin-bottom: 2px;">查看翻译</div>
+                        <div style="color: #00376b; font-weight: 600; font-size: 14px; display: flex; align-items: center;">
+                            <i class="fas fa-link" style="font-size: 12px; margin-right: 5px; transform: rotate(45deg);"></i>
+                            ${link}
+                        </div>
+                    </div>
+
+                    <div class="profile-actions-row" style="margin-top: 15px;">
+                        <button class="profile-btn" id="other-profile-follow-btn" style="${followBtnStyle}">${followBtnText}</button>
+                        <button class="profile-btn">发消息</button>
+                        <button class="profile-btn-icon"><i class="fas fa-user-plus"></i></button>
+                    </div>
+                </div>
+                
+                <!-- Story Highlights Placeholder -->
+                <div style="padding: 0 15px 10px; display: flex; gap: 15px; overflow-x: auto;">
+                    <!-- Could add story highlights here if needed -->
+                </div>
+
+                <div class="profile-tabs-bar tabs-4-items ${tabClass}">
+                    <div class="profile-tab" id="other-profile-tab-posts" onclick="window.updateOtherProfileTab('posts')">
+                        <img src="${activeTab === 'posts' ? 'https://i.postimg.cc/ydkWQvw2/无标题102_20260214211949.png' : 'https://i.postimg.cc/gJnrSNfM/无标题102_20260214211944.png'}" class="profile-tab-icon" id="other-icon-posts">
+                    </div>
+                    <div class="profile-tab" id="other-profile-tab-tagged" onclick="window.updateOtherProfileTab('tagged')">
+                        <img src="${activeTab === 'tagged' ? 'https://i.postimg.cc/4dmnLBrr/无标题102_20260214212200.png' : 'https://i.postimg.cc/wv73f0Sr/无标题102_20260214212136.png'}" class="profile-tab-icon" id="other-icon-tagged">
+                    </div>
+                    <div class="profile-tab" id="other-profile-tab-tab3" onclick="window.updateOtherProfileTab('tab3')">
+                        <img src="${activeTab === 'tab3' ? 'https://i.postimg.cc/c1pGMbXX/无标题102_20260217014150.png' : 'https://i.postimg.cc/3r4HGTCF/无标题102_20260217014005.png'}" class="profile-tab-icon" id="other-icon-tab3">
+                    </div>
+                    <div class="profile-tab" id="other-profile-tab-tab4" onclick="window.updateOtherProfileTab('tab4')">
+                        <img src="${activeTab === 'tab4' ? 'https://i.postimg.cc/Y25BfsbR/无标题102_20260217014057.png' : 'https://i.postimg.cc/kM0PFpfc/无标题102_20260217014034.png'}" class="profile-tab-icon" id="other-icon-tab4">
+                    </div>
+                    <div class="tab-indicator">
+                        <div class="tab-indicator-inner"></div>
+                    </div>
+                </div>
+                
+                <div class="profile-content-window">
+                    <div class="profile-content-slider slider-4-items ${tabClass}">
+                        <div class="profile-content-panel">
+                            ${postsContent}
+                        </div>
+                        <div class="profile-content-panel">
+                            ${taggedContent}
+                        </div>
+                        <div class="profile-content-panel">
+                            ${tab3Content}
+                        </div>
+                        <div class="profile-content-panel">
+                            ${tab4Content}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function showProfileMenu() {
+        const existing = document.getElementById('profile-action-menu');
+        if (existing) { existing.remove(); return; }
+
+        const menu = document.createElement('div');
+        menu.id = 'profile-action-menu';
+        menu.className = 'action-menu-overlay';
+        menu.innerHTML = `
+            <div class="action-menu-container">
+                <div class="action-menu-item" onclick="window.handleProfileMenu('multiselect')">多选管理</div>
+                <div class="action-menu-item" onclick="window.handleProfileMenu('regenerate')">重新生成</div>
+                <div class="action-menu-item" onclick="window.handleProfileMenu('add_posts')">新增帖子</div>
+                <div class="action-menu-cancel" onclick="document.getElementById('profile-action-menu').remove()">取消</div>
+            </div>
+        `;
+        // Close on background click
+        menu.addEventListener('click', (e) => {
+            if (e.target === menu) menu.remove();
+        });
+        document.getElementById('forum-app').appendChild(menu);
+    }
+
+    function showRegenerateOptions() {
+        const existing = document.getElementById('regenerate-options-menu');
+        if (existing) { existing.remove(); return; }
+
+        const menu = document.createElement('div');
+        menu.id = 'regenerate-options-menu';
+        menu.className = 'action-menu-overlay';
+        menu.style.zIndex = '2001'; // Above the other menu
+        menu.innerHTML = `
+            <div class="action-menu-container">
+                <div style="padding: 10px; text-align: center; color: #8e8e8e; font-size: 12px;">选择重新生成的内容 (旧内容将被覆盖)</div>
+                <div class="action-menu-item" onclick="window.handleProfileMenu('regenerate_bio')">简介与数据</div>
+                <div class="action-menu-item" onclick="window.handleProfileMenu('regenerate_posts')">帖子内容</div>
+                <div class="action-menu-item" onclick="window.handleProfileMenu('regenerate_all')">全部</div>
+                <div class="action-menu-cancel" onclick="document.getElementById('regenerate-options-menu').remove()">取消</div>
+            </div>
+        `;
+        menu.addEventListener('click', (e) => {
+            if (e.target === menu) menu.remove();
+        });
+        document.getElementById('forum-app').appendChild(menu);
+    }
+
+    window.handleProfileMenu = function(action) {
+        // Close menus
+        const menu1 = document.getElementById('profile-action-menu');
+        const menu2 = document.getElementById('regenerate-options-menu');
+        if (menu1) menu1.remove();
+        if (menu2) menu2.remove();
+
+        const user = forumState.viewingUser;
+        if (!user) return;
+
+        if (action === 'multiselect') {
+            forumState.profileMultiSelectMode = true;
+            forumState.profileSelectedPostIds = new Set();
+            renderForum();
+        } else if (action === 'regenerate') {
+            showRegenerateOptions();
+        } else if (action === 'regenerate_bio') {
+            generateUserProfile(user, 'regenerate_bio');
+        } else if (action === 'regenerate_posts') {
+            if(confirm('确定要清空当前帖子并重新生成吗？')) {
+                generateUserProfile(user, 'regenerate_posts');
+            }
+        } else if (action === 'regenerate_all') {
+            if(confirm('确定要完全重新生成该用户主页吗？')) {
+                generateUserProfile(user, 'initial'); // 'initial' covers both
+            }
+        } else if (action === 'add_posts') {
+            generateUserProfile(user, 'add_posts');
+        }
+    };
+
+    window.toggleProfilePostSelection = function(postId) {
+        if (!forumState.profileMultiSelectMode) return;
+        
+        if (forumState.profileSelectedPostIds.has(postId)) {
+            forumState.profileSelectedPostIds.delete(postId);
+        } else {
+            forumState.profileSelectedPostIds.add(postId);
+        }
+        renderForum(false); // Re-render without animation
+    };
+
+    window.toggleProfileSelectAll = function() {
+        const user = forumState.viewingUser;
+        if (!user) return;
+        
+        const userPosts = forumState.posts.filter(p => p.user.name === user.name);
+        if (userPosts.length === 0) return;
+
+        const isAllSelected = forumState.profileSelectedPostIds.size === userPosts.length;
+        
+        if (isAllSelected) {
+            forumState.profileSelectedPostIds.clear();
+        } else {
+            userPosts.forEach(p => forumState.profileSelectedPostIds.add(p.id));
+        }
+        renderForum(false);
+    };
+
+    window.deleteProfileSelectedPosts = function() {
+        if (forumState.profileSelectedPostIds.size === 0) return;
+        
+        if (confirm(`确定删除选中的 ${forumState.profileSelectedPostIds.size} 个帖子吗？`)) {
+            forumState.posts = forumState.posts.filter(p => !forumState.profileSelectedPostIds.has(p.id));
+            localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            
+            // Also update viewing user stats locally if needed (though next render recalculates)
+            if (forumState.viewingUser && forumState.viewingUser.stats) {
+                forumState.viewingUser.stats.posts = Math.max(0, forumState.viewingUser.stats.posts - forumState.profileSelectedPostIds.size);
+            }
+            
+            forumState.profileMultiSelectMode = false;
+            forumState.profileSelectedPostIds = new Set();
+            renderForum();
+        }
+    };
+
+    window.updateOtherProfileTab = function(tab) {
+        forumState.otherProfileActiveTab = tab;
+        
+        const tabsBar = document.querySelector('.profile-tabs-bar');
+        if (tabsBar) {
+            tabsBar.classList.remove('tab-posts', 'tab-tagged', 'tab-tab3', 'tab-tab4');
+            tabsBar.classList.add(`tab-${tab}`);
+        }
+        
+        const slider = document.querySelector('.profile-content-slider');
+        if (slider) {
+            slider.classList.remove('tab-posts', 'tab-tagged', 'tab-tab3', 'tab-tab4');
+            slider.classList.add(`tab-${tab}`);
+        }
+        
+        // Update Icons
+        const iconPosts = document.getElementById('other-icon-posts');
+        const iconTagged = document.getElementById('other-icon-tagged');
+        const iconTab3 = document.getElementById('other-icon-tab3');
+        const iconTab4 = document.getElementById('other-icon-tab4');
+        
+        if (iconPosts) {
+            iconPosts.src = tab === 'posts' ?
+                'https://i.postimg.cc/ydkWQvw2/无标题102_20260214211949.png' :
+                'https://i.postimg.cc/gJnrSNfM/无标题102_20260214211944.png';
+        }
+        
+        if (iconTagged) {
+            iconTagged.src = tab === 'tagged' ?
+                'https://i.postimg.cc/4dmnLBrr/无标题102_20260214212200.png' :
+                'https://i.postimg.cc/wv73f0Sr/无标题102_20260214212136.png';
+        }
+
+        if (iconTab3) {
+            iconTab3.src = tab === 'tab3' ?
+                'https://i.postimg.cc/c1pGMbXX/无标题102_20260217014150.png' :
+                'https://i.postimg.cc/3r4HGTCF/无标题102_20260217014005.png';
+        }
+
+        if (iconTab4) {
+            iconTab4.src = tab === 'tab4' ?
+                'https://i.postimg.cc/Y25BfsbR/无标题102_20260217014057.png' :
+                'https://i.postimg.cc/kM0PFpfc/无标题102_20260217014034.png';
+        }
+    };
+
+    window.openUserProfile = function(user) {
+        if (!user) return;
+        // If it's me, go to my profile tab
+        if (user.username === forumState.currentUser.username || user.name === forumState.currentUser.name) {
+             forumState.activeTab = 'profile';
+        } else {
+             forumState.viewingUser = user;
+             forumState.activeTab = 'other_profile';
+             
+             // Check if we need to generate profile data
+             // We generate if:
+             // 1. It's not already generated (flag)
+             // 2. AND (it's a contact OR it's a stranger without detailed stats)
+             if (!user.isProfileGenerated) {
+                 generateUserProfile(user);
+             }
+        }
+        renderForum();
+    };
+
+    window.triggerGenerateProfile = function(type) {
+        const user = forumState.viewingUser;
+        if (!user) return;
+        
+        generateUserProfile(user, type);
+    };
+
+    async function generateUserProfile(user, mode = 'initial') {
+        // mode: 'initial' (default), 'regenerate_bio', 'regenerate_posts', 'add_posts'
+        if (user.isGeneratingProfile) return;
+        user.isGeneratingProfile = true;
+        renderForum(); // Update UI to show loading state if implemented
+
+        try {
+            // 1. Identify if Contact
+            const contacts = window.iphoneSimState.contacts || [];
+            let contact = null;
+            if (user.id) {
+                contact = contacts.find(c => c.id === user.id);
+            }
+            if (!contact) {
+                contact = contacts.find(c => c.name === user.name || c.remark === user.name);
+            }
+
+            // 2. Prepare Context (Worldbook & Worldview)
+            const forumWorldview = forumState.settings.forumWorldview || '';
+            const wbId = forumState.settings.linkedWorldbook;
+            let worldbookContent = '';
+            if (wbId && window.iphoneSimState.wbCategories) {
+                const wb = window.iphoneSimState.wbCategories.find(c => c.id === wbId);
+                if (wb && wb.entries) {
+                    worldbookContent = wb.entries.slice(0, 20).map(e => `${e.key}: ${e.content}`).join('\n').substring(0, 3000);
+                }
+            }
+
+            // 3. Construct Prompt
+            let prompt = '';
+            if (contact) {
+                const profiles = forumState.settings.contactProfiles || {};
+                const profile = profiles[contact.id] || {};
+                const persona = contact.persona || '普通网友';
+                const name = profile.name || contact.remark || contact.name;
+                
+                prompt = `
+你是一个社交论坛模拟器。请为用户 "${name}" 生成个人主页详情。
+该用户是我的联系人。
+人设(Persona): ${persona}
+世界观: ${forumWorldview}
+世界书片段: ${worldbookContent}
+
+请生成以下 JSON 数据 (不要Markdown):
+{
+  "bio": "根据人设生成的个性签名(Bio)，50字以内",
+  "stats": {
+      "posts": 随机数值(10-1000),
+      "followers": 随机数值(根据人设热度),
+      "following": 随机数值
+  },
+  "recent_posts": [
+      {
+          "type": "image" 或 "text",
+          "caption": "符合人设和世界观的帖子内容",
+          "image_ratio": "1:1" 或 "4:5",
+          "image_description": "画面描述",
+          "stats": { "likes": 0, "comments": 0 }
+      },
+      ... (生成 4-6 条)
+  ]
+}
+`;
+            } else {
+                // Stranger
+                prompt = `
+你是一个社交论坛模拟器。请为陌生用户 "${user.name}" 生成个人主页详情。
+世界观: ${forumWorldview}
+
+请生成以下 JSON 数据 (不要Markdown):
+{
+  "bio": "一个有趣的个性签名",
+  "stats": {
+      "posts": 随机数值,
+      "followers": 随机数值,
+      "following": 随机数值
+  },
+  "recent_posts": [
+      ... (生成 4-6 条，格式同上)
+  ]
+}
+`;
+            }
+
+            // 4. Call AI
+            let settings = { url: '', key: '', model: '' };
+            if (window.iphoneSimState) {
+                if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) {
+                    settings = window.iphoneSimState.aiSettings;
+                } else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) {
+                    settings = window.iphoneSimState.aiSettings2;
+                }
+            }
+
+            if (!settings.url || !settings.key) {
+                console.warn('No AI settings for profile generation');
+                user.isGeneratingProfile = false;
+                return;
+            }
+
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + settings.key
+                },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                         { role: 'system', content: 'You return ONLY JSON.' },
+                         { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.8
+                })
+            });
+
+            const data = await response.json();
+            let content = data.choices[0].message.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+            const result = JSON.parse(content);
+
+            // 5. Apply Data
+            user.bio = result.bio;
+            user.stats = result.stats;
+            user.isProfileGenerated = true;
+
+            // Save to Persistent Storage
+            
+            // 1. Update all instances of this user in current posts to ensure consistency
+            // This is crucial so that when we return to the feed, the posts have updated user data
+            forumState.posts.forEach(p => {
+                let match = false;
+                if (contact && p.user.name === contact.name) match = true; // Match by contact name (as ID might be missing on post)
+                else if (user.id && p.user.id === user.id) match = true;
+                else if (p.user.name === user.name) match = true;
+
+                if (match) {
+                    p.user.bio = user.bio;
+                    p.user.stats = user.stats;
+                    p.user.isProfileGenerated = true;
+                    // Ensure ID is attached if available
+                    if (contact && !p.user.id) p.user.id = contact.id;
+                }
+            });
+
+            // 2. If contact, update contact profile settings for global persistence
+            if (contact) {
+                if (!forumState.settings.contactProfiles) forumState.settings.contactProfiles = {};
+                if (!forumState.settings.contactProfiles[contact.id]) forumState.settings.contactProfiles[contact.id] = {};
+                
+                const profile = forumState.settings.contactProfiles[contact.id];
+                profile.bio = user.bio;
+                profile.followers = user.stats.followers;
+                profile.following = user.stats.following;
+                profile.isProfileGenerated = true;
+                
+                localStorage.setItem('forum_settings', JSON.stringify(forumState.settings));
+            }
+
+            // Process Posts
+            if (result.recent_posts && Array.isArray(result.recent_posts)) {
+                // Helper for SVG (Duplicated for safety)
+                const generateSvg = (type, ratio) => {
+                     // Simple fallback SVG generator
+                     const colors = ['#e0f2f1', '#e8eaf6', '#f3e5f5', '#fff3e0'];
+                     const color = colors[Math.floor(Math.random() * colors.length)];
+                     const w = 600, h = ratio === '4:5' ? 750 : 600;
+                     return `data:image/svg+xml;base64,` + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${color}"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="24" fill="#999">${type}</text></svg>`);
+                };
+
+                const newPosts = result.recent_posts.map((p, idx) => ({
+                    id: Date.now() + idx,
+                    user: user, // Link to this user
+                    image: p.type === 'text' ? null : (p.image || generateSvg(p.type, p.image_ratio)),
+                    image_description: p.image_description,
+                    stats: {
+                        likes: Math.floor(Math.random() * (user.stats.followers / 10)),
+                        comments: Math.floor(Math.random() * (user.stats.followers / 100)),
+                        forwards: 0,
+                        shares: 0,
+                        ...p.stats
+                    },
+                    caption: p.caption,
+                    time: '近期',
+                    translation: '查看翻译',
+                    liked: false,
+                    comments_list: []
+                }));
+
+                // Add to global posts so they appear in grid
+                // Filter out existing posts by this user to avoid duplication if we are "refreshing"
+                // But here we just append. The grid filters by user name.
+                forumState.posts = [...forumState.posts, ...newPosts];
+                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            }
+
+        } catch (e) {
+            console.error('Profile Generation Failed', e);
+        } finally {
+            user.isGeneratingProfile = false;
+            renderForum();
+        }
     }
 
     // --- Components ---
@@ -840,7 +1804,7 @@
 
     function renderDMMessage(msg) {
         return `
-            <div class="dm-user-row">
+            <div class="dm-user-row" onclick="window.openForumChat(${msg.id})">
                 <img src="${msg.avatar}" class="dm-user-avatar">
                 <div class="dm-user-info">
                     <div class="dm-user-name">
@@ -848,6 +1812,151 @@
                         ${msg.verified ? '<i class="fas fa-check-circle verified-badge"></i>' : ''}
                     </div>
                     <div class="dm-user-sub">${msg.subtext}</div>
+                </div>
+                <div class="dm-camera-icon">
+                    <i class="fas fa-camera"></i>
+                </div>
+            </div>
+        `;
+    }
+
+    window.openForumChat = function(id) {
+        const user = forumState.messages.find(m => m.id === id);
+        if (user) {
+            forumState.activeChatUser = user;
+            forumState.activeTab = 'chat';
+            renderForum();
+        }
+    };
+
+    function renderChatHeader() {
+        const user = forumState.activeChatUser;
+        if (!user) return '';
+        
+        return `
+            <div class="forum-header chat-header-custom">
+                <div class="header-left">
+                    <img src="https://i.postimg.cc/XYDyGHXB/无标题98_20260215152604.png" id="chat-back-btn" style="width: 26px; height: 26px; cursor: pointer; margin-top: 2px;">
+                    <div class="chat-header-user">
+                        <img src="${user.avatar}" class="chat-header-avatar">
+                        <div class="chat-header-info">
+                            <div class="chat-header-name">
+                                ${user.name} 
+                                ${user.verified ? '<i class="fas fa-check-circle verified-badge-small"></i>' : ''}
+                            </div>
+                            <div class="chat-header-username">${user.username || 'username'}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <img src="https://i.postimg.cc/8znrJKsr/无标题98_20260215152721.png" style="width: 28px; height: 28px; margin-right: 16px; cursor: pointer;">
+                    <img src="https://i.postimg.cc/8znrJKs6/无标题98_20260215152805.png" style="width: 28px; height: 28px; cursor: pointer;">
+                </div>
+            </div>
+        `;
+    }
+
+    function renderChatPage() {
+        const user = forumState.activeChatUser;
+        
+        // Initialize chat history if not exists
+        if (!forumState.chatHistory) forumState.chatHistory = {};
+        if (!forumState.chatHistory[user.id]) {
+             forumState.chatHistory[user.id] = [
+                { type: 'time', text: '1月1日 02:55' },
+                { type: 'other', text: '好久不见！你还好吗？', avatar: user.avatar },
+                { type: 'other', text: '我现在在上海，朋友把包忘在公交车上了，希望你能帮帮我😭😭😭', avatar: user.avatar },
+                { type: 'time', text: '00:38' },
+                { type: 'me', text: '啊啊我才看到你的消息🤯' },
+                { type: 'me', text: 'もう見つかりましたか？' } // Did you find it?
+             ];
+        }
+
+        const messages = forumState.chatHistory[user.id];
+
+        const messagesHtml = messages.map(msg => {
+            if (msg.type === 'time') {
+                return `<div class="chat-time-label">${msg.text}</div>`;
+            } else if (msg.type === 'other') {
+                return `
+                    <div class="forum-chat-msg other">
+                        <img src="${msg.avatar}" class="chat-msg-avatar">
+                        <div class="chat-bubble other">${msg.text}</div>
+                    </div>
+                `;
+            } else if (msg.type === 'me') {
+                return `
+                    <div class="forum-chat-msg me">
+                        <div class="chat-bubble me">${msg.text}</div>
+                    </div>
+                `;
+            }
+        }).join('');
+
+        // Wait for DOM update to attach listener
+        setTimeout(() => {
+            const backBtn = document.getElementById('chat-back-btn');
+            if (backBtn) {
+                backBtn.onclick = () => {
+                    forumState.activeTab = 'share'; // Go back to DM list
+                    renderForum();
+                };
+            }
+
+            const chatBody = document.querySelector('.forum-chat-body');
+            if (chatBody) {
+                chatBody.scrollTop = chatBody.scrollHeight;
+            }
+
+            const input = document.querySelector('.forum-chat-input');
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        const text = input.value.trim();
+                        if (text) {
+                            // Add to State
+                            if (!forumState.chatHistory[user.id]) forumState.chatHistory[user.id] = [];
+                            forumState.chatHistory[user.id].push({ type: 'me', text: text });
+
+                            // Add to DOM
+                            const msgHtml = `
+                                <div class="forum-chat-msg me">
+                                    <div class="chat-bubble me">${text}</div>
+                                </div>
+                            `;
+                            chatBody.insertAdjacentHTML('beforeend', msgHtml);
+                            
+                            // Scroll to bottom
+                            chatBody.scrollTop = chatBody.scrollHeight;
+                            
+                            // Clear input
+                            input.value = '';
+                        }
+                    }
+                });
+            }
+        }, 0);
+
+        return `
+            <div class="forum-chat-container">
+                <div class="forum-chat-body">
+                    ${messagesHtml}
+                </div>
+                <div class="forum-chat-footer">
+                    <div class="chat-bar-pill">
+                        <div class="chat-footer-camera">
+                            <img src="https://i.postimg.cc/W41znMFf/wu-biao-ti98-20260215154732.png">
+                        </div>
+                        <div class="chat-input-wrapper">
+                            <input type="text" placeholder="发消息..." class="forum-chat-input">
+                        </div>
+                        <div class="chat-footer-actions">
+                            <img src="https://i.postimg.cc/xT2Zhgfk/无标题98_20260215154555.png">
+                            <img src="https://i.postimg.cc/ZKSQ2jby/无标题98_20260215154535.png">
+                            <img src="https://i.postimg.cc/jdb1mvxw/无标题98_20260215154633.png">
+                            <img src="https://i.postimg.cc/02s4FZkK/无标题98_20260215154658.png">
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -932,7 +2041,7 @@
             <div class="post-item ${isMultiSelect ? 'multi-select-mode' : ''} ${isSelected ? 'post-selected' : ''}" data-post-id="${post.id}">
                 ${isMultiSelect ? `<div class="post-select-checkbox ${isSelected ? 'selected' : ''}" data-post-id="${post.id}"></div>` : ''}
                 <div class="post-header">
-                    <div class="post-user-info-wrapper">
+                    <div class="post-user-info-wrapper user-profile-trigger" data-user-json="${encodeURIComponent(JSON.stringify(post.user))}" style="cursor: pointer;">
                         <img src="${post.user.avatar}" class="post-user-avatar">
                         <div class="post-user-text">
                             <div class="post-username-row">
@@ -1048,11 +2157,40 @@
             });
         }
 
-        const editProfileBtn = document.querySelector('.profile-btn'); // Assumes first one is Edit Profile
+        const editProfileBtn = document.getElementById('my-profile-edit-btn');
         if (editProfileBtn) {
             editProfileBtn.addEventListener('click', () => {
                 forumState.activeTab = 'edit_profile';
                 renderForum();
+            });
+        }
+
+        const followBtn = document.getElementById('other-profile-follow-btn');
+        if (followBtn) {
+            followBtn.addEventListener('click', () => {
+                if (forumState.viewingUser) {
+                    const isFollowing = !forumState.viewingUser.isFollowing;
+                    forumState.viewingUser.isFollowing = isFollowing;
+                    
+                    // Add smooth transition
+                    followBtn.style.transition = 'all 0.2s ease';
+                    
+                    if (isFollowing) {
+                        followBtn.innerHTML = '已关注 <i class="fas fa-chevron-down" style="font-size: 12px; margin-left: 2px;"></i>';
+                        followBtn.style.backgroundColor = '#F0F2F5';
+                        followBtn.style.color = '#000';
+                        // Add scale effect
+                        followBtn.style.transform = 'scale(0.95)';
+                        setTimeout(() => followBtn.style.transform = 'scale(1)', 200);
+                    } else {
+                        followBtn.innerHTML = '关注';
+                        followBtn.style.backgroundColor = '#455EFF';
+                        followBtn.style.color = 'white';
+                        // Add scale effect
+                        followBtn.style.transform = 'scale(0.95)';
+                        setTimeout(() => followBtn.style.transform = 'scale(1)', 200);
+                    }
+                }
             });
         }
 
@@ -1061,6 +2199,46 @@
             forumSettingsBtn.addEventListener('click', () => {
                 forumState.activeTab = 'forum_settings';
                 renderForum();
+            });
+        }
+
+        const otherProfileBackBtn = document.getElementById('other-profile-back');
+        if (otherProfileBackBtn) {
+            otherProfileBackBtn.addEventListener('click', () => {
+                forumState.viewingUser = null;
+                forumState.activeTab = 'home';
+                renderForum();
+            });
+        }
+
+        const otherProfileMenuBtn = document.getElementById('other-profile-menu-btn');
+        if (otherProfileMenuBtn) {
+            otherProfileMenuBtn.addEventListener('click', () => {
+                showProfileMenu();
+            });
+        }
+
+        const profileMultiselectDoneBtn = document.getElementById('profile-multiselect-done');
+        if (profileMultiselectDoneBtn) {
+            profileMultiselectDoneBtn.addEventListener('click', () => {
+                // Cancel/Exit Mode
+                forumState.profileMultiSelectMode = false;
+                forumState.profileSelectedPostIds = new Set();
+                renderForum(false);
+            });
+        }
+
+        const profileMultiselectAllBtn = document.getElementById('profile-multiselect-all');
+        if (profileMultiselectAllBtn) {
+            profileMultiselectAllBtn.addEventListener('click', () => {
+                toggleProfileSelectAll();
+            });
+        }
+
+        const profileMultiselectDeleteBtn = document.getElementById('profile-multiselect-delete');
+        if (profileMultiselectDeleteBtn) {
+            profileMultiselectDeleteBtn.addEventListener('click', () => {
+                deleteProfileSelectedPosts();
             });
         }
 
@@ -1289,6 +2467,19 @@
         const contentArea = document.getElementById('forum-content-area');
         if (contentArea) {
             contentArea.addEventListener('click', (e) => {
+                // Profile Trigger
+                const profileTrigger = e.target.closest('.user-profile-trigger');
+                if (profileTrigger) {
+                    e.stopPropagation();
+                    try {
+                        const userData = JSON.parse(decodeURIComponent(profileTrigger.dataset.userJson));
+                        window.openUserProfile(userData);
+                    } catch (err) {
+                        console.error('Failed to parse user data', err);
+                    }
+                    return;
+                }
+
                 // Multi-select checkbox click
                 const checkbox = e.target.closest('.post-select-checkbox');
                 if (checkbox) {
@@ -1882,5 +3073,181 @@ ${charList}
     window.initForumApp = initForum;
     if (window.appInitFunctions) {
         window.appInitFunctions.push(initForum);
+    }
+
+    // AI Reply Generation Function
+    async function generateAIReply(post, userComment, context) {
+        if (!post || !userComment) return;
+
+        // Determine the persona info
+        let authorName = post.user.name;
+        let authorPersona = "普通网友";
+        let authorBio = "";
+        
+        // If it's a linked contact, get more specific persona details
+        if (post.userId) {
+             const contacts = window.iphoneSimState.contacts || [];
+             const contact = contacts.find(c => c.id === post.userId);
+             if (contact) {
+                 const profiles = forumState.settings.contactProfiles || {};
+                 const profile = profiles[post.userId] || {};
+                 authorPersona = contact.persona || '普通网友';
+                 authorName = profile.name || contact.remark || contact.name;
+                 authorBio = profile.bio || '';
+             }
+        }
+
+        const systemPrompt = `你是一个模拟社交媒体评论生成器。
+当前帖子内容: "${post.caption}"
+帖子作者: "${authorName}" (人设: ${authorPersona}, Bio: ${authorBio})
+用户评论: "${userComment.text}"
+
+任务: 生成 4 条针对用户评论的回复。
+1. 第一条必须来自帖子作者本人 (${authorName})，必须符合其人设语气。
+2. 后三条来自随机路人(网友)，语气风格要多样化（有的赞同，有的调侃，有的仅仅是吃瓜）。
+3. **重要: 为每个路人生成一个真实、独特、像活人的网名 (username)，不要使用"网友123"这种格式。网名可以包含日文、英文、emoji等。**
+
+重要: 请严格只返回一个 JSON 数组，不要包含任何其他说明文字或 Markdown 标记。
+示例格式:
+[
+  { "isAuthor": true, "text": "作者回复内容" },
+  { "isAuthor": false, "text": "路人1回复", "username": "Sakura_chan🌸" },
+  { "isAuthor": false, "text": "路人2回复", "username": "TokyoWalker" },
+  { "isAuthor": false, "text": "路人3回复", "username": "猫猫大好き" }
+]`;
+
+        // Set Generating State
+        forumState.isGeneratingReply = true;
+        renderCommentsOverlay(post.comments_list, post); // Update UI to show indicator
+
+        try {
+            // Get AI settings
+            let settings = { url: '', key: '', model: '' };
+            if (window.iphoneSimState) {
+                if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) {
+                    settings = window.iphoneSimState.aiSettings;
+                } else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) {
+                    settings = window.iphoneSimState.aiSettings2;
+                }
+            }
+
+            if (!settings.url || !settings.key) {
+                console.warn('AI settings not found, skipping reply generation');
+                return;
+            }
+
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + settings.key
+                },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: 'You are a backend API that returns purely JSON arrays.' },
+                        { role: 'user', content: systemPrompt }
+                    ],
+                    temperature: 0.8
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('AI request failed');
+            }
+
+            const data = await response.json();
+            let content = data.choices[0].message.content.trim();
+            // Remove code blocks if present
+            content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
+
+            let repliesData = [];
+            try {
+                // Attempt to parse
+                const jsonStart = content.indexOf('[');
+                const jsonEnd = content.lastIndexOf(']');
+                if (jsonStart !== -1 && jsonEnd !== -1) {
+                    content = content.substring(jsonStart, jsonEnd + 1);
+                    repliesData = JSON.parse(content);
+                } else {
+                    // Fallback try direct parse
+                    repliesData = JSON.parse(content);
+                }
+            } catch (e) {
+                console.error("Failed to parse AI replies", content);
+                // Fallback: If parsing fails, use the raw text as a single author reply
+                repliesData = [{ isAuthor: true, text: content }];
+            }
+
+            // Ensure it's an array
+            if (!Array.isArray(repliesData)) {
+                repliesData = [repliesData];
+            }
+
+            if (repliesData.length > 0) {
+                repliesData.forEach((replyItem, index) => {
+                    const isAuthor = replyItem.isAuthor;
+                    
+                    let replyUser;
+                    if (isAuthor) {
+                        replyUser = post.user; // Post Author
+                    } else {
+                        // Generate random stranger with AI provided username or fallback
+                        const randomNames = ['Momo', 'Yuki', 'Kaito', 'Rin', 'Haru', 'Sora', 'Hina', 'Rio', 'Aoi', 'Toma'];
+                        const fallbackName = randomNames[Math.floor(Math.random() * randomNames.length)] + '_' + Math.floor(Math.random() * 100);
+                        
+                        replyUser = {
+                            name: replyItem.username || fallbackName,
+                            avatar: `https://api.dicebear.com/7.x/lorelei/svg?seed=${Math.random()}`,
+                            verified: false
+                        };
+                    }
+
+                    const replyComment = {
+                        id: Date.now() + index,
+                        user: replyUser,
+                        text: replyItem.text,
+                        time: '刚刚',
+                        likes: 0
+                    };
+
+                    // Add reply to state
+                    if (context && context.type === 'reply' && context.parentComment) {
+                        // Reply to a comment -> add to parent's replies
+                        if (!context.parentComment.replies) context.parentComment.replies = [];
+                        context.parentComment.replies.push(replyComment);
+                    } else {
+                        // Direct comment -> add to the userComment's replies
+                        // Need to find userComment in post list
+                        const targetComment = post.comments_list.find(c => c.id === userComment.id);
+                        if (targetComment) {
+                            if (!targetComment.replies) targetComment.replies = [];
+                            targetComment.replies.push(replyComment);
+                        } else {
+                             post.comments_list.push(replyComment); // Should not happen usually
+                        }
+                    }
+                    
+                    post.stats.comments++;
+                });
+
+                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            }
+
+        } catch (error) {
+            console.error('AI Reply Error:', error);
+        } finally {
+            forumState.isGeneratingReply = false;
+            // Only re-render if the overlay is still open and showing THIS post
+             const overlay = document.getElementById('comments-overlay');
+             if (overlay && overlay.classList.contains('active')) {
+                 renderCommentsOverlay(post.comments_list, post);
+             }
+        }
     }
 })();
