@@ -1442,12 +1442,12 @@
 .forum-chat-container {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    /* height: 100%; */
 }
 
 .forum-chat-body {
     flex: 1;
-    overflow-y: auto;
+    /* overflow-y: auto; */
     padding: 20px 15px;
     display: flex;
     flex-direction: column;

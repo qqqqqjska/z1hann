@@ -233,8 +233,8 @@
                 
                 // Header Hide/Show logic
                 if (forumHeader) {
-                    if (forumState.activeTab === 'other_profile') {
-                        // 在他人主页，顶栏随内容一起滚动（通过CSS position:absolute/relative实现，或者简单的不隐藏）
+                    if (forumState.activeTab === 'other_profile' || forumState.activeTab === 'chat') {
+                        // 在他人主页或私聊页面，顶栏不自动隐藏
                         // 但这里我们只是取消"header-hidden"类的添加，让它保持原位
                         // 实际上用户要求"顶栏和别的内容一起上滑"，这意味着顶栏不应该 fixed/sticky，或者应该随着页面滚动而移动
                         // 现有的CSS是 sticky top:0。如果要一起上滑，需要在滚动时把它推上去，或者改为 position: absolute/relative
@@ -1903,11 +1903,12 @@
                 };
             }
 
-            const chatBody = document.querySelector('.forum-chat-body');
-            if (chatBody) {
-                chatBody.scrollTop = chatBody.scrollHeight;
+            const contentArea = document.getElementById('forum-content-area');
+            if (contentArea) {
+                contentArea.scrollTop = contentArea.scrollHeight;
             }
 
+            const chatBody = document.querySelector('.forum-chat-body');
             const input = document.querySelector('.forum-chat-input');
             if (input) {
                 input.addEventListener('keypress', (e) => {
@@ -1927,7 +1928,10 @@
                             chatBody.insertAdjacentHTML('beforeend', msgHtml);
                             
                             // Scroll to bottom
-                            chatBody.scrollTop = chatBody.scrollHeight;
+                            const contentArea = document.getElementById('forum-content-area');
+                            if (contentArea) {
+                                contentArea.scrollTop = contentArea.scrollHeight;
+                            }
                             
                             // Clear input
                             input.value = '';

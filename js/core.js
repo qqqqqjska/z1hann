@@ -53,6 +53,23 @@ const state = {
         groupId: '',
         model: 'speech-01-turbo'
     },
+    novelaiSettings: {
+        url: 'https://api.novelai.net',
+        key: '',
+        model: 'nai-diffusion-3',
+        size: '832x1216',
+        steps: 28,
+        cfg: 5,
+        sampler: 'k_euler_ancestral',
+        seed: -1,
+        ucPreset: 0,
+        addQualityTags: true,
+        smea: false,
+        smeaDyn: false,
+        defaultPrompt: '((full body shot:1.6)), (solo character:1.5), dynamic pose, 1boy, ((manly))',
+        negativePrompt: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
+        corsProxy: 'corsproxy.io'
+    },
     chatWallpapers: [], // { id, data }
     tempSelectedChatBg: null, // 临时存储聊天设置中选中的背景
     tempSelectedGroup: null, // 临时存储聊天设置中选中的分组
@@ -569,6 +586,23 @@ async function loadConfig() {
             if (!state.aiPresets2) state.aiPresets2 = [];
             if (!state.whisperSettings) state.whisperSettings = { url: '', key: '', model: 'whisper-1' };
             if (!state.minimaxSettings) state.minimaxSettings = { url: 'https://api.minimax.chat/v1/t2a_v2', key: '', groupId: '', model: 'speech-01-turbo' };
+            if (!state.novelaiSettings) state.novelaiSettings = { 
+                url: 'https://api.novelai.net', 
+                key: '', 
+                model: 'nai-diffusion-3', 
+                size: '832x1216',
+                steps: 28,
+                cfg: 5,
+                sampler: 'k_euler_ancestral',
+                seed: -1,
+                ucPreset: 0,
+                addQualityTags: true,
+                smea: false,
+                smeaDyn: false,
+                defaultPrompt: '((full body shot:1.6)), (solo character:1.5), dynamic pose, 1boy, ((manly))',
+                negativePrompt: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
+                corsProxy: 'corsproxy.io'
+            };
             if (!state.amapSettings) state.amapSettings = { key: '', securityCode: '' };
             if (!state.chatWallpapers) state.chatWallpapers = [];
             if (!state.contacts) state.contacts = [];
@@ -892,6 +926,7 @@ async function init() {
     }
     if (window.updateWhisperUi) updateWhisperUi();
     if (window.updateMinimaxUi) updateMinimaxUi();
+    if (window.updateNovelAiUi) window.updateNovelAiUi();
     if (window.updateSystemSettingsUi) updateSystemSettingsUi();
     if (window.updateAudioSession) window.updateAudioSession();
     if (window.renderContactList) renderContactList();

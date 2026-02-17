@@ -30,6 +30,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/chat_tail_style.css">
+    <link rel="stylesheet" href="css/image_refresh.css">
     <link rel="stylesheet" href="css/forum_style.css">
     <link rel="stylesheet" href="css/lookus_style.css">
 </head>
@@ -391,7 +392,117 @@
                     </div>
                 </div>
 
+                <!-- NovelAI Settings -->
+                <div class="section-title">NovelAI 生图设置</div>
+                <div class="ios-list-group">
+                    <div class="list-item">
+                        <div class="list-content">
+                            <label>聊天中启用生图</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="novelai-chat-enabled">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-content column">
+                            <label>配置预设</label>
+                            <div class="input-row full-width">
+                                <select id="novelai-preset-select">
+                                    <option value="">-- 选择预设 --</option>
+                                </select>
+                                <button id="save-novelai-preset" class="ios-btn-small">保存</button>
+                                <button id="delete-novelai-preset" class="ios-btn-small danger">删除</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-content column">
+                            <label>API Key</label>
+                            <input type="password" id="novelai-api-key" placeholder="pst-...">
+                        </div>
+                    </div>
+                     <div class="list-item">
+                        <div class="list-content column">
+                            <label>模型 (Model)</label>
+                            <select id="novelai-model-select" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; background-color: #f2f2f7; margin-top: 5px;">
+                                <option value="nai-diffusion-4-5-full">nai-diffusion-4-5-full</option>
+                                <option value="nai-diffusion-4-curated-preview">nai-diffusion-4-curated-preview</option>
+                                <option value="nai-diffusion-3">nai-diffusion-3</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                         <div class="list-content column">
+                            <label>正向提示词 (Prompt)</label>
+                            <textarea id="novelai-prompt" placeholder="1girl, solo, ..." style="height: 80px;"></textarea>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                         <div class="list-content column">
+                            <label>反向提示词 (Negative Prompt)</label>
+                            <textarea id="novelai-negative-prompt" placeholder="lowres, bad anatomy, ..." style="height: 60px;"></textarea>
+                        </div>
+                    </div>
+                     <div class="list-item">
+                        <div class="list-content column">
+                            <div style="display: flex; justify-content: space-between; width: 100%;">
+                                <label>图片尺寸</label>
+                                <select id="novelai-size-select" style="padding: 4px; border-radius: 4px;">
+                                    <option value="832x1216">832x1216 (Portrait)</option>
+                                    <option value="1216x832">1216x832 (Landscape)</option>
+                                    <option value="1024x1024">1024x1024 (Square)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                         <div class="list-content column">
+                            <div style="display: flex; justify-content: space-between; width: 100%;">
+                                <label>采样步数 (Steps)</label>
+                                <span id="novelai-steps-val">28</span>
+                            </div>
+                            <input type="range" id="novelai-steps" min="1" max="50" value="28" style="width: 100%;">
+                        </div>
+                    </div>
+                    <div class="list-item">
+                         <div class="list-content column">
+                            <div style="display: flex; justify-content: space-between; width: 100%;">
+                                <label>提示词相关性 (Scale)</label>
+                                <span id="novelai-scale-val">5</span>
+                            </div>
+                            <input type="range" id="novelai-scale" min="1" max="20" step="0.5" value="5" style="width: 100%;">
+                        </div>
+                    </div>
+                     <div class="list-item">
+                        <div class="list-content column">
+                            <div style="display: flex; justify-content: space-between; width: 100%;">
+                                <label>随机种子 (Seed)</label>
+                                <span style="font-size: 12px; color: #999;">-1 为随机</span>
+                            </div>
+                            <input type="number" id="novelai-seed" placeholder="-1" value="-1">
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <button id="novelai-generate-btn" class="ios-btn-block">生成图片</button>
+                    </div>
+                    
+                    <!-- 生成结果区域 -->
+                    <div id="novelai-result-container" class="list-item hidden">
+                        <div class="list-content column" style="align-items: center; width: 100%;">
+                            <div id="novelai-status-text" style="margin: 10px 0; color: #888; font-size: 14px;">准备就绪</div>
+                            <img id="novelai-result-img" src="" style="width: 100%; max-height: 400px; object-fit: contain; border-radius: 8px; display: none; margin-bottom: 10px; background: #eee;">
+                            <button id="novelai-save-btn" class="ios-btn-block secondary" style="display: none;">保存到本地</button>
+                        </div>
+                    </div>
+                </div>
+
+
+
+
+
                 <!-- 副 API 设置 -->
+
                 <div class="section-title">副 API 设置</div>
                 
                 <!-- 预设 -->
@@ -757,6 +868,21 @@
                         <div class="section-title">关联表情包</div>
                         <div class="ios-list-group" id="chat-setting-sticker-list">
                             <!-- 表情包分类列表将通过JS生成 -->
+                        </div>
+
+                        <div class="section-title">NovelAI 生图预设</div>
+                        <div class="ios-list-group">
+                            <div class="list-item">
+                                <div class="list-content column">
+                                    <label>选择预设</label>
+                                    <select id="chat-setting-novelai-preset" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; background-color: #f2f2f7;">
+                                        <option value="">-- 不使用预设 --</option>
+                                    </select>
+                                    <div style="font-size: 12px; color: #888; margin-top: 5px;">
+                                        当在聊天中生成该角色的图片时，将使用此预设的提示词。
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="ios-list-group" style="margin-top: 20px;">
@@ -4037,8 +4163,12 @@
     <script src="js/games.js"></script>
     <script src="js/call_history.js"></script>
     <script src="js/lookus.js"></script>
+    <script src="js/novelai.js"></script>
     <script>
         // 修复 资料卡 背景点击上传图片
+
+
+
         document.addEventListener('DOMContentLoaded', () => {
             const aiProfileBg = document.getElementById('ai-profile-bg');
             const aiProfileBgInput = document.getElementById('ai-profile-bg-input');
@@ -4349,27 +4479,3 @@
 
 </body>
 </html>
-
-</file_content>
-
-现在您已经获得了文件的最新状态，请使用更少、更精确的 SEARCH 块再次尝试操作。特别是对于大型文件，明智的做法可能是尝试将自己限制在每次不超过 5 个 SEARCH/REPLACE 块，然后等待用户对操作结果的响应，然后再进行另一个 replace_in_file 调用来进行额外的编辑。
-（如果您连续 3 次遇到此错误，您可以使用 write_to_file 工具作为后备方案。）
-</error><environment_details>
-# VSCode Visible Files
-script.js
-index.html
-
-# VSCode Open Tabs
-style.css
-script.js
-index.html
-
-# 当前时间
-2026/1/24 下午3:18:00 (Asia/Shanghai, UTC+8:00)
-
-# 上下文窗口使用
-0 / 300K 令牌已使用 (0%)
-
-# 当前模式
-行动模式
-</environment_details>

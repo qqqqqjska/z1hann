@@ -931,6 +931,25 @@ function openChatSettings() {
     // 加载位置选择器
     loadLocationToSelectors(contact);
 
+    // 加载 NovelAI 预设
+    const novelaiPresetSelect = document.getElementById('chat-setting-novelai-preset');
+    if (novelaiPresetSelect) {
+        novelaiPresetSelect.innerHTML = '<option value="">-- 不使用预设 --</option>';
+        const presets = window.iphoneSimState.novelaiPresets || [];
+        presets.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.name;
+            novelaiPresetSelect.appendChild(opt);
+        });
+        if (contact.novelaiPreset) {
+            // 检查预设是否存在，如果不存在则不选中（或者是为了兼容性保留值？）
+            // 这里选择直接设置 value，如果 value 不在 options 中，select 会显示为空或第一项，视浏览器行为而定
+            // 为了更好的体验，我们假设预设名字是唯一的 key
+            novelaiPresetSelect.value = contact.novelaiPreset;
+        }
+    }
+
     document.getElementById('chat-setting-context-limit').value = contact.contextLimit || '';
     document.getElementById('chat-setting-summary-limit').value = contact.summaryLimit || '';
     document.getElementById('chat-setting-show-thought').checked = contact.showThought || false;
@@ -1486,6 +1505,7 @@ function handleSaveChatSettings() {
     const intervalMax = document.getElementById('chat-setting-interval-max').value;
     const activeReplyEnabled = document.getElementById('chat-setting-active-reply').checked;
     const activeReplyInterval = document.getElementById('chat-setting-active-interval').value;
+    const novelaiPreset = document.getElementById('chat-setting-novelai-preset') ? document.getElementById('chat-setting-novelai-preset').value : '';
 
     const selectedWbCategories = [];
     document.querySelectorAll('.wb-category-checkbox').forEach(cb => {
@@ -1525,6 +1545,7 @@ function handleSaveChatSettings() {
     contact.replyIntervalMax = intervalMax ? parseInt(intervalMax) : null;
     contact.activeReplyEnabled = activeReplyEnabled;
     contact.activeReplyInterval = activeReplyInterval ? parseInt(activeReplyInterval) : 60;
+    contact.novelaiPreset = novelaiPreset;
     
     if (activeReplyEnabled) {
         // Start timing from now (or keep existing start time if already enabled?)
@@ -2612,12 +2633,34 @@ function showContextMenu(targetEl, msgData) {
     menu.querySelector('#menu-edit').onclick = () => {
         if (msgData.msgId) {
             menu.remove();
+
+            // 检查是否有 NovelAI 提示词
+            const history = window.iphoneSimState.chatHistory[window.iphoneSimState.currentChatContactId];
+            const fullMsg = history ? history.find(m => m.id === msgData.msgId) : null;
+            
+            if (fullMsg && fullMsg.novelaiPrompt) {
+                // 如果有提示词，显示提示词编辑框
+                // 这里简单使用 prompt 弹窗，也可以换成更复杂的模态框
+                // 为了更好的体验，可以使用 textarea 的模态框，但目前 prompt 最简单有效
+                const newPrompt = prompt("NovelAI 生成提示词 (Prompt):", fullMsg.novelaiPrompt);
+                if (newPrompt !== null && newPrompt !== fullMsg.novelaiPrompt) {
+                    fullMsg.novelaiPrompt = newPrompt;
+                    saveConfig();
+                    alert('提示词已更新 (仅更新记录，不会重新生成图片)');
+                }
+                return;
+            }
+
             if (msgData.type !== 'text') {
                 if(!confirm('这是一条非文本消息（如图片或转账），直接编辑内容可能会破坏显示格式。确定要编辑吗？')) {
                     return;
                 }
             }
-            openEditChatMessageModal(msgData.msgId, msgData.content);
+            if (typeof openEditChatMessageModal === 'function') {
+                openEditChatMessageModal(msgData.msgId, msgData.content);
+            } else {
+                alert('编辑功能暂不可用');
+            }
         } else {
             alert('无法编辑此消息（缺少ID）');
             menu.remove();

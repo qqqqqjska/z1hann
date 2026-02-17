@@ -1,0 +1,45 @@
+#chat-messages .image-msg .image-refresh-btn,
+#chat-messages .virtual-image-msg .image-refresh-btn {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(2px);
+    transition: all 0.2s ease;
+    opacity: 0;
+    z-index: 10;
+}
+
+#chat-messages .image-msg:hover .image-refresh-btn,
+#chat-messages .virtual-image-msg:hover .image-refresh-btn {
+    opacity: 1;
+}
+
+#chat-messages .image-refresh-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+    transform: scale(1.1);
+}
+
+#chat-messages .image-refresh-btn:active {
+    transform: scale(0.95);
+}
+
+#chat-messages .image-refresh-btn i {
+    font-size: 14px;
+}
+
+/* For mobile touch support */
+@media (hover: none) {
+    #chat-messages .image-msg .image-refresh-btn,
+    #chat-messages .virtual-image-msg .image-refresh-btn {
+        opacity: 0.8;
+    }
+}
