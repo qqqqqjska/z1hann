@@ -184,6 +184,7 @@ window.generateNovelAiImageApi = async function(options) {
         const presetSelect = document.getElementById('novelai-preset-select');
         const savePresetBtn = document.getElementById('save-novelai-preset');
         const deletePresetBtn = document.getElementById('delete-novelai-preset');
+        const presetTypeSelect = document.getElementById('novelai-preset-type-select');
 
         if (presetSelect && savePresetBtn && deletePresetBtn) {
             const renderPresets = () => {
@@ -206,8 +207,11 @@ window.generateNovelAiImageApi = async function(options) {
                 const name = prompt('请输入预设名称：');
                 if (!name) return;
                 
+                const type = presetTypeSelect ? presetTypeSelect.value : 'general';
+
                 const newPreset = {
                     name: name,
+                    type: type,
                     settings: {
                         model: settings.model,
                         prompt: settings.defaultPrompt,
@@ -258,6 +262,11 @@ window.generateNovelAiImageApi = async function(options) {
                 
                 const preset = getPresets().find(p => p.name === name);
                 if (preset && preset.settings) {
+                    // Update type select
+                    if (presetTypeSelect) {
+                        presetTypeSelect.value = preset.type || 'general';
+                    }
+
                     const s = preset.settings;
                     
                     if (s.model) {

@@ -934,7 +934,7 @@ function openChatSettings() {
     // 加载 NovelAI 预设
     const novelaiPresetSelect = document.getElementById('chat-setting-novelai-preset');
     if (novelaiPresetSelect) {
-        novelaiPresetSelect.innerHTML = '<option value="">-- 不使用预设 --</option>';
+        novelaiPresetSelect.innerHTML = '<option value="">-- 不使用预设 --</option><option value="AUTO_MATCH">-- 自动匹配类型 --</option>';
         const presets = window.iphoneSimState.novelaiPresets || [];
         presets.forEach(p => {
             const opt = document.createElement('option');
@@ -1890,7 +1890,18 @@ window.refreshAiImage = async function(msgId, event) {
         // 尝试从 preset 恢复参数
         const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
         if (contact && contact.novelaiPreset) {
-             const preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === contact.novelaiPreset);
+             let preset = null;
+             if (contact.novelaiPreset === 'AUTO_MATCH') {
+                  const type = detectImageType(msg.description || "");
+                  const presets = window.iphoneSimState.novelaiPresets || [];
+                  preset = presets.find(p => p.type === type);
+                  if (!preset && type !== 'general') {
+                       preset = presets.find(p => p.type === 'general');
+                  }
+             } else {
+                  preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === contact.novelaiPreset);
+             }
+
              if (preset && preset.settings) {
                  genOptions.model = preset.settings.model || genOptions.model;
                  genOptions.steps = preset.settings.steps || genOptions.steps;
@@ -4451,8 +4462,19 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                     
                     if (globalEnabled && window.generateNovelAiImageApi && contact.novelaiPreset) {
                         let finalPrompt = "";
-                        const presetName = contact.novelaiPreset;
-                        const preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === presetName);
+                        let presetName = contact.novelaiPreset;
+                        let preset = null;
+    
+                        if (presetName === 'AUTO_MATCH') {
+                            const type = detectImageType(imageToSend.content);
+                            const presets = window.iphoneSimState.novelaiPresets || [];
+                            preset = presets.find(p => p.type === type);
+                            if (!preset && type !== 'general') {
+                                preset = presets.find(p => p.type === 'general');
+                            }
+                        } else {
+                            preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === presetName);
+                        }
                         
                         if (preset && preset.settings && preset.settings.prompt) {
                             finalPrompt += preset.settings.prompt;
@@ -4656,8 +4678,19 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 
                 if (globalEnabled && window.generateNovelAiImageApi && contact.novelaiPreset) {
                     let finalPrompt = "";
-                    const presetName = contact.novelaiPreset;
-                    const preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === presetName);
+                    let presetName = contact.novelaiPreset;
+                    let preset = null;
+
+                    if (presetName === 'AUTO_MATCH') {
+                        const type = detectImageType(msg.content);
+                        const presets = window.iphoneSimState.novelaiPresets || [];
+                        preset = presets.find(p => p.type === type);
+                        if (!preset && type !== 'general') {
+                            preset = presets.find(p => p.type === 'general');
+                        }
+                    } else {
+                        preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === presetName);
+                    }
                     
                     if (preset && preset.settings && preset.settings.prompt) {
                         finalPrompt += preset.settings.prompt;
@@ -4758,6 +4791,16 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
             titleEl.textContent = originalTitle;
         }
     }
+}
+
+// Helper function to detect image type from text
+function detectImageType(text) {
+    if (!text) return 'general';
+    if (/(吃|喝|美食|美味|food|dish|meal|好吃|蛋糕|面|饭|菜)/i.test(text)) return 'food';
+    if (/(风景|景色|山|水|scenery|landscape|view|sky|cloud|sea|forest|outside|nature)/i.test(text)) return 'scenery';
+    if (/(房间|屋|室|room|indoor|house|living|bedroom|bed)/i.test(text)) return 'scene';
+    if (/(我|你|他|她|人|脸|看|girl|boy|man|woman|face|eye|hair|body|looking)/i.test(text)) return 'portrait';
+    return 'general';
 }
 
 // Helper function to optimize natural language prompts for NovelAI

@@ -408,8 +408,18 @@
                         <div class="list-content column">
                             <label>配置预设</label>
                             <div class="input-row full-width">
-                                <select id="novelai-preset-select">
+                                <select id="novelai-preset-select" style="flex: 1;">
                                     <option value="">-- 选择预设 --</option>
+                                </select>
+                            </div>
+                            <div class="input-row full-width" style="margin-top: 8px;">
+                                <span style="font-size: 13px; color: #666; white-space: nowrap;">类型:</span>
+                                <select id="novelai-preset-type-select" style="flex: 1;">
+                                    <option value="general">通用</option>
+                                    <option value="portrait">人像</option>
+                                    <option value="food">食物</option>
+                                    <option value="scenery">风景</option>
+                                    <option value="scene">场景</option>
                                 </select>
                                 <button id="save-novelai-preset" class="ios-btn-small">保存</button>
                                 <button id="delete-novelai-preset" class="ios-btn-small danger">删除</button>
