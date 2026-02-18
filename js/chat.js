@@ -1778,7 +1778,7 @@ function updateThoughtBubble(text) {
 
 function sendMessage(text, isUser, type = 'text', description = null, targetContactId = null) {
     const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
-    if (!contactId) return;
+    if (!contactId) return null;
     
     if (!window.iphoneSimState.chatHistory[contactId]) {
         window.iphoneSimState.chatHistory[contactId] = [];
@@ -1834,7 +1834,90 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     if (window.renderContactList) window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
 
     if (window.checkAndSummarize) window.checkAndSummarize(contactId);
+    
+    return msg;
 }
+
+window.refreshAiImage = async function(msgId, event) {
+    if (event) event.stopPropagation();
+
+    const contactId = window.iphoneSimState.currentChatContactId;
+    if (!contactId) return;
+
+    const history = window.iphoneSimState.chatHistory[contactId];
+    if (!history) return;
+
+    const msgIndex = history.findIndex(m => m.id === msgId);
+    if (msgIndex === -1) return;
+
+    const msg = history[msgIndex];
+    if (!msg.novelaiPrompt) {
+        alert("该图片无法重新生成（缺少 Prompt）");
+        return;
+    }
+
+    if (!confirm("确定要使用相同的提示词重新生成这张图片吗？")) return;
+
+    const novelaiSettings = window.iphoneSimState.novelaiSettings;
+    if (!novelaiSettings || !novelaiSettings.key) {
+        alert("请先配置 NovelAI API Key");
+        return;
+    }
+
+    // 更新消息状态为正在生成
+    const originalContent = msg.content;
+    const originalType = msg.type;
+    
+    msg.type = 'virtual_image';
+    msg.content = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Regenerating...';
+    
+    // 强制重新渲染
+    if (window.renderChatHistory) renderChatHistory(contactId, true);
+
+    try {
+         const genOptions = {
+            key: novelaiSettings.key,
+            model: novelaiSettings.model,
+            prompt: msg.novelaiPrompt,
+            negativePrompt: msg.novelaiNegativePrompt || novelaiSettings.negativePrompt,
+            steps: novelaiSettings.steps || 28,
+            scale: novelaiSettings.cfg || 5,
+            seed: -1,
+            width: 832,
+            height: 1216
+        };
+
+        // 尝试从 preset 恢复参数
+        const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+        if (contact && contact.novelaiPreset) {
+             const preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === contact.novelaiPreset);
+             if (preset && preset.settings) {
+                 genOptions.model = preset.settings.model || genOptions.model;
+                 genOptions.steps = preset.settings.steps || genOptions.steps;
+                 genOptions.scale = preset.settings.scale || genOptions.scale;
+                 genOptions.width = preset.settings.width || genOptions.width;
+                 genOptions.height = preset.settings.height || genOptions.height;
+             }
+        }
+
+        const base64Image = await window.generateNovelAiImageApi(genOptions);
+
+        // 更新消息
+        msg.type = 'image';
+        msg.content = base64Image;
+        
+        saveConfig();
+        if (window.renderChatHistory) renderChatHistory(contactId, true);
+
+    } catch (e) {
+        console.error("Regeneration failed", e);
+        alert("生成失败: " + e.message);
+        // 恢复原图
+        msg.type = originalType;
+        msg.content = originalContent;
+        if (window.renderChatHistory) renderChatHistory(contactId, true);
+    }
+};
 
 function appendMessageToUI(text, isUser, type = 'text', description = null, replyTo = null, msgId = null, timestamp = null, isHistory = false) {
     if (type === 'text' && text && typeof text === 'string') {
@@ -1891,13 +1974,15 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     msgDiv.dataset.time = now;
     
     let isSystemMsg = false;
-    if (type === 'text' && text && typeof text === 'string' && text.startsWith('[系统消息]:')) {
+    if (type === 'system') {
+        isSystemMsg = true;
+    } else if (type === 'text' && text && typeof text === 'string' && (text.startsWith('[系统消息]:') || text.startsWith('[系统]:'))) {
         isSystemMsg = true;
     }
 
     if (isSystemMsg) {
         msgDiv.className = 'chat-message system';
-        const systemText = text.replace('[系统消息]:', '').trim();
+        const systemText = text.replace(/^\[系统(消息)?\][:：]?\s*/, '').trim();
         msgDiv.innerHTML = `<div class="system-tip">${systemText}</div>`;
         container.appendChild(msgDiv);
         return;
@@ -2334,6 +2419,34 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         `;
     }
     
+    // 在 msgDiv 构建完成后，检查并添加刷新按钮
+    if (type === 'image' && !isUser && msgId) {
+        const contentEl = msgDiv.querySelector('.message-content');
+        if (contentEl) {
+             const currentContactId = window.iphoneSimState.currentChatContactId;
+             if (currentContactId && window.iphoneSimState.chatHistory && window.iphoneSimState.chatHistory[currentContactId]) {
+                 const msgObj = window.iphoneSimState.chatHistory[currentContactId].find(m => m.id === msgId);
+                 if (msgObj && msgObj.novelaiPrompt) {
+                     contentEl.style.position = 'relative';
+                     contentEl.style.display = 'inline-block';
+                     
+                     const img = contentEl.querySelector('img');
+                     if (img) {
+                         img.style.display = 'block';
+                         img.style.margin = '0';
+                     }
+
+                     const btn = document.createElement('div');
+                     btn.className = 'image-refresh-btn';
+                     btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+                     btn.onclick = (e) => window.refreshAiImage(msgId, e);
+                     btn.title = '重新生成';
+                     contentEl.appendChild(btn);
+                 }
+             }
+        }
+    }
+
     const selectCheckbox = document.createElement('input');
     selectCheckbox.type = 'checkbox';
     selectCheckbox.className = 'msg-select-checkbox hidden';
@@ -2751,7 +2864,8 @@ function parseMixedAiResponse(content) {
             results.push({ type: 'action', content: item }); // Keep full object
         } else {
             // Other types (sticker, image, etc.)
-            results.push({ type: type, content: content });
+            // 保留 item 中的其他字段（如 prompt）
+            results.push({ ...item, type: type, content: content });
         }
     };
 
@@ -3274,7 +3388,8 @@ ${contact.showThought ? `
    *禁止*：不要在 content 中写 "[发送了一个表情包...]"，直接写表情包名称即可。
 
 4. 🖼️ **图片**：
-   \`{"type": "image", "content": "图片描述"}\`
+   \`{"type": "image", "content": "图片中文描述", "prompt": "NovelAI English tags..."}\`
+   *要求*：请务必提供 \`prompt\` 字段，将图片描述翻译为高质量的 NovelAI 英文标签（Tags），用逗号分隔。例如："1boy, solo, smile, looking at viewer"。
 
 5. 🎤 **语音**：
    \`{"type": "voice", "duration": 秒数, "content": "语音文本"}\`
@@ -4329,9 +4444,94 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                         isReal: false
                     };
                     sendMessage(JSON.stringify(voiceData), false, 'voice', null, contactId);
-                } else if (msg.type === '图片' || msg.type === 'image') {
-                    const defaultImageUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
-                    sendMessage(defaultImageUrl, false, 'virtual_image', msg.content, contactId);
+                } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
+                    let sent = false;
+                    const novelaiSettings = window.iphoneSimState.novelaiSettings;
+                    const globalEnabled = novelaiSettings && novelaiSettings.enabled !== false;
+                    
+                    if (globalEnabled && window.generateNovelAiImageApi && contact.novelaiPreset) {
+                        let finalPrompt = "";
+                        const presetName = contact.novelaiPreset;
+                        const preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === presetName);
+                        
+                        if (preset && preset.settings && preset.settings.prompt) {
+                            finalPrompt += preset.settings.prompt;
+                        } else if (novelaiSettings.defaultPrompt) {
+                            finalPrompt += novelaiSettings.defaultPrompt;
+                        }
+
+                        // Removed persona splicing to avoid polluting prompt with chat style settings
+                        // if (contact.persona) {
+                        //     finalPrompt += ", " + (contact.persona || "").replace(/\n/g, ", ");
+                        // }
+
+                        // 优先使用 AI 提供的翻译好的 prompt
+                        if (msg.prompt) {
+                            finalPrompt += ", " + msg.prompt;
+                        } else if (msg.content) {
+                            finalPrompt += ", " + optimizePromptForNovelAI(msg.content);
+                        }
+
+                        try {
+                            const genOptions = {
+                                key: novelaiSettings.key,
+                                model: (preset && preset.settings && preset.settings.model) || novelaiSettings.model,
+                                prompt: finalPrompt,
+                                negativePrompt: (preset && preset.settings && preset.settings.negativePrompt) || novelaiSettings.negativePrompt,
+                                steps: (preset && preset.settings && preset.settings.steps) || novelaiSettings.steps,
+                                scale: (preset && preset.settings && preset.settings.scale) || novelaiSettings.cfg,
+                                seed: (preset && preset.settings && preset.settings.seed) !== undefined ? preset.settings.seed : -1,
+                                width: (preset && preset.settings && preset.settings.width) || 832,
+                                height: (preset && preset.settings && preset.settings.height) || 1216
+                            };
+
+                            // 先发送占位图片以占据正确的历史记录顺序
+                            const placeholderUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Generating...';
+                            const placeholderMsg = sendMessage(placeholderUrl, false, 'virtual_image', msg.content, contactId);
+                            
+                            appendMessageToUI('[系统]: 正在生成图片...', false, 'system', null, null, null, null, false);
+
+                            window.generateNovelAiImageApi(genOptions).then(base64Image => {
+                                // 图片生成成功，直接更新占位消息，而不是发送新消息
+                                if (placeholderMsg) {
+                                    placeholderMsg.type = 'image';
+                                    placeholderMsg.content = base64Image;
+                                    placeholderMsg.novelaiPrompt = finalPrompt;
+                                    placeholderMsg.novelaiNegativePrompt = genOptions.negativePrompt;
+                                    saveConfig();
+                                    
+                                    // 刷新界面以显示新图片，并保持滚动位置
+                                    if (window.renderChatHistory) renderChatHistory(contactId, true);
+                                }
+                            }).catch(err => {
+                                console.error("NovelAI Gen Error", err);
+                                appendMessageToUI(`[系统]: 生图失败 - ${err.message}`, false, 'system', null, null, null, null, false);
+                                // 失败时占位符保持为 virtual_image，无需额外处理，或可更新为错误图
+                            });
+                            
+                            sent = true;
+
+                        } catch (e) {
+                            console.error("NovelAI Setup Error", e);
+                            appendMessageToUI(`[系统]: 生图配置错误 - ${e.message}`, false, 'text', null, null, null, null, false);
+                        }
+                    }
+
+                    if (!sent) {
+                        const failReason = [];
+                        if (!contact.novelaiPreset) failReason.push("未选择预设");
+                        else if (!globalEnabled) failReason.push("全局开关未开启");
+                        
+                        if (!window.generateNovelAiImageApi) failReason.push("生图模块未加载");
+                        if (!novelaiSettings || !novelaiSettings.key) failReason.push("API Key缺失");
+
+                        if (failReason.length > 0) {
+                            appendMessageToUI(`[系统诊断]: 无法生成图片 - ${failReason.join('; ')}`, false, 'text', null, null, null, null, false);
+                        }
+
+                        const defaultImageUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
+                        sendMessage(defaultImageUrl, false, 'virtual_image', msg.content, contactId);
+                    }
                 } else if (msg.type === '旁白' || msg.type === 'description') {
                     await typewriterEffect(msg.content, contact.avatar, null, null, 'description', contactId);
                 }
@@ -4450,8 +4650,95 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
 
         if (imageToSend) {
             if (imageToSend.type === 'virtual_image') {
-                const defaultImageUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
-                sendMessage(defaultImageUrl, false, 'virtual_image', imageToSend.content, contactId);
+                let sent = false;
+                const novelaiSettings = window.iphoneSimState.novelaiSettings;
+                const globalEnabled = novelaiSettings && novelaiSettings.enabled !== false;
+                
+                if (globalEnabled && window.generateNovelAiImageApi && contact.novelaiPreset) {
+                    let finalPrompt = "";
+                    const presetName = contact.novelaiPreset;
+                    const preset = (window.iphoneSimState.novelaiPresets || []).find(p => p.name === presetName);
+                    
+                    if (preset && preset.settings && preset.settings.prompt) {
+                        finalPrompt += preset.settings.prompt;
+                    } else if (novelaiSettings.defaultPrompt) {
+                        finalPrompt += novelaiSettings.defaultPrompt;
+                    }
+
+                    // Removed persona splicing
+                    // if (contact.persona) {
+                    //     finalPrompt += ", " + (contact.persona || "").replace(/\n/g, ", ");
+                    // }
+
+                    // 优先使用 AI 提供的翻译好的 prompt
+                    if (imageToSend.prompt) {
+                        finalPrompt += ", " + imageToSend.prompt;
+                    } else if (imageToSend.content) {
+                        finalPrompt += ", " + optimizePromptForNovelAI(imageToSend.content);
+                    }
+
+                    try {
+                        const genOptions = {
+                            key: novelaiSettings.key,
+                            model: (preset && preset.settings && preset.settings.model) || novelaiSettings.model,
+                            prompt: finalPrompt,
+                            negativePrompt: (preset && preset.settings && preset.settings.negativePrompt) || novelaiSettings.negativePrompt,
+                            steps: (preset && preset.settings && preset.settings.steps) || novelaiSettings.steps,
+                            scale: (preset && preset.settings && preset.settings.scale) || novelaiSettings.cfg,
+                            seed: (preset && preset.settings && preset.settings.seed) !== undefined ? preset.settings.seed : -1,
+                            width: (preset && preset.settings && preset.settings.width) || 832,
+                            height: (preset && preset.settings && preset.settings.height) || 1216
+                        };
+
+                        // 先发送占位图片
+                        const placeholderUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Generating...';
+                        const placeholderMsg = sendMessage(placeholderUrl, false, 'virtual_image', imageToSend.content, contactId);
+
+                        // 直接调用当前作用域内的函数
+                        appendMessageToUI('[系统]: 正在生成图片...', false, 'system', null, null, null, null, false);
+
+                        window.generateNovelAiImageApi(genOptions).then(base64Image => {
+                            // 更新占位消息
+                            if (placeholderMsg) {
+                                placeholderMsg.type = 'image';
+                                placeholderMsg.content = base64Image;
+                                placeholderMsg.novelaiPrompt = finalPrompt;
+                                placeholderMsg.novelaiNegativePrompt = genOptions.negativePrompt;
+                                saveConfig();
+                                
+                                if (window.renderChatHistory) renderChatHistory(contactId, true);
+                            }
+                        }).catch(err => {
+                            console.error("NovelAI Gen Error", err);
+                            appendMessageToUI(`[系统]: 生图API错误 - ${err.message}`, false, 'system', null, null, null, null, false);
+                        });
+                        
+                        sent = true;
+
+                    } catch (e) {
+                        console.error("NovelAI Setup Error", e);
+                        appendMessageToUI(`[系统]: 生图配置错误 - ${e.message}`, false, 'text', null, null, null, null, false);
+                    }
+                }
+
+                if (!sent) {
+                    // 增强诊断：显示所有未满足的条件
+                    const failReason = [];
+                    if (!contact.novelaiPreset) failReason.push("未选择预设");
+                    else if (!globalEnabled) failReason.push("全局开关未开启");
+                    
+                    if (!window.generateNovelAiImageApi) failReason.push("生图模块未加载");
+                    if (!novelaiSettings || !novelaiSettings.key) failReason.push("API Key缺失");
+
+                    // 只要是 virtual_image 类型，即使没预设，也提示一下（可能是用户忘了配）
+                    // 或者是配置了但其他条件不满足
+                    if (failReason.length > 0) {
+                        appendMessageToUI(`[系统诊断]: 无法生成图片 - ${failReason.join('; ')}`, false, 'text', null, null, null, null, false);
+                    }
+                    
+                    const defaultImageUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
+                    sendMessage(defaultImageUrl, false, 'virtual_image', imageToSend.content, contactId);
+                }
             } else if (imageToSend.type === 'sticker') {
                 sendMessage(imageToSend.content, false, 'sticker', imageToSend.desc, contactId);
             }
@@ -4471,6 +4758,111 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
             titleEl.textContent = originalTitle;
         }
     }
+}
+
+// Helper function to optimize natural language prompts for NovelAI
+function optimizePromptForNovelAI(text) {
+    if (!text) return "";
+    
+    // 1. 特殊样例优化 (针对用户提供的具体例子)
+    const specificCase = "一张从下往上拍的自拍，我正躺在床上，没穿上衣，被子乱糟糟地堆在肩膀周围。黑色的头发有点乱，垂在额前，有几缕贴在皮肤上。光线很暗，只有手机屏幕的光照亮了我的脸和锁骨，能隐约看到那个小小的爱心纹身。我睡眼惺忪地看着镜头，嘴唇微微张着。";
+    // 放宽匹配条件
+    if (text.includes("从下往上拍") && text.includes("自拍") || text.includes(specificCase.substr(0, 10))) {
+        return "selfie, from below, lying on bed, shirtless, messy bed sheet, messy black hair, hair over forehead, dim light, phone screen light, light on face, collarbone, small heart tattoo, sleepy eyes, looking at viewer, parted lips, messy hair, upper body, realistic, 4k, best quality";
+    }
+
+    // 2. 通用优化
+    let processed = text;
+    
+    // 过滤可能包含在 prompt 中的中文聊天设定 (简单 heuristcs)
+    // 移除括号内容，因为它们往往是动作或状态描述 (e.g. (微笑), (开心))，如果不是 Tag 格式
+    // processed = processed.replace(/\（[^)]*\）/g, ''); // 慎用，可能会误删 Tag
+    
+    // 替换中文标点为英文逗号
+    processed = processed.replace(/[，。、；！\n]/g, ', ');
+    
+    // 移除常见中文冗余词
+    const removeWords = ['一张', '图片描述[:：]?', '生成', '画', '一个', '样子', '照片'];
+    removeWords.forEach(w => {
+        processed = processed.replace(new RegExp(w, 'g'), '');
+    });
+    
+    // 关键词映射表 (扩充)
+    const keywords = [
+        { cn: '自拍', en: 'selfie' },
+        { cn: '全身', en: 'full body' },
+        { cn: '上半身', en: 'upper body' },
+        { cn: '特写', en: 'close up' },
+        { cn: '背景', en: 'background' },
+        { cn: '夜晚', en: 'night' },
+        { cn: '白天', en: 'day' },
+        { cn: '微笑', en: 'smile' },
+        { cn: '大笑', en: 'laughing' },
+        { cn: '哭泣', en: 'crying' },
+        { cn: '生气', en: 'angry' },
+        { cn: '害羞', en: 'blush' },
+        { cn: '长发', en: 'long hair' },
+        { cn: '短发', en: 'short hair' },
+        { cn: '卷发', en: 'curly hair' },
+        { cn: '直发', en: 'straight hair' },
+        { cn: '黑发', en: 'black hair' },
+        { cn: '金发', en: 'blonde hair' },
+        { cn: '白发', en: 'white hair' },
+        { cn: '红发', en: 'red hair' },
+        { cn: '蓝发', en: 'blue hair' },
+        { cn: '粉发', en: 'pink hair' },
+        { cn: '眼睛', en: 'eyes' },
+        { cn: '蓝眼', en: 'blue eyes' },
+        { cn: '红眼', en: 'red eyes' },
+        { cn: '衬衫', en: 'shirt' },
+        { cn: 'T恤', en: 't-shirt' },
+        { cn: '裙子', en: 'dress' },
+        { cn: '制服', en: 'uniform' },
+        { cn: '西装', en: 'suit' },
+        { cn: '泳装', en: 'swimsuit' },
+        { cn: '猫耳', en: 'cat ears' },
+        { cn: '眼镜', en: 'glasses' },
+        // 新增扩充
+        { cn: '方亦楷', en: '1boy, solo, male focus' }, // 针对特定角色名
+        { cn: '单手', en: 'one hand' },
+        { cn: '举着', en: 'holding' },
+        { cn: '手机', en: 'phone, smartphone, holding phone' },
+        { cn: '从下往上', en: 'from below' },
+        { cn: '仰拍', en: 'low angle' },
+        { cn: '凌乱', en: 'messy hair' },
+        { cn: '额前', en: 'bangs' },
+        { cn: '发丝', en: 'hair strands' },
+        { cn: '汗', en: 'sweat, wet skin' },
+        { cn: '脸颊', en: 'cheeks' },
+        { cn: '昏暗', en: 'dim lighting' },
+        { cn: '灯光', en: 'lighting' },
+        { cn: '鼻梁', en: 'nose' },
+        { cn: '下颌', en: 'jawline' },
+        { cn: '阴影', en: 'shadow, chiaroscuro' },
+        { cn: '深邃', en: 'defined features' },
+        { cn: '眉', en: 'eyebrows' },
+        { cn: '蹙', en: 'frowning' },
+        { cn: '琥珀色', en: 'amber' },
+        { cn: '不耐烦', en: 'annoyed' },
+        { cn: '疲惫', en: 'tired' },
+        { cn: '嘴', en: 'mouth, lips' },
+        { cn: '弧度', en: 'smirk' },
+        { cn: '黑色', en: 'black' },
+        { cn: 'oversized', en: 'oversized' },
+        { cn: '锁骨', en: 'collarbone' },
+        { cn: '工作室', en: 'studio, indoor' }
+    ];
+    
+    keywords.forEach(kw => {
+        if (processed.includes(kw.cn)) {
+            processed = processed.replace(new RegExp(kw.cn, 'g'), kw.en);
+        }
+    });
+
+    // 清理多余的逗号和空格
+    processed = processed.replace(/,+/g, ',').replace(/\s+/g, ' ').replace(/^,/, '').replace(/,$/, '').trim();
+
+    return processed;
 }
 
 function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null) {
@@ -7613,7 +8005,7 @@ window.openEditBlockModal = function(jsonContent) {
 
         const types = [
             { label: '文本', template: {"type": "text", "content": "消息内容"} },
-            { label: '图片', template: {"type": "image", "content": "图片描述"} },
+            { label: '图片', template: {"type": "image", "content": "图片描述", "novelaiPrompt": "", "novelaiNegativePrompt": ""} },
             { label: '转账', template: {"type": "action", "command": "TRANSFER", "payload": "88.88 备注"} },
             { label: '表情包', template: {"type": "sticker", "content": "表情包名称"} },
             { label: '语音', template: {"type": "voice", "duration": 5, "content": "语音文本"} }
@@ -7753,6 +8145,9 @@ function handleSaveEditBlock() {
             content: contentToSave,
             type: typeToSave
         };
+        
+        if (item.novelaiPrompt) msg.novelaiPrompt = item.novelaiPrompt;
+        if (item.novelaiNegativePrompt) msg.novelaiNegativePrompt = item.novelaiNegativePrompt;
         
         if (description) msg.description = description;
         if (pendingThought) {
@@ -8999,8 +9394,11 @@ function getLastAiBlockJson(contactId) {
             jsonOutput.push({ type: "text", content: msg.content });
         } else if (msg.type === 'sticker') {
             jsonOutput.push({ type: "sticker", content: msg.description || msg.content });
-        } else if (msg.type === 'virtual_image') {
-            jsonOutput.push({ type: "image", content: msg.description || "未知图片" });
+        } else if (msg.type === 'image' || msg.type === 'virtual_image') {
+            const item = { type: "image", content: msg.description || "未知图片" };
+            if (msg.novelaiPrompt) item.novelaiPrompt = msg.novelaiPrompt;
+            if (msg.novelaiNegativePrompt) item.novelaiNegativePrompt = msg.novelaiNegativePrompt;
+            jsonOutput.push(item);
         } else if (msg.type === 'voice') {
             let content = "语音";
             let duration = 3;

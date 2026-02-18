@@ -117,3 +117,20 @@
     border-left: 8px solid #C4E0FF;
     z-index: 1;
 }
+
+/* System Messages */
+.chat-message.system {
+    display: flex;
+    justify-content: center;
+    margin: 10px 0;
+    width: 100%;
+}
+
+.system-tip {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #999;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    text-align: center;
+}
