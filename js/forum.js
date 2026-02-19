@@ -170,11 +170,15 @@
                 headerHtml = renderOtherProfileHeader();
                 contentHtml = renderOtherProfile();
                 break;
+            case 'other_profile_posts':
+                headerHtml = renderOtherProfileHeader();
+                contentHtml = renderOtherProfilePosts();
+                break;
             default:
                 contentHtml = renderHomeTab();
         }
 
-        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile';
+        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts';
 
         const multiSelectBarHtml = forumState.multiSelectMode ? `
             <div class="forum-multi-select-bar">
@@ -210,6 +214,18 @@
 
         setupTabListeners();
         setupBackToTopListener();
+        
+        // Scroll to specific post if needed
+        if (forumState.activeTab === 'other_profile_posts' && forumState.otherProfileScrollToPostId) {
+            setTimeout(() => {
+                const el = document.getElementById(`other-profile-post-${forumState.otherProfileScrollToPostId}`);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'auto', block: 'center' });
+                    // Optional: Flash effect
+                }
+                forumState.otherProfileScrollToPostId = null; // Clear it
+            }, 0);
+        }
     }
 
     function setupBackToTopListener() {
@@ -233,7 +249,7 @@
                 
                 // Header Hide/Show logic
                 if (forumHeader) {
-                    if (forumState.activeTab === 'other_profile' || forumState.activeTab === 'chat') {
+                    if (forumState.activeTab === 'other_profile' || forumState.activeTab === 'chat' || forumState.activeTab === 'other_profile_posts') {
                         // 在他人主页或私聊页面，顶栏不自动隐藏
                         // 但这里我们只是取消"header-hidden"类的添加，让它保持原位
                         // 实际上用户要求"顶栏和别的内容一起上滑"，这意味着顶栏不应该 fixed/sticky，或者应该随着页面滚动而移动
@@ -847,6 +863,8 @@
     function renderOtherProfileHeader() {
         const user = forumState.viewingUser;
         if (!user) return '';
+        
+        const isPostView = forumState.activeTab === 'other_profile_posts';
 
         if (forumState.profileMultiSelectMode) {
             const userPosts = forumState.posts.filter(p => p.user.name === user.name);
@@ -864,6 +882,23 @@
                     <div class="header-right" style="gap: 15px;">
                          <span id="profile-multiselect-all" style="font-weight: 600; color: #0095f6; cursor: pointer; font-size: 14px;">${isAllSelected ? '取消全选' : '全选'}</span>
                          <span id="profile-multiselect-delete" style="font-weight: 600; color: ${hasSelection ? '#ed4956' : '#ccc'}; cursor: pointer; font-size: 14px;">删除</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (isPostView) {
+            return `
+                <div class="forum-header">
+                    <div class="header-left">
+                        <i class="fas fa-chevron-left" onclick="window.backToOtherProfile()" style="font-size: 24px; cursor: pointer;"></i>
+                    </div>
+                    <div class="header-center" style="display: flex; flex-direction: column; align-items: center;">
+                        <div style="font-size: 16px; color: #000; font-weight: 700; line-height: 1.2;">帖子</div>
+                        <div style="font-size: 12px; color: #666; font-weight: 400; line-height: 1.2;">${user.name}</div>
+                    </div>
+                    <div class="header-right">
+                        <!-- Placeholder -->
                     </div>
                 </div>
             `;
@@ -965,6 +1000,25 @@
         `;
     }
 
+    window.toggleContactSelection = function(el) {
+        const icon = el.querySelector('.forum-contact-check-icon');
+        if (!icon) return;
+        
+        const isChecked = icon.dataset.checked === 'true';
+        
+        if (isChecked) {
+            // Uncheck
+            icon.className = 'forum-contact-check-icon far fa-circle';
+            icon.style.color = '#dbdbdb';
+            icon.dataset.checked = 'false';
+        } else {
+            // Check
+            icon.className = 'forum-contact-check-icon fas fa-check-circle';
+            icon.style.color = '#0095f6';
+            icon.dataset.checked = 'true';
+        }
+    };
+
     function renderForumSettings() {
         const contacts = window.iphoneSimState.contacts || [];
         const worldbooks = window.iphoneSimState.wbCategories || [];
@@ -973,9 +1027,9 @@
         contacts.forEach(c => {
             const isChecked = forumState.settings && forumState.settings.linkedContacts && forumState.settings.linkedContacts.includes(c.id);
             contactsHtml += `
-                <div class="edit-form-row" onclick="const cb = this.querySelector('.forum-contact-checkbox'); if(cb) cb.checked = !cb.checked;">
+                <div class="edit-form-row" onclick="window.toggleContactSelection(this)">
                     <label style="flex: 1;">${c.remark || c.name}</label>
-                    <input type="checkbox" class="forum-contact-checkbox" data-id="${c.id}" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation()">
+                    <i class="forum-contact-check-icon ${isChecked ? 'fas fa-check-circle' : 'far fa-circle'}" data-id="${c.id}" data-checked="${isChecked}" style="font-size: 22px; color: ${isChecked ? '#0095f6' : '#dbdbdb'}; margin-right: 5px;"></i>
                 </div>
             `;
         });
@@ -1086,6 +1140,24 @@
                     <div class="edit-form-row">
                         <label>关注量</label>
                         <input type="number" id="fc-following" value="${following}" placeholder="0">
+                    </div>
+
+                    <div class="edit-profile-section-title" style="margin-top: 20px; font-weight: bold; font-size: 14px; color: #666; margin-bottom: 10px; padding-left: 5px;">AI生图设置</div>
+                    <div class="edit-form-row">
+                        <label>自动生图</label>
+                        <label class="toggle-switch" style="transform: scale(0.8); transform-origin: right center;">
+                            <input type="checkbox" id="fc-auto-image" ${profile.autoImage ? 'checked' : ''}>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <div class="edit-form-row" style="flex-direction: column; align-items: flex-start; height: auto;">
+                        <label style="margin-bottom: 8px;">生图提示词预设</label>
+                        <select id="fc-image-preset" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-family: inherit; background: white;">
+                            <option value="">-- 选择预设 --</option>
+                            <option value="AUTO_MATCH" ${profile.imagePresetName === 'AUTO_MATCH' ? 'selected' : ''}>✨ 自动匹配 (AI检测)</option>
+                            ${(window.iphoneSimState.novelaiPresets || []).map(p => `<option value="${p.name}" ${profile.imagePresetName === p.name ? 'selected' : ''}>${p.name}</option>`).join('')}
+                        </select>
+                        <div style="font-size: 12px; color: #999; margin-top: 5px;">请选择在“设置”应用中保存的生图预设</div>
                     </div>
                 </div>
             </div>
@@ -1222,11 +1294,11 @@
             if (i < userPosts.length) {
                 const post = userPosts[i];
                 const isSelected = forumState.profileMultiSelectMode && forumState.profileSelectedPostIds.has(post.id);
-                const selectAttr = forumState.profileMultiSelectMode ? `onclick="window.toggleProfilePostSelection(${post.id})"` : '';
+                const selectAttr = forumState.profileMultiSelectMode ? `onclick="window.toggleProfilePostSelection(${post.id})"` : `onclick="window.viewOtherProfilePosts(${post.id})"`;
                 const selectedClass = isSelected ? 'selected' : '';
                 
                 gridHtml += `
-                    <div class="profile-grid-item ${selectedClass}" data-post-id="${post.id}" ${selectAttr} style="aspect-ratio: 3/4; background-color: #efefef; position: relative;">
+                    <div class="profile-grid-item ${selectedClass}" data-post-id="${post.id}" ${selectAttr} style="aspect-ratio: 3/4; background-color: #efefef; position: relative; cursor: pointer;">
                         ${forumState.profileMultiSelectMode ? `<div class="grid-item-checkbox"></div>` : ''}
                         ${post.image ? `<img src="${post.image}" style="width: 100%; height: 100%; object-fit: cover; display: block;">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #8e8e8e; font-size: 12px; padding: 10px; text-align: center;">${post.caption.substring(0, 20)}...</div>`}
                     </div>
@@ -1421,7 +1493,7 @@
             }
         } else if (action === 'regenerate_all') {
             if(confirm('确定要完全重新生成该用户主页吗？')) {
-                generateUserProfile(user, 'initial'); // 'initial' covers both
+                generateUserProfile(user, 'regenerate_all'); // 'initial' covers both
             }
         } else if (action === 'add_posts') {
             generateUserProfile(user, 'add_posts');
@@ -1603,8 +1675,13 @@
           "type": "image" 或 "text",
           "caption": "符合人设和世界观的帖子内容",
           "image_ratio": "1:1" 或 "4:5",
-          "image_description": "画面描述",
-          "stats": { "likes": 0, "comments": 0 }
+          "image_description": "详细的画面描述，用于AI生图 (Stable Diffusion/NovelAI Tags格式，英文)",
+          "time": "时间(如2天前)",
+          "stats": { "likes": 随机数, "comments": 随机数, "forwards": 随机数, "shares": 随机数 },
+          "comments_list": [
+              { "user": "随机用户名", "text": "符合语境的评论内容" },
+              { "user": "随机用户名", "text": "..." }
+          ]
       },
       ... (生成 4-6 条)
   ]
@@ -1625,7 +1702,21 @@
       "following": 随机数值
   },
   "recent_posts": [
-      ... (生成 4-6 条，格式同上)
+      {
+          "type": "image" 或 "text",
+          "caption": "符合人设和世界观的帖子内容",
+          "image_ratio": "1:1" 或 "4:5",
+          "image_description": "详细的画面描述，用于AI生图 (Stable Diffusion/NovelAI Tags格式，英文)",
+          "image_description_zh": "画面的中文详细描述(用于展示给用户)",
+          "image_description_zh": "画面的中文详细描述(用于展示给用户)",
+          "time": "时间(如2天前)",
+          "stats": { "likes": 随机数, "comments": 随机数, "forwards": 随机数, "shares": 随机数 },
+          "comments_list": [
+              { "user": "随机用户名", "text": "符合语境的评论内容" },
+              { "user": "随机用户名", "text": "..." }
+          ]
+      },
+      ... (生成 4-6 条)
   ]
 }
 `;
@@ -1711,38 +1802,64 @@
             }
 
             // Process Posts
-            if (result.recent_posts && Array.isArray(result.recent_posts)) {
+            if (mode !== 'regenerate_bio' && result.recent_posts && Array.isArray(result.recent_posts)) {
                 // Helper for SVG (Duplicated for safety)
-                const generateSvg = (type, ratio) => {
+                const generateSvg = (text, ratio) => {
                      // Simple fallback SVG generator
                      const colors = ['#e0f2f1', '#e8eaf6', '#f3e5f5', '#fff3e0'];
                      const color = colors[Math.floor(Math.random() * colors.length)];
                      const w = 600, h = ratio === '4:5' ? 750 : 600;
-                     return `data:image/svg+xml;base64,` + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${color}"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="24" fill="#999">${type}</text></svg>`);
+                     // Truncate text for SVG to avoid overflow
+                     const shortText = text.length > 8 ? text.substring(0, 8) + '...' : text;
+                     // Encode text to ensure it works in data URI (handle unicode)
+                     const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${color}"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="24" fill="#999">${shortText}</text></svg>`;
+                     // Use unescape + encodeURIComponent for unicode btoa support
+                     return `data:image/svg+xml;base64,` + btoa(unescape(encodeURIComponent(svgString)));
                 };
 
                 const newPosts = result.recent_posts.map((p, idx) => ({
                     id: Date.now() + idx,
                     user: user, // Link to this user
-                    image: p.type === 'text' ? null : (p.image || generateSvg(p.type, p.image_ratio)),
+                    image: p.type === 'text' ? null : (p.image || generateSvg(p.image_description_zh || '图片', p.image_ratio)),
                     image_description: p.image_description,
+                    image_description_zh: p.image_description_zh,
+                    image_ratio: p.image_ratio || '1:1',
                     stats: {
                         likes: Math.floor(Math.random() * (user.stats.followers / 10)),
-                        comments: Math.floor(Math.random() * (user.stats.followers / 100)),
+                        comments: (p.comments_list ? p.comments_list.length : 0),
                         forwards: 0,
                         shares: 0,
                         ...p.stats
                     },
                     caption: p.caption,
-                    time: '近期',
+                    time: p.time || '近期',
                     translation: '查看翻译',
                     liked: false,
-                    comments_list: []
+                    comments_list: (p.comments_list || []).map((c, cIdx) => ({
+                        id: Date.now() + idx + cIdx + 1000,
+                        user: {
+                            name: c.user || 'User'+cIdx,
+                            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + (c.user || cIdx),
+                            verified: false
+                        },
+                        text: c.text,
+                        time: '近期',
+                        likes: Math.floor(Math.random() * 50),
+                        replies: []
+                    }))
                 }));
 
                 // Add to global posts so they appear in grid
-                // Filter out existing posts by this user to avoid duplication if we are "refreshing"
-                // But here we just append. The grid filters by user name.
+                // Filter out existing posts by this user if we are regenerating
+                if (mode === 'regenerate_posts' || mode === 'regenerate_all') {
+                    forumState.posts = forumState.posts.filter(p => {
+                        if (contact && p.user.name === contact.name) return false;
+                        if (user.id && p.user.id === user.id) return false;
+                        if (p.user.name === user.name) return false;
+                        return true;
+                    });
+                }
+
                 forumState.posts = [...forumState.posts, ...newPosts];
                 localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
             }
@@ -1754,6 +1871,79 @@
             renderForum();
         }
     }
+
+    window.regeneratePostImage = async function(event, postId) {
+        event.stopPropagation();
+        const post = forumState.posts.find(p => p.id === postId);
+        if (!post) return;
+        
+        const btn = event.currentTarget;
+        const icon = btn.querySelector('i');
+        icon.classList.add('fa-spin');
+        
+        try {
+            // Get settings
+            let apiKey = '';
+            let imageModel = 'nai-diffusion-3';
+            
+            if (window.iphoneSimState) {
+                // 1. Check novelaiSettings (Highest Priority)
+                if (window.iphoneSimState.novelaiSettings && window.iphoneSimState.novelaiSettings.key) {
+                    apiKey = window.iphoneSimState.novelaiSettings.key;
+                    if (window.iphoneSimState.novelaiSettings.model) imageModel = window.iphoneSimState.novelaiSettings.model;
+                }
+                
+                // 2. Check aiSettings.novelai_key
+                if (!apiKey && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.novelai_key) {
+                    apiKey = window.iphoneSimState.aiSettings.novelai_key;
+                }
+
+                // 3. Check aiSettings.key (Lowest Priority - mostly for LLM, risk of mismatch)
+                if (!apiKey && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.key) {
+                     apiKey = window.iphoneSimState.aiSettings.key;
+                }
+                
+                // 4. Check aiSettings2 (fallback)
+                if (!apiKey && window.iphoneSimState.aiSettings2) {
+                     apiKey = window.iphoneSimState.aiSettings2.key;
+                }
+            }
+            
+            console.log('Regenerate Image - Key Source Check. Key Found:', !!apiKey);
+
+            if (!apiKey) {
+                alert('未找到有效的 AI Key。请在“设置”或“NovelAI设置”中配置 Key。');
+                return;
+            }
+            
+            // Use english description
+            const prompt = post.image_description || post.caption;
+            
+            if (window.generateNovelAiImageApi) {
+                const resultBase64 = await window.generateNovelAiImageApi({
+                    key: apiKey,
+                    prompt: prompt,
+                    width: post.image_ratio === '4:5' ? 832 : 1024,
+                    height: post.image_ratio === '4:5' ? 1216 : 1024,
+                    model: imageModel
+                });
+                
+                post.image = resultBase64;
+                // Save
+                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                // Render
+                renderForum(false);
+            } else {
+                 alert('生图功能未加载 (window.generateNovelAiImageApi not found)');
+            }
+            
+        } catch (e) {
+            console.error(e);
+            alert('生图失败: ' + e.message);
+        } finally {
+            icon.classList.remove('fa-spin');
+        }
+    };
 
     // --- Components ---
 
@@ -1966,6 +2156,133 @@
         `;
     }
 
+    window.refreshPostImage = async function(postId) {
+        const post = forumState.posts.find(p => p.id === postId);
+        if (!post) return;
+
+        const btnContainer = document.querySelector(`.post-item[data-post-id="${postId}"] .post-refresh-btn`);
+        const btnIcon = btnContainer ? btnContainer.querySelector('i') : null;
+        
+        if (btnIcon) {
+            btnIcon.className = 'fas fa-spinner fa-spin';
+            btnContainer.style.pointerEvents = 'none'; // Prevent double click
+        }
+
+        try {
+            const userId = post.userId;
+            const contact = window.iphoneSimState.contacts.find(c => c.id == userId);
+            if (!contact) {
+                alert('未找到关联联系人信息');
+                return;
+            }
+
+            const novelaiSettings = window.iphoneSimState.novelaiSettings;
+            if (!novelaiSettings || !novelaiSettings.key) {
+                alert('请先配置 NovelAI 设置');
+                return;
+            }
+
+            const profile = (forumState.settings.contactProfiles && forumState.settings.contactProfiles[userId]) || {};
+            
+            // --- Logic Copied from generateForumPosts ---
+            let basePrompt = '';
+            let negativePrompt = novelaiSettings.negativePrompt || 'nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
+            let model = novelaiSettings.model || 'nai-diffusion-3';
+
+            // Check for preset
+            if (profile.imagePresetName) {
+                const presets = window.iphoneSimState.novelaiPresets || [];
+                let preset = null;
+
+                if (profile.imagePresetName === 'AUTO_MATCH') {
+                    const typeText = (post.image_description || post.caption || '') + ' ' + (post.title || '');
+                    const type = detectImageType(typeText);
+                    preset = presets.find(p => p.type === type);
+                    if (!preset) preset = presets.find(p => p.name && p.name.toLowerCase().includes(type));
+                    if (!preset) preset = presets.find(p => p.type === 'general' || p.name === '通用' || p.name === 'General');
+                } else {
+                    preset = presets.find(p => p.name === profile.imagePresetName);
+                }
+
+                if (preset && preset.settings) {
+                    if (preset.settings.prompt) basePrompt = preset.settings.prompt;
+                    if (preset.settings.negativePrompt) negativePrompt = preset.settings.negativePrompt;
+                    if (preset.settings.model) model = preset.settings.model;
+                }
+            } else if (profile.imagePrompt) {
+                basePrompt = profile.imagePrompt;
+            }
+
+            // Extract appearance from persona
+            let appearancePrompt = '';
+            const personaContact = window.iphoneSimState.contacts.find(c => c.id == post.userId);
+            if (personaContact && personaContact.persona) {
+                const match = personaContact.persona.match(/(?:外貌|外观|形象|样子)[:：]\s*([^\n]+)/);
+                if (match && match[1]) appearancePrompt = match[1].trim();
+            }
+
+            let promptParts = [];
+            if (basePrompt) promptParts.push(basePrompt);
+            if (appearancePrompt) promptParts.push(appearancePrompt);
+            if (post.image_description || post.caption) promptParts.push(post.image_description || post.caption);
+            
+            // Sanitize & Translate
+            const rawPrompt = promptParts.join(', ');
+            let prompt = rawPrompt.replace(/[，。、；！\n]/g, ', ').replace(/\s+/g, ' ').trim();
+            
+            try {
+                const aiSettings = window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url ? window.iphoneSimState.aiSettings : (window.iphoneSimState.aiSettings2 || {});
+                if (aiSettings && aiSettings.url) {
+                    const translated = await translateToNovelAIPrompt(rawPrompt, aiSettings);
+                    if (translated && translated.length > 0) prompt = translated;
+                }
+            } catch (e) {
+                console.warn('Refresh translation failed:', e);
+            }
+
+            if (!prompt || prompt.length === 0) throw new Error('Prompt is empty');
+
+            let width = 832;
+            let height = 1216;
+            if (post.image_ratio === '16:9') { width = 1024; height = 576; }
+            else if (post.image_ratio === '1:1') { width = 1024; height = 1024; }
+            else if (post.image_ratio === '4:5') { width = 832; height = 1040; }
+
+            console.log('[Forum] Refreshing Image for post:', post.id, 'Prompt:', prompt);
+
+            const base64Image = await window.generateNovelAiImageApi({
+                key: novelaiSettings.key,
+                model: model,
+                prompt: prompt,
+                negativePrompt: negativePrompt,
+                steps: 28,
+                scale: 5,
+                width: width,
+                height: height,
+                seed: -1
+            });
+
+            // Update Post
+            post.image = base64Image;
+            
+            // Update UI directly to avoid full re-render scroll jump
+            const imgEl = document.querySelector(`.post-item[data-post-id="${postId}"] .post-image`);
+            if (imgEl) imgEl.src = base64Image;
+
+            // Persist
+            localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            
+        } catch (e) {
+            console.error('Refresh Image Error:', e);
+            alert('刷新失败: ' + e.message);
+        } finally {
+            if (btnIcon) {
+                btnIcon.className = 'fas fa-sync-alt';
+                btnContainer.style.pointerEvents = 'auto';
+            }
+        }
+    };
+
     function renderPost(post) {
         const formatNum = (n) => n.toLocaleString();
         const isTextPost = !post.image;
@@ -2015,13 +2332,19 @@
                 </div>
             `;
         } else {
+            // Show refresh button if it's a generated post (has description) or has userId (legacy logic)
+            const showRefreshBtn = !!post.userId || !!post.image_description;
             contentHtml = `
-                <div class="post-image-container">
+                <div class="post-image-container" style="position: relative;">
                     <img src="${post.image}" class="post-image">
                     ${post.stats.count ? `<div class="image-overlay-count">${post.stats.count}</div>` : ''}
                     <div class="post-description-overlay">
-                        <div class="post-description-text">${post.image_description || ''}</div>
+                        <div class="post-description-text">${post.image_description_zh || post.image_description || ''}</div>
                     </div>
+                    ${showRefreshBtn ? `
+                    <div class="post-refresh-btn" onclick="window.regeneratePostImage(event, ${post.id})" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; cursor: pointer; z-index: 10; backdrop-filter: blur(4px);">
+                        <i class="fas fa-sync-alt" style="font-size: 14px;"></i>
+                    </div>` : ''}
                 </div>
                 ${actionsBarHtml}
                 <div class="post-info-section">
@@ -2287,8 +2610,8 @@
                 if (!forumState.settings) forumState.settings = {};
                 
                 const selectedContacts = [];
-                document.querySelectorAll('.forum-contact-checkbox').forEach(cb => {
-                    if (cb.checked) selectedContacts.push(parseInt(cb.dataset.id));
+                document.querySelectorAll('.forum-contact-check-icon').forEach(icon => {
+                    if (icon.dataset.checked === 'true') selectedContacts.push(parseInt(icon.dataset.id));
                 });
                 forumState.settings.linkedContacts = selectedContacts;
 
@@ -2331,6 +2654,13 @@
                 profile.followers = parseInt(document.getElementById('fc-followers').value) || 0;
                 profile.following = parseInt(document.getElementById('fc-following').value) || 0;
                 
+                profile.autoImage = document.getElementById('fc-auto-image').checked;
+                const presetSelect = document.getElementById('fc-image-preset');
+                if (presetSelect) {
+                    profile.imagePresetName = presetSelect.value;
+                }
+                // profile.imagePrompt = document.getElementById('fc-image-prompt').value; // Removed old field
+
                 // Avatar handling via existing preview img src (assuming uploaded/set)
                 const avatarPreview = document.getElementById('forum-contact-avatar-preview');
                 if (avatarPreview) {
@@ -2692,6 +3022,119 @@
         }
     }
 
+    // Helper to detect image type from text
+    function detectImageType(text) {
+        if (!text) return 'general';
+        // Remove comments
+        text = text.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+        
+        if (/(吃|喝|美食|美味|food|dish|meal|好吃|蛋糕|面|饭|菜|早餐|午餐|晚餐|夜宵)/i.test(text)) return 'food';
+        if (/(风景|景色|山|水|scenery|landscape|view|sky|cloud|sea|forest|outside|nature|outdoor|street|city|建筑|街|楼)/i.test(text)) return 'scenery';
+        if (/(房间|屋|室|room|indoor|house|living|bedroom|bed|furniture|床|沙发|桌)/i.test(text)) return 'scene';
+        if (/(我|你|他|她|人|脸|看|girl|boy|man|woman|face|eye|hair|body|looking|solo|1girl|1boy|自拍|合影)/i.test(text)) return 'portrait';
+        return 'general';
+    }
+
+    // --- Other Profile Posts View Logic ---
+
+    window.viewOtherProfilePosts = function(postId) {
+        forumState.otherProfileScrollToPostId = postId;
+        forumState.activeTab = 'other_profile_posts';
+        renderForum();
+    };
+
+    window.backToOtherProfile = function() {
+         forumState.activeTab = 'other_profile';
+         renderForum();
+    };
+
+    function renderOtherProfilePosts() {
+        const user = forumState.viewingUser;
+        if (!user) return '<div style="padding: 20px;">User not found</div>';
+        
+        // Filter posts for this user
+        const userPosts = forumState.posts.filter(p => p.user.name === user.name);
+        
+        if (userPosts.length === 0) {
+            return '<div style="padding: 40px; text-align: center; color: #8e8e8e;">暂无帖子</div>';
+        }
+
+        return `
+            <div class="feed-container" style="padding-bottom: 20px;">
+                ${userPosts.map(post => {
+                    // Reuse renderPost but inject ID for scrolling
+                    // We can't easily inject into the string result of renderPost without parsing
+                    // But renderPost returns a string starting with <div class="post-item ...">
+                    const postHtml = renderPost(post);
+                    // Add ID to the first div
+                    return postHtml.replace('class="post-item', `id="other-profile-post-${post.id}" class="post-item`);
+                }).join('')}
+            </div>
+        `;
+    }
+
+    // Helper: Translate Chinese prompt to English NovelAI tags
+    async function translateToNovelAIPrompt(text, settings) {
+        if (!text) return "";
+        
+        // 1. Basic Cleanup: Remove comments like // ... and /* ... */
+        let cleanText = text.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
+        
+        if (!cleanText) return "";
+
+        // 2. If it contains Chinese, use LLM to translate
+        if (/[\u4e00-\u9fa5]/.test(cleanText)) {
+            // Construct LLM request url
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+
+            try {
+                const response = await fetch(fetchUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + settings.key
+                    },
+                    body: JSON.stringify({
+                        model: settings.model || 'gpt-3.5-turbo',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: 'You are a professional NovelAI prompt translator. Your task is to translate the user\'s Chinese image description into English comma-separated tags suitable for NovelAI (anime style). \n' +
+                                         'Rules:\n' +
+                                         '1. Output ONLY the tags, separated by commas.\n' +
+                                         '2. Do NOT output any conversational text, explanations, or markdown.\n' +
+                                         '3. Focus on visual descriptors (appearance, clothing, setting, lighting, composition).\n' +
+                                         '4. Convert abstract concepts into visual tags.\n' +
+                                         '5. Translate accurately.'
+                            },
+                            { role: 'user', content: cleanText }
+                        ],
+                        temperature: 0.3
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    let translated = data.choices[0].message.content;
+                    // Clean up markdown code blocks if any
+                    translated = translated.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+                    console.log('Prompt translated:', cleanText, '=>', translated);
+                    return translated;
+                } else {
+                    console.warn('Translation API failed, using cleaned text');
+                }
+            } catch (e) {
+                console.error('Translation error:', e);
+            }
+        }
+        
+        // Fallback: Just replace punctuation
+        return cleanText.replace(/[，。、；！\n]/g, ', ').replace(/\s+/g, ' ').trim();
+    }
+
     async function generateForumPosts() {
         const btn = document.getElementById('forum-generate-btn');
         if (!btn) return;
@@ -2926,7 +3369,11 @@ ${charList}
             // Validate and fix IDs
             const now = Date.now();
             if (Array.isArray(newPosts)) {
-                newPosts.forEach((post, index) => {
+                const novelaiSettings = window.iphoneSimState.novelaiSettings;
+                const contactProfiles = forumState.settings.contactProfiles || {};
+
+                for (let index = 0; index < newPosts.length; index++) {
+                    const post = newPosts[index];
                     post.id = now + index; // Ensure unique numeric IDs
                     
                     // Map User if linked contacts
@@ -2939,6 +3386,118 @@ ${charList}
                                 verified: false,
                                 subtitle: contact.subtitle
                             };
+
+                            // Try to generate AI Image if enabled
+                            const profile = contactProfiles[post.userId];
+                            if (profile && profile.autoImage && post.post_type === 'image' && window.generateNovelAiImageApi && novelaiSettings && novelaiSettings.key) {
+                                try {
+                                    let basePrompt = '';
+                                    let negativePrompt = novelaiSettings.negativePrompt || 'nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
+                                    let model = novelaiSettings.model || 'nai-diffusion-3';
+
+                                    // Check for preset
+                                    if (profile.imagePresetName) {
+                                        const presets = window.iphoneSimState.novelaiPresets || [];
+                                        let preset = null;
+
+                                        if (profile.imagePresetName === 'AUTO_MATCH') {
+                                            const typeText = (post.image_description || post.caption || '') + ' ' + (post.title || '');
+                                            const type = detectImageType(typeText);
+                                            // Find preset by type (assuming preset.type exists)
+                                            preset = presets.find(p => p.type === type);
+                                            
+                                            if (!preset) {
+                                                // Try to match by name containing type (e.g. "Food Preset")
+                                                preset = presets.find(p => p.name && p.name.toLowerCase().includes(type));
+                                            }
+                                            
+                                            // Final fallback to general
+                                            if (!preset) {
+                                                preset = presets.find(p => p.type === 'general' || p.name === '通用' || p.name === 'General');
+                                            }
+                                            
+                                            console.log('[Forum] Auto-matched preset:', preset ? preset.name : 'None', 'for type:', type);
+                                        } else {
+                                            preset = presets.find(p => p.name === profile.imagePresetName);
+                                        }
+
+                                        if (preset && preset.settings) {
+                                            if (preset.settings.prompt) basePrompt = preset.settings.prompt;
+                                            if (preset.settings.negativePrompt) negativePrompt = preset.settings.negativePrompt;
+                                            if (preset.settings.model) model = preset.settings.model;
+                                        }
+                                    } else if (profile.imagePrompt) {
+                                        // Fallback to old imagePrompt field
+                                        basePrompt = profile.imagePrompt;
+                                    }
+
+                                    // Extract appearance from persona
+                                    let appearancePrompt = '';
+                                    const personaContact = window.iphoneSimState.contacts.find(c => c.id == post.userId);
+                                    if (personaContact && personaContact.persona) {
+                                        // Try to extract appearance section (e.g. "外貌: ...")
+                                        const match = personaContact.persona.match(/(?:外貌|外观|形象|样子)[:：]\s*([^\n]+)/);
+                                        if (match && match[1]) {
+                                            appearancePrompt = match[1].trim();
+                                        }
+                                    }
+
+                                    let promptParts = [];
+                                    if (basePrompt) promptParts.push(basePrompt);
+                                    if (appearancePrompt) promptParts.push(appearancePrompt);
+                                    if (post.image_description || post.caption) promptParts.push(post.image_description || post.caption);
+                                    
+                                    // Sanitize prompt: replace newlines and Chinese punctuation with English commas
+                                    const rawPrompt = promptParts.join(', ');
+                                    let prompt = rawPrompt;
+
+                                    // Translate and optimize prompt using LLM if needed
+                                    try {
+                                        // Use global AI settings for translation
+                                        const aiSettings = window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url ? window.iphoneSimState.aiSettings : (window.iphoneSimState.aiSettings2 || {});
+                                        
+                                        if (aiSettings && aiSettings.url) {
+                                            prompt = await translateToNovelAIPrompt(rawPrompt, aiSettings);
+                                        } else {
+                                            console.warn('No AI settings found for translation');
+                                            // Manual fallback
+                                            prompt = rawPrompt.replace(/[，。、；！\n]/g, ', ').replace(/\s+/g, ' ').trim();
+                                        }
+                                    } catch (e) {
+                                        console.warn('Prompt translation failed, falling back to original', e);
+                                        prompt = rawPrompt.replace(/[，。、；！\n]/g, ', ').replace(/\s+/g, ' ').trim();
+                                    }
+                                    
+                                    if (!prompt || prompt.length === 0) {
+                                        console.warn('Skipping AI image generation: Prompt is empty');
+                                        throw new Error('Prompt is empty');
+                                    }
+
+                                    console.log('Generating AI image for contact post:', personaContact?.name || 'Unknown', 'Preset:', profile.imagePresetName, 'Prompt:', prompt);
+
+                                    let width = 832;
+                                    let height = 1216;
+                                    if (post.image_ratio === '16:9') { width = 1024; height = 576; }
+                                    else if (post.image_ratio === '1:1') { width = 1024; height = 1024; }
+                                    else if (post.image_ratio === '4:5') { width = 832; height = 1040; }
+
+                                    const base64Image = await window.generateNovelAiImageApi({
+                                        key: novelaiSettings.key,
+                                        model: model,
+                                        prompt: prompt,
+                                        negativePrompt: negativePrompt,
+                                        steps: 28,
+                                        scale: 5,
+                                        width: width,
+                                        height: height,
+                                        seed: -1
+                                    });
+                                    post.image = base64Image;
+                                } catch (err) {
+                                    console.error('Failed to generate AI image for post:', err);
+                                    // Fallback to placeholder handled below
+                                }
+                            }
                         }
                     }
 
@@ -2955,8 +3514,8 @@ ${charList}
                     // Generate Image if post_type is not 'text'
                     if (post.post_type === 'text') {
                         post.image = null;
-                    } else {
-                        // Default to image if undefined
+                    } else if (!post.image) {
+                        // Default to image if undefined and not generated by AI
                          post.image = generatePlaceholderSvg(post.type || 'daily', post.image_ratio || '1:1');
                     }
 
@@ -3049,7 +3608,7 @@ ${charList}
                             }
                         }
                     }
-                });
+                } // End for loop
 
                 // Add to state
                 forumState.posts = [...newPosts, ...forumState.posts];

@@ -764,13 +764,11 @@ async function generateInitialProfile(contact) {
     document.getElementById('ai-profile-screen').classList.remove('hidden');
 
     try {
-        const systemPrompt = `请为角色 "${contact.name}" (人设: ${contact.persona || '无'}) 生成一个微信资料卡信息。
-请直接返回 JSON 格式，包含以下字段：
-1. nickname: 网名/昵称 (符合人设)
-2. wxid: 微信号 (字母开头，符合人设)
-3. signature: 个性签名 (符合人设的一句话)
-
-示例: {"nickname": "小王", "wxid": "wang_123", "signature": "今天天气不错"}`;
+        const systemPrompt = `你是一个资料卡生成助手。请为角色 "${contact.name}" (人设: ${contact.persona || '无'}) 生成微信资料卡 JSON。
+严禁输出 Markdown 代码块 (如 \`\`\`json)，严禁输出任何解释性文字。
+只输出纯 JSON 字符串，格式如下：
+{"nickname": "网名", "wxid": "微信号", "signature": "签名"}
+确保 JSON 格式合法且完整。`;
 
         let fetchUrl = settings.url;
         if (!fetchUrl.endsWith('/chat/completions')) {
@@ -788,7 +786,7 @@ async function generateInitialProfile(contact) {
                 model: settings.model,
                 messages: [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: '生成资料' }
+                    { role: 'user', content: '请生成 JSON 数据' }
                 ],
                 temperature: 0.7,
                 response_format: { type: "json_object" }
@@ -798,16 +796,83 @@ async function generateInitialProfile(contact) {
         if (response.ok) {
             const data = await response.json();
             let content = data.choices[0].message.content;
+            
+            // 智能提取 JSON 内容（处理 Markdown、嵌套括号、字符串干扰）
+            const extractJson = (str) => {
+                str = str.replace(/```json/gi, '').replace(/```/g, '').trim();
+                let stack = 0;
+                let startIndex = -1;
+                let inString = false;
+                let escape = false;
+
+                for (let i = 0; i < str.length; i++) {
+                    const char = str[i];
+                    if (inString) {
+                        if (escape) { escape = false; }
+                        else if (char === '\\') { escape = true; }
+                        else if (char === '"') { inString = false; }
+                        continue;
+                    }
+                    if (char === '"') { inString = true; continue; }
+                    
+                    if (char === '{' || char === '[') {
+                        if (stack === 0) startIndex = i;
+                        stack++;
+                    } else if (char === '}' || char === ']') {
+                        stack--;
+                        if (stack === 0 && startIndex !== -1) return str.substring(startIndex, i + 1);
+                    }
+                }
+                
+                // 如果找到开始但没闭合，返回从开始到末尾（尝试解析截断的数据）
+                if (startIndex !== -1) return str.substring(startIndex);
+                return str;
+            };
+
+            content = extractJson(content);
+            let profile = null;
+
             try {
-                const profile = JSON.parse(content);
+                profile = JSON.parse(content);
+                // 处理数组的情况
+                if (Array.isArray(profile) && profile.length > 0) {
+                    profile = profile[0];
+                }
+            } catch (e) {
+                console.warn('JSON解析失败，尝试正则提取', e);
+                // Fallback: 尝试使用正则提取关键字段
+                profile = {};
+                const extractField = (key) => {
+                    const regex = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+                    const match = content.match(regex);
+                    return match ? match[1] : null;
+                };
+
+                profile.nickname = extractField('nickname');
+                profile.wxid = extractField('wxid');
+                profile.signature = extractField('signature');
+
+                // 再次尝试宽松正则（匹配不带引号的 key: value）
+                if (!profile.nickname) {
+                    const match = content.match(/nickname\s*[:：]\s*["']?([^"'\n,]+)["']?/i);
+                    if (match) profile.nickname = match[1].trim();
+                }
+                if (!profile.wxid) {
+                    const match = content.match(/wxid\s*[:：]\s*["']?([^"'\n,]+)["']?/i);
+                    if (match) profile.wxid = match[1].trim();
+                }
+            }
+
+            // 无论是否成功提取，都标记为已初始化，避免反复失败重试
+            // 如果提取到了部分字段，更新之；否则保留原样（显示默认信息）
+            if (profile) {
                 if (profile.nickname) contact.nickname = profile.nickname;
                 if (profile.wxid) contact.wxid = profile.wxid;
                 if (profile.signature) contact.signature = profile.signature;
-                contact.initializedProfile = true;
-                saveConfig();
-            } catch (e) {
-                console.error('解析资料JSON失败', e);
             }
+            
+            contact.initializedProfile = true;
+            saveConfig();
         }
     } catch (error) {
         console.error('生成资料失败', error);
