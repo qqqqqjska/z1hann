@@ -113,6 +113,24 @@
         //     // forumState.currentUser.name = window.iphoneSimState.userProfile.name; // Keep internal name logic or override
         // }
 
+        // Migration: Fix avatars for existing posts
+        if (forumState.posts) {
+            let changed = false;
+            forumState.posts.forEach(p => {
+                if (p.comments_list) {
+                    p.comments_list.forEach(c => {
+                        if (c.user && c.user.avatar && c.user.avatar.includes('avataaars')) {
+                            c.user.avatar = c.user.avatar.replace('avataaars', 'lorelei');
+                            changed = true;
+                        }
+                    });
+                }
+            });
+            if (changed) {
+                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            }
+        }
+
         renderForum();
         
         const closeBtn = document.getElementById('close-forum-app');
@@ -291,14 +309,14 @@
     const mockComments = [
         {
             id: 1,
-            user: { name: 'katsumi_hyodo_official', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=katsumi', verified: true },
+            user: { name: 'katsumi_hyodo_official', avatar: 'https://api.dicebear.com/7.x/lorelei/svg?seed=katsumi', verified: true },
             text: '心の底からおめでとう！！！！！\n幸せにな☺',
             time: '2天',
             likes: 7357,
             replies: [
                 {
                     id: 101,
-                    user: { name: 'soccer.poke050607', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=soccer', verified: false },
+                    user: { name: 'soccer.poke050607', avatar: 'https://api.dicebear.com/7.x/lorelei/svg?seed=soccer', verified: false },
                     text: '@katsumi_hyodo_official わー！ 絵文字使ってるのかわいいー！',
                     time: '2天',
                     likes: 15
@@ -307,7 +325,7 @@
         },
         {
             id: 2,
-            user: { name: 'taisei_kido_', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=taisei', verified: true },
+            user: { name: 'taisei_kido_', avatar: 'https://api.dicebear.com/7.x/lorelei/svg?seed=taisei', verified: true },
             text: '楓珠おめでとう！ お幸せに！ 👏',
             time: '2天',
             likes: 2048,
@@ -315,7 +333,7 @@
         },
         {
             id: 3,
-            user: { name: 'harunaiikubo_official', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=haruna', verified: true },
+            user: { name: 'harunaiikubo_official', avatar: 'https://api.dicebear.com/7.x/lorelei/svg?seed=haruna', verified: true },
             text: 'おめでとうー！ 👏🏻',
             time: '2天',
             likes: 287,
@@ -323,7 +341,7 @@
         },
         {
             id: 4,
-            user: { name: 'oshiro_maeda', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=oshiro', verified: false },
+            user: { name: 'oshiro_maeda', avatar: 'https://api.dicebear.com/7.x/lorelei/svg?seed=oshiro', verified: false },
             text: 'おめ🔥🔥🔥',
             time: '2天',
             likes: 663,
@@ -331,7 +349,7 @@
         },
         {
              id: 5,
-            user: { name: 'm.i.b___730', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=mib', verified: false },
+            user: { name: 'm.i.b___730', avatar: 'https://api.dicebear.com/7.x/lorelei/svg?seed=mib', verified: false },
             text: 'また顔似てる夫婦が増えた👏❤️❤️',
             time: '2天',
             likes: 5623,
@@ -1286,27 +1304,21 @@
         // Generate a grid of images (using the user's posts or placeholders)
         const userPosts = forumState.posts.filter(p => p.user.name === user.name);
         
-        // Fill grid to look nice (at least 9 items)
+        // Generate grid of images
         let gridHtml = '';
-        const totalGridItems = Math.max(userPosts.length, 9);
         
-        for (let i = 0; i < totalGridItems; i++) {
-            if (i < userPosts.length) {
-                const post = userPosts[i];
-                const isSelected = forumState.profileMultiSelectMode && forumState.profileSelectedPostIds.has(post.id);
-                const selectAttr = forumState.profileMultiSelectMode ? `onclick="window.toggleProfilePostSelection(${post.id})"` : `onclick="window.viewOtherProfilePosts(${post.id})"`;
-                const selectedClass = isSelected ? 'selected' : '';
-                
-                gridHtml += `
-                    <div class="profile-grid-item ${selectedClass}" data-post-id="${post.id}" ${selectAttr} style="aspect-ratio: 3/4; background-color: #efefef; position: relative; cursor: pointer;">
-                        ${forumState.profileMultiSelectMode ? `<div class="grid-item-checkbox"></div>` : ''}
-                        ${post.image ? `<img src="${post.image}" style="width: 100%; height: 100%; object-fit: cover; display: block;">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #8e8e8e; font-size: 12px; padding: 10px; text-align: center;">${post.caption.substring(0, 20)}...</div>`}
-                    </div>
-                `;
-            } else {
-                // Placeholder
-                gridHtml += `<div class="profile-grid-item" style="aspect-ratio: 3/4; background-color: #efefef;"></div>`;
-            }
+        for (let i = 0; i < userPosts.length; i++) {
+            const post = userPosts[i];
+            const isSelected = forumState.profileMultiSelectMode && forumState.profileSelectedPostIds.has(post.id);
+            const selectAttr = forumState.profileMultiSelectMode ? `onclick="window.toggleProfilePostSelection(${post.id})"` : `onclick="window.viewOtherProfilePosts(${post.id})"`;
+            const selectedClass = isSelected ? 'selected' : '';
+            
+            gridHtml += `
+                <div class="profile-grid-item ${selectedClass}" data-post-id="${post.id}" ${selectAttr} style="aspect-ratio: 3/4; background-color: #efefef; position: relative; cursor: pointer;">
+                    ${forumState.profileMultiSelectMode ? `<div class="grid-item-checkbox"></div>` : ''}
+                    ${post.image ? `<img src="${post.image}" style="width: 100%; height: 100%; object-fit: cover; display: block;">` : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #8e8e8e; font-size: 12px; padding: 10px; text-align: center;">${post.caption.substring(0, 20)}...</div>`}
+                </div>
+            `;
         }
 
         const activeTab = forumState.otherProfileActiveTab || 'posts';
@@ -1676,6 +1688,7 @@
           "caption": "符合人设和世界观的帖子内容",
           "image_ratio": "1:1" 或 "4:5",
           "image_description": "详细的画面描述，用于AI生图 (Stable Diffusion/NovelAI Tags格式，英文)",
+          "image_description_zh": "画面的中文详细描述(用于展示给用户)",
           "time": "时间(如2天前)",
           "stats": { "likes": 随机数, "comments": 随机数, "forwards": 随机数, "shares": 随机数 },
           "comments_list": [
@@ -1803,24 +1816,64 @@
 
             // Process Posts
             if (mode !== 'regenerate_bio' && result.recent_posts && Array.isArray(result.recent_posts)) {
-                // Helper for SVG (Duplicated for safety)
-                const generateSvg = (text, ratio) => {
-                     // Simple fallback SVG generator
-                     const colors = ['#e0f2f1', '#e8eaf6', '#f3e5f5', '#fff3e0'];
-                     const color = colors[Math.floor(Math.random() * colors.length)];
-                     const w = 600, h = ratio === '4:5' ? 750 : 600;
-                     // Truncate text for SVG to avoid overflow
-                     const shortText = text.length > 8 ? text.substring(0, 8) + '...' : text;
-                     // Encode text to ensure it works in data URI (handle unicode)
-                     const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${color}"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="24" fill="#999">${shortText}</text></svg>`;
-                     // Use unescape + encodeURIComponent for unicode btoa support
-                     return `data:image/svg+xml;base64,` + btoa(unescape(encodeURIComponent(svgString)));
+                // Use generatePlaceholderSvg which should be available in scope or copied here
+                // Copying generatePlaceholderSvg logic for safety
+                const generatePlaceholderSvg = (type, ratio = '1:1') => {
+                    const colors = ['#F0F8FF', '#FAEBD7', '#F5F5DC', '#FFE4C4', '#FFEBCD', '#E6E6FA', '#FFF0F5', '#E0FFFF', '#FAFAD2', '#D3D3D3', '#90EE90', '#FFB6C1'];
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    
+                    const icons = {
+                        food: '<path d="M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z" fill="#fff" opacity="0.8"/>',
+                        travel: '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill="#fff" opacity="0.8"/>',
+                        mood: '<path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z" fill="#fff" opacity="0.8"/>',
+                        hobby: '<path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" fill="#fff" opacity="0.8"/>',
+                        daily: '<path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z" fill="#fff" opacity="0.8"/>',
+                        pet: '<path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="#fff" opacity="0.8"/>',
+                        scenery: '<path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.55 8.26 9 6 9c-3.87 0-7 3.13-7 7s3.13 7 7 7h13c2.76 0 5-2.24 5-5s-2.24-5-5-5c-.55 0-1.07.09-1.57.24C16.8 9.53 15.65 6 14 6z" fill="#fff" opacity="0.8"/>'
+                    };
+
+                    const iconPath = icons[type] || icons.daily;
+                    
+                    let width = 600;
+                    let height = 600;
+                    let viewBox = "0 0 24 24";
+                    
+                    if (ratio === '4:5') {
+                        height = 750;
+                        viewBox = "0 0 24 30"; 
+                    } else if (ratio === '16:9') {
+                        height = 338;
+                        viewBox = "0 0 24 13.5"; 
+                    }
+                    
+                    let iconTransform = "translate(8, 8) scale(0.33)";
+                    if (ratio === '4:5') {
+                        iconTransform = "translate(8, 11) scale(0.33)";
+                    } else if (ratio === '16:9') {
+                        iconTransform = "translate(8, 2.75) scale(0.33)";
+                    }
+
+                    const svg = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}">
+                        <defs>
+                            <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                                <feDropShadow dx="0.5" dy="1" stdDeviation="0.5" flood-color="#000" flood-opacity="0.15"/>
+                            </filter>
+                        </defs>
+                        <rect width="100%" height="100%" fill="${color}"/>
+                        <g transform="${iconTransform}" filter="url(#shadow)">
+                            ${iconPath}
+                        </g>
+                    </svg>
+                    `;
+                    
+                    return 'data:image/svg+xml;base64,' + btoa(svg);
                 };
 
                 const newPosts = result.recent_posts.map((p, idx) => ({
                     id: Date.now() + idx,
                     user: user, // Link to this user
-                    image: p.type === 'text' ? null : (p.image || generateSvg(p.image_description_zh || '图片', p.image_ratio)),
+                    image: p.type === 'text' ? null : (p.image || generatePlaceholderSvg(p.type || 'daily', p.image_ratio)),
                     image_description: p.image_description,
                     image_description_zh: p.image_description_zh,
                     image_ratio: p.image_ratio || '1:1',
@@ -1885,12 +1938,14 @@
             // Get settings
             let apiKey = '';
             let imageModel = 'nai-diffusion-3';
+            let negativePrompt = 'nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
             
             if (window.iphoneSimState) {
                 // 1. Check novelaiSettings (Highest Priority)
                 if (window.iphoneSimState.novelaiSettings && window.iphoneSimState.novelaiSettings.key) {
                     apiKey = window.iphoneSimState.novelaiSettings.key;
                     if (window.iphoneSimState.novelaiSettings.model) imageModel = window.iphoneSimState.novelaiSettings.model;
+                    if (window.iphoneSimState.novelaiSettings.negativePrompt) negativePrompt = window.iphoneSimState.novelaiSettings.negativePrompt;
                 }
                 
                 // 2. Check aiSettings.novelai_key
@@ -1915,22 +1970,113 @@
                 alert('未找到有效的 AI Key。请在“设置”或“NovelAI设置”中配置 Key。');
                 return;
             }
+
+            // Construct prompt logic similar to refreshPostImage to include contact settings
+            let basePrompt = '';
             
-            // Use english description
-            const prompt = post.image_description || post.caption;
+            // Robust contact lookup: Try post.userId, then post.user.id, then match by name
+            const contacts = window.iphoneSimState.contacts || [];
+            let contact = null;
+            let userId = post.userId;
+
+            if (userId) {
+                contact = contacts.find(c => c.id == userId);
+            }
+            if (!contact && post.user && post.user.id) {
+                contact = contacts.find(c => c.id == post.user.id);
+                if (contact) userId = contact.id;
+            }
+            if (!contact && post.user && post.user.name) {
+                contact = contacts.find(c => c.name === post.user.name || c.remark === post.user.name);
+                if (contact) userId = contact.id;
+            }
             
+            if (contact) {
+                const profile = (forumState.settings.contactProfiles && forumState.settings.contactProfiles[userId]) || {};
+                
+                // Check for preset
+                if (profile.imagePresetName) {
+                    const presets = window.iphoneSimState.novelaiPresets || [];
+                    let preset = null;
+
+                    if (profile.imagePresetName === 'AUTO_MATCH') {
+                        const typeText = (post.image_description || post.caption || '') + ' ' + (post.title || '');
+                        const type = detectImageType(typeText);
+                        preset = presets.find(p => p.type === type);
+                        if (!preset) preset = presets.find(p => p.name && p.name.toLowerCase().includes(type));
+                        if (!preset) preset = presets.find(p => p.type === 'general' || p.name === '通用' || p.name === 'General');
+                    } else {
+                        preset = presets.find(p => p.name === profile.imagePresetName);
+                    }
+
+                    if (preset && preset.settings) {
+                        if (preset.settings.prompt) basePrompt = preset.settings.prompt;
+                        if (preset.settings.negativePrompt) negativePrompt = preset.settings.negativePrompt;
+                        if (preset.settings.model) imageModel = preset.settings.model;
+                    }
+                } else if (profile.imagePrompt) {
+                    basePrompt = profile.imagePrompt;
+                }
+            }
+
+            // Extract appearance from persona
+            let appearancePrompt = '';
+            if (contact && contact.persona) {
+                const match = contact.persona.match(/(?:外貌|外观|形象|样子)[:：]\s*([^\n]+)/);
+                if (match && match[1]) appearancePrompt = match[1].trim();
+            }
+
+            let promptParts = [];
+            if (basePrompt) promptParts.push(basePrompt);
+            if (appearancePrompt) promptParts.push(appearancePrompt);
+            if (post.image_description || post.caption) promptParts.push(post.image_description || post.caption);
+            
+            // Sanitize & Translate
+            const rawPrompt = promptParts.join(', ');
+            let prompt = rawPrompt.replace(/[，。、；！\n]/g, ', ').replace(/\s+/g, ' ').trim();
+            
+            // Try translating if Chinese detected
+            try {
+                const aiSettings = window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url ? window.iphoneSimState.aiSettings : (window.iphoneSimState.aiSettings2 || {});
+                if (aiSettings && aiSettings.url) {
+                    const translated = await translateToNovelAIPrompt(rawPrompt, aiSettings);
+                    if (translated && translated.length > 0) prompt = translated;
+                }
+            } catch (e) {
+                console.warn('Regenerate translation failed:', e);
+            }
+            
+            if (!prompt) {
+                 prompt = post.image_description || post.caption;
+            }
+
             if (window.generateNovelAiImageApi) {
                 const resultBase64 = await window.generateNovelAiImageApi({
                     key: apiKey,
                     prompt: prompt,
+                    negativePrompt: negativePrompt,
                     width: post.image_ratio === '4:5' ? 832 : 1024,
                     height: post.image_ratio === '4:5' ? 1216 : 1024,
-                    model: imageModel
+                    model: imageModel,
+                    steps: 28,
+                    scale: 5
                 });
                 
-                post.image = resultBase64;
-                // Save
-                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                // Compress image before saving
+                post.image = await compressImage(resultBase64, 0.7, 800);
+                
+                // Save safely
+                try {
+                    localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                } catch (err) {
+                    if (err.name === 'QuotaExceededError') {
+                        console.warn('Storage quota exceeded. Image generated but not saved persistently.');
+                        alert('图片生成成功，但因存储空间不足无法保存到本地。');
+                    } else {
+                        throw err;
+                    }
+                }
+                
                 // Render
                 renderForum(false);
             } else {
@@ -3020,6 +3166,33 @@
                 renderForum(false);
             }
         }
+    }
+
+    // Helper to compress image
+    function compressImage(base64Str, quality = 0.7, maxWidth = 800) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.src = base64Str;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Convert to JPEG with quality setting
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = (e) => reject(e);
+        });
     }
 
     // Helper to detect image type from text
