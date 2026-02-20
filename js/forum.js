@@ -1,6 +1,15 @@
 // 仿 Instagram 论坛应用逻辑 (UI Update)
 
 (function() {
+    function formatCount(num) {
+        if (num === undefined || num === null) return '0';
+        let n = Number(num);
+        if (isNaN(n)) return String(num);
+        if (n >= 10000) return (Math.floor(n / 1000) / 10) + 'w';
+        if (n >= 1000) return (Math.floor(n / 100) / 10) + 'k';
+        return n.toLocaleString();
+    }
+
     const forumState = {
         activeTab: 'home', // home, video, share, search, profile
         multiSelectMode: false,
@@ -113,6 +122,9 @@
         //     // forumState.currentUser.name = window.iphoneSimState.userProfile.name; // Keep internal name logic or override
         // }
 
+        // Restore images stored in separate localStorage keys
+        loadPostImages();
+
         // Migration: Fix avatars for existing posts
         if (forumState.posts) {
             let changed = false;
@@ -127,7 +139,7 @@
                 }
             });
             if (changed) {
-                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                saveForumData();
             }
         }
 
@@ -192,11 +204,19 @@
                 headerHtml = renderOtherProfileHeader();
                 contentHtml = renderOtherProfilePosts();
                 break;
+            case 'my_profile_posts':
+                headerHtml = renderMyProfilePostsHeader();
+                contentHtml = renderMyProfilePosts();
+                break;
+            case 'create_post':
+                headerHtml = renderCreatePostHeader();
+                contentHtml = renderCreatePostPage();
+                break;
             default:
                 contentHtml = renderHomeTab();
         }
 
-        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts';
+        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts' && forumState.activeTab !== 'my_profile_posts' && forumState.activeTab !== 'create_post';
 
         const multiSelectBarHtml = forumState.multiSelectMode ? `
             <div class="forum-multi-select-bar">
@@ -239,9 +259,16 @@
                 const el = document.getElementById(`other-profile-post-${forumState.otherProfileScrollToPostId}`);
                 if (el) {
                     el.scrollIntoView({ behavior: 'auto', block: 'center' });
-                    // Optional: Flash effect
                 }
-                forumState.otherProfileScrollToPostId = null; // Clear it
+                forumState.otherProfileScrollToPostId = null;
+            }, 0);
+        } else if (forumState.activeTab === 'my_profile_posts' && forumState.myProfileScrollToPostId) {
+            setTimeout(() => {
+                const el = document.getElementById(`my-profile-post-${forumState.myProfileScrollToPostId}`);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'auto', block: 'center' });
+                }
+                forumState.myProfileScrollToPostId = null;
             }, 0);
         }
     }
@@ -267,7 +294,7 @@
                 
                 // Header Hide/Show logic
                 if (forumHeader) {
-                    if (forumState.activeTab === 'other_profile' || forumState.activeTab === 'chat' || forumState.activeTab === 'other_profile_posts') {
+                    if (forumState.activeTab === 'other_profile' || forumState.activeTab === 'chat' || forumState.activeTab === 'other_profile_posts' || forumState.activeTab === 'my_profile_posts') {
                         // 在他人主页或私聊页面，顶栏不自动隐藏
                         // 但这里我们只是取消"header-hidden"类的添加，让它保持原位
                         // 实际上用户要求"顶栏和别的内容一起上滑"，这意味着顶栏不应该 fixed/sticky，或者应该随着页面滚动而移动
@@ -533,7 +560,7 @@
                     }
                     
                     post.stats.comments++;
-                    localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                    saveForumData();
                     
                     // Clear input before re-rendering
                     input.value = '';
@@ -635,7 +662,7 @@
                     post.comments_list.forEach(c => { if(c.replies) count += c.replies.length; });
                     post.stats.comments = count;
                     
-                    localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                    saveForumData();
                     
                     forumState.commentMultiSelectMode = false;
                     forumState.selectedCommentIds = new Set();
@@ -744,7 +771,7 @@
             targetComment.likes = Math.max(0, (targetComment.likes || 0) + (targetComment.liked ? 1 : -1));
             
             // Save
-            localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            saveForumData();
 
             // Update UI
             if (btn) {
@@ -764,7 +791,7 @@
                 }
                 
                 if (count) {
-                    count.textContent = targetComment.likes;
+                    count.textContent = formatCount(targetComment.likes);
                 }
             }
         }
@@ -862,7 +889,7 @@
         return `
             <div class="forum-header">
                 <div class="header-left">
-                    <div style="cursor: pointer; display: flex; align-items: center;">
+                    <div style="cursor: pointer; display: flex; align-items: center;" onclick="window.showCreateMenu()">
                         <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     </div>
                 </div>
@@ -1192,16 +1219,41 @@
         const user = forumState.currentUser;
         const activeTab = forumState.profileActiveTab || 'posts';
         
-        const postsContent = `
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; padding-bottom: 2px;">
-                 <div style="aspect-ratio: 3/4; background-color: #efefef;"></div>
-                 <div style="aspect-ratio: 3/4; background-color: #efefef;"></div>
-                 <div style="aspect-ratio: 3/4; background-color: #efefef;"></div>
-            </div>
-            <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
-                暂无帖子
-            </div>
-        `;
+        // Filter my posts
+        const myPosts = forumState.posts.filter(p => p.user.username === user.username);
+        
+        let postsContent = '';
+        if (myPosts.length > 0) {
+            const gridItems = myPosts.map(post => {
+                let contentHtml = '';
+                if (post.image) {
+                    contentHtml = `<img src="${post.image}" style="width: 100%; height: 100%; object-fit: cover; display: block;">`;
+                } else {
+                    contentHtml = `
+                        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 12px; padding: 10px; text-align: center; background-color: #fff; overflow: hidden;">
+                            ${post.caption.substring(0, 50)}...
+                        </div>
+                    `;
+                }
+                return `
+                    <div class="profile-grid-item" onclick="window.viewMyProfilePosts(${post.id})" style="aspect-ratio: 3/4; background-color: #efefef; position: relative; border: 0.5px solid #fff; cursor: pointer;">
+                        ${contentHtml}
+                    </div>
+                `; 
+            }).join('');
+            
+            postsContent = `
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; padding-bottom: 2px;">
+                    ${gridItems}
+                </div>
+            `;
+        } else {
+             postsContent = `
+                <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
+                    暂无帖子
+                </div>
+            `;
+        }
 
         const taggedContent = `
             <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
@@ -1221,20 +1273,20 @@
                         </div>
                         <div class="profile-right-column">
                             <div class="profile-username-large">${user.bio}</div>
-                            <div class="profile-stats">
-                                <div class="stat-item">
-                                    <span class="stat-num">${user.posts}</span>
-                                    <span class="stat-label">帖子</span>
+                                <div class="profile-stats">
+                                    <div class="stat-item">
+                                        <span class="stat-num">${formatCount(user.posts)}</span>
+                                        <span class="stat-label">帖子</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-num">${formatCount(user.followers)}</span>
+                                        <span class="stat-label">粉丝</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-num">${formatCount(user.following)}</span>
+                                        <span class="stat-label">关注</span>
+                                    </div>
                                 </div>
-                                <div class="stat-item">
-                                    <span class="stat-num">${user.followers}</span>
-                                    <span class="stat-label">粉丝</span>
-                                </div>
-                                <div class="stat-item">
-                                    <span class="stat-num">${user.following}</span>
-                                    <span class="stat-label">关注</span>
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -1361,15 +1413,15 @@
                             
                             <div class="profile-stats" style="margin-right: 0; justify-content: space-around;">
                                 <div class="stat-item" style="margin-right: 0;">
-                                    <span class="stat-num">${postsCount}</span>
+                                    <span class="stat-num">${formatCount(postsCount)}</span>
                                     <span class="stat-label">帖子</span>
                                 </div>
                                 <div class="stat-item" style="margin-right: 0;">
-                                    <span class="stat-num">${followersCount}</span>
+                                    <span class="stat-num">${formatCount(followersCount)}</span>
                                     <span class="stat-label">粉丝</span>
                                 </div>
                                 <div class="stat-item" style="margin-right: 0;">
-                                    <span class="stat-num">${followingCount}</span>
+                                    <span class="stat-num">${formatCount(followingCount)}</span>
                                     <span class="stat-label">关注</span>
                                 </div>
                             </div>
@@ -1435,6 +1487,50 @@
             </div>
         `;
     }
+
+    window.showCreateMenu = function() {
+        const existing = document.getElementById('create-menu-overlay');
+        if (existing) { existing.remove(); return; }
+
+        const menu = document.createElement('div');
+        menu.id = 'create-menu-overlay';
+        menu.className = 'action-menu-overlay'; // Reuse overlay style from css
+        
+        // Items based on image
+        const items = [
+            { icon: 'https://i.postimg.cc/PxgVLPVD/无标题102_20260220203555.png', text: 'Reels', action: 'reels' },
+            { icon: 'https://i.postimg.cc/ZRGs9Csc/无标题102_20260220203627.png', text: 'Edits', action: 'edits' },
+            { icon: 'https://i.postimg.cc/wvC4t74W/无标题102_20260220203702.png', text: '帖子', action: 'post' },
+            { icon: 'https://i.postimg.cc/bJ7VGsVg/无标题102_20260220203727.png', text: '快拍', action: 'story' },
+            { icon: 'https://i.postimg.cc/LXcQqnQv/无标题102_20260220203752.png', text: '精选', action: 'highlight' },
+            { icon: 'https://i.postimg.cc/MH1P1qgm/无标题102_20260220203828.png', text: '直播', action: 'live' }
+        ];
+        
+        const itemsHtml = items.map(item => `
+            <div class="create-menu-item" onclick="window.handleCreateMenuAction('${item.action}')">
+                <img src="${item.icon}" class="create-menu-icon">
+                <span class="create-menu-text">${item.text}</span>
+            </div>
+        `).join('');
+
+        menu.innerHTML = `
+            <div class="create-menu-container">
+                 <div class="create-menu-drag-handle-area">
+                    <div class="create-menu-drag-handle"></div>
+                </div>
+                <div class="create-menu-header">创建</div>
+                <div class="create-menu-list">
+                    ${itemsHtml}
+                </div>
+            </div>
+        `;
+        
+        menu.addEventListener('click', (e) => {
+            if (e.target === menu) menu.remove();
+        });
+        
+        document.getElementById('forum-app').appendChild(menu);
+    };
 
     function showProfileMenu() {
         const existing = document.getElementById('profile-action-menu');
@@ -1545,7 +1641,7 @@
         
         if (confirm(`确定删除选中的 ${forumState.profileSelectedPostIds.size} 个帖子吗？`)) {
             forumState.posts = forumState.posts.filter(p => !forumState.profileSelectedPostIds.has(p.id));
-            localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            saveForumData();
             
             // Also update viewing user stats locally if needed (though next render recalculates)
             if (forumState.viewingUser && forumState.viewingUser.stats) {
@@ -1914,7 +2010,7 @@
                 }
 
                 forumState.posts = [...forumState.posts, ...newPosts];
-                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                saveForumData();
             }
 
         } catch (e) {
@@ -2066,16 +2162,7 @@
                 post.image = await compressImage(resultBase64, 0.7, 800);
                 
                 // Save safely
-                try {
-                    localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
-                } catch (err) {
-                    if (err.name === 'QuotaExceededError') {
-                        console.warn('Storage quota exceeded. Image generated but not saved persistently.');
-                        alert('图片生成成功，但因存储空间不足无法保存到本地。');
-                    } else {
-                        throw err;
-                    }
-                }
+                saveForumData();
                 
                 // Render
                 renderForum(false);
@@ -2090,6 +2177,57 @@
             icon.classList.remove('fa-spin');
         }
     };
+
+    // --- My Profile Posts View Logic ---
+
+    window.viewMyProfilePosts = function(postId) {
+        forumState.myProfileScrollToPostId = postId;
+        forumState.activeTab = 'my_profile_posts';
+        renderForum();
+    };
+
+    window.backToMyProfile = function() {
+         forumState.activeTab = 'profile';
+         renderForum();
+    };
+
+    function renderMyProfilePostsHeader() {
+        const user = forumState.currentUser;
+        return `
+            <div class="forum-header">
+                <div class="header-left">
+                    <i class="fas fa-chevron-left" onclick="window.backToMyProfile()" style="font-size: 24px; cursor: pointer;"></i>
+                </div>
+                <div class="header-center" style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="font-size: 16px; color: #000; font-weight: 700; line-height: 1.2;">帖子</div>
+                    <div style="font-size: 12px; color: #666; font-weight: 400; line-height: 1.2;">${user.username}</div>
+                </div>
+                <div class="header-right">
+                    <!-- Placeholder -->
+                </div>
+            </div>
+        `;
+    }
+
+    function renderMyProfilePosts() {
+        const user = forumState.currentUser;
+        
+        // Filter posts for me
+        const userPosts = forumState.posts.filter(p => p.user.username === user.username);
+        
+        if (userPosts.length === 0) {
+            return '<div style="padding: 40px; text-align: center; color: #8e8e8e;">暂无帖子</div>';
+        }
+
+        return `
+            <div class="feed-container" style="padding-bottom: 20px;">
+                ${userPosts.map(post => {
+                    const postHtml = renderPost(post);
+                    return postHtml.replace('class="post-item', `id="my-profile-post-${post.id}" class="post-item`);
+                }).join('')}
+            </div>
+        `;
+    }
 
     // --- Components ---
 
@@ -2430,7 +2568,6 @@
     };
 
     function renderPost(post) {
-        const formatNum = (n) => n.toLocaleString();
         const isTextPost = !post.image;
 
         const actionsBarHtml = `
@@ -2438,19 +2575,19 @@
                 <div class="actions-left-group">
                     <div class="action-item like-btn" data-id="${post.id}">
                         <i class="${post.liked ? 'fas fa-heart' : 'far fa-heart'}" style="${post.liked ? 'color: #ed4956;' : ''}"></i>
-                        <span class="action-count">${formatNum(post.stats.likes)}</span>
+                        <span class="action-count">${formatCount(post.stats.likes)}</span>
                     </div>
                     <div class="action-item comment-btn" data-id="${post.id}">
                         <img src="https://i.postimg.cc/GmHtkm1B/无标题98_20260213233618.png" class="post-action-icon">
-                        <span class="action-count">${post.stats.comments}</span>
+                        <span class="action-count">${formatCount(post.stats.comments)}</span>
                     </div>
                     <div class="action-item">
                         <img src="https://i.postimg.cc/fyG4XnSn/wu-biao-ti98-20260215020652.png" class="post-action-icon">
-                        <span class="action-count">${post.stats.forwards || 0}</span>
+                        <span class="action-count">${formatCount(post.stats.forwards || 0)}</span>
                     </div>
                     <div class="action-item">
                         <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="post-action-icon">
-                        <span class="action-count">${post.stats.shares}</span>
+                        <span class="action-count">${formatCount(post.stats.shares)}</span>
                     </div>
                 </div>
                 <div class="actions-right-group">
@@ -3128,7 +3265,7 @@
         forumState.posts = forumState.posts.filter(p => !forumState.selectedPostIds.has(p.id));
 
         // Save to localStorage
-        localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+        saveForumData();
 
         // Exit multi-select mode and re-render
         forumState.multiSelectMode = false;
@@ -3140,10 +3277,13 @@
         const post = forumState.posts.find(p => p.id === parseInt(postId));
         if (post) {
             post.liked = !post.liked;
+            if (typeof post.stats.likes === 'string') {
+                post.stats.likes = parseFloat(post.stats.likes.replace(/,/g, ''));
+            }
             post.stats.likes += post.liked ? 1 : -1;
             
             // Save to localStorage
-            localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            saveForumData();
 
             // Targeted DOM Update
             const likeBtn = document.querySelector(`.like-btn[data-id="${postId}"]`);
@@ -3160,10 +3300,101 @@
                 }
                 
                 if (count) {
-                    count.textContent = post.stats.likes.toLocaleString();
+                    count.textContent = formatCount(post.stats.likes);
                 }
             } else {
                 renderForum(false);
+            }
+        }
+    }
+
+    // --- Image Storage Helpers (separate keys to avoid quota issues) ---
+
+    const MAX_STORED_IMAGES = 5;
+
+    function getAllImageKeys() {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('forum_img_')) keys.push(k);
+        }
+        return keys.sort(); // Sorted by postId (timestamp-based), oldest first
+    }
+
+    function cleanupOldPostImages(keepCount) {
+        keepCount = (keepCount === undefined) ? MAX_STORED_IMAGES : keepCount;
+        const keys = getAllImageKeys();
+        if (keys.length > keepCount) {
+            keys.slice(0, keys.length - keepCount).forEach(k => localStorage.removeItem(k));
+        }
+    }
+
+    function savePostImage(postId, imageData) {
+        const key = 'forum_img_' + postId;
+        for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+                localStorage.setItem(key, imageData);
+                return true;
+            } catch (e) {
+                if (e.name === 'QuotaExceededError') {
+                    const keepCount = Math.max(0, MAX_STORED_IMAGES - (attempt + 1) * 2);
+                    cleanupOldPostImages(keepCount);
+                } else {
+                    break;
+                }
+            }
+        }
+        console.warn('Cannot store image for post', postId, '— image will not persist');
+        return false;
+    }
+
+    function loadPostImages() {
+        forumState.posts = forumState.posts.map(p => {
+            if (p.image === '__ref__') {
+                p.image = localStorage.getItem('forum_img_' + p.id) || null;
+            }
+            return p;
+        });
+    }
+
+    function saveForumData() {
+        // Strip large AI-generated base64 images (JPEG/PNG) and store them under separate keys.
+        // SVG data-URIs and http URLs are small enough to stay inline.
+        const postsToSave = forumState.posts.map(p => {
+            if (p.image &&
+                p.image.length > 5000 &&
+                p.image.startsWith('data:image/') &&
+                !p.image.startsWith('data:image/svg')) {
+                savePostImage(p.id, p.image);
+                return Object.assign({}, p, { image: '__ref__' });
+            }
+            return p;
+        });
+
+        for (let pass = 0; pass < 3; pass++) {
+            try {
+                localStorage.setItem('forum_posts', JSON.stringify(postsToSave));
+                return; // Success
+            } catch (e) {
+                if (e.name !== 'QuotaExceededError') {
+                    console.error('Storage error', e);
+                    return;
+                }
+                // Each pass gets more aggressive
+                if (pass === 0) {
+                    // Remove images from all but the 3 most recent posts
+                    for (let i = 3; i < postsToSave.length; i++) {
+                        postsToSave[i].image = null;
+                    }
+                } else if (pass === 1) {
+                    // Strip ALL images
+                    postsToSave.forEach(p => { p.image = null; });
+                    // Trim to 30 posts
+                    postsToSave.splice(30);
+                    forumState.posts = forumState.posts.slice(0, 30);
+                } else {
+                    console.error('Critical: Cannot save forum data even after aggressive cleanup');
+                }
             }
         }
     }
@@ -3373,9 +3604,28 @@
             const currentUserName = forumState.currentUser.bio || '我'; // Current user name
 
             if (linkedContactsData.length > 0) {
-                const charList = linkedContactsData.map(c => 
-                    `- ID: "${c.id}"\n  Name: ${c.name}\n  Identity: ${c.subtitle}\n  Followers: ${c.followers}\n  Persona: ${c.persona}`
-                ).join('\n\n');
+                const charList = linkedContactsData.map(c => {
+                    // Collect existing post captions for this contact to avoid duplicates
+                    const existingCaptions = forumState.posts
+                        .filter(p => {
+                            if (!p.user) return false;
+                            const contact = contacts.find(ct => ct.id === c.id);
+                            if (!contact) return false;
+                            return p.user.name === c.name ||
+                                   p.user.name === (contact.remark || contact.name) ||
+                                   p.userId === c.id ||
+                                   (p.user.id && p.user.id == c.id);
+                        })
+                        .map(p => p.caption)
+                        .filter(Boolean)
+                        .slice(-10); // Only last 10 to keep prompt short
+
+                    const existingBlock = existingCaptions.length > 0
+                        ? `\n  已有帖子(禁止重复或相似，必须生成完全不同的内容):\n${existingCaptions.map(cap => `    - "${cap.substring(0, 60)}"`).join('\n')}`
+                        : '';
+
+                    return `- ID: "${c.id}"\n  Name: ${c.name}\n  Identity: ${c.subtitle}\n  Followers: ${c.followers}\n  Persona: ${c.persona}${existingBlock}`;
+                }).join('\n\n');
 
                 prompt = `
 请模拟社交论坛生成帖子。
@@ -3383,6 +3633,8 @@
 世界设定(Worldbook): ${worldbookContent}
 
 任务: 生成总共 ${Math.max(targetTotal, linkedContactsData.length)} 条帖子。
+
+【重要】每个用户的"已有帖子"列表中的内容是该用户之前已经发过的帖子。新���成的帖子内容和话题必须与已有帖子完全不同，不得有任何相似度。请从不同的生活场景、情绪、事件角度出发。
 
 要求 1 (指定用户):
 以下用户必须每人至少发一条帖子 (userId 必须填入对应的 ID):
@@ -3787,7 +4039,7 @@ ${charList}
                 forumState.posts = [...newPosts, ...forumState.posts];
                 
                 // Save
-                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                saveForumData();
 
                 // Render
                 renderForum(false);
@@ -3805,6 +4057,303 @@ ${charList}
             }
         }
     }
+
+    // --- Create Post Functions ---
+
+    window.handleCreateMenuAction = function(action) {
+        // Close menu
+        const overlay = document.getElementById('create-menu-overlay');
+        if (overlay) overlay.remove();
+
+        if (action === 'post') {
+            forumState.activeTab = 'create_post';
+            forumState.createPostImages = []; // Reset images
+            renderForum();
+        }
+        // Handle other actions later if needed
+    };
+
+    function renderCreatePostHeader() {
+        return `
+            <div class="forum-header">
+                <div class="header-left">
+                    <i class="fas fa-chevron-left" onclick="window.exitCreatePost()" style="font-size: 24px; cursor: pointer;"></i>
+                </div>
+                <div class="header-center">
+                    <span style="font-size: 16px; font-weight: 700;">新帖子</span>
+                </div>
+                <div class="header-right">
+                    <!-- Empty -->
+                </div>
+            </div>
+        `;
+    }
+
+    function renderCreatePostPage() {
+        return `
+            <div class="create-post-container">
+                <div class="create-post-image-area" onclick="document.getElementById('create-post-file-input').click()">
+                    ${forumState.createPostImages && forumState.createPostImages.length > 0 ? 
+                        `<img src="${forumState.createPostImages[0]}" class="create-post-preview-img">
+                         ${forumState.createPostImages.length > 1 ? `<div class="create-post-multi-badge"><i class="fas fa-clone"></i></div>` : ''}` 
+                        : `<div class="create-post-placeholder"><i class="fas fa-wifi" style="transform: rotate(45deg); font-size: 40px;"></i></div>`
+                    }
+                </div>
+                <input type="file" id="create-post-file-input" multiple accept="image/*" style="display:none" onchange="window.handleCreatePostImageSelect(this)">
+                
+                <div class="create-post-input-section">
+                    <textarea class="create-post-caption" id="create-post-caption" placeholder="添加说明文字..."></textarea>
+                    
+                    <div class="create-post-tags-row">
+                        <div class="create-post-tag-btn"><img src="https://i.postimg.cc/kX0r0K66/无标题102_20260221012430.png" class="tag-icon"> 投票</div>
+                        <div class="create-post-tag-btn"><img src="https://i.postimg.cc/rw56MsxD/无标题102_20260221012455.png" class="tag-icon"> 话题引子</div>
+                    </div>
+                </div>
+
+                <div class="create-post-options-list">
+                    <div class="create-post-option-item">
+                        <img src="https://i.postimg.cc/s23YxHQZ/无标题102_20260221011255.png" class="option-icon">
+                        <div class="option-label">添加音频</div>
+                        <div class="option-right">
+                            <span class="option-value">Crystal Chamber...</span>
+                            <i class="fas fa-chevron-right option-arrow"></i>
+                        </div>
+                    </div>
+                    <div class="create-post-option-item">
+                        <img src="https://i.postimg.cc/13G091tr/无标题102_20260221011226.png" class="option-icon">
+                        <div class="option-label">标记用户</div>
+                        <div class="option-right"><i class="fas fa-chevron-right option-arrow"></i></div>
+                    </div>
+                    <div class="create-post-option-item">
+                        <img src="https://i.postimg.cc/bvqxrVDn/无标题102_20260221011327.png" class="option-icon">
+                        <div class="option-label">添加地点</div>
+                        <div class="option-right"><i class="fas fa-chevron-right option-arrow"></i></div>
+                    </div>
+                    <div class="create-post-option-item">
+                        <img src="https://i.postimg.cc/k57QGY6b/无标题102_20260221011354.png" class="option-icon">
+                        <div class="option-content">
+                            <div class="option-label">添加 AI 标签</div>
+                            <div class="option-desc">对于由 AI 制作的特定逼真内容，我们要求为其添加标签。<span style="color: #0095f6;">详细了解</span></div>
+                        </div>
+                        <div class="option-right">
+                            <label class="toggle-switch" style="transform: scale(0.8);">
+                                <input type="checkbox">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                    </div>
+                     <div class="create-post-option-item">
+                        <img src="https://i.postimg.cc/R0v7hp6Q/无标题102_20260221011426.png" class="option-icon">
+                        <div class="option-label">分享对象</div>
+                        <div class="option-right">
+                            <span class="option-value">所有人</span>
+                            <i class="fas fa-chevron-right option-arrow"></i>
+                        </div>
+                    </div>
+                     <div class="create-post-option-item">
+                        <img src="https://i.postimg.cc/CKwG5rB4/无标题102_20260221011505.png" class="option-icon">
+                        <div class="option-label">同时分享到...</div>
+                        <div class="option-right">
+                            <span class="option-value">关</span>
+                            <i class="fas fa-chevron-right option-arrow"></i>
+                        </div>
+                    </div>
+                     <div class="create-post-option-item">
+                        <img src="https://i.postimg.cc/tg93JvZk/无标题102_20260221011539.png" class="option-icon">
+                        <div class="option-label">更多选项</div>
+                        <div class="option-right"><i class="fas fa-chevron-right option-arrow"></i></div>
+                    </div>
+                </div>
+
+                <div class="create-post-footer-btn-container">
+                    <button class="create-post-share-btn" onclick="window.handleSharePost()">分享</button>
+                </div>
+            </div>
+        `;
+    }
+
+    window.exitCreatePost = function() {
+        // Go back to profile since the button is on profile page
+        forumState.activeTab = 'profile'; 
+        renderForum();
+    };
+
+    window.handleCreatePostImageSelect = function(input) {
+        if (input.files && input.files.length > 0) {
+            forumState.createPostImages = [];
+            let processed = 0;
+            Array.from(input.files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        // Compress image to avoid QuotaExceededError
+                        const compressed = await compressImage(e.target.result, 0.6, 800);
+                        forumState.createPostImages.push(compressed);
+                    } catch (err) {
+                        console.error("Image compression failed", err);
+                        forumState.createPostImages.push(e.target.result);
+                    }
+                    
+                    processed++;
+                    // If last one, re-render
+                    if (processed === input.files.length) {
+                        renderForum(false);
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+    };
+
+    async function generateCommentsForPost(post) {
+        // 1. Get Linked Contacts
+        const linkedContactIds = forumState.settings.linkedContacts || [];
+        const contacts = window.iphoneSimState.contacts || [];
+        const profiles = forumState.settings.contactProfiles || {};
+        
+        const linkedContactsData = linkedContactIds.map(id => {
+            const contact = contacts.find(c => c.id === id);
+            if (!contact) return null;
+            const profile = profiles[id] || {};
+            return {
+                name: profile.name || contact.remark || contact.name,
+                persona: contact.persona || 'Friend',
+                avatar: profile.avatar || contact.avatar
+            };
+        }).filter(c => c);
+
+        const systemPrompt = `You are a social media comment generator.
+Post Caption: "${post.caption}"
+${post.image ? 'Post has an image.' : 'Post is text only.'}
+
+Required Commenters (MUST include ALL of them):
+${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (Persona: ${c.persona})`).join('\n') : '- Random user'}
+
+Additional: Generate at least 10 comments from random strangers (give them realistic usernames like "user123" or "sakura_chan").
+
+Output Format: JSON Array ONLY.
+[
+  { "name": "Name", "text": "Comment", "isContact": true/false },
+  ...
+]
+`;
+
+        try {
+            let settings = { url: '', key: '', model: '' };
+            if (window.iphoneSimState) {
+                if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) {
+                    settings = window.iphoneSimState.aiSettings;
+                } else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) {
+                    settings = window.iphoneSimState.aiSettings2;
+                }
+            }
+
+            if (!settings.url || !settings.key) {
+                console.warn('AI settings missing for auto-comment');
+                return;
+            }
+
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: 'You generate JSON comments.' },
+                        { role: 'user', content: systemPrompt }
+                    ],
+                    temperature: 0.7
+                })
+            });
+
+            const data = await response.json();
+            let content = data.choices[0].message.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+            const comments = JSON.parse(content);
+
+            // Add to post
+            comments.forEach(c => {
+                let avatar = c.isContact ? 
+                    (linkedContactsData.find(lc => lc.name === c.name)?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed='+c.name) 
+                    : 'https://api.dicebear.com/7.x/lorelei/svg?seed='+c.name+Math.random();
+                
+                post.comments_list.push({
+                    id: Date.now() + Math.random(),
+                    user: { name: c.name, avatar: avatar, verified: false },
+                    text: c.text,
+                    time: '刚刚',
+                    likes: 0,
+                    replies: []
+                });
+            });
+            
+            post.stats.comments += comments.length;
+            saveForumData();
+            
+            // Only re-render if active tab is relevant
+            if (forumState.activeTab === 'home' || forumState.activeTab === 'profile') {
+                renderForum(false);
+            }
+
+        } catch (e) {
+            console.error("Auto-comment failed", e);
+        }
+    }
+
+    window.handleSharePost = async function() {
+        const caption = document.getElementById('create-post-caption').value;
+        const images = forumState.createPostImages;
+        
+        if ((!images || images.length === 0) && !caption) {
+            alert('请添加图片或文字');
+            return;
+        }
+
+        // Calculate stats based on followers
+        const followers = forumState.currentUser.followers || 0;
+        let likes = 0, commentsCount = 0, forwards = 0, shares = 0;
+
+        if (followers > 0) {
+            // Likes: 5% - 15%
+            const likeRate = 0.05 + Math.random() * 0.1;
+            likes = Math.max(0, Math.floor(followers * likeRate));
+            
+            // Comments: 0.5% - 2%
+            const commentRate = 0.005 + Math.random() * 0.015;
+            commentsCount = Math.max(0, Math.floor(followers * commentRate));
+            
+            // Forwards/Shares: 0.1% - 1%
+            const shareRate = 0.001 + Math.random() * 0.009;
+            forwards = Math.max(0, Math.floor(followers * shareRate));
+            shares = Math.max(0, Math.floor(followers * shareRate));
+        }
+
+        const newPost = {
+            id: Date.now(),
+            user: { 
+                ...forumState.currentUser,
+                name: forumState.currentUser.bio || forumState.currentUser.username 
+            },
+            image: (images && images.length > 0) ? images[0] : null, 
+            caption: caption || '',
+            time: '刚刚',
+            stats: { likes, comments: commentsCount, forwards, shares, sends: shares },
+            comments_list: []
+        };
+        
+        forumState.posts.unshift(newPost);
+        saveForumData();
+        
+        forumState.activeTab = 'home';
+        renderForum();
+
+        // Trigger comment generation
+        await generateCommentsForPost(newPost);
+    };
 
     window.initForumApp = initForum;
     if (window.appInitFunctions) {
@@ -3972,7 +4521,7 @@ ${charList}
                     post.stats.comments++;
                 });
 
-                localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+                saveForumData();
             }
 
         } catch (error) {
