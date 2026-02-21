@@ -96,16 +96,10 @@
         isGeneratingReply: false,
         commentMultiSelectMode: false,
         selectedCommentIds: new Set(),
-        messages: [
-            { 
-                id: 1, 
-                name: '中沢 元紀', 
-                username: 'motoki.nakazawa_',
-                avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Nakazawa', 
-                verified: true, 
-                subtext: '轻触即可聊天' 
-            }
-        ],
+        messages: JSON.parse(localStorage.getItem('forum_messages')) || [],
+        dmMultiSelectMode: false,
+        selectedDmIds: new Set(),
+        chatHistory: JSON.parse(localStorage.getItem('forum_chatHistory')) || {},
         dmNotes: [
              { id: 1, name: '你的便签', avatar: '', isMe: true, note: '分享便签', subtext: '位置共享已关闭' },
              { id: 2, name: '地图', avatar: 'https://placehold.co/100x100/87CEEB/ffffff?text=Map', isMap: true, note: '全新' }
@@ -252,6 +246,7 @@
 
         setupTabListeners();
         setupBackToTopListener();
+        setupCarousels();
         
         // Scroll to specific post if needed
         if (forumState.activeTab === 'other_profile_posts' && forumState.otherProfileScrollToPostId) {
@@ -983,6 +978,20 @@
 
     function renderDMTab() {
         // Search bar + Notes + Messages List
+        
+        const multiSelectBarHtml = forumState.dmMultiSelectMode ? `
+            <div class="forum-multi-select-bar" style="position: absolute; bottom: 0; left: 0; width: 100%; z-index: 2005;">
+                <div class="multi-select-left-actions">
+                    <button class="multi-select-cancel-btn" id="dm-ms-cancel">取消</button>
+                    <button class="multi-select-all-btn" id="dm-ms-all">${forumState.selectedDmIds.size === forumState.messages.length && forumState.messages.length > 0 ? '取消全选' : '全选'}</button>
+                </div>
+                <button class="multi-select-delete-btn ${forumState.selectedDmIds.size === 0 ? 'is-disabled' : ''}" id="dm-ms-delete">删除 (${forumState.selectedDmIds.size})</button>
+            </div>
+        ` : '';
+
+        // Add padding bottom if multi-select mode to avoid content being covered by bar
+        const listStyle = forumState.dmMultiSelectMode ? 'padding-bottom: 60px;' : '';
+
         return `
             <div class="dm-notes-container">
                 ${forumState.dmNotes.map(renderDMNote).join('')}
@@ -993,9 +1002,10 @@
                 <div class="dm-section-action">陌生消息</div>
             </div>
 
-            <div class="dm-messages-list">
+            <div class="dm-messages-list" style="${listStyle}">
                 ${forumState.messages.map(renderDMMessage).join('')}
             </div>
+            ${multiSelectBarHtml}
         `;
     }
 
@@ -2021,119 +2031,170 @@
         }
     }
 
+    // Helper: Show preset picker bottom sheet, resolves with chosen presetName or null
+    function showPresetPickerSheet(currentPresetName) {
+        return new Promise((resolve) => {
+            const presets = window.iphoneSimState.novelaiPresets || [];
+
+            // Remove any existing sheet
+            const old = document.getElementById('forum-preset-picker');
+            if (old) old.remove();
+
+            const sheet = document.createElement('div');
+            sheet.id = 'forum-preset-picker';
+            sheet.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:3000;display:flex;flex-direction:column;justify-content:flex-end;';
+
+            const presetsHtml = presets.map(p => `
+                <div class="action-menu-item forum-preset-option" data-preset="${encodeURIComponent(p.name)}" style="${currentPresetName===p.name ? 'color:#0095f6;font-weight:700;' : ''}">
+                    ${p.name}
+                </div>
+            `).join('');
+
+            sheet.innerHTML = `
+                <div class="action-menu-container">
+                    <div style="padding:12px 20px 8px;text-align:center;font-weight:700;font-size:15px;border-bottom:1px solid #efefef;margin-bottom:4px;">选择生图预设</div>
+                    <div style="max-height:60vh;overflow-y:auto;">
+                        <div class="action-menu-item forum-preset-option" data-preset="AUTO_MATCH" style="${currentPresetName==='AUTO_MATCH'?'color:#0095f6;font-weight:700;':''}">
+                            ✨ 自动匹配 (AI检测)
+                        </div>
+                        ${presetsHtml}
+                        <div class="action-menu-item forum-preset-option" data-preset="" style="color:#8e8e8e;">
+                            不使用预设 (仅用图片描述)
+                        </div>
+                    </div>
+                    <div class="action-menu-cancel" id="forum-preset-cancel">取消</div>
+                </div>
+            `;
+
+            document.getElementById('forum-app').appendChild(sheet);
+
+            sheet.querySelectorAll('.forum-preset-option').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const chosen = el.dataset.preset ? decodeURIComponent(el.dataset.preset) : '';
+                    sheet.remove();
+                    resolve(chosen || null);
+                });
+            });
+
+            document.getElementById('forum-preset-cancel').addEventListener('click', () => {
+                sheet.remove();
+                resolve(undefined); // undefined = cancelled
+            });
+
+            sheet.addEventListener('click', (e) => {
+                if (e.target === sheet) {
+                    sheet.remove();
+                    resolve(undefined);
+                }
+            });
+        });
+    }
+
     window.regeneratePostImage = async function(event, postId) {
         event.stopPropagation();
         const post = forumState.posts.find(p => p.id === postId);
         if (!post) return;
-        
+
+        // ── Step 1: Resolve contact & existing preset ──────────────────────
+        const contacts = window.iphoneSimState.contacts || [];
+        let contact = null;
+        let userId = post.userId;
+
+        if (userId) contact = contacts.find(c => c.id == userId);
+        if (!contact && post.user && post.user.id) {
+            contact = contacts.find(c => c.id == post.user.id);
+            if (contact) userId = contact.id;
+        }
+        if (!contact && post.user && post.user.name) {
+            contact = contacts.find(c => c.name === post.user.name || c.remark === post.user.name);
+            if (contact) userId = contact.id;
+        }
+
+        const contactProfile = contact
+            ? ((forumState.settings.contactProfiles && forumState.settings.contactProfiles[userId]) || {})
+            : null;
+
+        // ── Step 2: Show preset picker (always show for strangers, show for contacts too) ──
+        const existingPreset = contactProfile ? (contactProfile.imagePresetName || null) : null;
+        const chosenPreset = await showPresetPickerSheet(existingPreset);
+
+        // undefined means the user tapped "取消" — abort
+        if (chosenPreset === undefined) return;
+
+        // ── Step 3: Start spinning the button ──────────────────────────────
         const btn = event.currentTarget;
-        const icon = btn.querySelector('i');
-        icon.classList.add('fa-spin');
-        
+        const icon = btn ? btn.querySelector('i') : null;
+        if (icon) icon.classList.add('fa-spin');
+
         try {
-            // Get settings
+            // ── Step 4: Get API key & base model settings ──────────────────
             let apiKey = '';
             let imageModel = 'nai-diffusion-3';
             let negativePrompt = 'nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
-            
+
             if (window.iphoneSimState) {
-                // 1. Check novelaiSettings (Highest Priority)
                 if (window.iphoneSimState.novelaiSettings && window.iphoneSimState.novelaiSettings.key) {
                     apiKey = window.iphoneSimState.novelaiSettings.key;
                     if (window.iphoneSimState.novelaiSettings.model) imageModel = window.iphoneSimState.novelaiSettings.model;
                     if (window.iphoneSimState.novelaiSettings.negativePrompt) negativePrompt = window.iphoneSimState.novelaiSettings.negativePrompt;
                 }
-                
-                // 2. Check aiSettings.novelai_key
-                if (!apiKey && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.novelai_key) {
+                if (!apiKey && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.novelai_key)
                     apiKey = window.iphoneSimState.aiSettings.novelai_key;
-                }
-
-                // 3. Check aiSettings.key (Lowest Priority - mostly for LLM, risk of mismatch)
-                if (!apiKey && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.key) {
-                     apiKey = window.iphoneSimState.aiSettings.key;
-                }
-                
-                // 4. Check aiSettings2 (fallback)
-                if (!apiKey && window.iphoneSimState.aiSettings2) {
-                     apiKey = window.iphoneSimState.aiSettings2.key;
-                }
+                if (!apiKey && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.key)
+                    apiKey = window.iphoneSimState.aiSettings.key;
+                if (!apiKey && window.iphoneSimState.aiSettings2)
+                    apiKey = window.iphoneSimState.aiSettings2.key;
             }
-            
-            console.log('Regenerate Image - Key Source Check. Key Found:', !!apiKey);
 
             if (!apiKey) {
-                alert('未找到有效的 AI Key。请在“设置”或“NovelAI设置”中配置 Key。');
+                alert('未找到有效的 AI Key。请在"设置"或"NovelAI设置"中配置 Key。');
                 return;
             }
 
-            // Construct prompt logic similar to refreshPostImage to include contact settings
+            // ── Step 5: Resolve chosen preset settings ─────────────────────
             let basePrompt = '';
-            
-            // Robust contact lookup: Try post.userId, then post.user.id, then match by name
-            const contacts = window.iphoneSimState.contacts || [];
-            let contact = null;
-            let userId = post.userId;
+            if (chosenPreset) { // null = no preset, 'AUTO_MATCH' or preset name
+                const presets = window.iphoneSimState.novelaiPresets || [];
+                let preset = null;
 
-            if (userId) {
-                contact = contacts.find(c => c.id == userId);
-            }
-            if (!contact && post.user && post.user.id) {
-                contact = contacts.find(c => c.id == post.user.id);
-                if (contact) userId = contact.id;
-            }
-            if (!contact && post.user && post.user.name) {
-                contact = contacts.find(c => c.name === post.user.name || c.remark === post.user.name);
-                if (contact) userId = contact.id;
-            }
-            
-            if (contact) {
-                const profile = (forumState.settings.contactProfiles && forumState.settings.contactProfiles[userId]) || {};
-                
-                // Check for preset
-                if (profile.imagePresetName) {
-                    const presets = window.iphoneSimState.novelaiPresets || [];
-                    let preset = null;
+                if (chosenPreset === 'AUTO_MATCH') {
+                    const typeText = (post.image_description || post.caption || '') + ' ' + (post.title || '');
+                    const type = detectImageType(typeText);
+                    preset = presets.find(p => p.type === type);
+                    if (!preset) preset = presets.find(p => p.name && p.name.toLowerCase().includes(type));
+                    if (!preset) preset = presets.find(p => p.type === 'general' || p.name === '通用' || p.name === 'General');
+                } else {
+                    preset = presets.find(p => p.name === chosenPreset);
+                }
 
-                    if (profile.imagePresetName === 'AUTO_MATCH') {
-                        const typeText = (post.image_description || post.caption || '') + ' ' + (post.title || '');
-                        const type = detectImageType(typeText);
-                        preset = presets.find(p => p.type === type);
-                        if (!preset) preset = presets.find(p => p.name && p.name.toLowerCase().includes(type));
-                        if (!preset) preset = presets.find(p => p.type === 'general' || p.name === '通用' || p.name === 'General');
-                    } else {
-                        preset = presets.find(p => p.name === profile.imagePresetName);
-                    }
-
-                    if (preset && preset.settings) {
-                        if (preset.settings.prompt) basePrompt = preset.settings.prompt;
-                        if (preset.settings.negativePrompt) negativePrompt = preset.settings.negativePrompt;
-                        if (preset.settings.model) imageModel = preset.settings.model;
-                    }
-                } else if (profile.imagePrompt) {
-                    basePrompt = profile.imagePrompt;
+                if (preset && preset.settings) {
+                    if (preset.settings.prompt) basePrompt = preset.settings.prompt;
+                    if (preset.settings.negativePrompt) negativePrompt = preset.settings.negativePrompt;
+                    if (preset.settings.model) imageModel = preset.settings.model;
                 }
             }
 
-            // Extract appearance from persona
+            // ── Step 6: Extract appearance from contact persona (if any) ───
             let appearancePrompt = '';
             if (contact && contact.persona) {
                 const match = contact.persona.match(/(?:外貌|外观|形象|样子)[:：]\s*([^\n]+)/);
                 if (match && match[1]) appearancePrompt = match[1].trim();
             }
 
-            let promptParts = [];
+            // ── Step 7: Build & translate prompt ──────────────���───────────
+            const promptParts = [];
             if (basePrompt) promptParts.push(basePrompt);
             if (appearancePrompt) promptParts.push(appearancePrompt);
             if (post.image_description || post.caption) promptParts.push(post.image_description || post.caption);
-            
-            // Sanitize & Translate
+
             const rawPrompt = promptParts.join(', ');
             let prompt = rawPrompt.replace(/[，。、；！\n]/g, ', ').replace(/\s+/g, ' ').trim();
-            
-            // Try translating if Chinese detected
+
             try {
-                const aiSettings = window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url ? window.iphoneSimState.aiSettings : (window.iphoneSimState.aiSettings2 || {});
+                const aiSettings = window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url
+                    ? window.iphoneSimState.aiSettings
+                    : (window.iphoneSimState.aiSettings2 || {});
                 if (aiSettings && aiSettings.url) {
                     const translated = await translateToNovelAIPrompt(rawPrompt, aiSettings);
                     if (translated && translated.length > 0) prompt = translated;
@@ -2141,11 +2202,10 @@
             } catch (e) {
                 console.warn('Regenerate translation failed:', e);
             }
-            
-            if (!prompt) {
-                 prompt = post.image_description || post.caption;
-            }
 
+            if (!prompt) prompt = post.image_description || post.caption || '';
+
+            // ── Step 8: Generate image ─────────────────────────────────────
             if (window.generateNovelAiImageApi) {
                 const resultBase64 = await window.generateNovelAiImageApi({
                     key: apiKey,
@@ -2157,24 +2217,19 @@
                     steps: 28,
                     scale: 5
                 });
-                
-                // Compress image before saving
+
                 post.image = await compressImage(resultBase64, 0.7, 800);
-                
-                // Save safely
                 saveForumData();
-                
-                // Render
                 renderForum(false);
             } else {
-                 alert('生图功能未加载 (window.generateNovelAiImageApi not found)');
+                alert('生图功能未加载 (window.generateNovelAiImageApi not found)');
             }
-            
+
         } catch (e) {
             console.error(e);
             alert('生图失败: ' + e.message);
         } finally {
-            icon.classList.remove('fa-spin');
+            if (icon) icon.classList.remove('fa-spin');
         }
     };
 
@@ -2277,8 +2332,18 @@
     }
 
     function renderDMMessage(msg) {
+        const isMultiSelect = forumState.dmMultiSelectMode;
+        const isSelected = forumState.selectedDmIds.has(msg.id);
+        
+        let leftContent = '';
+        if (isMultiSelect) {
+            leftContent = `<div class="comment-select-checkbox ${isSelected ? 'checked' : ''}" style="margin-right: 10px;"></div>`;
+        }
+
+        // Add data-id attribute for JS hooks
         return `
-            <div class="dm-user-row" onclick="window.openForumChat(${msg.id})">
+            <div class="dm-user-row ${isMultiSelect ? 'multi-select-mode' : ''}" data-dm-id="${msg.id}">
+                ${leftContent}
                 <img src="${msg.avatar}" class="dm-user-avatar">
                 <div class="dm-user-info">
                     <div class="dm-user-name">
@@ -2295,6 +2360,8 @@
     }
 
     window.openForumChat = function(id) {
+        if (forumState.dmMultiSelectMode) return; // Prevent opening chat in multi-select mode
+        
         const user = forumState.messages.find(m => m.id === id);
         if (user) {
             forumState.activeChatUser = user;
@@ -2383,35 +2450,25 @@
             }
 
             const chatBody = document.querySelector('.forum-chat-body');
-            const input = document.querySelector('.forum-chat-input');
+            const input = document.getElementById('forum-chat-input-field');
             if (input) {
                 input.addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') {
                         const text = input.value.trim();
                         if (text) {
-                            // Add to State
-                            if (!forumState.chatHistory[user.id]) forumState.chatHistory[user.id] = [];
-                            forumState.chatHistory[user.id].push({ type: 'me', text: text });
-
-                            // Add to DOM
-                            const msgHtml = `
-                                <div class="forum-chat-msg me">
-                                    <div class="chat-bubble me">${text}</div>
-                                </div>
-                            `;
-                            chatBody.insertAdjacentHTML('beforeend', msgHtml);
-                            
-                            // Scroll to bottom
-                            const contentArea = document.getElementById('forum-content-area');
-                            if (contentArea) {
-                                contentArea.scrollTop = contentArea.scrollHeight;
-                            }
-                            
-                            // Clear input
-                            input.value = '';
+                            sendChatMessage(text, user, chatBody);
                         }
                     }
                 });
+            }
+
+            // AI Reply Button (bottom-right icon)
+            const aiReplyBtn = document.getElementById('forum-chat-ai-reply-btn');
+            if (aiReplyBtn) {
+                aiReplyBtn.onclick = () => {
+                    if (aiReplyBtn._isGenerating) return;
+                    generateDMChatReply(user, chatBody);
+                };
             }
         }, 0);
 
@@ -2426,13 +2483,13 @@
                             <img src="https://i.postimg.cc/W41znMFf/wu-biao-ti98-20260215154732.png">
                         </div>
                         <div class="chat-input-wrapper">
-                            <input type="text" placeholder="发消息..." class="forum-chat-input">
+                            <input type="text" placeholder="发消息..." class="forum-chat-input" id="forum-chat-input-field">
                         </div>
                         <div class="chat-footer-actions">
                             <img src="https://i.postimg.cc/xT2Zhgfk/无标题98_20260215154555.png">
                             <img src="https://i.postimg.cc/ZKSQ2jby/无标题98_20260215154535.png">
                             <img src="https://i.postimg.cc/jdb1mvxw/无标题98_20260215154633.png">
-                            <img src="https://i.postimg.cc/02s4FZkK/无标题98_20260215154658.png">
+                            <img id="forum-chat-ai-reply-btn" src="https://i.postimg.cc/02s4FZkK/无标题98_20260215154658.png" style="cursor:pointer;" title="让对方AI回复">
                         </div>
                     </div>
                 </div>
@@ -2568,7 +2625,10 @@
     };
 
     function renderPost(post) {
-        const isTextPost = !post.image;
+        // Determine images array: support both single image and multi-image posts
+        const images = post.images && post.images.length > 0 ? post.images : (post.image ? [post.image] : []);
+        const isTextPost = images.length === 0;
+        const isMultiImage = images.length > 1;
 
         const actionsBarHtml = `
             <div class="post-actions-bar">
@@ -2614,12 +2674,47 @@
                     </div>
                 </div>
             `;
+        } else if (isMultiImage) {
+            // Multi-image carousel
+            const dotsHtml = images.map((_, i) => `<span class="post-carousel-dot ${i === 0 ? 'active' : ''}"></span>`).join('');
+            const slidesHtml = images.map((img, i) => `
+                <div class="post-carousel-slide">
+                    <img src="${img}" class="post-image">
+                </div>
+            `).join('');
+
+            const showRefreshBtn = !!post.userId || !!post.image_description;
+            contentHtml = `
+                <div class="post-carousel-container" data-post-id="${post.id}" data-total="${images.length}" data-current="0">
+                    <div class="post-carousel-track">
+                        ${slidesHtml}
+                    </div>
+                    <div class="post-carousel-counter">${images.length > 1 ? `1/${images.length}` : ''}</div>
+                    <div class="post-carousel-dots">${dotsHtml}</div>
+                    ${showRefreshBtn ? `
+                    <div class="post-refresh-btn" onclick="window.regeneratePostImage(event, ${post.id})" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; cursor: pointer; z-index: 10; backdrop-filter: blur(4px);">
+                        <i class="fas fa-sync-alt" style="font-size: 14px;"></i>
+                    </div>` : ''}
+                </div>
+                ${actionsBarHtml}
+                <div class="post-info-section">
+                    ${post.caption ? `<div class="post-caption-row">
+                        <span class="post-caption-username">${post.user.name}</span>
+                        <span class="post-caption-content">${post.caption}</span>
+                    </div>` : ''}
+                    <div class="post-meta-row">
+                        <span class="post-time">${post.time}</span>
+                        <span class="meta-dot">·</span>
+                        <span class="post-translation">${post.translation || '查看翻译'}</span>
+                    </div>
+                </div>
+            `;
         } else {
-            // Show refresh button if it's a generated post (has description) or has userId (legacy logic)
+            // Single image
             const showRefreshBtn = !!post.userId || !!post.image_description;
             contentHtml = `
                 <div class="post-image-container" style="position: relative;">
-                    <img src="${post.image}" class="post-image">
+                    <img src="${images[0]}" class="post-image">
                     ${post.stats.count ? `<div class="image-overlay-count">${post.stats.count}</div>` : ''}
                     <div class="post-description-overlay">
                         <div class="post-description-text">${post.image_description_zh || post.image_description || ''}</div>
@@ -2631,10 +2726,10 @@
                 </div>
                 ${actionsBarHtml}
                 <div class="post-info-section">
-                    <div class="post-caption-row">
+                    ${post.caption ? `<div class="post-caption-row">
                         <span class="post-caption-username">${post.user.name}</span>
                         <span class="post-caption-content">${post.caption}</span>
-                    </div>
+                    </div>` : ''}
                     <div class="post-meta-row">
                         <span class="post-time">${post.time}</span>
                         <span class="meta-dot">·</span>
@@ -2754,6 +2849,11 @@
             item.addEventListener('click', (e) => {
                 const tab = item.dataset.tab;
                 if (tab) {
+                    // Clear DM badge when switching to DM tab
+                    if (tab === 'share') {
+                        const badge = item.querySelector('.dm-badge');
+                        if (badge) badge.remove();
+                    }
                     forumState.activeTab = tab;
                     renderForum();
                 }
@@ -3152,6 +3252,7 @@
         if (forumApp && !forumApp._multiSelectListenerAttached) {
             forumApp._multiSelectListenerAttached = true;
             forumApp.addEventListener('click', (e) => {
+                // Post Multi-select
                 if (e.target.closest('#multi-select-cancel')) {
                     e.stopPropagation();
                     exitMultiSelectMode();
@@ -3166,7 +3267,166 @@
                         deleteSelectedPosts();
                     }
                 }
+
+                // DM Multi-select
+                if (e.target.closest('#dm-ms-cancel')) {
+                    e.stopPropagation();
+                    exitDMMultiSelectMode();
+                }
+                if (e.target.closest('#dm-ms-all')) {
+                    e.stopPropagation();
+                    toggleDMSelectAll();
+                }
+                if (e.target.closest('#dm-ms-delete')) {
+                    e.stopPropagation();
+                    deleteSelectedDMs();
+                }
             });
+        }
+
+        // --- DM Long Press Logic ---
+        const dmList = document.querySelector('.dm-messages-list');
+        if (dmList && !dmList._longPressAttached) {
+            dmList._longPressAttached = true;
+            
+            // Delegate events from list to items
+            dmList.addEventListener('mousedown', handleDMLongPressStart);
+            dmList.addEventListener('touchstart', handleDMLongPressStart, { passive: true });
+            dmList.addEventListener('mouseup', handleDMLongPressEnd);
+            dmList.addEventListener('touchend', handleDMLongPressEnd);
+            dmList.addEventListener('mousemove', handleDMLongPressCancel);
+            dmList.addEventListener('touchmove', handleDMLongPressCancel);
+            
+            // Handle clicks for selection in multi-select mode or open chat
+            dmList.addEventListener('click', (e) => {
+                const item = e.target.closest('.dm-user-row');
+                if (!item) return;
+                
+                const id = parseInt(item.dataset.dmId);
+                if (!id) return;
+
+                if (forumState.dmMultiSelectMode) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    toggleDMSelection(id);
+                } else {
+                    // Check if it was a long press (flag set by timer)
+                    if (dmList._isLongPressHandled) {
+                        dmList._isLongPressHandled = false;
+                        return;
+                    }
+                    window.openForumChat(id);
+                }
+            });
+        }
+    }
+
+    let dmLongPressTimer = null;
+    let dmLongPressStartX = 0;
+    let dmLongPressStartY = 0;
+
+    function handleDMLongPressStart(e) {
+        const item = e.target.closest('.dm-user-row');
+        if (!item || forumState.dmMultiSelectMode) return;
+
+        const list = document.querySelector('.dm-messages-list');
+        if (list) list._isLongPressHandled = false;
+
+        if (e.type === 'touchstart') {
+            dmLongPressStartX = e.touches[0].clientX;
+            dmLongPressStartY = e.touches[0].clientY;
+        } else {
+            dmLongPressStartX = e.clientX;
+            dmLongPressStartY = e.clientY;
+        }
+
+        dmLongPressTimer = setTimeout(() => {
+            const id = parseInt(item.dataset.dmId);
+            if (id) {
+                enterDMMultiSelectMode(id);
+                // Mark as handled to prevent click event
+                if (list) list._isLongPressHandled = true;
+            }
+        }, 500); // 500ms long press
+    }
+
+    function handleDMLongPressEnd(e) {
+        if (dmLongPressTimer) {
+            clearTimeout(dmLongPressTimer);
+            dmLongPressTimer = null;
+        }
+    }
+
+    function handleDMLongPressCancel(e) {
+        if (!dmLongPressTimer) return;
+
+        let x, y;
+        if (e.type === 'touchmove') {
+            x = e.touches[0].clientX;
+            y = e.touches[0].clientY;
+        } else {
+            x = e.clientX;
+            y = e.clientY;
+        }
+
+        // If moved more than 10px, cancel long press
+        if (Math.abs(x - dmLongPressStartX) > 10 || Math.abs(y - dmLongPressStartY) > 10) {
+            clearTimeout(dmLongPressTimer);
+            dmLongPressTimer = null;
+        }
+    }
+
+    function enterDMMultiSelectMode(initialId) {
+        forumState.dmMultiSelectMode = true;
+        forumState.selectedDmIds = new Set([initialId]);
+        renderForum(false);
+    }
+
+    function exitDMMultiSelectMode() {
+        forumState.dmMultiSelectMode = false;
+        forumState.selectedDmIds = new Set();
+        renderForum(false);
+    }
+
+    function toggleDMSelection(id) {
+        if (forumState.selectedDmIds.has(id)) {
+            forumState.selectedDmIds.delete(id);
+        } else {
+            forumState.selectedDmIds.add(id);
+        }
+        renderForum(false); // Using renderForum(false) for simplicity, could optimize
+    }
+
+    function toggleDMSelectAll() {
+        if (forumState.selectedDmIds.size === forumState.messages.length) {
+            forumState.selectedDmIds.clear();
+        } else {
+            forumState.messages.forEach(m => forumState.selectedDmIds.add(m.id));
+        }
+        renderForum(false);
+    }
+
+    function deleteSelectedDMs() {
+        const count = forumState.selectedDmIds.size;
+        if (count === 0) return;
+
+        if (confirm(`确定删除这 ${count} 个对话吗？`)) {
+            // Remove from messages list
+            forumState.messages = forumState.messages.filter(m => !forumState.selectedDmIds.has(m.id));
+            
+            // Remove from chat history (optional but cleaner)
+            forumState.selectedDmIds.forEach(id => {
+                if (forumState.chatHistory[id]) delete forumState.chatHistory[id];
+            });
+
+            // Save
+            saveMessages();
+            saveChatHistory();
+
+            // Exit mode
+            forumState.dmMultiSelectMode = false;
+            forumState.selectedDmIds = new Set();
+            renderForum(false);
         }
     }
 
@@ -4222,21 +4482,15 @@ ${charList}
             };
         }).filter(c => c);
 
-        const systemPrompt = `You are a social media comment generator.
-Post Caption: "${post.caption}"
-${post.image ? 'Post has an image.' : 'Post is text only.'}
+        const currentUserName = forumState.currentUser.bio || forumState.currentUser.username || '我';
+        const forumWorldview = forumState.settings.forumWorldview || '';
 
-Required Commenters (MUST include ALL of them):
-${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (Persona: ${c.persona})`).join('\n') : '- Random user'}
-
-Additional: Generate at least 10 comments from random strangers (give them realistic usernames like "user123" or "sakura_chan").
-
-Output Format: JSON Array ONLY.
-[
-  { "name": "Name", "text": "Comment", "isContact": true/false },
-  ...
-]
-`;
+        // Collect all images from this post (carousel support)
+        const postImages = post.images && post.images.length > 0 ? post.images : (post.image ? [post.image] : []);
+        // Only use base64 data-URIs for vision (not external URLs, limit to 3 to save tokens)
+        const visionImages = postImages
+            .filter(img => img && img.startsWith('data:image/') && !img.startsWith('data:image/svg'))
+            .slice(0, 3);
 
         try {
             let settings = { url: '', key: '', model: '' };
@@ -4258,40 +4512,176 @@ Output Format: JSON Array ONLY.
                 fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
             }
 
+            // Build user message content — use vision if images are available
+            let userMessageContent;
+            const textPrompt = `你是一个社交媒体评论生成器。
+帖子文案: "${post.caption}"
+世界观背景: ${forumWorldview}
+发帖人: ${currentUserName}
+
+必须评论的联系人 (全部都要出现):
+${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人设: ${c.persona})`).join('\n') : '无指定联系人，使用随机路人'}
+
+额外要求: 再生成至少 10 条来自随机路人的评论，网名要真实有个性（可以包含日文、英文、emoji等）。
+禁止以 "${currentUserName}" 或 "我" 作为评论者的名字。
+评论内容必须结合帖子文案${visionImages.length > 0 ? '和图片内容' : ''}来生成，要生活化、真实。
+
+只返回 JSON 数组，不要任何额外文字、不要Markdown代码块。每个对象只有两个字符串字段 name 和 text:
+[{"name":"评论者名字","text":"评论内容"},{"name":"路人网名","text":"评论内容"}]`;
+
+            if (visionImages.length > 0) {
+                // Vision API format: content is an array of text + image_url objects
+                userMessageContent = [
+                    { type: 'text', text: textPrompt }
+                ];
+                visionImages.forEach(imgBase64 => {
+                    userMessageContent.push({
+                        type: 'image_url',
+                        image_url: { url: imgBase64, detail: 'low' }
+                    });
+                });
+            } else {
+                // Plain text format
+                userMessageContent = textPrompt;
+            }
+
+            // Pick a vision-capable model if needed
+            let model = settings.model || 'gpt-3.5-turbo';
+            if (visionImages.length > 0) {
+                // If the configured model doesn't look vision-capable, try to upgrade
+                if (!model.includes('vision') && !model.includes('gpt-4o') && !model.includes('claude-3') && !model.includes('gemini') && model === 'gpt-3.5-turbo') {
+                    model = 'gpt-4o-mini'; // Cheapest vision model as fallback
+                }
+            }
+
             const response = await fetch(fetchUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
                 body: JSON.stringify({
-                    model: settings.model || 'gpt-3.5-turbo',
+                    model: model,
                     messages: [
-                        { role: 'system', content: 'You generate JSON comments.' },
-                        { role: 'user', content: systemPrompt }
+                        { role: 'system', content: '你是一个社交媒体评论生成器，只返回JSON数组，每条评论尽量简短。' },
+                        { role: 'user', content: userMessageContent }
                     ],
-                    temperature: 0.7
+                    temperature: 0.8,
+                    max_tokens: 3000
                 })
             });
 
             const data = await response.json();
             let content = data.choices[0].message.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
-            const comments = JSON.parse(content);
+            // Extract JSON array from response
+            const jsonStart = content.indexOf('[');
+            const jsonEnd = content.lastIndexOf(']');
+            if (jsonStart !== -1 && jsonEnd !== -1) {
+                content = content.substring(jsonStart, jsonEnd + 1);
+            }
+            // Repair common AI JSON mistakes
+            content = content
+                .replace(/:\s*true或false/gi, ': false')
+                .replace(/:\s*true\s*或\s*false/gi, ': false')
+                .replace(/:\s*True\b/g, ': true')
+                .replace(/:\s*False\b/g, ': false')
+                .replace(/:\s*None\b/g, ': null')
+                .replace(/,(\s*[}\]])/g, '$1');
+
+            // Fix unescaped control characters inside JSON strings (common AI mistake)
+            // Replace actual newlines/tabs inside quoted strings with escaped versions
+            content = content.replace(/"((?:[^"\\]|\\.)*)"/g, (match, inner) => {
+                // Re-escape any raw newlines/carriage returns/tabs inside the string
+                const fixed = inner
+                    .replace(/\r\n/g, '\\n')
+                    .replace(/\r/g, '\\n')
+                    .replace(/\n/g, '\\n')
+                    .replace(/\t/g, '\\t');
+                return `"${fixed}"`;
+            });
+
+            console.log('[Forum] Comment JSON (after repair, full):', content);
+
+            let comments;
+            // Try standard parse first
+            try {
+                comments = JSON.parse(content);
+            } catch (parseErr) {
+                console.error('[Forum] Standard parse failed:', parseErr.message);
+                // Fallback: extract each {...} object individually (handles truncated arrays / stray chars)
+                try {
+                    const items = [];
+                    // Use a stack-based approach to handle nested braces in text values
+                    let depth = 0;
+                    let objStart = -1;
+                    for (let i = 0; i < content.length; i++) {
+                        const ch = content[i];
+                        // Skip escaped characters and string content
+                        if (ch === '"') {
+                            i++; // Move past opening quote
+                            while (i < content.length) {
+                                if (content[i] === '\\') { i++; } // Skip escape
+                                else if (content[i] === '"') { break; } // End of string
+                                i++;
+                            }
+                            continue;
+                        }
+                        if (ch === '{') {
+                            if (depth === 0) objStart = i;
+                            depth++;
+                        } else if (ch === '}') {
+                            depth--;
+                            if (depth === 0 && objStart !== -1) {
+                                const objStr = content.substring(objStart, i + 1);
+                                try {
+                                    // Repair and parse individual object
+                                    const fixed = objStr
+                                        .replace(/:\s*true或false/gi, ': false')
+                                        .replace(/:\s*True\b/g, ': true')
+                                        .replace(/:\s*False\b/g, ': false')
+                                        .replace(/:\s*None\b/g, ': null')
+                                        .replace(/,(\s*})/g, '$1');
+                                    items.push(JSON.parse(fixed));
+                                } catch(e2) {
+                                    console.warn('[Forum] Skipping malformed object:', objStr.substring(0, 100));
+                                }
+                                objStart = -1;
+                            }
+                        }
+                    }
+                    if (items.length > 0) {
+                        comments = items;
+                        console.log('[Forum] Recovered', items.length, 'comments via fallback extraction');
+                    } else {
+                        throw parseErr;
+                    }
+                } catch (e3) {
+                    throw parseErr;
+                }
+            }
 
             // Add to post
-            comments.forEach(c => {
-                let avatar = c.isContact ? 
-                    (linkedContactsData.find(lc => lc.name === c.name)?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed='+c.name) 
-                    : 'https://api.dicebear.com/7.x/lorelei/svg?seed='+c.name+Math.random();
-                
-                post.comments_list.push({
-                    id: Date.now() + Math.random(),
-                    user: { name: c.name, avatar: avatar, verified: false },
-                    text: c.text,
-                    time: '刚刚',
-                    likes: 0,
-                    replies: []
+            if (Array.isArray(comments)) {
+                comments.forEach(c => {
+                    if (!c.text || !c.name) return;
+                    // Skip if impersonating current user
+                    if (c.name === currentUserName || c.name === '我') return;
+                    
+                    // Determine avatar: check if commenter is a known linked contact (by name match)
+                    const matchedContact = linkedContactsData.find(lc => lc.name === c.name);
+                    let avatar = matchedContact
+                        ? (matchedContact.avatar || 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + encodeURIComponent(c.name))
+                        : 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + encodeURIComponent(c.name) + Math.random();
+                    
+                    post.comments_list.push({
+                        id: Date.now() + Math.random(),
+                        user: { name: c.name, avatar: avatar, verified: false },
+                        text: c.text,
+                        time: '刚刚',
+                        likes: 0,
+                        replies: []
+                    });
                 });
-            });
+            }
             
-            post.stats.comments += comments.length;
+            post.stats.comments = post.comments_list.length;
             saveForumData();
             
             // Only re-render if active tab is relevant
@@ -4338,6 +4728,8 @@ Output Format: JSON Array ONLY.
                 ...forumState.currentUser,
                 name: forumState.currentUser.bio || forumState.currentUser.username 
             },
+            // Store all images in the images array; keep image for backward compat
+            images: (images && images.length > 0) ? [...images] : [],
             image: (images && images.length > 0) ? images[0] : null, 
             caption: caption || '',
             time: '刚刚',
@@ -4352,8 +4744,435 @@ Output Format: JSON Array ONLY.
         renderForum();
 
         // Trigger comment generation
-        await generateCommentsForPost(newPost);
+        generateCommentsForPost(newPost);
+
+        // Trigger stranger DM generation
+        generateStrangerDMs(newPost);
     };
+
+    // --- Stranger DM Generation ---
+    async function generateStrangerDMs(post) {
+        try {
+            let settings = { url: '', key: '', model: '' };
+            if (window.iphoneSimState) {
+                if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) {
+                    settings = window.iphoneSimState.aiSettings;
+                } else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) {
+                    settings = window.iphoneSimState.aiSettings2;
+                }
+            }
+
+            if (!settings.url || !settings.key) {
+                console.warn('[Forum DM] No AI settings, skipping stranger DM generation');
+                return;
+            }
+
+            const forumWorldview = forumState.settings.forumWorldview || '';
+            const currentUserName = forumState.currentUser.bio || forumState.currentUser.username || '我';
+
+            const prompt = `你是一个社交媒体模拟器。���户"${currentUserName}"刚刚在论坛发帖，帖子内容如下:
+"${post.caption}"
+
+请生成 2~3 条来自陌生网友的私信（DM）。这些陌生人看到了帖子后主动发来私信。
+世界观背景: ${forumWorldview}
+
+要求:
+1. 每个陌生人的网名要真实有个性（可包含日文、英文、emoji等），不能叫"陌生人"或"网友123"这种格式。
+2. 私信内容要结合帖子内容，风格多样（有赞美、有好奇、有搭讪、有表白、有商业合作等）。
+3. 每个私信只发一条消息（简短，真实）。
+4. 为每个陌生人生成一个随机头像seed（随机字符串）。
+
+只返回 JSON 数组，格式如下（不要 Markdown 代码块）:
+[
+  {
+    "name": "陌生人昵称",
+    "username": "user_id_string",
+    "avatarSeed": "随机字符串",
+    "verified": false,
+    "message": "私信内容"
+  }
+]`;
+
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + settings.key
+                },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: '你是一个社交媒体模拟器，只返回JSON数组。' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.9
+                })
+            });
+
+            if (!response.ok) throw new Error('DM generation API failed');
+
+            const data = await response.json();
+            let content = data.choices[0].message.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+            const jsonStart = content.indexOf('[');
+            const jsonEnd = content.lastIndexOf(']');
+            if (jsonStart !== -1 && jsonEnd !== -1) content = content.substring(jsonStart, jsonEnd + 1);
+
+            let dmList = JSON.parse(content);
+            if (!Array.isArray(dmList)) return;
+
+            const now = Date.now();
+            dmList.forEach((dm, idx) => {
+                if (!dm.name || !dm.message) return;
+
+                const newMsgId = now + idx + 9000;
+                const avatarUrl = 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + encodeURIComponent(dm.avatarSeed || dm.name + Math.random());
+
+                // Add to messages list (shown in DM tab)
+                forumState.messages.unshift({
+                    id: newMsgId,
+                    name: dm.name,
+                    username: dm.username || dm.name,
+                    avatar: avatarUrl,
+                    verified: !!dm.verified,
+                    subtext: dm.message,
+                    isStranger: true
+                });
+
+                // Pre-populate chat history so when opened it shows the message
+                if (!forumState.chatHistory) forumState.chatHistory = {};
+                forumState.chatHistory[newMsgId] = [
+                    { type: 'time', text: '刚刚' },
+                    { type: 'other', text: dm.message, avatar: avatarUrl }
+                ];
+            });
+
+            // Persist messages
+            saveMessages();
+
+            // Re-render DM tab if it's currently visible
+            if (forumState.activeTab === 'share') {
+                renderForum(false);
+            }
+
+            // Show a subtle notification badge if on another tab
+            const dmNavItem = document.querySelector('.forum-nav-bar .nav-item[data-tab="share"]');
+            if (dmNavItem && forumState.activeTab !== 'share') {
+                // Add red dot badge
+                if (!dmNavItem.querySelector('.dm-badge')) {
+                    const badge = document.createElement('div');
+                    badge.className = 'dm-badge';
+                    badge.style.cssText = 'position:absolute;top:6px;right:calc(50% - 22px);width:8px;height:8px;background:#ed4956;border-radius:50%;border:1.5px solid #fff;';
+                    dmNavItem.style.position = 'relative';
+                    dmNavItem.appendChild(badge);
+                }
+            }
+
+        } catch (e) {
+            console.error('[Forum DM] Stranger DM generation failed:', e);
+        }
+    }
+
+    // --- DM Chat Helpers ---
+
+    function sendChatMessage(text, user, chatBody) {
+        const contentArea = document.getElementById('forum-content-area');
+        const input = document.getElementById('forum-chat-input-field');
+
+        // Add to state
+        if (!forumState.chatHistory) forumState.chatHistory = {};
+        if (!forumState.chatHistory[user.id]) forumState.chatHistory[user.id] = [];
+        forumState.chatHistory[user.id].push({ type: 'me', text: text });
+
+        // Persist
+        saveChatHistory();
+
+        // Add to DOM
+        const msgHtml = `
+            <div class="forum-chat-msg me">
+                <div class="chat-bubble me">${text}</div>
+            </div>
+        `;
+        if (chatBody) chatBody.insertAdjacentHTML('beforeend', msgHtml);
+        if (contentArea) contentArea.scrollTop = contentArea.scrollHeight;
+        if (input) input.value = '';
+    }
+
+    function saveChatHistory() {
+        try {
+            localStorage.setItem('forum_chatHistory', JSON.stringify(forumState.chatHistory));
+        } catch (e) {
+            console.warn('[Forum] Could not save chatHistory:', e.message);
+        }
+    }
+
+    function saveMessages() {
+        try {
+            localStorage.setItem('forum_messages', JSON.stringify(forumState.messages));
+        } catch (e) {
+            console.warn('[Forum] Could not save messages:', e.message);
+        }
+    }
+
+    async function generateDMChatReply(user, chatBody) {
+        const aiReplyBtn = document.getElementById('forum-chat-ai-reply-btn');
+        if (aiReplyBtn) {
+            aiReplyBtn._isGenerating = true;
+            aiReplyBtn.style.opacity = '0.4';
+        }
+
+        // Show typing indicator
+        const typingId = 'dm-typing-' + Date.now();
+        const typingHtml = `
+            <div class="forum-chat-msg other" id="${typingId}">
+                <img src="${user.avatar}" class="chat-msg-avatar">
+                <div class="chat-bubble other" style="padding: 10px 14px;">
+                    <span class="dm-typing-dot"></span>
+                    <span class="dm-typing-dot"></span>
+                    <span class="dm-typing-dot"></span>
+                </div>
+            </div>
+        `;
+        if (chatBody) chatBody.insertAdjacentHTML('beforeend', typingHtml);
+        const contentArea = document.getElementById('forum-content-area');
+        if (contentArea) contentArea.scrollTop = contentArea.scrollHeight;
+
+        try {
+            let settings = { url: '', key: '', model: '' };
+            if (window.iphoneSimState) {
+                if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) settings = window.iphoneSimState.aiSettings;
+                else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) settings = window.iphoneSimState.aiSettings2;
+            }
+            if (!settings.url || !settings.key) throw new Error('No AI settings');
+
+            const history = (forumState.chatHistory && forumState.chatHistory[user.id]) || [];
+            const forumWorldview = forumState.settings.forumWorldview || '';
+
+            // Build conversation context for AI
+            const conversationLines = history.map(m => {
+                if (m.type === 'me') return `我: ${m.text}`;
+                if (m.type === 'other') return `${user.name}: ${m.text}`;
+                return null;
+            }).filter(Boolean).slice(-20).join('\n');
+
+            // Try to find persona for this user
+            let persona = '陌生人，刚看到对方帖子后主动发私信';
+            let contactMatch = null;
+            if (window.iphoneSimState && window.iphoneSimState.contacts) {
+                contactMatch = window.iphoneSimState.contacts.find(c =>
+                    c.name === user.name || c.remark === user.name
+                );
+                if (contactMatch && contactMatch.persona) persona = contactMatch.persona;
+            }
+
+            const systemPrompt = `你扮演一个正在和用户私信聊天的人。
+角色名: ${user.name}
+角色人设: ${persona}
+世界观: ${forumWorldview}
+
+规则:
+- 你只能以"${user.name}"的身份说话，不要加名字前缀。
+- 用真实自然的口语风格。
+- 每次回复生成 1~3 条消息，以数组形式返回，每条是一个简短字符串。
+- 可以有emoji，可以分多条发送，模拟真实的微信聊天节奏。
+- 只返回JSON数组，不要任何其他内容。
+
+示例: ["哇真的吗", "你也喜欢这个？！", "好巧🥹"]`;
+
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: `当前对话记录:\n${conversationLines}\n\n请以${user.name}的身份继续回复，只返回JSON数组。` }
+                    ],
+                    temperature: 0.9
+                })
+            });
+
+            if (!response.ok) throw new Error('AI request failed');
+
+            const data = await response.json();
+            let content = data.choices[0].message.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+            const jStart = content.indexOf('['), jEnd = content.lastIndexOf(']');
+            if (jStart !== -1 && jEnd !== -1) content = content.substring(jStart, jEnd + 1);
+
+            let replyMessages = JSON.parse(content);
+            if (!Array.isArray(replyMessages)) replyMessages = [String(replyMessages)];
+            replyMessages = replyMessages.filter(m => typeof m === 'string' && m.trim()).slice(0, 4);
+
+            // Remove typing indicator
+            const typingEl = document.getElementById(typingId);
+            if (typingEl) typingEl.remove();
+
+            // Deliver messages one by one with short delays
+            if (!forumState.chatHistory[user.id]) forumState.chatHistory[user.id] = [];
+
+            for (let i = 0; i < replyMessages.length; i++) {
+                const msg = replyMessages[i];
+
+                await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 600));
+
+                forumState.chatHistory[user.id].push({ type: 'other', text: msg, avatar: user.avatar });
+
+                const currentChatBody = document.querySelector('.forum-chat-body');
+                if (currentChatBody) {
+                    const msgHtml = `
+                        <div class="forum-chat-msg other">
+                            <img src="${user.avatar}" class="chat-msg-avatar">
+                            <div class="chat-bubble other">${msg}</div>
+                        </div>
+                    `;
+                    currentChatBody.insertAdjacentHTML('beforeend', msgHtml);
+                    const ca = document.getElementById('forum-content-area');
+                    if (ca) ca.scrollTop = ca.scrollHeight;
+                }
+            }
+
+            // Update DM subtext preview
+            const msgEntry = forumState.messages.find(m => m.id === user.id);
+            if (msgEntry && replyMessages.length > 0) {
+                msgEntry.subtext = replyMessages[replyMessages.length - 1];
+            }
+
+            // Persist
+            saveChatHistory();
+            saveMessages();
+
+        } catch (e) {
+            console.error('[Forum DM] AI reply failed:', e);
+            const typingEl = document.getElementById(typingId);
+            if (typingEl) typingEl.remove();
+        } finally {
+            if (aiReplyBtn) {
+                aiReplyBtn._isGenerating = false;
+                aiReplyBtn.style.opacity = '1';
+            }
+        }
+    }
+
+    // --- Carousel Touch Swipe Logic ---
+    function setupCarousels() {
+        document.querySelectorAll('.post-carousel-container').forEach(container => {
+            // Avoid double-binding if already initialized
+            if (container._carouselInit) return;
+            container._carouselInit = true;
+
+            const track = container.querySelector('.post-carousel-track');
+            const dots = container.querySelectorAll('.post-carousel-dot');
+            const counter = container.querySelector('.post-carousel-counter');
+            const total = parseInt(container.dataset.total) || 1;
+
+            if (!track || total <= 1) return;
+
+            let current = 0;
+            let startX = 0;
+            let startY = 0;
+            let isDragging = false;
+            let isHorizontal = null; // null = undecided, true = horizontal, false = vertical
+            let dragDelta = 0;
+
+            function goTo(index) {
+                current = Math.max(0, Math.min(total - 1, index));
+                container.dataset.current = current;
+                track.style.transition = 'transform 0.3s ease';
+                track.style.transform = `translateX(-${current * 100}%)`;
+                dots.forEach((d, i) => d.classList.toggle('active', i === current));
+                if (counter) counter.textContent = `${current + 1}/${total}`;
+            }
+
+            // --- Touch events (non-passive so we can preventDefault for horizontal) ---
+            container.addEventListener('touchstart', (e) => {
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                isDragging = true;
+                isHorizontal = null;
+                dragDelta = 0;
+                track.style.transition = 'none';
+            }, { passive: true });
+
+            container.addEventListener('touchmove', (e) => {
+                if (!isDragging) return;
+                const dx = e.touches[0].clientX - startX;
+                const dy = e.touches[0].clientY - startY;
+
+                // Determine direction on first significant move
+                if (isHorizontal === null) {
+                    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                        isHorizontal = Math.abs(dx) > Math.abs(dy);
+                    }
+                }
+
+                if (isHorizontal) {
+                    // Prevent page scroll when swiping horizontally
+                    e.preventDefault();
+                    dragDelta = dx;
+                    track.style.transform = `translateX(calc(-${current * 100}% + ${dragDelta}px))`;
+                }
+                // If vertical, do nothing — let native scroll handle it
+            }, { passive: false }); // non-passive so we can call preventDefault
+
+            container.addEventListener('touchend', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+
+                if (isHorizontal) {
+                    if (dragDelta < -50 && current < total - 1) {
+                        goTo(current + 1);
+                    } else if (dragDelta > 50 && current > 0) {
+                        goTo(current - 1);
+                    } else {
+                        goTo(current); // snap back
+                    }
+                }
+                dragDelta = 0;
+                isHorizontal = null;
+            }, { passive: true });
+
+            // --- Mouse events (desktop) ---
+            container.addEventListener('mousedown', (e) => {
+                startX = e.clientX;
+                isDragging = true;
+                isHorizontal = true;
+                dragDelta = 0;
+                track.style.transition = 'none';
+                e.preventDefault();
+            });
+
+            const onMouseMove = (e) => {
+                if (!isDragging) return;
+                dragDelta = e.clientX - startX;
+                track.style.transform = `translateX(calc(-${current * 100}% + ${dragDelta}px))`;
+            };
+
+            const onMouseUp = () => {
+                if (!isDragging) return;
+                isDragging = false;
+                if (dragDelta < -50 && current < total - 1) {
+                    goTo(current + 1);
+                } else if (dragDelta > 50 && current > 0) {
+                    goTo(current - 1);
+                } else {
+                    goTo(current);
+                }
+                dragDelta = 0;
+            };
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+    }
 
     window.initForumApp = initForum;
     if (window.appInitFunctions) {
