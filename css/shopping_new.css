@@ -41,7 +41,7 @@
 
 /* Main Header */
 .shopping-main-header {
-    padding: 40px 24px 10px;
+    padding: 50px 24px 10px;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
@@ -750,6 +750,7 @@
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    flex-shrink: 0;
 }
 
 .shopping-cart-details {
@@ -758,12 +759,16 @@
     flex-direction: column;
     justify-content: space-between;
     height: 100px;
+    min-width: 0;
 }
 
 .shopping-cart-title {
     font-size: 16px;
     font-weight: 600;
     color: #000;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .shopping-cart-variant {
@@ -873,7 +878,7 @@
     position: absolute;
     bottom: 0;
     width: 100%;
-    height: calc(56px + env(safe-area-inset-bottom));
+    height: calc(48px + env(safe-area-inset-bottom));
     padding: 0 30px;
     padding-bottom: env(safe-area-inset-bottom);
     background: var(--shopping-nav-blur);
