@@ -34,6 +34,7 @@
     <link rel="stylesheet" href="css/forum_style.css">
     <link rel="stylesheet" href="css/lookus_style.css">
     <link rel="stylesheet" href="css/shopping_new.css">
+    <link rel="stylesheet" href="css/settings_v3.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -230,411 +231,381 @@
 
         <!-- 设置全屏App -->
         <div id="settings-app" class="app-screen hidden">
-            <div class="app-header">
-                <button id="close-settings-app" class="back-btn"><i class="fas fa-chevron-left"></i> 返回</button>
-                <h3>设置</h3>
-                <div style="width: 60px;"></div>
+<div class="app-header">
+        <div class="header-title" onclick="document.getElementById('settings-app').classList.add('hidden')">Settings</div>
+        
+        <div class="nav-scroller">
+            <div class="nav-pill active" onclick="switchTab('ai')">
+                <i class="fas fa-brain"></i> AI Models
             </div>
-            <div class="app-body">
-                <!-- 主 API 设置 -->
-                <div class="section-title">主 API 设置</div>
-                
-                <!-- 预设 -->
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>配置预设</label>
-                            <div class="input-row full-width">
-                                <select id="ai-preset-select">
-                                    <option value="">-- 选择预设 --</option>
-                                </select>
-                                <button id="save-ai-preset" class="ios-btn-small">保存</button>
-                                <button id="delete-ai-preset" class="ios-btn-small danger">删除</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- API 详情 -->
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API 地址 (Base URL)</label>
-                            <input type="text" id="ai-api-url" placeholder="https://api.openai.com/v1">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API 密钥 (Key)</label>
-                            <input type="password" id="ai-api-key" placeholder="sk-...">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <div class="input-row full-width">
-                                <button id="fetch-models" class="ios-btn-block">拉取模型列表</button>
-                            </div>
-                            <div class="input-row full-width" style="margin-top: 10px;">
-                                <select id="ai-model-select">
-                                    <option value="">请先拉取模型</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <div style="display: flex; justify-content: space-between; width: 100%;">
-                                <label>温度 (Temperature)</label>
-                                <span id="ai-temp-value">0.7</span>
-                            </div>
-                            <input type="range" id="ai-temperature" min="0" max="2" step="0.1" value="0.7" style="width: 100%;">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Whisper API 设置 -->
-                <div class="section-title">语音转文字 (Whisper) 设置</div>
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API地址</label>
-                            <select id="whisper-connection-mode" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; background-color: #f2f2f7;">
-                                <option value="custom">自定义地址</option>
-                                <option value="siliconflow">硅基流动 (推荐)</option>
-                            </select>
-                            <div style="font-size: 12px; color: #999; margin-top: 5px;">
-                                ⚠️ 如遇CORS错误，请联系API提供商修复服务器配置
-                            </div>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API 地址 (Base URL)</label>
-                            <input type="text" id="whisper-api-url" placeholder="https://api.openai.com/v1">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API 密钥 (Key)</label>
-                            <input type="password" id="whisper-api-key" placeholder="sk-...">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>模型 (Model)</label>
-                            <div class="input-row full-width" style="margin-bottom: 10px;">
-                                <button id="fetch-whisper-models" class="ios-btn-block">拉取模型列表</button>
-                            </div>
-                            <input type="text" id="whisper-model" placeholder="whisper-1" value="whisper-1">
-                            <select id="whisper-model-select" class="hidden" style="margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; background-color: #f2f2f7;">
-                                <option value="">选择模型...</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Minimax TTS 设置 -->
-                <div class="section-title">语音合成 (Minimax TTS) 全局配置</div>
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>Group ID</label>
-                            <input type="text" id="minimax-group-id" placeholder="Minimax Group ID">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API Key</label>
-                            <input type="password" id="minimax-api-key" placeholder="Minimax API Key">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>模型 (Model)</label>
-                            <input type="text" id="minimax-model" placeholder="speech-01-turbo" value="speech-01-turbo" style="margin-bottom: 10px;">
-                            <select id="minimax-model-select" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; background-color: #f2f2f7;">
-                                <option value="">-- 快速选择模型 --</option>
-                                <option value="speech-01-turbo">speech-01-turbo</option>
-                                <option value="speech-01-240228">speech-01-240228</option>
-                                <option value="speech-01">speech-01</option>
-                                <option value="speech-02">speech-02</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content">
-                            <span style="font-size: 12px; color: #888;">提示：启用开关和音色设置已移至每个联系人的“聊天详情”页。</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 高德地图 设置 -->
-                <div class="section-title">高德地图 (LookUS 位置)</div>
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API Key (Web端)</label>
-                            <input type="password" id="amap-api-key" placeholder="高德地图 Key">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>安全密钥 (Security Code)</label>
-                            <input type="password" id="amap-security-code" placeholder="Web服务 安全密钥">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content">
-                            <span style="font-size: 12px; color: #888;">
-                                提示：请前往 <a href="https://console.amap.com/" target="_blank" style="color:#007AFF;">高德控制台</a> 申请 Web端(JS API) Key。<br>
-                                如果遇到跨域问题，请务必填写安全密钥。
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- NovelAI Settings -->
-                <div class="section-title">NovelAI 生图设置</div>
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content">
-                            <label>聊天中启用生图</label>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="novelai-chat-enabled">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>配置预设</label>
-                            <div class="input-row full-width">
-                                <select id="novelai-preset-select" style="flex: 1;">
-                                    <option value="">-- 选择预设 --</option>
-                                </select>
-                            </div>
-                            <div class="input-row full-width" style="margin-top: 8px;">
-                                <span style="font-size: 13px; color: #666; white-space: nowrap;">类型:</span>
-                                <select id="novelai-preset-type-select" style="flex: 1;">
-                                    <option value="general">通用</option>
-                                    <option value="portrait">人像</option>
-                                    <option value="food">食物</option>
-                                    <option value="scenery">风景</option>
-                                    <option value="scene">场景</option>
-                                </select>
-                                <button id="save-novelai-preset" class="ios-btn-small">保存</button>
-                                <button id="delete-novelai-preset" class="ios-btn-small danger">删除</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API Key</label>
-                            <input type="password" id="novelai-api-key" placeholder="pst-...">
-                        </div>
-                    </div>
-                     <div class="list-item">
-                        <div class="list-content column">
-                            <label>模型 (Model)</label>
-                            <select id="novelai-model-select" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; background-color: #f2f2f7; margin-top: 5px;">
-                                <option value="nai-diffusion-4-5-full">nai-diffusion-4-5-full</option>
-                                <option value="nai-diffusion-4-curated-preview">nai-diffusion-4-curated-preview</option>
-                                <option value="nai-diffusion-3">nai-diffusion-3</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                         <div class="list-content column">
-                            <label>正向提示词 (Prompt)</label>
-                            <textarea id="novelai-prompt" placeholder="1girl, solo, ..." style="height: 80px;"></textarea>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                         <div class="list-content column">
-                            <label>反向提示词 (Negative Prompt)</label>
-                            <textarea id="novelai-negative-prompt" placeholder="lowres, bad anatomy, ..." style="height: 60px;"></textarea>
-                        </div>
-                    </div>
-                     <div class="list-item">
-                        <div class="list-content column">
-                            <div style="display: flex; justify-content: space-between; width: 100%;">
-                                <label>图片尺寸</label>
-                                <select id="novelai-size-select" style="padding: 4px; border-radius: 4px;">
-                                    <option value="832x1216">832x1216 (Portrait)</option>
-                                    <option value="1216x832">1216x832 (Landscape)</option>
-                                    <option value="1024x1024">1024x1024 (Square)</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                         <div class="list-content column">
-                            <div style="display: flex; justify-content: space-between; width: 100%;">
-                                <label>采样步数 (Steps)</label>
-                                <span id="novelai-steps-val">28</span>
-                            </div>
-                            <input type="range" id="novelai-steps" min="1" max="50" value="28" style="width: 100%;">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                         <div class="list-content column">
-                            <div style="display: flex; justify-content: space-between; width: 100%;">
-                                <label>提示词相关性 (Scale)</label>
-                                <span id="novelai-scale-val">5</span>
-                            </div>
-                            <input type="range" id="novelai-scale" min="1" max="20" step="0.5" value="5" style="width: 100%;">
-                        </div>
-                    </div>
-                     <div class="list-item">
-                        <div class="list-content column">
-                            <div style="display: flex; justify-content: space-between; width: 100%;">
-                                <label>随机种子 (Seed)</label>
-                                <span style="font-size: 12px; color: #999;">-1 为随机</span>
-                            </div>
-                            <input type="number" id="novelai-seed" placeholder="-1" value="-1">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <button id="novelai-generate-btn" class="ios-btn-block">生成图片</button>
-                    </div>
-                    
-                    <!-- 生成结果区域 -->
-                    <div id="novelai-result-container" class="list-item hidden">
-                        <div class="list-content column" style="align-items: center; width: 100%;">
-                            <div id="novelai-status-text" style="margin: 10px 0; color: #888; font-size: 14px;">准备就绪</div>
-                            <img id="novelai-result-img" src="" style="width: 100%; max-height: 400px; object-fit: contain; border-radius: 8px; display: none; margin-bottom: 10px; background: #eee;">
-                            <button id="novelai-save-btn" class="ios-btn-block secondary" style="display: none;">保存到本地</button>
-                        </div>
-                    </div>
-                </div>
-
-
-
-
-
-                <!-- 副 API 设置 -->
-
-                <div class="section-title">副 API 设置</div>
-                
-                <!-- 预设 -->
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>配置预设</label>
-                            <div class="input-row full-width">
-                                <select id="ai-preset-select-2">
-                                    <option value="">-- 选择预设 --</option>
-                                </select>
-                                <button id="save-ai-preset-2" class="ios-btn-small">保存</button>
-                                <button id="delete-ai-preset-2" class="ios-btn-small danger">删除</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- API 详情 -->
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API 地址 (Base URL)</label>
-                            <input type="text" id="ai-api-url-2" placeholder="https://api.openai.com/v1">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <label>API 密钥 (Key)</label>
-                            <input type="password" id="ai-api-key-2" placeholder="sk-...">
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <div class="input-row full-width">
-                                <button id="fetch-models-2" class="ios-btn-block">拉取模型列表</button>
-                            </div>
-                            <div class="input-row full-width" style="margin-top: 10px;">
-                                <select id="ai-model-select-2">
-                                    <option value="">请先拉取模型</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <div style="display: flex; justify-content: space-between; width: 100%;">
-                                <label>温度 (Temperature)</label>
-                                <span id="ai-temp-value-2">0.7</span>
-                            </div>
-                            <input type="range" id="ai-temperature-2" min="0" max="2" step="0.1" value="0.7" style="width: 100%;">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 系统设置 -->
-                <div class="section-title">系统设置</div>
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <div class="list-content">
-                            <label>后台消息通知</label>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="system-notification-toggle">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content column">
-                            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                                <label>后台音频播放</label>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="background-audio-toggle">
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                            <div style="font-size: 12px; color: #888; margin-top: 5px;">
-                                开启后，音频将在后台继续播放，但可能会中断其他应用的音频。
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 数据管理 -->
-                <div class="section-title">数据管理</div>
-                <div class="ios-list-group">
-                    <div class="list-item">
-                        <button id="save-all-settings" class="ios-btn-block">保存所有配置</button>
-                    </div>
-                    <div class="list-item">
-                        <div class="list-content">
-                            <label>压缩导出 (ZIP)</label>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="export-as-zip" checked>
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <div class="button-row full-width">
-                            <button id="export-json" class="ios-btn-block secondary">导出数据</button>
-                            <label for="import-json" class="ios-btn-block secondary file-label">
-                                导入数据
-                                <input type="file" id="import-json" accept=".json,.zip" style="display: none;">
-                            </label>
-                        </div>
-                    </div>
-                    <div class="list-item">
-                        <button id="optimize-storage" class="ios-btn-block">压缩图片数据</button>
-                    </div>
-                    <div class="list-item">
-                        <button id="analyze-storage" class="ios-btn-block">存储占用分析</button>
-                    </div>
-                    <div class="list-item">
-                        <button id="clear-all-data" class="ios-btn-block danger">清空所有数据</button>
-                    </div>
-                </div>
-                
-                <div style="height: 50px;"></div>
+            <div class="nav-pill" onclick="switchTab('voice')">
+                <i class="fas fa-microphone"></i> Voice
+            </div>
+            <div class="nav-pill" onclick="switchTab('creative')">
+                <i class="fas fa-palette"></i> Creative
+            </div>
+            <div class="nav-pill" onclick="switchTab('location')">
+                <i class="fas fa-map-marker-alt"></i> Location
+            </div>
+            <div class="nav-pill" onclick="switchTab('system')">
+                <i class="fas fa-cog"></i> System
             </div>
         </div>
+    </div>
+
+    <div class="content-area">
+        
+        <!-- AI SECTION -->
+        <div id="tab-ai" class="section-view active">
+            <div class="section-hero">
+                <div class="hero-icon"><i class="fas fa-brain"></i></div>
+                <div class="hero-text">
+                    <h2>智能核心</h2>
+                    <p>管理 LLM 连接与参数</p>
+                </div>
+            </div>
+
+            <div class="option-group">
+                <!-- Main API -->
+                <div class="option-card">
+                    <div class="option-header">
+                        <span class="option-label">主 API</span>
+                        <div class="option-action">
+                            <select id="ai-preset-select" style="background:transparent; border:none; font-weight:600; text-align:right;">
+                                <option>默认预设</option>
+                            </select>
+                            <div class="preset-actions">
+                                <button class="btn-icon-small" id="save-ai-preset"><i class="fas fa-save"></i></button>
+                                <button class="btn-icon-small danger" id="delete-ai-preset"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="input-wrapper">
+                        <i class="fas fa-link" style="color:#ccc; margin-right:10px;"></i>
+                        <input type="text" id="ai-api-url" placeholder="API Address">
+                    </div>
+                    <div class="input-wrapper">
+                        <i class="fas fa-key" style="color:#ccc; margin-right:10px;"></i>
+                        <input type="password" id="ai-api-key" placeholder="API Key">
+                    </div>
+
+                    <div class="option-header" style="margin-top: 15px;">
+                        <span class="option-label" style="font-size: 14px;">Model</span>
+                        <button class="btn-text" id="fetch-models">Fetch</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <select id="ai-model-select">
+                            <option value="">Select Model...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="slider-container">
+                        <div class="slider-header">
+                            <span>Temperature</span>
+                            <span id="ai-temp-value">0.7</span>
+                        </div>
+                        <input type="range" id="ai-temperature" min="0" max="2" step="0.1" value="0.7">
+                    </div>
+                </div>
+
+                <!-- Secondary API -->
+                <div class="option-card">
+                    <div class="option-header">
+                        <span class="option-label">副 API</span>
+                        <div class="option-action">
+                            <select id="ai-preset-select-2" style="background:transparent; border:none; font-weight:600; text-align:right;">
+                                <option>默认预设</option>
+                            </select>
+                            <div class="preset-actions">
+                                <button class="btn-icon-small" id="save-ai-preset-2"><i class="fas fa-save"></i></button>
+                                <button class="btn-icon-small danger" id="delete-ai-preset-2"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="ai-api-url-2" placeholder="Secondary API Address">
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="ai-api-key-2" placeholder="Secondary API Key">
+                    </div>
+                    <div class="option-header" style="margin-top: 15px;">
+                        <span class="option-label" style="font-size: 14px;">Model</span>
+                        <button class="btn-text" id="fetch-models-2">Fetch</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <select id="ai-model-select-2">
+                            <option value="">Select Model...</option>
+                        </select>
+                    </div>
+                    <div class="slider-container">
+                        <div class="slider-header">
+                            <span>Temperature</span>
+                            <span id="ai-temp-value-2">0.7</span>
+                        </div>
+                        <input type="range" id="ai-temperature-2" min="0" max="2" step="0.1" value="0.7">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VOICE SECTION -->
+        <div id="tab-voice" class="section-view">
+            <div class="section-hero">
+                <div class="hero-icon"><i class="fas fa-wave-square"></i></div>
+                <div class="hero-text">
+                    <h2>语音交互</h2>
+                    <p>Whisper 听觉 & Minimax 发声</p>
+                </div>
+            </div>
+
+            <div class="option-group">
+                <div class="option-card">
+                    <div class="option-header">
+                        <span class="option-label">Whisper STT</span>
+                        <label>
+                            <input type="checkbox" class="toggle-input" checked>
+                            <div class="toggle-switch"></div>
+                        </label>
+                    </div>
+                    <div class="input-wrapper">
+                        <select id="whisper-connection-mode">
+                            <option value="siliconflow">硅基流动</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="whisper-api-url" placeholder="API Address">
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="whisper-api-key" placeholder="Whisper Key">
+                    </div>
+                    <div class="option-header" style="margin-top: 10px;">
+                        <span class="option-label" style="font-size: 14px;">Model</span>
+                        <button class="btn-text" id="fetch-whisper-models">Fetch</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="whisper-model" placeholder="Model Name (e.g. whisper-1)">
+                    </div>
+                    <div class="input-wrapper hidden">
+                        <select id="whisper-model-select"></select>
+                    </div>
+                </div>
+
+                <div class="option-card">
+                    <div class="option-header">
+                        <span class="option-label">Minimax TTS</span>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="minimax-group-id" placeholder="Group ID">
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="minimax-api-key" placeholder="API Key">
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="minimax-model" placeholder="Model">
+                    </div>
+                    <div class="input-wrapper">
+                        <select id="minimax-model-select">
+                            <option value="speech-01-turbo">speech-01-turbo</option>
+                            <option value="speech-01-240228">speech-01-240228</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CREATIVE SECTION -->
+        <div id="tab-creative" class="section-view">
+            <div class="section-hero">
+                <div class="hero-icon"><i class="fas fa-palette"></i></div>
+                <div class="hero-text">
+                    <h2>创意工坊</h2>
+                    <p>NovelAI 图像生成引擎</p>
+                </div>
+            </div>
+
+            <div class="option-group">
+                <div class="option-card">
+                    <div class="option-header">
+                        <span class="option-label">聊天生图</span>
+                        <label>
+                            <input type="checkbox" id="novelai-chat-enabled" class="toggle-input">
+                            <div class="toggle-switch"></div>
+                        </label>
+                    </div>
+                    
+                    <div class="input-wrapper">
+                        <input type="password" id="novelai-api-key" placeholder="NovelAI Key">
+                    </div>
+
+                    <div class="option-header" style="margin-top: 10px;">
+                        <span class="option-label" style="font-size: 14px;">Settings</span>
+                        <div class="option-action">
+                            <select id="novelai-preset-select" style="background:transparent; border:none; max-width: 80px;"></select>
+                            <select id="novelai-preset-type-select" style="background:transparent; border:none;"><option value="general">通用</option></select>
+                            <div class="preset-actions">
+                                <button class="btn-icon-small" id="save-novelai-preset"><i class="fas fa-save"></i></button>
+                                <button class="btn-icon-small danger" id="delete-novelai-preset"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="input-wrapper">
+                        <select id="novelai-model-select">
+                            <option value="nai-diffusion-3">nai-diffusion-3</option>
+                        </select>
+                    </div>
+                    <div class="input-wrapper">
+                        <select id="novelai-size-select">
+                            <option value="832x1216">Portrait</option>
+                            <option value="1216x832">Landscape</option>
+                            <option value="1024x1024">Square</option>
+                        </select>
+                    </div>
+
+                    <div class="input-wrapper" style="height:auto; align-items:flex-start;">
+                        <textarea id="novelai-prompt" placeholder="Positive Prompt" style="width:100%; border:none; background:transparent; resize:none; height:60px; outline:none;"></textarea>
+                    </div>
+                    <div class="input-wrapper" style="height:auto; align-items:flex-start;">
+                        <textarea id="novelai-negative-prompt" placeholder="Negative Prompt" style="width:100%; border:none; background:transparent; resize:none; height:60px; outline:none;"></textarea>
+                    </div>
+
+                    <div class="slider-container">
+                        <div class="slider-header"><span>Steps</span><span id="novelai-steps-val">28</span></div>
+                        <input type="range" id="novelai-steps" min="1" max="50" value="28">
+                    </div>
+                    <div class="slider-container">
+                        <div class="slider-header"><span>Scale</span><span id="novelai-scale-val">5</span></div>
+                        <input type="range" id="novelai-scale" min="1" max="20" step="0.5" value="5">
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="number" id="novelai-seed" placeholder="Seed (-1)">
+                    </div>
+                    
+                    <button class="btn-black" id="novelai-generate-btn" style="width:100%; margin-top:15px;">生成测试</button>
+                    
+                    <div id="novelai-result-container" class="option-card" style="margin-top: 15px; background: #f9f9f9; display: none;">
+                        <div id="novelai-status-text" style="text-align: center; color: #999;">Ready</div>
+                        <img id="novelai-result-img" style="width: 100%; border-radius: 8px; margin-top: 10px; display: none;">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LOCATION SECTION -->
+        <div id="tab-location" class="section-view">
+            <div class="section-hero">
+                <div class="hero-icon"><i class="fas fa-map-marked-alt"></i></div>
+                <div class="hero-text">
+                    <h2>时空定位</h2>
+                    <p>高德地图 LBS 服务</p>
+                </div>
+            </div>
+            <div class="option-group">
+                <div class="option-card">
+                    <div class="input-wrapper">
+                        <input type="password" id="amap-api-key" placeholder="Web API Key">
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="amap-security-code" placeholder="Security Code">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SYSTEM SECTION -->
+        <div id="tab-system" class="section-view">
+            <div class="section-hero">
+                <div class="hero-icon"><i class="fas fa-server"></i></div>
+                <div class="hero-text">
+                    <h2>系统与数据</h2>
+                    <p>存储管理与环境设置</p>
+                </div>
+            </div>
+
+            <div class="option-group">
+                <div class="option-card">
+                    <div class="option-header">
+                        <span class="option-label">系统设置</span>
+                    </div>
+                    <div class="option-header">
+                        <span class="option-label" style="font-size: 14px; font-weight: 400;">后台通知</span>
+                        <label>
+                            <input type="checkbox" id="system-notification-toggle" class="toggle-input">
+                            <div class="toggle-switch"></div>
+                        </label>
+                    </div>
+                    <div class="option-header">
+                        <span class="option-label" style="font-size: 14px; font-weight: 400;">后台音频</span>
+                        <label>
+                            <input type="checkbox" id="background-audio-toggle" class="toggle-input">
+                            <div class="toggle-switch"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="option-card">
+                    <div class="option-header">
+                        <span class="option-label">数据管理</span>
+                    </div>
+                    <div class="option-header">
+                        <span class="option-label" style="font-size: 14px; font-weight: 400;">ZIP 压缩导出</span>
+                        <label>
+                            <input type="checkbox" id="export-as-zip" class="toggle-input" checked>
+                            <div class="toggle-switch"></div>
+                        </label>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
+                        <button class="btn-black" id="save-all-settings">保存配置</button>
+                        <button class="btn-secondary" id="export-json">导出数据</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
+                        <button class="btn-secondary" id="optimize-storage">压缩图片</button>
+                        <button class="btn-secondary" id="analyze-storage">存储分析</button>
+                    </div>
+                    <label for="import-json" class="btn-secondary" style="margin-top: 10px; width: 100%;">
+                        导入数据
+                        <input type="file" id="import-json" style="display: none;">
+                    </label>
+                    <button class="btn-text btn-danger" id="clear-all-data" style="width:100%; margin-top:10px;">清空所有数据</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="settings-status-pill">
+        <div class="status-dot"></div>
+        <span>System Ready</span>
+    </div>
+
+    <script>
+        function switchTab(tabId) {
+            // Remove active from pills
+            document.querySelectorAll('.nav-pill').forEach(el => el.classList.remove('active'));
+            // Add active to clicked pill (find by onclick attr or just text, here simplistic)
+            event.currentTarget.classList.add('active');
+
+            // Hide all views
+            document.querySelectorAll('.section-view').forEach(el => el.classList.remove('active'));
+            // Show target view
+            document.getElementById('tab-' + tabId).classList.add('active');
+        }
+
+        // Sliders
+        document.getElementById('ai-temperature').addEventListener('input', function(e) {
+            document.getElementById('ai-temp-value').innerText = e.target.value;
+        });
+        document.getElementById('ai-temperature-2').addEventListener('input', function(e) {
+            document.getElementById('ai-temp-value-2').innerText = e.target.value;
+        });
+        document.getElementById('novelai-steps').addEventListener('input', function(e) {
+            document.getElementById('novelai-steps-val').innerText = e.target.value;
+        });
+        document.getElementById('novelai-scale').addEventListener('input', function(e) {
+            document.getElementById('novelai-scale-val').innerText = e.target.value;
+        });
+    </script>
+</div>
 
         <!-- 微信全屏App -->
         <div id="wechat-app" class="app-screen hidden">
@@ -2192,86 +2163,69 @@
         
         <!-- 世界书全屏App -->
         <div id="worldbook-app" class="app-screen hidden">
-            <div class="app-header">
-                <button id="close-worldbook-app" class="back-btn"><i class="fas fa-chevron-left"></i> 返回</button>
-                <h3>世界书</h3>
-                <button id="add-worldbook-category" class="wechat-icon-btn"><i class="fas fa-plus"></i></button>
-            </div>
-            <div class="app-body">
-                <div class="ios-list-group" id="worldbook-category-list">
-                    <!-- 分类列表将通过JS生成 -->
-                </div>
-                <div class="empty-state" id="worldbook-empty" style="display: none;">
-                    暂无分类，点击右上角添加
-                </div>
-            </div>
+            <link rel="stylesheet" href="css/worldbook_archive_style.css">
+            <div class="wb-archive-container">
+                <header class="wb-header">
+                    <div class="wb-header-content">
+                        <div id="wb-title-group" class="wb-title-group">
+                            <span id="wb-page-subtitle" class="wb-subtitle">System Database</span>
+                            <h1 id="wb-page-title" class="wb-h1">Archives</h1>
+                        </div>
+                        <div style="display: flex; margin-left: auto;">
+                            <button id="wb-action-btn" class="wb-nav-btn visible">
+                                <svg id="wb-icon-plus" viewBox="0 0 24 24" style="display: block;">
+                                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                                </svg>
+                                <svg id="wb-icon-edit" viewBox="0 0 24 24" style="display: none;">
+                                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </header>
 
-            <!-- 分类详情页 (子屏幕) -->
-            <div id="worldbook-detail-screen" class="sub-screen hidden">
-                <div class="app-header">
-                    <button id="back-to-worldbook-list" class="back-btn"><i class="fas fa-chevron-left"></i></button>
-                    <h3 id="wb-category-title">分类名</h3>
-                    <button id="add-worldbook-entry" class="wechat-icon-btn"><i class="fas fa-plus"></i></button>
-                </div>
-                <div class="app-body">
-                    <div class="ios-list-group" id="worldbook-entry-list">
-                        <!-- 条目列表 -->
-                    </div>
-                    <div class="empty-state" id="worldbook-entry-empty" style="display: none;">
-                        暂无条目，点击右上角添加
-                    </div>
-                    <div class="ios-list-group" style="margin-top: 20px;">
-                        <div class="list-item center-content" id="edit-category-btn">
-<span style="color: #000;">编辑当前分类</span>
+                <main class="wb-main">
+                    <!-- Page 1: Categories -->
+                    <div id="wb-page-categories" class="wb-page active">
+                        <div class="wb-grid-container" id="wb-category-grid">
+                            <!-- Injected via JS -->
                         </div>
                     </div>
-                </div>
-            </div>
-            
-            <!-- 条目编辑弹窗 -->
-            <div id="worldbook-edit-modal" class="modal hidden">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h3 id="worldbook-modal-title">编辑条目</h3>
-                        <button class="close-btn" id="close-worldbook-edit">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="setting-group">
-                            <label>备注 (可选)</label>
-                            <input type="text" id="wb-remark" placeholder="输入备注">
-                        </div>
-                        <div class="setting-group">
-                            <label>关键字 (可选，逗号分隔)</label>
-                            <input type="text" id="wb-keys" placeholder="例如: 城堡, 国王">
-                        </div>
-                        <div class="setting-group">
-                            <label>内容</label>
-                            <textarea id="wb-content" placeholder="描述内容..." style="height: 200px;"></textarea>
-                        </div>
-                        <button id="save-worldbook-btn" class="ios-btn-block">保存</button>
-                        <button id="delete-worldbook-btn" class="ios-btn-block danger" style="margin-top: 10px;">删除</button>
-                    </div>
-                </div>
-            </div>
 
-            <!-- 分类编辑弹窗 -->
-            <div id="category-edit-modal" class="modal hidden">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h3 id="category-modal-title">编辑分类</h3>
-                        <button class="close-btn" id="close-category-edit">&times;</button>
+                    <!-- Page 2: Entries List -->
+                    <div id="wb-page-entries" class="wb-page">
+                        <div class="wb-file-list" id="wb-entries-list">
+                            <!-- Injected via JS -->
+                        </div>
                     </div>
-                    <div class="modal-body">
-                        <div class="setting-group">
-                            <label>分类名称</label>
-                            <input type="text" id="cat-name" placeholder="输入分类名称">
+
+                    <!-- Page 3: Detail View -->
+                    <div id="wb-page-detail" class="wb-page">
+                        <div class="wb-doc-container">
+                            <div class="wb-deco-line"></div>
+                            <h2 id="wb-detail-title" style="font-size: 24px; margin-bottom: 8px;">Title</h2>
+                            <div id="wb-detail-tags" style="margin-bottom: 16px;"></div>
+                            <div class="wb-doc-meta">
+                                <span id="wb-detail-id">ID: 000000</span>
+                                <span id="wb-detail-date">DATE: 2023-10-27</span>
+                            </div>
+                            <div id="wb-detail-content" class="wb-doc-content"></div>
                         </div>
-                        <div class="setting-group">
-                            <label>描述 (可选)</label>
-                            <input type="text" id="cat-desc" placeholder="输入描述">
+                    </div>
+                </main>
+
+                <!-- Modal -->
+                <div id="wb-modal-overlay" class="wb-modal-overlay">
+                    <div class="wb-modal-card">
+                        <h3 id="wb-modal-title" class="wb-modal-title">New Folder</h3>
+                        <div id="wb-modal-content">
+                            <!-- Injected via JS -->
                         </div>
-                        <button id="save-category-btn" class="ios-btn-block">保存</button>
-                        <button id="delete-category-btn" class="ios-btn-block danger" style="margin-top: 10px; display: none;">删除分类</button>
+                        <div class="wb-modal-actions">
+                            <button id="wb-modal-cancel" class="wb-btn wb-btn-cancel">CANCEL</button>
+                            <button id="wb-modal-delete" class="wb-btn wb-btn-danger" style="display:none; margin-right:auto;">DELETE</button>
+                            <button id="wb-modal-save" class="wb-btn wb-btn-save">SAVE</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -3598,10 +3552,10 @@
             <h1 class="app-title" id="close-shopping-app" style="cursor: pointer;">Møde.</h1>
             <div class="header-actions">
                 <button id="shopping-link-contact-btn" class="icon-btn">
-                    <i class="fas fa-link"></i>
+                    <i class="far fa-heart"></i>
                 </button>
                 <button id="shopping-menu-btn" class="icon-btn">
-                    <i class="fas fa-search"></i>
+                    <i class="far fa-star"></i>
                 </button>
             </div>
         </div>
@@ -4205,6 +4159,7 @@
     <script src="js/call_history.js"></script>
     <script src="js/lookus.js"></script>
     <script src="js/novelai.js"></script>
+    <script src="js/settings_v3.js"></script>
     <script>
         // 修复 资料卡 背景点击上传图片
 

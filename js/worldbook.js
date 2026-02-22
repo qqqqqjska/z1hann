@@ -1,7 +1,43 @@
-// 世界书功能模块
+// 世界书功能模块 (New Archive UI)
 
-let currentEditingEntryId = null;
-let currentEditingCategoryId = null;
+let wbNavHistory = [];
+let wbCurrentCategory = null;
+let wbCurrentEntry = null;
+
+// DOM Elements cache
+let wbElements = {};
+
+function initWbElements() {
+    wbElements = {
+        app: document.getElementById('worldbook-app'),
+        titleGroup: document.getElementById('wb-title-group'),
+        pageTitle: document.getElementById('wb-page-title'),
+        pageSubtitle: document.getElementById('wb-page-subtitle'),
+        actionBtn: document.getElementById('wb-action-btn'),
+        iconPlus: document.getElementById('wb-icon-plus'),
+        iconEdit: document.getElementById('wb-icon-edit'),
+        
+        pageCategories: document.getElementById('wb-page-categories'),
+        categoryGrid: document.getElementById('wb-category-grid'),
+        
+        pageEntries: document.getElementById('wb-page-entries'),
+        entriesList: document.getElementById('wb-entries-list'),
+        
+        pageDetail: document.getElementById('wb-page-detail'),
+        detailTitle: document.getElementById('wb-detail-title'),
+        detailTags: document.getElementById('wb-detail-tags'),
+        detailId: document.getElementById('wb-detail-id'),
+        detailDate: document.getElementById('wb-detail-date'),
+        detailContent: document.getElementById('wb-detail-content'),
+        
+        modalOverlay: document.getElementById('wb-modal-overlay'),
+        modalTitle: document.getElementById('wb-modal-title'),
+        modalContent: document.getElementById('wb-modal-content'),
+        modalCancel: document.getElementById('wb-modal-cancel'),
+        modalSave: document.getElementById('wb-modal-save'),
+        modalDelete: document.getElementById('wb-modal-delete')
+    };
+}
 
 function migrateWorldbookData() {
     const state = window.iphoneSimState;
@@ -22,302 +58,441 @@ function migrateWorldbookData() {
     if (!state.wbCategories) state.wbCategories = [];
 }
 
-// 渲染分类列表
-function renderWorldbookCategoryList() {
-    const list = document.getElementById('worldbook-category-list');
-    const emptyState = document.getElementById('worldbook-empty');
-    if (!list) return;
+// ---------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------
 
-    list.innerHTML = '';
-
+function renderWbCategories() {
+    if (!wbElements.categoryGrid) return;
+    wbElements.categoryGrid.innerHTML = '';
+    
     if (!window.iphoneSimState.wbCategories || window.iphoneSimState.wbCategories.length === 0) {
-        if (emptyState) emptyState.style.display = 'flex';
+        wbElements.categoryGrid.innerHTML = '<div style="grid-column: span 2; text-align: center; color: var(--wb-text-secondary); padding: 40px;">暂无分类</div>';
         return;
     }
-
-    if (emptyState) emptyState.style.display = 'none';
 
     window.iphoneSimState.wbCategories.forEach(cat => {
-        const item = document.createElement('div');
-        item.className = 'list-item';
-        item.innerHTML = `
-            <div class="list-content column">
-                <div style="font-weight: bold; font-size: 16px;">${cat.name}</div>
-                <div style="font-size: 12px; color: #888;">${cat.desc || '无描述'}</div>
+        // Count entries
+        const count = window.iphoneSimState.worldbook 
+            ? window.iphoneSimState.worldbook.filter(e => e.categoryId === cat.id).length 
+            : 0;
+
+        const el = document.createElement('div');
+        el.className = 'wb-folder-card';
+        el.innerHTML = `
+            <div class="wb-folder-tab"></div>
+            <div class="wb-card-inner">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <div class="wb-folder-meta">REF-${cat.id.toString().slice(-4)}</div>
+                        <div class="wb-folder-icon">📂</div>
+                    </div>
+                    <div class="wb-folder-edit-btn" style="padding: 4px; opacity: 0.5;">
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: var(--wb-text-secondary);">
+                            <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                        </svg>
+                    </div>
+                </div>
+                <div>
+                    <div class="wb-folder-name">${cat.name}</div>
+                    <div class="wb-folder-meta">${count} FILES</div>
+                </div>
             </div>
-            <i class="fas fa-chevron-right" style="color: #ccc;"></i>
         `;
-        item.addEventListener('click', () => openWorldbookCategory(cat.id));
-        list.appendChild(item);
+        
+        // Handle click on the card to open category
+        el.addEventListener('click', (e) => {
+            // Prevent if clicked on edit button
+            if (e.target.closest('.wb-folder-edit-btn')) return;
+            openWbCategory(cat);
+        });
+
+        // Handle edit button click
+        const editBtn = el.querySelector('.wb-folder-edit-btn');
+        if (editBtn) {
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                wbCurrentCategory = cat; // Set context for edit
+                openWbModal('edit_category');
+            });
+        }
+        
+        wbElements.categoryGrid.appendChild(el);
     });
 }
 
-// 打开分类详情
-function openWorldbookCategory(categoryId) {
-    const cat = window.iphoneSimState.wbCategories.find(c => c.id === categoryId);
-    if (!cat) return;
-
-    window.iphoneSimState.currentWbCategoryId = categoryId;
-    document.getElementById('wb-category-title').textContent = cat.name;
-    document.getElementById('worldbook-detail-screen').classList.remove('hidden');
+function renderWbEntries(categoryId) {
+    if (!wbElements.entriesList) return;
+    wbElements.entriesList.innerHTML = '';
     
-    renderWorldbookEntryList(categoryId);
-}
-
-// 渲染条目列表
-function renderWorldbookEntryList(categoryId) {
-    const list = document.getElementById('worldbook-entry-list');
-    const emptyState = document.getElementById('worldbook-entry-empty');
-    if (!list) return;
-
-    list.innerHTML = '';
-
-    const entries = window.iphoneSimState.worldbook.filter(e => e.categoryId === categoryId);
+    const entries = window.iphoneSimState.worldbook 
+        ? window.iphoneSimState.worldbook.filter(e => e.categoryId === categoryId)
+        : [];
 
     if (entries.length === 0) {
-        if (emptyState) emptyState.style.display = 'flex';
+        wbElements.entriesList.innerHTML = '<div style="text-align: center; color: var(--wb-text-secondary); padding: 40px;">暂无文档</div>';
         return;
     }
-
-    if (emptyState) emptyState.style.display = 'none';
 
     entries.forEach(entry => {
-        const item = document.createElement('div');
-        item.className = 'wb-entry';
+        const el = document.createElement('div');
+        el.className = 'wb-file-item';
         const title = entry.remark || (entry.keys && entry.keys.length > 0 ? entry.keys.join(', ') : '无标题');
         
-        const toggleIcon = entry.enabled ? 'fa-toggle-on' : 'fa-toggle-off';
-        const toggleColor = entry.enabled ? '#34C759' : '#8E8E93';
-
-        item.innerHTML = `
-            <div class="wb-header">
-                <span class="wb-keys" style="font-weight: bold;">${title}</span>
-                <i class="fas ${toggleIcon}" style="font-size: 24px; color: ${toggleColor}; cursor: pointer;" onclick="event.stopPropagation(); window.toggleWorldbookEntry(${entry.id})"></i>
+        el.innerHTML = `
+            <div class="wb-file-icon">DOC</div>
+            <div class="wb-file-info">
+                <div class="wb-file-title">${title}</div>
+                <div class="wb-file-desc">${entry.content}</div>
             </div>
-            ${entry.remark ? `<div style="font-size: 12px; color: #666; margin-bottom: 4px;">关键字: ${entry.keys.join(', ')}</div>` : ''}
-            <div class="wb-content">${entry.content}</div>
+            <div style="font-family: var(--wb-font-mono); font-size: 10px; color: var(--wb-text-secondary);">#${entry.id.toString().slice(-4)}</div>
         `;
-        item.addEventListener('click', () => openWorldbookEdit(entry.id));
-        list.appendChild(item);
+        el.addEventListener('click', () => openWbEntryDetail(entry));
+        wbElements.entriesList.appendChild(el);
     });
 }
 
-window.toggleWorldbookEntry = function(id) {
-    const entry = window.iphoneSimState.worldbook.find(e => e.id === id);
-    if (entry) {
-        entry.enabled = !entry.enabled;
-        saveConfig();
-        renderWorldbookEntryList(window.iphoneSimState.currentWbCategoryId);
-    }
-};
+// ---------------------------------------------------------
+// Navigation & Logic
+// ---------------------------------------------------------
 
-// 打开分类编辑
-function openCategoryEdit(categoryId = null) {
-    currentEditingCategoryId = categoryId;
-    const modal = document.getElementById('category-edit-modal');
-    const title = document.getElementById('category-modal-title');
-    const nameInput = document.getElementById('cat-name');
-    const descInput = document.getElementById('cat-desc');
-    const deleteBtn = document.getElementById('delete-category-btn');
+function openWbCategory(cat) {
+    wbNavHistory.push('categories');
+    wbCurrentCategory = cat;
+    renderWbEntries(cat.id);
+    
+    // Update Header
+    wbElements.pageTitle.textContent = cat.name;
+    updateWbHeaderState();
+    updateWbActionBtn('plus'); // Create Entry
 
-    if (categoryId) {
-        const cat = window.iphoneSimState.wbCategories.find(c => c.id === categoryId);
-        if (cat) {
-            title.textContent = '编辑分类';
-            nameInput.value = cat.name;
-            descInput.value = cat.desc || '';
-            deleteBtn.style.display = 'block';
-        }
-    } else {
-        title.textContent = '新建分类';
-        nameInput.value = '';
-        descInput.value = '';
-        deleteBtn.style.display = 'none';
-    }
-
-    modal.classList.remove('hidden');
+    // Transition
+    wbTransition(wbElements.pageCategories, wbElements.pageEntries);
 }
 
-// 保存分类
-function handleSaveCategory() {
-    const name = document.getElementById('cat-name').value.trim();
-    const desc = document.getElementById('cat-desc').value.trim();
-
-    if (!name) {
-        alert('请输入分类名称');
-        return;
+function openWbEntryDetail(entry) {
+    wbNavHistory.push('entries');
+    wbCurrentEntry = entry;
+    
+    // Populate Detail
+    const title = entry.remark || (entry.keys && entry.keys.length > 0 ? entry.keys.join(', ') : '无标题');
+    wbElements.detailTitle.textContent = title;
+    wbElements.detailContent.textContent = entry.content;
+    wbElements.detailId.textContent = `ID: ${entry.id}`;
+    wbElements.detailDate.textContent = `DATE: ${new Date(entry.id).toISOString().split('T')[0]}`;
+    
+    wbElements.detailTags.innerHTML = '';
+    if (entry.keys && entry.keys.length > 0) {
+        entry.keys.forEach(key => {
+            const tag = document.createElement('span');
+            tag.className = 'wb-tag';
+            tag.textContent = key.toUpperCase();
+            wbElements.detailTags.appendChild(tag);
+        });
     }
 
-    if (currentEditingCategoryId) {
-        const cat = window.iphoneSimState.wbCategories.find(c => c.id === currentEditingCategoryId);
-        if (cat) {
-            cat.name = name;
-            cat.desc = desc;
-            if (window.iphoneSimState.currentWbCategoryId === currentEditingCategoryId) {
-                document.getElementById('wb-category-title').textContent = name;
+    // Update Header
+    wbElements.pageTitle.textContent = "DOCUMENT";
+    updateWbHeaderState();
+    updateWbActionBtn('edit'); // Edit Entry
+    
+    // Transition
+    wbTransition(wbElements.pageEntries, wbElements.pageDetail);
+}
+
+function wbGoBack() {
+    const previous = wbNavHistory.pop();
+    
+    if (previous === 'entries') {
+         // Back to Entries list
+         wbElements.pageTitle.textContent = wbCurrentCategory ? wbCurrentCategory.name : "FILES";
+         updateWbActionBtn('plus');
+         updateWbHeaderState();
+         wbCurrentEntry = null;
+         wbTransition(wbElements.pageDetail, wbElements.pageEntries, true);
+    } else if (previous === 'categories') {
+        // Back to Categories (Home)
+        wbElements.pageTitle.textContent = "ARCHIVES";
+        wbCurrentCategory = null;
+        updateWbActionBtn('plus');
+        updateWbHeaderState();
+        renderWbCategories(); // Refresh grid in case of changes
+        wbTransition(wbElements.pageEntries, wbElements.pageCategories, true);
+    }
+}
+
+function wbTransition(fromEl, toEl, isBack = false) {
+    fromEl.classList.add('exit');
+    fromEl.classList.remove('active');
+    
+    setTimeout(() => {
+        fromEl.classList.remove('exit');
+        toEl.classList.add('active');
+    }, 300);
+}
+
+function updateWbHeaderState() {
+    if (wbNavHistory.length === 0) {
+        wbElements.pageSubtitle.textContent = "SYSTEM DATABASE";
+        wbElements.titleGroup.classList.remove('clickable');
+    } else if (wbNavHistory.length === 1) { // Inside Category
+        wbElements.pageSubtitle.textContent = "← ARCHIVES";
+        wbElements.titleGroup.classList.add('clickable');
+    } else if (wbNavHistory.length === 2) { // Inside Detail
+        wbElements.pageSubtitle.textContent = `← ${wbCurrentCategory ? wbCurrentCategory.name.toUpperCase() : 'FILES'}`;
+        wbElements.titleGroup.classList.add('clickable');
+    }
+}
+
+function updateWbActionBtn(type) {
+    if (type === 'plus') {
+        wbElements.iconPlus.style.display = 'block';
+        wbElements.iconEdit.style.display = 'none';
+    } else {
+        wbElements.iconPlus.style.display = 'none';
+        wbElements.iconEdit.style.display = 'block';
+    }
+}
+
+// ---------------------------------------------------------
+// Modal & CRUD
+// ---------------------------------------------------------
+
+function handleWbAction() {
+    // Context determined by history
+    if (wbNavHistory.length === 0) {
+        // Root: Create Category
+        openWbModal('create_category');
+    } else if (wbNavHistory[wbNavHistory.length - 1] === 'categories') {
+        // Inside Category: Create Entry
+        openWbModal('create_entry');
+    } else if (wbNavHistory[wbNavHistory.length - 1] === 'entries') {
+        // Inside Entry: Edit Entry
+        openWbModal('edit_entry');
+    }
+}
+
+function openWbModal(type) {
+    wbElements.modalOverlay.classList.add('active');
+    wbElements.modalDelete.style.display = 'none'; // Default hide delete
+    
+    // Clear previous event listeners on Save/Delete
+    const newSaveBtn = wbElements.modalSave.cloneNode(true);
+    wbElements.modalSave.parentNode.replaceChild(newSaveBtn, wbElements.modalSave);
+    wbElements.modalSave = newSaveBtn;
+
+    const newDeleteBtn = wbElements.modalDelete.cloneNode(true);
+    wbElements.modalDelete.parentNode.replaceChild(newDeleteBtn, wbElements.modalDelete);
+    wbElements.modalDelete = newDeleteBtn;
+
+    if (type === 'create_category') {
+        wbElements.modalTitle.textContent = "NEW FOLDER";
+        wbElements.modalContent.innerHTML = `
+            <div class="wb-form-group">
+                <label class="wb-form-label">Folder Name</label>
+                <input type="text" id="wb-input-cat-name" class="wb-form-input" placeholder="Category Name">
+            </div>
+            <div class="wb-form-group">
+                <label class="wb-form-label">Description</label>
+                <input type="text" id="wb-input-cat-desc" class="wb-form-input" placeholder="Optional description">
+            </div>
+        `;
+        wbElements.modalSave.textContent = "CREATE";
+        wbElements.modalSave.addEventListener('click', () => {
+            const name = document.getElementById('wb-input-cat-name').value.trim();
+            const desc = document.getElementById('wb-input-cat-desc').value.trim();
+            if (name) {
+                const newCat = { id: Date.now(), name, desc };
+                window.iphoneSimState.wbCategories.push(newCat);
+                saveConfig();
+                renderWbCategories();
+                closeWbModal();
             }
-        }
-    } else {
-        const newCat = {
-            id: Date.now(),
-            name,
-            desc
-        };
-        if (!window.iphoneSimState.wbCategories) window.iphoneSimState.wbCategories = [];
-        window.iphoneSimState.wbCategories.push(newCat);
-    }
+        });
 
-    saveConfig();
-    renderWorldbookCategoryList();
-    document.getElementById('category-edit-modal').classList.add('hidden');
-}
-
-// 删除分类
-function handleDeleteCategory() {
-    if (!currentEditingCategoryId) return;
-
-    if (confirm('确定要删除此分类吗？分类下的所有条目也会被删除！')) {
-        window.iphoneSimState.worldbook = window.iphoneSimState.worldbook.filter(e => e.categoryId !== currentEditingCategoryId);
-        window.iphoneSimState.wbCategories = window.iphoneSimState.wbCategories.filter(c => c.id !== currentEditingCategoryId);
+    } else if (type === 'edit_category') {
+        if (!wbCurrentCategory) return;
+        wbElements.modalTitle.textContent = "EDIT FOLDER";
+        wbElements.modalDelete.style.display = 'block';
         
-        saveConfig();
-        renderWorldbookCategoryList();
+        wbElements.modalContent.innerHTML = `
+            <div class="wb-form-group">
+                <label class="wb-form-label">Folder Name</label>
+                <input type="text" id="wb-input-cat-name" class="wb-form-input" value="${wbCurrentCategory.name}">
+            </div>
+            <div class="wb-form-group">
+                <label class="wb-form-label">Description</label>
+                <input type="text" id="wb-input-cat-desc" class="wb-form-input" value="${wbCurrentCategory.desc || ''}">
+            </div>
+        `;
         
-        if (window.iphoneSimState.currentWbCategoryId === currentEditingCategoryId) {
-            document.getElementById('worldbook-detail-screen').classList.add('hidden');
-            window.iphoneSimState.currentWbCategoryId = null;
-        }
+        wbElements.modalSave.textContent = "SAVE";
+        wbElements.modalSave.addEventListener('click', () => {
+            const name = document.getElementById('wb-input-cat-name').value.trim();
+            const desc = document.getElementById('wb-input-cat-desc').value.trim();
+            if (name) {
+                wbCurrentCategory.name = name;
+                wbCurrentCategory.desc = desc;
+                saveConfig();
+                renderWbCategories();
+                closeWbModal();
+                wbCurrentCategory = null; // Clear selection after edit
+            }
+        });
+
+        wbElements.modalDelete.addEventListener('click', () => {
+            if (confirm("Delete this folder and ALL its files? This cannot be undone.")) {
+                // Delete entries in this category
+                if (window.iphoneSimState.worldbook) {
+                    window.iphoneSimState.worldbook = window.iphoneSimState.worldbook.filter(e => e.categoryId !== wbCurrentCategory.id);
+                }
+                // Delete category
+                window.iphoneSimState.wbCategories = window.iphoneSimState.wbCategories.filter(c => c.id !== wbCurrentCategory.id);
+                
+                saveConfig();
+                renderWbCategories();
+                closeWbModal();
+                wbCurrentCategory = null;
+            }
+        });
+
+    } else if (type === 'create_entry') {
+        wbElements.modalTitle.textContent = "NEW FILE";
+        wbElements.modalContent.innerHTML = `
+            <div class="wb-form-group">
+                <label class="wb-form-label">Title / Remark</label>
+                <input type="text" id="wb-input-entry-title" class="wb-form-input" placeholder="Entry Title">
+            </div>
+            <div class="wb-form-group">
+                <label class="wb-form-label">Keywords</label>
+                <input type="text" id="wb-input-entry-keys" class="wb-form-input" placeholder="Comma separated">
+            </div>
+            <div class="wb-form-group">
+                <label class="wb-form-label">Content</label>
+                <textarea id="wb-input-entry-content" class="wb-form-textarea" placeholder="Entry content..."></textarea>
+            </div>
+        `;
+        wbElements.modalSave.textContent = "CREATE";
+        wbElements.modalSave.addEventListener('click', () => {
+            const title = document.getElementById('wb-input-entry-title').value.trim();
+            const keys = document.getElementById('wb-input-entry-keys').value.split(/[,，]/).map(k => k.trim()).filter(k => k);
+            const content = document.getElementById('wb-input-entry-content').value.trim();
+            
+            if (content) {
+                const newEntry = {
+                    id: Date.now(),
+                    categoryId: wbCurrentCategory.id,
+                    remark: title,
+                    keys: keys,
+                    content: content,
+                    enabled: true
+                };
+                if (!window.iphoneSimState.worldbook) window.iphoneSimState.worldbook = [];
+                window.iphoneSimState.worldbook.push(newEntry);
+                saveConfig();
+                renderWbEntries(wbCurrentCategory.id);
+                closeWbModal();
+            }
+        });
+
+    } else if (type === 'edit_entry') {
+        if (!wbCurrentEntry) return;
+        wbElements.modalTitle.textContent = "EDIT FILE";
+        wbElements.modalDelete.style.display = 'block'; // Show delete for edit
         
-        document.getElementById('category-edit-modal').classList.add('hidden');
+        wbElements.modalContent.innerHTML = `
+            <div class="wb-form-group">
+                <label class="wb-form-label">Title / Remark</label>
+                <input type="text" id="wb-input-entry-title" class="wb-form-input" value="${wbCurrentEntry.remark || ''}">
+            </div>
+            <div class="wb-form-group">
+                <label class="wb-form-label">Keywords</label>
+                <input type="text" id="wb-input-entry-keys" class="wb-form-input" value="${wbCurrentEntry.keys ? wbCurrentEntry.keys.join(', ') : ''}">
+            </div>
+            <div class="wb-form-group">
+                <label class="wb-form-label">Content</label>
+                <textarea id="wb-input-entry-content" class="wb-form-textarea">${wbCurrentEntry.content || ''}</textarea>
+            </div>
+        `;
+        
+        wbElements.modalSave.textContent = "SAVE";
+        wbElements.modalSave.addEventListener('click', () => {
+            const title = document.getElementById('wb-input-entry-title').value.trim();
+            const keys = document.getElementById('wb-input-entry-keys').value.split(/[,，]/).map(k => k.trim()).filter(k => k);
+            const content = document.getElementById('wb-input-entry-content').value.trim();
+            
+            if (content) {
+                wbCurrentEntry.remark = title;
+                wbCurrentEntry.keys = keys;
+                wbCurrentEntry.content = content;
+                saveConfig();
+                
+                // Update detail view immediately
+                wbElements.detailTitle.textContent = title || '无标题';
+                wbElements.detailContent.textContent = content;
+                wbElements.detailTags.innerHTML = '';
+                keys.forEach(key => {
+                    const tag = document.createElement('span');
+                    tag.className = 'wb-tag';
+                    tag.textContent = key.toUpperCase();
+                    wbElements.detailTags.appendChild(tag);
+                });
+                
+                closeWbModal();
+            }
+        });
+        
+        wbElements.modalDelete.addEventListener('click', () => {
+            if (confirm("Delete this entry?")) {
+                window.iphoneSimState.worldbook = window.iphoneSimState.worldbook.filter(e => e.id !== wbCurrentEntry.id);
+                saveConfig();
+                closeWbModal();
+                wbGoBack(); // Return to list
+            }
+        });
     }
 }
 
-// 打开条目编辑
-function openWorldbookEdit(entryId = null) {
-    if (!window.iphoneSimState.currentWbCategoryId) return;
-
-    currentEditingEntryId = entryId;
-    const modal = document.getElementById('worldbook-edit-modal');
-    const title = document.getElementById('worldbook-modal-title');
-    const remarkInput = document.getElementById('wb-remark');
-    const keysInput = document.getElementById('wb-keys');
-    const contentInput = document.getElementById('wb-content');
-    const deleteBtn = document.getElementById('delete-worldbook-btn');
-
-    if (entryId) {
-        const entry = window.iphoneSimState.worldbook.find(e => e.id === entryId);
-        if (entry) {
-            title.textContent = '编辑条目';
-            remarkInput.value = entry.remark || '';
-            keysInput.value = entry.keys ? entry.keys.join(', ') : '';
-            contentInput.value = entry.content;
-            deleteBtn.style.display = 'block';
-        }
-    } else {
-        title.textContent = '新建条目';
-        remarkInput.value = '';
-        keysInput.value = '';
-        contentInput.value = '';
-        deleteBtn.style.display = 'none';
-    }
-
-    modal.classList.remove('hidden');
+function closeWbModal() {
+    wbElements.modalOverlay.classList.remove('active');
 }
 
-// 保存条目
-function handleSaveWorldbookEntry() {
-    if (!window.iphoneSimState.currentWbCategoryId) return;
+// ---------------------------------------------------------
+// Init
+// ---------------------------------------------------------
 
-    const remark = document.getElementById('wb-remark').value.trim();
-    const keysInput = document.getElementById('wb-keys');
-    const contentInput = document.getElementById('wb-content');
-
-    const keys = keysInput.value.split(/[,，]/).map(k => k.trim()).filter(k => k);
-    const content = contentInput.value.trim();
-    
-    if (!content) {
-        alert('请输入内容');
-        return;
-    }
-
-    if (currentEditingEntryId) {
-        const entry = window.iphoneSimState.worldbook.find(e => e.id === currentEditingEntryId);
-        if (entry) {
-            entry.remark = remark;
-            entry.keys = keys;
-            entry.content = content;
-        }
-    } else {
-        const newEntry = {
-            id: Date.now(),
-            categoryId: window.iphoneSimState.currentWbCategoryId,
-            remark: remark,
-            keys: keys,
-            content: content,
-            enabled: true
-        };
-        if (!window.iphoneSimState.worldbook) window.iphoneSimState.worldbook = [];
-        window.iphoneSimState.worldbook.push(newEntry);
-    }
-
-    saveConfig();
-    renderWorldbookEntryList(window.iphoneSimState.currentWbCategoryId);
-    document.getElementById('worldbook-edit-modal').classList.add('hidden');
-}
-
-// 删除条目
-function handleDeleteWorldbookEntry() {
-    if (!currentEditingEntryId) return;
-
-    if (confirm('确定要删除此条目吗？')) {
-        window.iphoneSimState.worldbook = window.iphoneSimState.worldbook.filter(e => e.id !== currentEditingEntryId);
-        saveConfig();
-        renderWorldbookEntryList(window.iphoneSimState.currentWbCategoryId);
-        document.getElementById('worldbook-edit-modal').classList.add('hidden');
-    }
-}
-
-// 初始化监听器
 function setupWorldbookListeners() {
-    const worldbookAppScreen = document.getElementById('worldbook-app');
-    const closeWorldbookBtn = document.getElementById('close-worldbook-app');
+    initWbElements();
     
-    if (closeWorldbookBtn) closeWorldbookBtn.addEventListener('click', () => worldbookAppScreen.classList.add('hidden'));
-
-    const addWorldbookCategoryBtn = document.getElementById('add-worldbook-category');
-    const addWorldbookEntryBtn = document.getElementById('add-worldbook-entry');
+    // Re-bind listeners
+    if (wbElements.titleGroup) {
+        wbElements.titleGroup.addEventListener('click', () => {
+            if (wbNavHistory.length > 0) {
+                wbGoBack();
+            } else {
+                // Close app if at root
+                wbElements.app.classList.add('hidden');
+            }
+        });
+    }
     
-    const worldbookEditModal = document.getElementById('worldbook-edit-modal');
-    const closeWorldbookEditBtn = document.getElementById('close-worldbook-edit');
-    const saveWorldbookBtn = document.getElementById('save-worldbook-btn');
-    const deleteWorldbookBtn = document.getElementById('delete-worldbook-btn');
-
-    const categoryEditModal = document.getElementById('category-edit-modal');
-    const closeCategoryEditBtn = document.getElementById('close-category-edit');
-    const saveCategoryBtn = document.getElementById('save-category-btn');
-    const deleteCategoryBtn = document.getElementById('delete-category-btn');
-    const editCategoryBtn = document.getElementById('edit-category-btn');
+    if (wbElements.actionBtn) {
+        wbElements.actionBtn.addEventListener('click', handleWbAction);
+    }
     
-    const worldbookDetailScreen = document.getElementById('worldbook-detail-screen');
-    const backToWorldbookListBtn = document.getElementById('back-to-worldbook-list');
-
-    if (addWorldbookCategoryBtn) addWorldbookCategoryBtn.addEventListener('click', () => openCategoryEdit());
-    if (backToWorldbookListBtn) backToWorldbookListBtn.addEventListener('click', () => {
-        worldbookDetailScreen.classList.add('hidden');
-        window.iphoneSimState.currentWbCategoryId = null;
-    });
-
-    if (addWorldbookEntryBtn) addWorldbookEntryBtn.addEventListener('click', () => openWorldbookEdit());
+    if (wbElements.modalCancel) {
+        wbElements.modalCancel.addEventListener('click', closeWbModal);
+    }
     
-    if (closeWorldbookEditBtn) closeWorldbookEditBtn.addEventListener('click', () => worldbookEditModal.classList.add('hidden'));
-    if (saveWorldbookBtn) saveWorldbookBtn.addEventListener('click', handleSaveWorldbookEntry);
-    if (deleteWorldbookBtn) deleteWorldbookBtn.addEventListener('click', handleDeleteWorldbookEntry);
-
-    if (closeCategoryEditBtn) closeCategoryEditBtn.addEventListener('click', () => categoryEditModal.classList.add('hidden'));
-    if (saveCategoryBtn) saveCategoryBtn.addEventListener('click', handleSaveCategory);
-    if (deleteCategoryBtn) deleteCategoryBtn.addEventListener('click', handleDeleteCategory);
-    if (editCategoryBtn) editCategoryBtn.addEventListener('click', () => openCategoryEdit(window.iphoneSimState.currentWbCategoryId));
+    // Initial Render
+    renderWbCategories();
+    updateWbHeaderState();
+    updateWbActionBtn('plus');
 }
+
+// 暴露给 core.js 调用
+window.renderWorldbookCategoryList = renderWbCategories;
+window.migrateWorldbookData = migrateWorldbookData;
 
 // 注册初始化函数
 if (window.appInitFunctions) {

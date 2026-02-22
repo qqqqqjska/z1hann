@@ -1,0 +1,418 @@
+/* World Book New Design - Minimalist iOS Style */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;600&display=swap');
+
+#worldbook-app {
+    --wb-bg-color: #ffffff;
+    --wb-secondary-bg: #f2f2f7;
+    --wb-text-primary: #000000;
+    --wb-text-secondary: #8e8e93;
+    --wb-accent-color: #000000;
+    --wb-divider-color: #e5e5ea;
+    --wb-danger-color: #ff3b30;
+    --wb-safe-area-top: 44px;
+    --wb-safe-area-bottom: 34px;
+    
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--wb-text-primary);
+    background-color: var(--wb-bg-color);
+}
+
+#worldbook-app * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Views */
+.wb-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--wb-bg-color);
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 10;
+}
+
+.wb-view.hidden-right {
+    transform: translateX(100%);
+    box-shadow: -10px 0 20px rgba(0,0,0,0.05);
+}
+
+.wb-view.hidden-left {
+    transform: translateX(-30%); /* Parallax effect */
+    filter: brightness(0.95);
+}
+
+/* Header */
+.wb-header {
+    padding-top: var(--wb-safe-area-top);
+    padding-bottom: 10px;
+    padding-left: 20px;
+    padding-right: 20px;
+    background-color: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    z-index: 20;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s;
+}
+
+.wb-header.scrolled {
+    border-bottom-color: var(--wb-divider-color);
+}
+
+.wb-nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 44px;
+}
+
+.wb-nav-btn {
+    background: none;
+    border: none;
+    font-size: 16px;
+    padding: 10px;
+    margin: -10px;
+    cursor: pointer;
+    color: var(--wb-text-primary);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    transition: opacity 0.2s;
+}
+
+.wb-nav-btn:active {
+    opacity: 0.5;
+}
+
+.wb-large-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 34px;
+    font-weight: 700;
+    margin-top: 10px;
+    margin-bottom: 5px;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+}
+
+.wb-subtitle {
+    font-size: 13px;
+    color: var(--wb-text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+}
+
+/* Scroll Content */
+.wb-scroll-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 20px 100px 20px;
+    /* Hide scrollbar */
+    scrollbar-width: none; 
+    -ms-overflow-style: none;
+}
+.wb-scroll-content::-webkit-scrollbar { 
+    display: none; 
+}
+
+/* Lists */
+.wb-list-group {
+    margin-top: 20px;
+}
+
+.wb-list-item {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--wb-divider-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+
+.wb-list-item:last-child {
+    border-bottom: none;
+}
+
+/* Click Feedback Ripple */
+.wb-list-item::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.05);
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+    border-radius: 8px;
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+}
+
+.wb-list-item:active::after {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.wb-item-content {
+    flex: 1;
+}
+
+.wb-item-title {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.wb-item-desc {
+    font-size: 14px;
+    color: var(--wb-text-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.wb-item-meta {
+    font-size: 12px;
+    color: var(--wb-text-secondary);
+    margin-top: 4px;
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+}
+
+.wb-chevron {
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid #c7c7cc;
+    border-right: 2px solid #c7c7cc;
+    transform: rotate(45deg);
+    margin-left: 10px;
+}
+
+/* Switch Toggle */
+.wb-toggle-switch {
+    width: 51px;
+    height: 31px;
+    background-color: #e9e9ea;
+    border-radius: 31px;
+    position: relative;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    flex-shrink: 0;
+    margin-left: 15px;
+}
+
+.wb-toggle-switch.active {
+    background-color: var(--wb-accent-color);
+}
+
+.wb-toggle-knob {
+    width: 27px;
+    height: 27px;
+    background-color: white;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.wb-toggle-switch.active .wb-toggle-knob {
+    transform: translateX(20px);
+}
+
+/* Floating Action Button */
+.wb-fab {
+    position: absolute;
+    bottom: 40px;
+    right: 25px;
+    width: 60px;
+    height: 60px;
+    background-color: var(--wb-accent-color);
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    cursor: pointer;
+    z-index: 100;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.wb-fab:active {
+    transform: scale(0.9);
+    box-shadow: 0 5px 10px rgba(0,0,0,0.2);
+}
+
+.wb-fab svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+/* Forms */
+.wb-form-group {
+    margin-bottom: 25px;
+}
+
+.wb-form-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--wb-text-secondary);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.wb-form-input, .wb-form-textarea {
+    width: 100%;
+    padding: 15px;
+    font-size: 16px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    font-family: inherit;
+    background-color: #fafafa;
+    transition: border-color 0.2s, background-color 0.2s;
+    outline: none;
+    color: #000;
+}
+
+.wb-form-input:focus, .wb-form-textarea:focus {
+    border-color: var(--wb-accent-color);
+    background-color: #fff;
+}
+
+.wb-form-textarea {
+    resize: none;
+    min-height: 150px;
+    line-height: 1.5;
+}
+
+/* Modal/Sheet */
+.wb-sheet-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.4);
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+}
+
+.wb-sheet-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.wb-sheet {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: var(--wb-bg-color);
+    border-radius: 30px 30px 0 0;
+    padding: 20px;
+    transform: translateY(100%);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 101;
+    max-height: 90%;
+    display: flex;
+    flex-direction: column;
+}
+
+.wb-sheet.visible {
+    transform: translateY(0);
+}
+
+.wb-sheet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid var(--wb-divider-color);
+}
+
+.wb-sheet-title {
+    font-size: 18px;
+    font-weight: 600;
+    font-family: 'Playfair Display', serif;
+}
+
+.wb-close-btn {
+    background: #f0f0f0;
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #666;
+}
+
+/* Aesthetic decorations */
+.wb-decorative-circle {
+    position: absolute;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #f0f0f0 0%, #ffffff 100%);
+    z-index: -1;
+}
+
+.wb-circle-1 {
+    width: 200px;
+    height: 200px;
+    top: -50px;
+    right: -50px;
+    opacity: 0.5;
+}
+
+.wb-circle-2 {
+    width: 150px;
+    height: 150px;
+    bottom: 100px;
+    left: -40px;
+    opacity: 0.3;
+}
+
+/* Typography Embellishments */
+.wb-serif-text {
+    font-family: 'Playfair Display', serif;
+}
+
+.wb-tag-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.wb-tag {
+    font-size: 11px;
+    padding: 4px 10px;
+    background-color: #f2f2f7;
+    border-radius: 12px;
+    color: var(--wb-text-secondary);
+    font-weight: 500;
+}
+
+/* Utility to ensure content is visible */
+.hidden {
+    display: none !important;
+}
