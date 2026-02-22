@@ -776,106 +776,190 @@ async function generateInitialProfile(contact) {
         }
 
         const cleanKey = settings.key ? settings.key.replace(/[^\x00-\x7F]/g, "").trim() : '';
-        const response = await fetch(fetchUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${cleanKey}`
-            },
-            body: JSON.stringify({
+        
+        // 封装请求函数，支持重试和不同的参数
+        const callAiApi = async (useJsonFormat) => {
+            const body = {
                 model: settings.model,
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: '请生成 JSON 数据' }
                 ],
-                temperature: 0.7,
-                response_format: { type: "json_object" }
-            })
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            let content = data.choices[0].message.content;
-            
-            // 智能提取 JSON 内容（处理 Markdown、嵌套括号、字符串干扰）
-            const extractJson = (str) => {
-                str = str.replace(/```json/gi, '').replace(/```/g, '').trim();
-                let stack = 0;
-                let startIndex = -1;
-                let inString = false;
-                let escape = false;
-
-                for (let i = 0; i < str.length; i++) {
-                    const char = str[i];
-                    if (inString) {
-                        if (escape) { escape = false; }
-                        else if (char === '\\') { escape = true; }
-                        else if (char === '"') { inString = false; }
-                        continue;
-                    }
-                    if (char === '"') { inString = true; continue; }
-                    
-                    if (char === '{' || char === '[') {
-                        if (stack === 0) startIndex = i;
-                        stack++;
-                    } else if (char === '}' || char === ']') {
-                        stack--;
-                        if (stack === 0 && startIndex !== -1) return str.substring(startIndex, i + 1);
-                    }
-                }
-                
-                // 如果找到开始但没闭合，返回从开始到末尾（尝试解析截断的数据）
-                if (startIndex !== -1) return str.substring(startIndex);
-                return str;
+                temperature: 0.7
             };
+            
+            if (useJsonFormat) {
+                body.response_format = { type: "json_object" };
+            }
 
-            content = extractJson(content);
-            let profile = null;
+            console.log(`[GenerateProfile] Requesting (JSON_Format: ${useJsonFormat})...`);
+            
+            const res = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${cleanKey}`
+                },
+                body: JSON.stringify(body)
+            });
+            
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            return data.choices[0].message.content;
+        };
 
+        let content = '';
+        try {
+            // 第一次尝试：带 response_format (如果支持)
+            content = await callAiApi(true);
+            
+            // 检查内容有效性，如果无效则抛出错误以触发重试
+            if (!content || content.trim() === '```' || content.trim().length < 5) {
+                throw new Error('Response content is empty or invalid');
+            }
+        } catch (e) {
+            console.warn('[GenerateProfile] First attempt failed/invalid, retrying without json_object...', e);
+            // 第二次尝试：不带 response_format (兼容性更好)
             try {
-                profile = JSON.parse(content);
-                // 处理数组的情况
+                content = await callAiApi(false);
+            } catch (e2) {
+                console.error('[GenerateProfile] Second attempt failed', e2);
+            }
+        }
+
+        console.log('[GenerateProfile] Raw AI response:', content);
+        
+        // 如果响应为空，或只是 markdown 标记，手动处理
+        if (!content || content.trim() === '```') {
+            console.warn('[GenerateProfile] Empty or invalid response received');
+            content = ''; // Reset to empty string to trigger fallback logic
+        }
+
+        // 智能提取 JSON 内容（处理 Markdown、嵌套括号、字符串干扰）
+        const extractJson = (str) => {
+            if (!str) return '';
+            // 预处理：移除 markdown 代码块标记
+            str = str.replace(/```json/gi, '').replace(/```/g, '').trim();
+            
+            // 尝试找到第一个 { 或 [
+            const firstBrace = str.indexOf('{');
+            const firstBracket = str.indexOf('[');
+            
+            let startIndex = -1;
+            if (firstBrace === -1 && firstBracket === -1) return str;
+            
+            if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+                startIndex = firstBrace;
+            } else {
+                startIndex = firstBracket;
+            }
+            
+            // 尝试找到最后一个 } 或 ]
+            const lastBrace = str.lastIndexOf('}');
+            const lastBracket = str.lastIndexOf(']');
+            
+            let endIndex = -1;
+            if (lastBrace > startIndex) endIndex = lastBrace;
+            if (lastBracket > startIndex && lastBracket > endIndex) endIndex = lastBracket;
+            
+            if (startIndex !== -1 && endIndex !== -1) {
+                return str.substring(startIndex, endIndex + 1);
+            }
+            
+            // 如果只找到了开始，没找到结束（截断），返回剩余部分尝试修复
+            if (startIndex !== -1) return str.substring(startIndex);
+            
+            return str;
+        };
+
+        let jsonContent = extractJson(content);
+        console.log('[GenerateProfile] Extracted JSON content:', jsonContent);
+        
+        let profile = null;
+
+        if (jsonContent) {
+            try {
+                profile = JSON.parse(jsonContent);
                 if (Array.isArray(profile) && profile.length > 0) {
                     profile = profile[0];
                 }
             } catch (e) {
-                console.warn('JSON解析失败，尝试正则提取', e);
-                // Fallback: 尝试使用正则提取关键字段
-                profile = {};
-                const extractField = (key) => {
-                    const regex = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
-                    const match = content.match(regex);
-                    return match ? match[1] : null;
-                };
-
-                profile.nickname = extractField('nickname');
-                profile.wxid = extractField('wxid');
-                profile.signature = extractField('signature');
-
-                // 再次尝试宽松正则（匹配不带引号的 key: value）
-                if (!profile.nickname) {
-                    const match = content.match(/nickname\s*[:：]\s*["']?([^"'\n,]+)["']?/i);
-                    if (match) profile.nickname = match[1].trim();
-                }
-                if (!profile.wxid) {
-                    const match = content.match(/wxid\s*[:：]\s*["']?([^"'\n,]+)["']?/i);
-                    if (match) profile.wxid = match[1].trim();
+                console.warn('[GenerateProfile] JSON Parse failed, trying fix...', e);
+                if (jsonContent.trim().startsWith('{') && !jsonContent.trim().endsWith('}')) {
+                     try { profile = JSON.parse(jsonContent + '}'); } catch(e2) {}
                 }
             }
-
-            // 无论是否成功提取，都标记为已初始化，避免反复失败重试
-            // 如果提取到了部分字段，更新之；否则保留原样（显示默认信息）
-            if (profile) {
-                if (profile.nickname) contact.nickname = profile.nickname;
-                if (profile.wxid) contact.wxid = profile.wxid;
-                if (profile.signature) contact.signature = profile.signature;
-            }
-            
-            contact.initializedProfile = true;
-            saveConfig();
         }
+
+        // 正则提取 Fallback
+        if (!profile && content) {
+            profile = {};
+            const extractField = (keys) => {
+                for (const key of keys) {
+                    let regex = new RegExp(`["']${key}["']\\s*[:：]\\s*["']((?:[^"']|\\\\.)*)["']`, 'i');
+                    let match = content.match(regex);
+                    if (match) return match[1];
+                    
+                    regex = new RegExp(`${key}\\s*[:：]\\s*["']((?:[^"']|\\\\.)*)["']`, 'i');
+                    match = content.match(regex);
+                    if (match) return match[1];
+
+                    regex = new RegExp(`${key}\\s*[:：]\\s*([^"'\n,{}]+)`, 'i');
+                    match = content.match(regex);
+                    if (match) return match[1].trim();
+                }
+                return null;
+            };
+            profile.nickname = extractField(['nickname', '网名', 'name']);
+            profile.wxid = extractField(['wxid', '微信号', 'id']);
+            profile.signature = extractField(['signature', '签名', 'sign']);
+            
+            // Check if profile is empty
+            if (!profile.nickname && !profile.wxid && !profile.signature) {
+                profile = null;
+            }
+        }
+
+        // 终极 Fallback：本地生成 (Satisfies "Must generate it out")
+        if (!profile) {
+            console.warn('[GenerateProfile] All parsing failed. Using local generation.');
+            const randomId = Math.random().toString(36).substring(2, 8);
+            profile = {
+                nickname: contact.name, // 默认使用名字
+                wxid: `wxid_${randomId}`,
+                signature: `你好，我是${contact.name}`
+            };
+        }
+
+        console.log('[GenerateProfile] Final parsed profile:', profile);
+
+        if (profile) {
+            if (profile.nickname) contact.nickname = profile.nickname;
+            if (profile.wxid) contact.wxid = profile.wxid;
+            if (profile.signature) contact.signature = profile.signature;
+            
+            // 强制刷新 UI
+            document.getElementById('ai-profile-name').textContent = contact.nickname || contact.name;
+            document.getElementById('ai-profile-id').textContent = `微信号: ${contact.wxid || 'wxid_' + contact.id}`;
+            document.getElementById('ai-profile-signature').textContent = contact.signature || '暂无个性签名';
+        }
+        
+        contact.initializedProfile = true;
+        saveConfig();
+
     } catch (error) {
-        console.error('生成资料失败', error);
+        console.error('[GenerateProfile] 生成资料过程中发生异常', error);
+        // 异常情况下的保底
+        contact.nickname = contact.name;
+        contact.wxid = `wxid_${Math.random().toString(36).substring(2, 8)}`;
+        contact.signature = "你好";
+        contact.initializedProfile = true;
+        saveConfig();
+        
+        // 刷新 UI
+        document.getElementById('ai-profile-name').textContent = contact.nickname;
+        document.getElementById('ai-profile-id').textContent = `微信号: ${contact.wxid}`;
+        document.getElementById('ai-profile-signature').textContent = contact.signature;
     }
 }
 
@@ -2194,8 +2278,13 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     let extraClass = '';
+    const cardTypes = ['transfer', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite'];
+    if (cardTypes.includes(type)) {
+        extraClass += ' no-bubble';
+    }
+
     if (type === 'transfer') {
-        extraClass = 'transfer-msg';
+        extraClass += ' transfer-msg';
         try {
             const data = typeof text === 'string' ? JSON.parse(text) : text;
             if (data.status === 'accepted') extraClass += ' accepted';
@@ -2213,7 +2302,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     } else if (type === 'image') {
         extraClass = 'image-msg';
     } else if (type === 'gift_card') {
-        extraClass = 'gift-card-msg';
+        extraClass += ' gift-card-msg';
         let giftData = typeof text === 'string' ? JSON.parse(text) : text;
         contentHtml = `
             <div class="gift-card" style="background: #fff; border-radius: 8px; padding: 12px 12px 10px 12px; width: 220px; height: 110px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-top: -45px; display: flex; flex-direction: column; justify-content: space-between;">
@@ -2233,7 +2322,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
         `;
     } else if (type === 'shopping_gift') {
-        extraClass = 'shopping-gift-msg';
+        extraClass += ' shopping-gift-msg';
         let giftData = {};
         try {
             giftData = typeof text === 'string' ? JSON.parse(text) : text;
@@ -2245,7 +2334,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const remarkHtml = giftData.remark ? `<div style="padding: 6px 12px; font-size: 13px; color: #333; background: #fff; border-top: 1px solid #f5f5f5; font-style: italic;">"${giftData.remark}"</div>` : '';
         
         contentHtml = `
-            <div class="shopping-gift-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-top: -40px; display: flex; flex-direction: column;">
+            <div class="shopping-gift-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                 <div style="background: #333333; padding: 8px 12px; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
                     <span><i class="fas fa-gift" style="margin-right: 6px;"></i>送你的礼物</span>
                     <span style="font-size: 16px;">¥${total}</span>
@@ -2267,7 +2356,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
         `;
     } else if (type === 'delivery_share') {
-        extraClass = 'delivery-share-msg';
+        extraClass += ' delivery-share-msg';
         let deliveryData = {};
         try {
             deliveryData = typeof text === 'string' ? JSON.parse(text) : text;
@@ -2279,7 +2368,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const remarkHtml = deliveryData.remark ? `<div style="padding: 6px 12px; font-size: 13px; color: #333; background: #fff; border-top: 1px solid #f5f5f5; font-style: italic;">"${deliveryData.remark}"</div>` : '';
         
         contentHtml = `
-            <div class="delivery-share-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-top: -40px; display: flex; flex-direction: column;">
+            <div class="delivery-share-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                 <div style="background: #333333; padding: 8px 12px; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
                     <span><i class="fas fa-utensils" style="margin-right: 6px;"></i>请你吃外卖</span>
                     <span style="font-size: 16px;">¥${total}</span>
@@ -2300,8 +2389,8 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 </div>
             </div>
         `;
-    } else if (type === 'order_progress') {
-        extraClass = 'order-progress-msg';
+    } else if (type === 'order_progress' || type === 'order_share') {
+        extraClass += ' order-progress-msg';
         let progressData = {};
         try {
             progressData = typeof text === 'string' ? JSON.parse(text) : text;
@@ -2310,45 +2399,40 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const title = progressData.title || '商品订单';
         const status = progressData.status || '待发货';
         const eta = progressData.eta || '计算中';
+        const items = progressData.items || '商品';
+        const orderId = progressData.orderId;
         
         // Determine progress state
         let step = 1;
-        if (status === '已发货') step = 2;
-        if (status === '已完成') step = 3;
+        if (status === '已发货' || status === 'On Delivery') step = 2;
+        if (status === '已完成' || status === 'Delivered') step = 3;
         
         contentHtml = `
-            <div class="order-progress-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 260px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 15px 15px 1px 15px; margin-top: -40px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
-                    <div style="font-size: 14px; font-weight: bold; color: #333;">${title}</div>
-                    <div style="font-size: 12px; color: #007AFF;">${status}</div>
+            <div class="order-share-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 240px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);" onclick="document.getElementById('shopping-app').classList.remove('hidden'); if(window.switchShoppingTab) window.switchShoppingTab('orders'); if(window.openShoppingOrderProgress && '${orderId}') window.openShoppingOrderProgress('${orderId}');">
+                <div style="background: #000; padding: 10px 12px; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
+                    <span><i class="fas fa-box" style="margin-right: 6px;"></i>订单分享</span>
+                    <span style="font-size: 12px; opacity: 0.8;">Møde.</span>
                 </div>
-                
-                <div style="position: relative; height: 35px; display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 5px;">
-                    <div style="position: absolute; top: 5px; left: 5px; right: 5px; height: 2px; background: #f0f0f0; z-index: 0;"></div>
-                    <div style="position: absolute; top: 5px; left: 5px; height: 2px; background: #000; z-index: 0; width: ${step === 1 ? '0%' : (step === 2 ? '50%' : '100%')}; transition: width 0.3s;"></div>
+                <div style="padding: 15px;">
+                    <div style="font-size: 16px; font-weight: bold; margin-bottom: 4px; color: #333;">${status}</div>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 12px;">${eta}</div>
                     
-                    <div style="z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;">
-                        <div style="width: 10px; height: 10px; border-radius: 50%; background: ${step >= 1 ? '#000' : '#fff'}; border: 2px solid ${step >= 1 ? '#000' : '#ddd'}; box-sizing: border-box;"></div>
-                        <div style="font-size: 10px; color: ${step >= 1 ? '#333' : '#999'};">下单</div>
+                    <div style="position: relative; height: 4px; background: #f0f0f0; border-radius: 2px; margin-bottom: 12px;">
+                        <div style="position: absolute; top: 0; left: 0; height: 100%; background: #000; border-radius: 2px; width: ${step === 1 ? '33%' : (step === 2 ? '66%' : '100%')};"></div>
                     </div>
-                    <div style="z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;">
-                        <div style="width: 10px; height: 10px; border-radius: 50%; background: ${step >= 2 ? '#000' : '#fff'}; border: 2px solid ${step >= 2 ? '#000' : '#ddd'}; box-sizing: border-box;"></div>
-                        <div style="font-size: 10px; color: ${step >= 2 ? '#333' : '#999'};">发货</div>
-                    </div>
-                    <div style="z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;">
-                        <div style="width: 10px; height: 10px; border-radius: 50%; background: ${step >= 3 ? '#000' : '#fff'}; border: 2px solid ${step >= 3 ? '#000' : '#ddd'}; box-sizing: border-box;"></div>
-                        <div style="font-size: 10px; color: ${step >= 3 ? '#333' : '#999'};">送达</div>
+
+                    <div style="font-size: 13px; color: #333; border-top: 1px solid #f0f0f0; padding-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        ${items}
                     </div>
                 </div>
-                
-                <div style="font-size: 11px; color: #999; text-align: right; margin-top: 5px;">
-                    ${step === 3 ? '订单已完成' : `预计送达 ${eta}`}
+                <div style="padding: 6px 12px; background: #f9f9f9; font-size: 11px; color: #999; text-align: right;">
+                    点击查看详情 <i class="fas fa-chevron-right" style="font-size: 10px;"></i>
                 </div>
             </div>
         `;
     } else if (type === 'pay_request') {
 
-        extraClass = 'pay-request-msg';
+        extraClass += ' pay-request-msg';
         let payData = {};
         try {
             payData = typeof text === 'string' ? JSON.parse(text) : text;
@@ -2360,7 +2444,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const isPaid = payData.status === 'paid';
         
         contentHtml = `
-            <div class="pay-request-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-top: -40px; display: flex; flex-direction: column;">
+            <div class="pay-request-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                 <div style="background: #333333; padding: 8px 12px; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
                     <span><i class="fas fa-hand-holding-usd" style="margin-right: 6px;"></i>代付请求</span>
                     <span style="font-size: 16px;">¥${total}</span>
@@ -2383,14 +2467,14 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
         `;
     } else if (type === 'product_share') {
-        extraClass = 'product-share-msg';
+        extraClass += ' product-share-msg';
         let productData = {};
         try {
             productData = typeof text === 'string' ? JSON.parse(text) : text;
         } catch(e) {}
         
         contentHtml = `
-            <div class="product-share-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; height: 115px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-top: -40px; display: flex; flex-direction: column;">
+            <div class="product-share-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; height: 115px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: flex; flex-direction: column;">
                 <div style="display: flex; padding: 10px; gap: 8px; flex: 1; overflow: hidden;">
                     <div style="width: 60px; height: 60px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background-color: #f0f0f0;">
                         <img src="${productData.image || ''}" style="width: 100%; height: 100%; object-fit: cover;">
@@ -2410,7 +2494,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
         `;
     } else if (type === 'icity_card') {
-        extraClass = 'icity-card-msg';
+        extraClass += ' icity-card-msg';
         let cardData = typeof text === 'string' ? JSON.parse(text) : text;
         
         let displayContent = cardData.content;
@@ -2441,7 +2525,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
         `;
     } else if (type === 'minesweeper_invite') {
-        extraClass = 'minesweeper-invite-msg';
+        extraClass += ' minesweeper-invite-msg';
         contentHtml = `<div class="minesweeper-card" style="display: flex; flex-direction: column; width: 100%; height: 100%; justify-content: space-between;" onclick="window.startMinesweeper()"><div class="minesweeper-invite-top" style="display: flex; align-items: center; padding: 12px 15px; gap: 12px; background: linear-gradient(135deg, #f9f9f9 0%, #ffffff 100%); border-bottom: 1px solid #f0f0f0; width: 100%;"><div class="minesweeper-icon" style="width: 40px; height: 40px; border-radius: 8px; background-color: #ff3b30; display: flex; justify-content: center; align-items: center; font-size: 20px; color: #fff;">💣</div><div class="minesweeper-info" style="display: flex; flex-direction: column; justify-content: center; flex: 1;"><div class="minesweeper-title" style="font-size: 16px; font-weight: 600; color: #000; margin-bottom: 2px;">扫雷</div><div class="minesweeper-desc" style="font-size: 12px; color: #8e8e93;">邀请你玩游戏</div></div></div><div class="minesweeper-invite-bottom" style="padding: 8px 15px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #8e8e93; width: 100%;"><span>经典游戏</span><i class="fas fa-chevron-right"></i></div></div>`;
     }
 

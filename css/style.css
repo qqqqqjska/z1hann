@@ -3444,6 +3444,65 @@ input:checked + .slider:before {
 }
 
 /* Description Message Style (Third Person) */
+/* Card Messages Sizing Fix - Fixed Dimensions */
+.chat-message .message-content.order-progress-msg,
+.chat-message .message-content.shopping-gift-msg,
+.chat-message .message-content.delivery-share-msg,
+.chat-message .message-content.pay-request-msg,
+.chat-message .message-content.product-share-msg,
+.chat-message .message-content.icity-card-msg,
+.chat-message .message-content.gift-card-msg {
+    width: fit-content !important;
+    height: fit-content !important;
+    background-color: transparent !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
+    display: block !important;
+    align-self: flex-start;
+}
+
+/* Specific Card Dimensions */
+.order-share-card {
+    width: 240px !important;
+    height: 220px !important; /* Reverted to compact height */
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important; /* Stack from top */
+    box-sizing: border-box !important;
+    margin: 0 !important;
+}
+
+/* Push footer to bottom */
+.order-share-card > div:last-child {
+    margin-top: auto !important;
+}
+
+.shopping-gift-card,
+.delivery-share-card,
+.pay-request-card {
+    width: 230px !important;
+    height: 130px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+}
+
+.product-share-card {
+    width: 230px !important;
+    height: 115px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+}
+
 .message-content.description-msg {
     background-color: transparent !important;
     color: #fff !important;

@@ -134,3 +134,18 @@
     border-radius: 4px;
     text-align: center;
 }
+
+/* No Bubble Style for Cards */
+.chat-message .message-content.no-bubble {
+    background: transparent !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    min-height: auto !important; /* Fix stretching */
+}
+
+/* Remove tails for no-bubble */
+.chat-message .message-content.no-bubble::before,
+.chat-message .message-content.no-bubble::after {
+    display: none !important;
+}

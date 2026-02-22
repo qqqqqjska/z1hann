@@ -2219,6 +2219,7 @@
                 });
 
                 post.image = await compressImage(resultBase64, 0.7, 800);
+                localStorage.removeItem('forum_img_' + post.id); // Clear old image to force update
                 saveForumData();
                 renderForum(false);
             } else {
@@ -2587,7 +2588,7 @@
             let height = 1216;
             if (post.image_ratio === '16:9') { width = 1024; height = 576; }
             else if (post.image_ratio === '1:1') { width = 1024; height = 1024; }
-            else if (post.image_ratio === '4:5') { width = 832; height = 1040; }
+            else if (post.image_ratio === '4:5') { width = 832; height = 1024; }
 
             console.log('[Forum] Refreshing Image for post:', post.id, 'Prompt:', prompt);
 
@@ -2611,7 +2612,8 @@
             if (imgEl) imgEl.src = base64Image;
 
             // Persist
-            localStorage.setItem('forum_posts', JSON.stringify(forumState.posts));
+            localStorage.removeItem('forum_img_' + post.id);
+            saveForumData();
             
         } catch (e) {
             console.error('Refresh Image Error:', e);
@@ -3570,7 +3572,7 @@
 
     // --- Image Storage Helpers (separate keys to avoid quota issues) ---
 
-    const MAX_STORED_IMAGES = 5;
+    const MAX_STORED_IMAGES = 20;
 
     function getAllImageKeys() {
         const keys = [];
@@ -3625,7 +3627,12 @@
                 p.image.length > 5000 &&
                 p.image.startsWith('data:image/') &&
                 !p.image.startsWith('data:image/svg')) {
-                savePostImage(p.id, p.image);
+                
+                const key = 'forum_img_' + p.id;
+                // Only save if key doesn't exist, to avoid re-writing and hitting quota loop
+                if (!localStorage.getItem(key)) {
+                    savePostImage(p.id, p.image);
+                }
                 return Object.assign({}, p, { image: '__ref__' });
             }
             return p;
@@ -4164,7 +4171,7 @@ ${charList}
                                     let height = 1216;
                                     if (post.image_ratio === '16:9') { width = 1024; height = 576; }
                                     else if (post.image_ratio === '1:1') { width = 1024; height = 1024; }
-                                    else if (post.image_ratio === '4:5') { width = 832; height = 1040; }
+                                    else if (post.image_ratio === '4:5') { width = 832; height = 1024; }
 
                                     const base64Image = await window.generateNovelAiImageApi({
                                         key: novelaiSettings.key,

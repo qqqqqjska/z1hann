@@ -33,6 +33,7 @@
     <link rel="stylesheet" href="css/image_refresh.css">
     <link rel="stylesheet" href="css/forum_style.css">
     <link rel="stylesheet" href="css/lookus_style.css">
+    <link rel="stylesheet" href="css/shopping_new.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -2800,7 +2801,7 @@
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                      <img id="shopping-spec-img" src="" style="width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background: #eee;">
                      <div style="flex: 1;">
-                         <div id="shopping-spec-price" style="color: #FF5000; font-size: 18px; font-weight: bold;"></div>
+                         <div id="shopping-spec-price" style="color: #000000; font-size: 18px; font-weight: bold;"></div>
                          <div id="shopping-spec-selected-text" style="font-size: 12px; color: #666; margin-top: 4px;">请选择规格</div>
                      </div>
                 </div>
@@ -3593,12 +3594,15 @@
             <span style="font-size: 16px; font-weight: 500;">已加入购物车</span>
         </div>
 
-        <div class="app-header" style="background: #fff; border-bottom: 1px solid #e5e5e5;">
-            <button class="back-btn" id="close-shopping-app"><i class="fas fa-chevron-left"></i> 返回</button>
-            <h3>购物中心</h3>
-            <div style="display: flex; gap: 15px; align-items: center;">
-                <button id="shopping-link-contact-btn" class="icon-btn" style="color: #333; font-size: 18px;"><i class="fas fa-link"></i></button>
-                <button id="shopping-menu-btn" class="icon-btn" style="color: #333; font-size: 18px;"><i class="fas fa-search"></i></button>
+        <div class="shopping-main-header">
+            <h1 class="app-title" id="close-shopping-app" style="cursor: pointer;">Møde.</h1>
+            <div class="header-actions">
+                <button id="shopping-link-contact-btn" class="icon-btn">
+                    <i class="fas fa-link"></i>
+                </button>
+                <button id="shopping-menu-btn" class="icon-btn">
+                    <i class="fas fa-search"></i>
+                </button>
             </div>
         </div>
 
@@ -3645,75 +3649,102 @@
             </div>
         </div>
 
-        <!-- Bottom Tab Bar -->
-        <div class="wechat-tab-bar" style="width: 100%; left: 0; bottom: 0; right: 0; border-radius: 0; padding-bottom: env(safe-area-inset-bottom); margin-bottom: 0; height: auto; padding-top: 6px; min-height: 50px;">
-            <div class="wechat-tab-item active" data-tab="home">
-                <i class="fas fa-shopping-bag"></i>
-                <span>购物</span>
+        <!-- Product Detail View (New) -->
+        <div id="product-detail" class="shopping-detail-view">
+            <div class="shopping-detail-header">
+                <button class="shopping-back-btn" onclick="closeDetail('product')">
+                    <svg viewBox="0 0 24 24" style="width:24px;height:24px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </button>
+                <button id="shopping-share-btn" class="icon-btn" style="background:rgba(255,255,255,0.8); backdrop-filter:blur(10px);">
+                    <svg viewBox="0 0 24 24" style="width:24px;height:24px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;">
+                        <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                        <polyline points="16 6 12 2 8 6"></polyline>
+                        <line x1="12" y1="2" x2="12" y2="15"></line>
+                    </svg>
+                </button>
             </div>
-            <div class="wechat-tab-item" data-tab="cart">
-                <i class="fas fa-shopping-cart"></i>
-                <span>购物车</span>
+            <div class="shopping-detail-content">
+                <div class="shopping-pd-image">
+                    <img id="shopping-detail-img" src="" style="width: 70%; height: 70%; object-fit: contain;">
+                </div>
+                <div class="shopping-pd-info">
+                    <h2 class="shopping-pd-title" id="shopping-detail-title">Title</h2>
+                    <div class="shopping-pd-price" id="shopping-detail-price">$0</div>
+                    <p class="shopping-pd-desc" id="shopping-detail-desc">
+                        Description
+                    </p>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <span style="padding: 8px 16px; background: #f5f5f5; border-radius: 20px; font-size: 12px; color: #333;">默认规格</span>
+                    </div>
+                </div>
             </div>
-            <div class="wechat-tab-item" data-tab="delivery">
-                <i class="fas fa-utensils"></i>
-                <span>外卖</span>
-            </div>
-            <div class="wechat-tab-item" data-tab="orders">
-                <i class="fas fa-clipboard-list"></i>
-                <span>订单</span>
-            </div>
+            <button class="shopping-add-btn" id="detail-add-to-cart-btn">Add to Cart</button>
         </div>
 
-        <!-- 商品详情页 -->
-        <div id="shopping-detail-screen" class="sub-screen hidden" style="z-index: 150; background-color: #f5f5f5;">
-            <!-- Header -->
-            <div class="app-header" style="background: transparent; position: absolute; width: 100%; z-index: 10; border: none; pointer-events: none;">
-                <button class="back-btn" id="close-shopping-detail" style="background: rgba(0,0,0,0.4); color: #fff; border-radius: 50%; width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; pointer-events: auto; margin-left: 10px;"><i class="fas fa-chevron-left" style="margin-right: 2px;"></i></button>
-                <div style="flex: 1;"></div>
-                <button id="shopping-share-btn" class="icon-btn" style="background: rgba(0,0,0,0.4); color: #fff; border-radius: 50%; width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; pointer-events: auto; margin-right: 10px;"><i class="fas fa-share"></i></button>
+        <!-- Food Detail View (New) -->
+        <div id="food-detail" class="shopping-detail-view">
+            <div class="shopping-detail-header">
+                <button class="shopping-back-btn" onclick="closeDetail('food')">
+                    <svg viewBox="0 0 24 24" style="width:24px;height:24px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </button>
             </div>
-            
-            <!-- Body -->
-            <div class="app-body" style="padding: 0; padding-bottom: 60px; overflow-y: auto;">
-                <img id="shopping-detail-img" src="" style="width: 100%; display: block;">
-                <div style="padding: 15px; background: #fff; margin-bottom: 10px;">
-                    <div style="color: #FF5000; font-size: 24px; font-weight: bold;">¥<span id="shopping-detail-price"></span></div>
-                    <div id="shopping-detail-title" style="font-size: 16px; font-weight: bold; margin: 10px 0; line-height: 1.4;"></div>
-                    <div style="display: flex; justify-content: space-between; color: #999; font-size: 12px;">
-                        <span>快递: 免运费</span>
-                        <span id="shopping-detail-paid"></span>
-                        <span>广东杭州</span>
+            <div class="shopping-detail-content">
+                <div class="shopping-fd-header">
+                    <!-- Placeholder background -->
+                    <div style="position:absolute; bottom:20px; left:24px;">
+                        <h2 style="font-size:28px; font-weight:700; color: #333;" id="food-detail-title">Restaurant</h2>
+                        <span style="background:#000; color:#fff; padding:4px 8px; border-radius:6px; font-size:12px;">★ 4.8</span>
                     </div>
                 </div>
-                
-                <div style="padding: 15px; background: #fff; margin-bottom: 10px; display: flex; align-items: center;">
-                    <div style="width: 40px; height: 40px; background: #eee; border-radius: 4px; margin-right: 10px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-store"></i></div>
-                    <div style="flex: 1;">
-                        <div id="shopping-detail-shop" style="font-weight: bold;"></div>
-                        <div style="font-size: 12px; color: #999;">天猫五年老店</div>
+                <div class="shopping-fd-info">
+                    <h3 style="margin-bottom:15px; font-size: 18px; font-weight: 600;">热门单品</h3>
+                    <div id="food-detail-menu-list">
+                        <!-- Menu items will be generated here -->
                     </div>
-                    <button style="border: 1px solid #FF5000; color: #FF5000; background: #fff; padding: 4px 12px; border-radius: 12px; font-size: 12px;">进店</button>
-                </div>
-                
-                <div style="padding: 15px; background: #fff; min-height: 300px;">
-                    <div style="text-align: center; color: #ccc; margin-top: 20px;">—— 宝贝详情 ——</div>
-                    <div id="shopping-detail-desc" style="margin-top: 20px; font-size: 14px; line-height: 1.6; color: #333;"></div>
                 </div>
             </div>
-            
-            <!-- Footer -->
-            <div style="position: absolute; bottom: 0; width: 100%; background: #fff; display: flex; align-items: center; height: 80px; padding-bottom: max(10px, env(safe-area-inset-bottom)); border-top: 1px solid #eee;">
-                <div style="flex: 1; display: flex; justify-content: space-around;">
-                    <div style="display: flex; flex-direction: column; align-items: center; font-size: 10px; color: #666; gap: 2px;"><i class="fas fa-store" style="font-size: 20px;"></i>店铺</div>
-                    <div style="display: flex; flex-direction: column; align-items: center; font-size: 10px; color: #666; gap: 2px;"><i class="fas fa-comment-dots" style="font-size: 20px;"></i>客服</div>
-                    <div style="display: flex; flex-direction: column; align-items: center; font-size: 10px; color: #666; gap: 2px;"><i class="far fa-star" style="font-size: 20px;"></i>收藏</div>
-                </div>
-                <div style="flex: 1.6; display: flex; margin-right: 15px; height: 44px;">
-                    <button id="detail-add-to-cart-btn" style="flex: 1; background: linear-gradient(90deg, #FFCB00, #FF9402); color: #fff; border: none; border-top-left-radius: 22px; border-bottom-left-radius: 22px; font-size: 15px; font-weight: bold;">加入购物车</button>
-                    <button id="detail-buy-now-btn" style="flex: 1; background: linear-gradient(90deg, #FF5E00, #FF2A00); color: #fff; border: none; border-top-right-radius: 22px; border-bottom-right-radius: 22px; font-size: 15px; font-weight: bold;">立即购买</button>
-                </div>
-            </div>
+            <button class="shopping-add-btn" id="food-detail-action-btn">查看订单</button>
+        </div>
+
+        <!-- Navigation Bar (New SVG Style) -->
+        <div class="nav-bar">
+            <button class="nav-item active" data-tab="home">
+                <svg viewBox="0 0 24 24" style="width:28px;height:28px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+            </button>
+            <button class="nav-item" data-tab="cart">
+                <svg viewBox="0 0 24 24" style="width:28px;height:28px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;">
+                    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <path d="M16 10a4 4 0 0 1-8 0"></path>
+                </svg>
+            </button>
+            <button class="nav-item" data-tab="delivery">
+                <svg viewBox="0 0 24 24" style="width:28px;height:28px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;">
+                    <path d="M18 8h1a4 4 0 0 1 0 8h-1"></path>
+                    <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path>
+                    <line x1="6" y1="1" x2="6" y2="4"></line>
+                    <line x1="10" y1="1" x2="10" y2="4"></line>
+                    <line x1="14" y1="1" x2="14" y2="4"></line>
+                </svg>
+            </button>
+            <button class="nav-item" data-tab="orders">
+                <svg viewBox="0 0 24 24" style="width:28px;height:28px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+            </button>
         </div>
     </div>
 

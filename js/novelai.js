@@ -38,7 +38,6 @@ window.generateNovelAiImageApi = async function(options) {
         cfg_rescale: 0,
         noise_schedule: "karras",
         legacy_v3_extend: false,
-        skip_cfg_above_sigma: null,
         use_coords: false,
         negative_prompt: negativePrompt
     };
