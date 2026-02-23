@@ -1394,13 +1394,11 @@ function renderMemoryList() {
         // Ensure id is displayed properly
         let refId = memory.id ? String(memory.id).slice(-4) : '0000';
         
-        let title = 'Memory Fragment';
-        if (memory.content) {
-            const lines = memory.content.split('\n');
-            if (lines.length > 0) {
-                title = lines[0].substring(0, 15);
-                if (lines[0].length > 15) title += '...';
-            }
+        let title = memory.title || 'Memory Fragment';
+        if (!memory.title && memory.content) {
+            // Fallback if no title stored (old memories)
+            // Use first 7 chars as requested
+            title = memory.content.substring(0, 7); 
         }
 
         item.innerHTML = `
@@ -1408,7 +1406,7 @@ function renderMemoryList() {
                 <span class="ref-id">REF // ${memory.range || '0000'}</span>
                 <span class="status">${memoryType}</span>
             </div>
-            <div class="card-body">
+            <div class="card-body" onclick="this.querySelector('p').classList.toggle('expanded'); event.stopPropagation();">
                 <h3>${title}</h3>
                 <p>${memory.content}</p>
             </div>

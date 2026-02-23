@@ -2303,7 +2303,7 @@
 
                 #memory-app .ref-id {
                     font-family: monospace;
-                    font-size: 14px;
+                    font-size: 10px;
                     letter-spacing: 1px;
                 }
 
@@ -2333,6 +2333,12 @@
                     -webkit-line-clamp: 3;
                     -webkit-box-orient: vertical;
                     overflow: hidden;
+                    transition: all 0.3s ease;
+                }
+
+                #memory-app .archive-card.is-active .card-body p {
+                    -webkit-line-clamp: unset;
+                    overflow: visible;
                 }
 
                 #memory-app .card-footer {
@@ -2375,7 +2381,7 @@
                     <div class="page-header">
                         <div class="header-tag">SYSTEM // LOG_ACCESS</div>
                         <h1 class="header-main">Memory Archives</h1>
-                        <p class="header-desc">Retrieved fragmented records from the neural database. Classified by emotional resonance and temporal stamps.</p>
+                        <p class="header-desc">(^_−)−☆</p>
                     </div>
 
                     <div id="memory-list" class="archive-list">
