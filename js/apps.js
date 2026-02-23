@@ -1382,25 +1382,92 @@ function renderMemoryList() {
 
     sortedMemories.forEach(memory => {
         const item = document.createElement('div');
-        item.className = 'memory-card';
+        item.className = 'archive-card';
         
         const date = new Date(memory.time);
         const timeStr = `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
         
+        // Use type if available, else default to 线上聊天
+        let memoryType = memory.type || '线上聊天';
+        if (memoryType === '线上聊天') memoryType = 'Log'; 
+        
+        // Ensure id is displayed properly
+        let refId = memory.id ? String(memory.id).slice(-4) : '0000';
+        
+        let title = 'Memory Fragment';
+        if (memory.content) {
+            const lines = memory.content.split('\n');
+            if (lines.length > 0) {
+                title = lines[0].substring(0, 15);
+                if (lines[0].length > 15) title += '...';
+            }
+        }
+
         item.innerHTML = `
-            <div class="memory-header">
-                <span class="memory-time">${timeStr}</span>
-                <div class="memory-actions">
-                    <button class="memory-btn" onclick="window.editMemory(${memory.id})"><i class="fas fa-pen"></i></button>
-                    <button class="memory-btn" onclick="window.deleteMemory(${memory.id})"><i class="fas fa-ellipsis-h"></i></button>
-                </div>
+            <div class="card-top">
+                <span class="ref-id">REF // ${memory.range || '0000'}</span>
+                <span class="status">${memoryType}</span>
             </div>
-            <div class="memory-content">${memory.content}</div>
-            ${memory.range ? `<div style="text-align: right; margin-top: 8px; font-size: 12px; color: #999;">${memory.range}</div>` : ''}
+            <div class="card-body">
+                <h3>${title}</h3>
+                <p>${memory.content}</p>
+            </div>
+            <div class="card-footer">
+                <div class="archive-actions" style="position: relative;">
+                    <span style="cursor: pointer; margin-right: 10px; font-family: monospace; font-size: 10px; border: 1px solid #ccc; padding: 2px 5px; border-radius: 4px;" onclick="event.stopPropagation(); window.toggleMemoryActions(this, ${memory.id})">OPTS</span>
+                    <div class="memory-action-menu" id="memory-action-${memory.id}" style="display: none; position: absolute; left: 0; bottom: 100%; background: white; border: 1px solid #eee; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 5px; z-index: 100;">
+                        <div onclick="event.stopPropagation(); window.editMemory(${memory.id}); window.toggleMemoryActions(null, ${memory.id})" style="padding: 5px 10px; cursor: pointer; white-space: nowrap; font-size: 12px; color: #333; border-bottom: 1px solid #f5f5f5;">EDIT</div>
+                        <div onclick="event.stopPropagation(); window.deleteMemory(${memory.id}); window.toggleMemoryActions(null, ${memory.id})" style="padding: 5px 10px; cursor: pointer; white-space: nowrap; font-size: 12px; color: #ff3b30;">DELETE</div>
+                    </div>
+                </div>
+                <span>DATE: ${timeStr}</span>
+            </div>
         `;
+        
+        item.addEventListener('click', function(e) {
+            if (e.target.closest('.archive-actions') || e.target.closest('.memory-action-menu')) return;
+            
+            const isActive = this.classList.contains('is-active');
+            
+            document.querySelectorAll('.archive-card').forEach(card => {
+                card.classList.remove('is-active');
+            });
+            
+            if (!isActive) {
+                this.classList.add('is-active');
+            }
+        });
+
         list.appendChild(item);
     });
 }
+
+window.toggleMemoryActions = function(element, id) {
+    const allMenus = document.querySelectorAll('.memory-action-menu');
+    allMenus.forEach(menu => {
+        if (menu.id !== `memory-action-${id}`) {
+            menu.style.display = 'none';
+        }
+    });
+    
+    const menu = document.getElementById(`memory-action-${id}`);
+    if (menu) {
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    }
+    
+    // Close when clicking outside
+    if (menu && menu.style.display === 'block') {
+        const closeMenu = function(e) {
+            if (!menu.contains(e.target) && (!element || !element.contains(e.target))) {
+                menu.style.display = 'none';
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => {
+            document.addEventListener('click', closeMenu);
+        }, 0);
+    }
+};
 
 window.editMemory = function(id) {
     const memory = window.iphoneSimState.memories.find(m => m.id === id);
@@ -1586,11 +1653,11 @@ async function generateDailyItinerary(forceRefresh = false) {
         return;
     }
 
-    const container = document.querySelector('.timeline-container');
-    container.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;"><i class="fas fa-spinner fa-spin"></i> 正在生成行程...</div>';
+    const container = document.getElementById('agendaList');
+    if (container) container.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;"><i class="fas fa-spinner fa-spin"></i> 正在生成行程...</div>';
     
     const refreshBtn = document.getElementById('refresh-location-btn');
-    if (refreshBtn) refreshBtn.classList.add('fa-spin');
+    if (refreshBtn) refreshBtn.innerText = 'GENERATING...';
 
     let worldbookContext = '';
     if (window.iphoneSimState.worldbook && window.iphoneSimState.worldbook.length > 0 && contact.linkedWbCategories) {
@@ -1673,7 +1740,7 @@ JSON格式示例：
         } catch (e) {
             console.error('JSON解析失败', e);
             alert('生成的数据格式有误，请重试');
-            container.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff3b30;">生成失败，请重试</div>';
+            if (container) container.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff3b30;">生成失败，请重试</div>';
             return;
         }
 
@@ -1689,9 +1756,9 @@ JSON格式示例：
     } catch (error) {
         console.error('生成行程失败:', error);
         alert(`生成失败: ${error.message}`);
-        container.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff3b30;">生成失败，请检查网络或配置</div>';
+        if (container) container.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff3b30;">生成失败，请检查网络或配置</div>';
     } finally {
-        if (refreshBtn) refreshBtn.classList.remove('fa-spin');
+        if (refreshBtn) refreshBtn.innerText = 'IN PROGRESS';
     }
 }
 
@@ -1839,25 +1906,71 @@ JSON格式示例：
 }
 
 function renderItinerary(events) {
-    const container = document.querySelector('.timeline-container');
+    const container = document.getElementById('agendaList');
     if (!container) return;
 
+    // Recreate progress line
     container.innerHTML = '';
+    const progressLine = document.createElement('div');
+    progressLine.className = 'agenda-progress';
+    progressLine.id = 'progressLine';
+    container.appendChild(progressLine);
 
     if (!events || events.length === 0) {
-        container.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">暂无行程</div>';
+        const emptyDiv = document.createElement('div');
+        emptyDiv.style.textAlign = 'center';
+        emptyDiv.style.padding = '20px';
+        emptyDiv.style.color = '#999';
+        emptyDiv.textContent = '暂无行程';
+        container.appendChild(emptyDiv);
         return;
     }
 
+    // Re-sort chronologically for proper display
     events.sort((a, b) => {
         const timeA = a.time.split('-')[0];
         const timeB = b.time.split('-')[0];
         return timeA.localeCompare(timeB);
     });
 
-    events.reverse().forEach(event => {
+    // Determine current time in minutes
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+    // Parse time string "HH:MM" to minutes
+    function toMinutes(timeStr) {
+        const parts = (timeStr || '').trim().split(':');
+        if (parts.length < 2) return -1;
+        return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+    }
+
+    // Find which event is currently active (current time falls within its range)
+    let activeIndex = -1;
+    events.forEach((event, index) => {
+        const timeParts = event.time.split('-');
+        const startMin = toMinutes(timeParts[0]);
+        const endMin = toMinutes(timeParts[1]);
+        if (startMin >= 0 && endMin >= 0 && nowMinutes >= startMin && nowMinutes <= endMin) {
+            activeIndex = index;
+        }
+    });
+
+    // If no active event found, use the last event whose start time has passed
+    if (activeIndex === -1) {
+        for (let i = events.length - 1; i >= 0; i--) {
+            const startMin = toMinutes(events[i].time.split('-')[0]);
+            if (startMin >= 0 && nowMinutes >= startMin) {
+                activeIndex = i;
+                break;
+            }
+        }
+    }
+
+    // Render items
+    events.forEach((event, index) => {
         const item = document.createElement('div');
-        item.className = 'timeline-item';
+        const isActive = index === activeIndex;
+        item.className = `agenda-item visible ${isActive ? 'active expanded' : ''}`;
         
         const startTime = event.time.split('-')[0].trim();
         
@@ -1869,23 +1982,99 @@ function renderItinerary(events) {
         }
 
         item.innerHTML = `
-            <div class="timeline-time">${startTime}</div>
-            <div class="timeline-content">
-                <div class="timeline-location"><i class="fas fa-map-marker-alt"></i> ${event.location}</div>
-                <div style="font-size: 12px; color: #888; margin-bottom: 5px;">${event.time}</div>
-                <div class="timeline-desc">${event.description}</div>
-                ${generatedTimeHtml}
+            <div class="time-col">
+                <span class="time-prefix">// time</span>
+                ${startTime}
+                <div class="node"></div>
+            </div>
+            <div class="content-col">
+                <div class="title-wrapper">
+                    <div class="item-title">${event.location}</div>
+                    <i class="ph ph-map-pin item-icon"></i>
+                </div>
+                <div class="item-details">
+                    <div class="ornament">◆ ◆ ◆</div>
+                    <div class="detail-text">${event.description}</div>
+                    <div class="detail-meta">
+                        <span class="meta-tag"><i class="ph ph-clock"></i> ${event.time}</span>
+                    </div>
+                    ${generatedTimeHtml}
+                </div>
             </div>
         `;
+        
+        // Add click listener for expand/collapse
+        item.addEventListener('click', () => {
+            const allItems = container.querySelectorAll('.agenda-item');
+            allItems.forEach(other => {
+                if (other !== item) {
+                    other.classList.remove('expanded');
+                    other.classList.remove('active');
+                }
+            });
+            item.classList.toggle('expanded');
+            item.classList.toggle('active');
+        });
+
         container.appendChild(item);
     });
+
+    // Calculate and set progress line height after layout is complete
+    setTimeout(() => {
+        updateProgressLine(events, nowMinutes);
+    }, 100);
+}
+
+function parseTimeToMinutes(timeStr) {
+    const parts = (timeStr || '').trim().split(':');
+    if (parts.length < 2) return -1;
+    return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+}
+
+function updateProgressLine(events, nowMinutes) {
+    const container = document.getElementById('agendaList');
+    const progressLine = document.getElementById('progressLine');
+    if (!container || !progressLine || !events || events.length === 0) return;
+
+    // Find the first and last event times
+    const firstStart = parseTimeToMinutes(events[0].time.split('-')[0]);
+    const lastEnd = parseTimeToMinutes(events[events.length - 1].time.split('-')[1] || events[events.length - 1].time.split('-')[0]);
+
+    if (firstStart < 0 || lastEnd < 0 || lastEnd <= firstStart) {
+        progressLine.style.height = '0px';
+        return;
+    }
+
+    // Clamp nowMinutes between first start and last end
+    const clampedNow = Math.max(firstStart, Math.min(lastEnd, nowMinutes));
+    
+    // Calculate the ratio through the timeline
+    const ratio = (clampedNow - firstStart) / (lastEnd - firstStart);
+
+    // Use pixel height based on the container's actual scroll height
+    const totalHeight = container.scrollHeight;
+    progressLine.style.height = `${Math.round(ratio * totalHeight)}px`;
 }
 
 function openLocationApp() {
     const locationApp = document.getElementById('location-app');
     locationApp.classList.remove('hidden');
     document.getElementById('chat-more-panel').classList.add('hidden');
-    
+
+    // Update date display in header
+    const now = new Date();
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dayName = days[now.getDay()];
+    const day = now.getDate();
+    const month = months[now.getMonth()];
+    const shortMonth = shortMonths[now.getMonth()];
+    const headerDateEl = document.getElementById('location-header-date');
+    if (headerDateEl) headerDateEl.textContent = `${dayName}, ${day} ${month}`;
+    const introDateEl = document.getElementById('location-intro-date');
+    if (introDateEl) introDateEl.textContent = `\u2605 Daily Itinerary / ${shortMonth} ${day}`;
+
     generateDailyItinerary();
 }
 
@@ -3297,6 +3486,15 @@ function setupAppsListeners() {
     if (itinerarySettingsBtn) itinerarySettingsBtn.addEventListener('click', openItinerarySettings);
     if (closeItinerarySettingsBtn) closeItinerarySettingsBtn.addEventListener('click', () => itinerarySettingsModal.classList.add('hidden'));
     if (saveItinerarySettingsBtn) saveItinerarySettingsBtn.addEventListener('click', handleSaveItinerarySettings);
+    
+    // Bind new UI elements to location app functions
+    const closeLocationBtnNew = document.getElementById('close-location-btn-new');
+    const itinerarySettingsBtnNew = document.getElementById('itinerary-settings-btn-new');
+    const refreshLocationBtnNew = document.getElementById('refresh-location-btn-new');
+    
+    if (closeLocationBtnNew) closeLocationBtnNew.addEventListener('click', () => document.getElementById('location-app').classList.add('hidden'));
+    if (itinerarySettingsBtnNew) itinerarySettingsBtnNew.addEventListener('click', openItinerarySettings);
+    if (refreshLocationBtnNew) refreshLocationBtnNew.addEventListener('click', () => generateDailyItinerary(true));
 
     const musicWidget = document.getElementById('music-widget');
     const musicSettingsModal = document.getElementById('music-settings-modal');

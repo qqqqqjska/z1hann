@@ -930,14 +930,23 @@ function setupThemeListeners() {
     const themeFontScreen = document.getElementById('theme-font-screen');
     const themeWallpaperScreen = document.getElementById('theme-wallpaper-screen');
     const themeIconsScreen = document.getElementById('theme-icons-screen');
+    const themeInterfaceScreen = document.getElementById('theme-interface-screen');
+    const themeBehaviorScreen = document.getElementById('theme-behavior-screen');
+    const themeAdvancedScreen = document.getElementById('theme-advanced-screen');
 
     const openThemeFontBtn = document.getElementById('open-theme-font');
     const openThemeWallpaperBtn = document.getElementById('open-theme-wallpaper');
     const openThemeIconsBtn = document.getElementById('open-theme-icons');
+    const openThemeInterfaceBtn = document.getElementById('open-theme-interface');
+    const openThemeBehaviorBtn = document.getElementById('open-theme-behavior');
+    const openThemeAdvancedBtn = document.getElementById('open-theme-advanced');
 
     const closeThemeFontBtn = document.getElementById('close-theme-font');
     const closeThemeWallpaperBtn = document.getElementById('close-theme-wallpaper');
     const closeThemeIconsBtn = document.getElementById('close-theme-icons');
+    const closeThemeInterfaceBtn = document.getElementById('close-theme-interface');
+    const closeThemeBehaviorBtn = document.getElementById('close-theme-behavior');
+    const closeThemeAdvancedBtn = document.getElementById('close-theme-advanced');
 
     if (openThemeFontBtn) openThemeFontBtn.addEventListener('click', () => themeFontScreen.classList.remove('hidden'));
     if (closeThemeFontBtn) closeThemeFontBtn.addEventListener('click', () => themeFontScreen.classList.add('hidden'));
@@ -947,6 +956,15 @@ function setupThemeListeners() {
 
     if (openThemeIconsBtn) openThemeIconsBtn.addEventListener('click', () => themeIconsScreen.classList.remove('hidden'));
     if (closeThemeIconsBtn) closeThemeIconsBtn.addEventListener('click', () => themeIconsScreen.classList.add('hidden'));
+
+    if (openThemeInterfaceBtn) openThemeInterfaceBtn.addEventListener('click', () => themeInterfaceScreen.classList.remove('hidden'));
+    if (closeThemeInterfaceBtn) closeThemeInterfaceBtn.addEventListener('click', () => themeInterfaceScreen.classList.add('hidden'));
+
+    if (openThemeBehaviorBtn) openThemeBehaviorBtn.addEventListener('click', () => themeBehaviorScreen.classList.remove('hidden'));
+    if (closeThemeBehaviorBtn) closeThemeBehaviorBtn.addEventListener('click', () => themeBehaviorScreen.classList.add('hidden'));
+
+    if (openThemeAdvancedBtn) openThemeAdvancedBtn.addEventListener('click', () => themeAdvancedScreen.classList.remove('hidden'));
+    if (closeThemeAdvancedBtn) closeThemeAdvancedBtn.addEventListener('click', () => themeAdvancedScreen.classList.add('hidden'));
 
     const fontUpload = document.getElementById('font-upload');
     if (fontUpload) fontUpload.addEventListener('change', handleFontUpload);

@@ -1,0 +1,491 @@
+/* ================================
+   BACKGROUND DECORATION
+================================ */
+#location-app .bg-deco {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+
+/* Large faint characters drifting */
+#location-app .bg-char {
+    position: absolute;
+    font-size: 14rem;
+    font-weight: 900;
+    color: rgba(0,0,0,0.025);
+    letter-spacing: -8px;
+    line-height: 1;
+    animation: bgFloat 30s infinite ease-in-out alternate;
+    user-select: none;
+}
+
+#location-app .bg-char:nth-child(1) { top: -60px; right: -40px; animation-delay: 0s; font-size: 20rem; }
+#location-app .bg-char:nth-child(2) { bottom: 20%; left: -60px; animation-delay: -10s; font-size: 16rem; }
+#location-app .bg-char:nth-child(3) { top: 50%; right: 10%; animation-delay: -5s; font-size: 10rem; }
+
+@keyframes bgFloat {
+    0% { transform: translate(0, 0) rotate(-5deg); opacity: 0.5; }
+    100% { transform: translate(20px, 30px) rotate(5deg); opacity: 1; }
+}
+
+/* Floating tiny symbols */
+#location-app .float-sym {
+    position: absolute;
+    font-size: 0.9rem;
+    color: rgba(0,0,0,0.1);
+    animation: floatSym 20s infinite ease-in-out;
+    pointer-events: none;
+}
+
+@keyframes floatSym {
+    0%, 100% { transform: translateY(0px); opacity: 0.4; }
+    50% { transform: translateY(-20px); opacity: 1; }
+}
+
+/* ================================
+   FROSTED GLASS HEADER
+================================ */
+#location-app {
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background-color: #ffffff !important;
+}
+
+#location-app header {
+    position: relative !important;
+    width: 100%;
+    padding: 56px 20px 16px !important;
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    z-index: 100;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+    flex-shrink: 0;
+    /* Remove any inherited app-header styles */
+    height: auto !important;
+    min-height: unset !important;
+    padding-top: 56px !important;
+}
+
+#location-app .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+#location-app .header-symbol {
+    font-size: 1.2rem;
+    color: #a1a1a6;
+    animation: spin 8s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+#location-app .header-date {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+}
+
+/* Small decorative ticks */
+#location-app .header-ticks {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+#location-app .tick {
+    width: 4px;
+    height: 4px;
+    background: #ccc;
+    border-radius: 50%;
+    animation: tickBlink 1.5s infinite alternate;
+}
+
+#location-app .tick:nth-child(2) { animation-delay: 0.3s; }
+#location-app .tick:nth-child(3) { animation-delay: 0.6s; }
+
+@keyframes tickBlink {
+    from { background: #ccc; transform: scale(1); }
+    to { background: #000; transform: scale(1.3); }
+}
+
+#location-app .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+#location-app .header-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: #a1a1a6;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+#location-app .pulse-dot {
+    width: 6px;
+    height: 6px;
+    background-color: #000;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.2); }
+    70% { box-shadow: 0 0 0 4px rgba(0, 0, 0, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+
+/* ================================
+   MAIN CONTAINER
+================================ */
+#location-app .container {
+    padding: 32px 24px 80px;
+    max-width: 1200px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+#location-app .intro {
+    font-size: 3.5vw;
+    font-weight: 700;
+    letter-spacing: -1.5px;
+    line-height: 1.2;
+    margin-bottom: 60px;
+    max-width: 800px;
+    opacity: 0;
+    transform: translateY(30px);
+    animation: introIn 1s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
+}
+
+@keyframes introIn {
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#location-app .intro span {
+    color: #a1a1a6;
+}
+
+/* Small decorative index in the intro */
+#location-app .intro-index {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: #a1a1a6;
+    margin-bottom: 20px;
+    opacity: 0;
+    animation: introIn 1s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;
+}
+
+#location-app .intro-index::before {
+    content: '★ ';
+    font-size: 0.6rem;
+}
+
+/* ================================
+   AGENDA LIST
+================================ */
+#location-app .agenda-list {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    min-height: 100px;
+}
+
+/* Track Line */
+#location-app .agenda-list::before {
+    content: '';
+    position: absolute;
+    left: 120px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.08) 5%, rgba(0,0,0,0.08) 95%, rgba(0,0,0,0) 100%);
+    z-index: 0;
+}
+
+#location-app .agenda-progress {
+    position: absolute;
+    left: 120px;
+    top: 0;
+    width: 1px;
+    background: #000;
+    z-index: 1;
+    transition: height 1s ease;
+}
+
+#location-app .agenda-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    padding: 36px 0;
+    cursor: pointer;
+    z-index: 2;
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.4s ease, filter 0.4s ease, transform 0.6s ease;
+}
+
+#location-app .agenda-item.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Hovering effect: other items dim */
+#location-app .agenda-list:hover .agenda-item:not(:hover) {
+    opacity: 0.25;
+    filter: blur(1.5px);
+}
+
+#location-app .agenda-item::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 140px;
+    right: 0;
+    height: 1px;
+    background: rgba(0, 0, 0, 0.06);
+    transition: background 0.4s ease, transform 0.4s ease;
+    transform-origin: left;
+}
+
+#location-app .agenda-item:hover::after {
+    background: rgba(0, 0, 0, 0.9);
+}
+
+/* ================================
+   TIME COLUMN
+================================ */
+#location-app .time-col {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #a1a1a6;
+    padding-top: 10px;
+    position: relative;
+    transition: color 0.3s ease;
+    letter-spacing: 1px;
+}
+
+#location-app .agenda-item:hover .time-col { color: #000; }
+
+/* Small decoration before time */
+#location-app .time-prefix {
+    display: block;
+    font-size: 0.65rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(0,0,0,0.2);
+    margin-bottom: 4px;
+    transition: color 0.3s;
+}
+
+#location-app .agenda-item:hover .time-prefix { color: rgba(0,0,0,0.5); }
+
+/* The Node */
+#location-app .node {
+    position: absolute;
+    right: -5px;
+    top: 14px;
+    width: 11px;
+    height: 11px;
+    background: #ffffff;
+    border: 1.5px solid rgba(0,0,0,0.2);
+    border-radius: 50%;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#location-app .node::after {
+    content: '';
+    width: 3px;
+    height: 3px;
+    background: transparent;
+    border-radius: 50%;
+    transition: background 0.3s ease;
+}
+
+#location-app .agenda-item:hover .node {
+    background: #000;
+    border-color: #000;
+    transform: scale(1.6);
+}
+
+#location-app .agenda-item:hover .node::after { background: #fff; }
+
+#location-app .agenda-item.active .node {
+    background: #000;
+    border-color: #000;
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.08);
+}
+
+/* ================================
+   CONTENT COLUMN
+================================ */
+#location-app .content-col {
+    padding-left: 55px;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#location-app .agenda-item:hover .content-col { transform: translateX(16px); }
+
+#location-app .title-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+#location-app .item-title {
+    font-size: 2.2rem;
+    font-weight: 600;
+    letter-spacing: -1px;
+    color: #a1a1a6;
+    transition: color 0.3s ease;
+    line-height: 1.15;
+}
+
+#location-app .agenda-item:hover .item-title,
+#location-app .agenda-item.active .item-title { color: #000; }
+
+#location-app .item-icon {
+    font-size: 1.8rem;
+    opacity: 0;
+    transform: translateX(-16px) rotate(-20deg);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    flex-shrink: 0;
+}
+
+#location-app .agenda-item:hover .item-icon {
+    opacity: 1;
+    transform: translateX(0) rotate(0);
+}
+
+/* ================================
+   EXPANDABLE DETAILS
+================================ */
+#location-app .item-details {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    margin-top: 0;
+    max-width: 560px;
+}
+
+#location-app .agenda-item.expanded .item-details {
+    max-height: 200px;
+    opacity: 1;
+    margin-top: 16px;
+    padding-bottom: 12px;
+}
+
+#location-app .detail-text {
+    font-size: 1.05rem;
+    line-height: 1.65;
+    color: #555;
+    margin-bottom: 14px;
+}
+
+#location-app .detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #000;
+}
+
+#location-app .meta-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Divider ornament */
+#location-app .ornament {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0 14px;
+    color: rgba(0,0,0,0.15);
+    font-size: 0.7rem;
+    letter-spacing: 4px;
+}
+
+#location-app .ornament::before, #location-app .ornament::after {
+    content: '';
+    flex: 1;
+    max-width: 60px;
+    height: 1px;
+    background: rgba(0,0,0,0.1);
+}
+
+/* ================================
+   FLOATING DECORATIVE PARTICLES
+================================ */
+#location-app .particle-container {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+
+#location-app .particle {
+    position: absolute;
+    font-size: 0.7rem;
+    color: rgba(0,0,0,0.06);
+    font-weight: 700;
+    animation: particleDrift linear infinite;
+    user-select: none;
+}
+
+@keyframes particleDrift {
+    0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(-20px) rotate(360deg); opacity: 0; }
+}
+
+/* ================================
+   RESPONSIVE
+================================ */
+@media (max-width: 900px) {
+    #location-app .intro { font-size: 2.2rem; }
+    #location-app .item-title { font-size: 1.8rem; }
+    #location-app .content-col { padding-left: 30px; }
+}
+
+@media (max-width: 600px) {
+    #location-app .agenda-item { grid-template-columns: 80px 1fr; }
+    #location-app .agenda-list::before, #location-app .agenda-progress { left: 80px; }
+    #location-app .node { right: -5px; }
+    #location-app .intro { font-size: 1.8rem; margin-bottom: 40px; }
+    #location-app .item-title { font-size: 1.4rem; }
+    #location-app .item-icon, #location-app .arrow-indicator, #location-app .title-deco { display: none; }
+    #location-app .ticker-wrap { display: none; }
+}
