@@ -503,6 +503,7 @@
 .forum-content {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden; /* Prevent horizontal swipe */
     background-color: #fff;
     overscroll-behavior-y: contain; /* Allow elastic bounce within, block parent scroll chain */
     -webkit-overflow-scrolling: touch; /* iOS momentum/elastic scrolling */
@@ -2267,13 +2268,13 @@ input:checked + .slider:before {
 }
 
 .forum-live-card-title {
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 600;
     margin-bottom: 4px;
 }
 
 .forum-live-card-meta {
-    font-size: 12px;
+    font-size: 10px;
     opacity: 0.8;
     display: flex;
     align-items: center;
