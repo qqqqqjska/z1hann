@@ -80,11 +80,7 @@
             linkedWorldbook: null,
             forumWorldview: ''
         },
-        settings: JSON.parse(localStorage.getItem('forum_settings')) || {
-            linkedContacts: [],
-            linkedWorldbook: null,
-            forumWorldview: ''
-        },
+        liveStreams: JSON.parse(localStorage.getItem('forum_liveStreams')) || null,
         profileActiveTab: 'posts', // 'posts' or 'tagged'
         otherProfileActiveTab: 'posts',
         profileMultiSelectMode: false,
@@ -115,6 +111,418 @@
         //     forumState.currentUser.avatar = window.iphoneSimState.userProfile.avatar;
         //     // forumState.currentUser.name = window.iphoneSimState.userProfile.name; // Keep internal name logic or override
         // }
+
+        // Helper for appending live messages with "push up" animation (WeChat style)
+        window.appendForumLiveMessage = function(htmlContent) {
+            const chatArea = document.querySelector('.forum-room-chat-area');
+            if (!chatArea) return;
+            
+            let wrapper = chatArea.querySelector('.forum-chat-list-wrapper');
+            if (!wrapper) {
+                // Should exist from init, but safeguard
+                wrapper = document.createElement('div');
+                wrapper.className = 'forum-chat-list-wrapper';
+                // Remove inline flex-end to rely on CSS
+                wrapper.style.cssText = ''; 
+                chatArea.appendChild(wrapper);
+            }
+
+            // Check if user is near bottom (allow 100px tolerance)
+            const isNearBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < 150;
+
+            const newMsg = document.createElement('div');
+            newMsg.className = 'forum-room-chat-msg';
+            // No inline animation, we animate wrapper transform
+            newMsg.innerHTML = htmlContent;
+            
+            wrapper.appendChild(newMsg);
+            
+            if (isNearBottom) {
+                // Measure height
+                const msgHeight = newMsg.offsetHeight + 8; // 8px gap
+                
+                // Scroll to bottom immediately so new message is in view (at bottom)
+                chatArea.scrollTop = chatArea.scrollHeight;
+                
+                // Apply transform to push it back down (simulating previous state)
+                wrapper.style.transition = 'none';
+                wrapper.style.transform = `translateY(${msgHeight}px)`;
+                
+                // Force reflow
+                void wrapper.offsetHeight;
+                
+                // Animate to natural position
+                wrapper.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+                wrapper.style.transform = 'translateY(0)';
+            }
+        };
+
+        // Expose function to open live room
+        window.openForumLiveRoom = function(title, host, actionDesc, initialCommentsStr) {
+            document.getElementById('forum-room-host-name').textContent = host;
+            
+            forumState.currentLiveRoom = {
+                title: title,
+                host: host,
+                actionDesc: actionDesc,
+                comments: [],
+                preGenState: null
+            };
+            
+            // Set action description
+            let actionDescHtml = '';
+            if (actionDesc && actionDesc !== 'undefined') {
+                actionDescHtml = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${actionDesc}</div>`;
+            }
+            
+            const roomBg = document.querySelector('.forum-room-bg');
+            if (roomBg) {
+                roomBg.innerHTML = `
+                    <div style="text-align:center; opacity:0.3; display: flex; flex-direction: column; align-items: center; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                        </svg>
+                        <div style="font-size:14px; margin-top:10px;">LIVE FEED</div>
+                    </div>
+                `;
+            }
+
+            const descContainer = document.querySelector('.forum-room-desc-container');
+            if (descContainer) {
+                descContainer.innerHTML = actionDescHtml;
+            }
+
+            // Set initial comments
+            const chatArea = document.querySelector('.forum-room-chat-area');
+            if (chatArea) {
+                chatArea.innerHTML = ''; // Clear previous comments
+                
+                // Initialize wrapper
+                const wrapper = document.createElement('div');
+                wrapper.className = 'forum-chat-list-wrapper';
+                // wrapper.style.cssText = 'display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; padding-bottom: 10px;';
+                // Rely on CSS class
+                chatArea.appendChild(wrapper);
+
+                try {
+                    const comments = JSON.parse(decodeURIComponent(initialCommentsStr));
+                    if (Array.isArray(comments)) {
+                        comments.forEach((c, index) => {
+                            setTimeout(() => {
+                                window.appendForumLiveMessage(`<span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
+                                if (forumState.currentLiveRoom) {
+                                    forumState.currentLiveRoom.comments.push({ username: c.username, content: c.content, isUser: false });
+                                }
+                            }, 400 + index * 1000);
+                        });
+                    }
+                } catch (e) {
+                    console.error('Error parsing initial comments', e);
+                    // Fallback default comments
+                    setTimeout(() => {
+                        window.appendForumLiveMessage(`<span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Alex</span>Hello! 👋`);
+                        if (forumState.currentLiveRoom) forumState.currentLiveRoom.comments.push({ username: 'Alex', content: 'Hello! 👋', isUser: false });
+                    }, 400);
+                    setTimeout(() => {
+                        window.appendForumLiveMessage(`<span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Sarah_99</span>Love the vibe here`);
+                        if (forumState.currentLiveRoom) forumState.currentLiveRoom.comments.push({ username: 'Sarah_99', content: 'Love the vibe here', isUser: false });
+                    }, 1400);
+                }
+            }
+
+            document.getElementById('forum-room-page').classList.add('active');
+        };
+
+        window.closeForumLiveRoom = function() {
+            document.getElementById('forum-room-page').classList.remove('active');
+            const giftMenu = document.getElementById('forum-gift-menu');
+            if (giftMenu) giftMenu.classList.remove('active');
+        };
+
+        window.toggleForumGiftMenu = function() {
+            document.getElementById('forum-gift-menu').classList.toggle('active');
+        };
+
+        let selectedGiftIcon = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff2d55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-8"/><path d="M12 14a4 4 0 0 0 4-4 4 4 0 0 0-4-4 4 4 0 0 0-4 4 4 4 0 0 0 4 4z"/><path d="M12 14c-2.2 0-4 1.8-4 4s1.8 4 4 4"/><path d="M12 14c2.2 0 4 1.8 4 4s-1.8 4-4 4"/></svg>';
+
+        window.selectForumGift = function(el) {
+            document.querySelectorAll('.forum-gift-item').forEach(item => item.classList.remove('active'));
+            el.classList.add('active');
+            selectedGiftIcon = el.querySelector('.forum-gift-icon').innerHTML;
+        };
+
+        window.sendForumGift = function() {
+            const countInput = document.getElementById('forum-gift-count');
+            const count = countInput ? countInput.value : 1;
+            if (count < 1) return;
+            
+            window.toggleForumGiftMenu();
+            
+            // Add to chat
+            let chatIcon = selectedGiftIcon.replace(/width="32"/, 'width="16"').replace(/height="32"/, 'height="16"');
+            window.appendForumLiveMessage(`<span style="color: #ff2d55; font-weight: 600; margin-right: 6px;">Me</span>Sent ${count} <span style="display:inline-flex; vertical-align:middle; margin-left:4px;">${chatIcon}</span>`);
+
+            // Show animation
+            const anim = document.createElement('div');
+            anim.className = 'forum-gift-anim';
+            
+            let animIcon = selectedGiftIcon.replace(/width="32"/, 'width="80"').replace(/height="32"/, 'height="80"');
+            anim.innerHTML = animIcon;
+            
+            // Add count badge
+            if (count > 1) {
+                const badge = document.createElement('div');
+                badge.style.cssText = 'position:absolute; bottom:-10px; right:-20px; background:#ff2d55; color:white; font-size:18px; font-weight:800; border-radius:12px; padding:4px 10px; font-family:-apple-system, sans-serif; box-shadow: 0 4px 10px rgba(255,45,85,0.4);';
+                badge.innerText = 'x' + count;
+                anim.appendChild(badge);
+            }
+            
+            document.getElementById('forum-room-page').appendChild(anim);
+            
+            setTimeout(() => {
+                anim.remove();
+            }, 2000);
+        };
+
+        window.handleForumChatEnter = function(e) {
+            if (e.key === 'Enter' && e.target.value.trim() !== '') {
+                const text = e.target.value.trim();
+                window.appendForumLiveMessage(`<span style="color: #ff2d55; font-weight: 600; margin-right: 6px;">Me</span>${text}`);
+                if (forumState.currentLiveRoom) {
+                    forumState.currentLiveRoom.comments.push({ username: 'Me', content: text, isUser: true });
+                    forumState.currentLiveRoom.preGenState = null;
+                    const regenerateBtn = document.getElementById('live-regenerate-btn');
+                    if (regenerateBtn) regenerateBtn.style.display = 'none';
+                }
+                e.target.value = '';
+            }
+        };
+
+        window.generateLiveContent = async function() {
+            const room = forumState.currentLiveRoom;
+            if (!room) return;
+
+            const generateBtn = document.getElementById('live-generate-btn');
+            const regenerateBtn = document.getElementById('live-regenerate-btn');
+            
+            if (generateBtn) generateBtn.style.pointerEvents = 'none';
+            if (regenerateBtn) regenerateBtn.style.pointerEvents = 'none';
+            
+            const oldGenIcon = generateBtn ? generateBtn.innerHTML : '';
+            if (generateBtn) generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 14px;"></i>';
+
+            try {
+                let settings = { url: '', key: '', model: '' };
+                if (window.iphoneSimState) {
+                    if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) settings = window.iphoneSimState.aiSettings;
+                    else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) settings = window.iphoneSimState.aiSettings2;
+                }
+
+                if (!settings.url || !settings.key) {
+                    alert('请先配置AI接口');
+                    return;
+                }
+
+                const recentComments = room.comments.slice(-10).map(c => `${c.username}: ${c.content}`).join('\n');
+                
+                const prompt = `你是一个社交平台直播间模拟器。
+当前直播间标题: "${room.title}"
+主播名字: "${room.host}"
+当前主播画面描述: "${room.actionDesc}"
+最近的弹幕记录:
+${recentComments}
+
+请根据以上的上下文，生成接下来的直播间互动内容。
+要求:
+1. 生成一段新的"主播画面/动作描述"，描述主播看到了弹幕（特别是用户"Me"的弹幕）后的反应，或者直播内容的推进。
+2. 生成 3-5 条新的弹幕评论。其中一部分是对用户"Me"的弹幕的回复/反应，一部分是对主播新动作的反应。
+3. 弹幕发送者的名字要真实、像网友。
+
+返回纯JSON对象，格式如下:
+{
+  "actionDesc": "新的主播画面描述",
+  "comments": [
+    { "username": "网友A", "content": "弹幕内容" },
+    { "username": "网友B", "content": "弹幕内容" }
+  ]
+}
+不要返回任何Markdown标记。`;
+
+                let fetchUrl = settings.url;
+                if (!fetchUrl.endsWith('/chat/completions')) fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+
+                const response = await fetch(fetchUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+                    body: JSON.stringify({
+                        model: settings.model || 'gpt-3.5-turbo',
+                        messages: [
+                            { role: 'system', content: '你是一个模拟直播间互动数据的生成器，只返回JSON数据。' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: 0.8
+                    })
+                });
+
+                if (!response.ok) throw new Error('API request failed');
+                const data = await response.json();
+                let content = data.choices[0].message.content.trim();
+                
+                // Find first '{' and last '}'
+                const startIdx = content.indexOf('{');
+                const endIdx = content.lastIndexOf('}');
+                
+                if (startIdx !== -1 && endIdx !== -1) {
+                    content = content.substring(startIdx, endIdx + 1);
+                }
+                
+                // Fix common JSON issues - REMOVED aggressive escaping that breaks JSON structure
+                // content = content.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+                
+                // For safety, remove some unescaped newlines that might break parsing
+                // content = content.replace(/([^\\])\\n/g, '$1\\\\n');
+                
+                let result;
+                try {
+                    result = JSON.parse(content);
+                } catch (parseError) {
+                    console.error("JSON parse error:", parseError, "Content:", content);
+                    // Try to repair basic errors
+                    let repaired = content.replace(/\\n/g, ' ').replace(/\\r/g, '').replace(/\\t/g, ' ');
+                    result = JSON.parse(repaired);
+                }
+
+                if (!room.preGenState) {
+                    room.preGenState = {
+                        actionDesc: room.actionDesc,
+                        commentsLength: room.comments.length
+                    };
+                }
+
+                room.actionDesc = result.actionDesc;
+                const descContainer = document.querySelector('.forum-room-desc-container');
+                if (descContainer) {
+                    descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${result.actionDesc}</div>`;
+                }
+
+                if (result.comments && Array.isArray(result.comments)) {
+                    result.comments.forEach((c, index) => {
+                        setTimeout(() => {
+                            window.appendForumLiveMessage(`<span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
+                            room.comments.push({ username: c.username, content: c.content, isUser: false });
+                        }, 400 + index * 1000);
+                    });
+                }
+                
+                if (regenerateBtn) regenerateBtn.style.display = 'flex';
+
+            } catch (e) {
+                console.error(e);
+                alert('生成失败: ' + e.message);
+            } finally {
+                if (generateBtn) {
+                    generateBtn.innerHTML = oldGenIcon;
+                    generateBtn.style.pointerEvents = 'auto';
+                }
+                if (regenerateBtn) regenerateBtn.style.pointerEvents = 'auto';
+            }
+        };
+
+        window.regenerateLiveContent = function() {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.preGenState) return;
+
+            // Restore UI
+            room.actionDesc = room.preGenState.actionDesc;
+            const descContainer = document.querySelector('.forum-room-desc-container');
+            if (descContainer) {
+                descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${room.actionDesc}</div>`;
+            }
+
+            // Restore comments list
+            room.comments = room.comments.slice(0, room.preGenState.commentsLength);
+            
+            // Re-render chat area
+            const chatArea = document.querySelector('.forum-room-chat-area');
+            if (chatArea) {
+                chatArea.innerHTML = '';
+                const wrapper = document.createElement('div');
+                wrapper.className = 'forum-chat-list-wrapper';
+                // Rely on CSS class
+                chatArea.appendChild(wrapper);
+
+                room.comments.forEach(c => {
+                    const color = c.isUser ? '#ff2d55' : '#a1a1aa';
+                    const newMsg = document.createElement('div');
+                    newMsg.className = 'forum-room-chat-msg';
+                    newMsg.innerHTML = `<span style="color: ${color}; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`;
+                    wrapper.appendChild(newMsg);
+                });
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }
+
+            // Call generate again
+            window.generateLiveContent();
+        };
+
+        window.filterForumLiveCategory = function(category) {
+            // Update active button state
+            document.querySelectorAll('.forum-cat-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.innerText === category) {
+                    btn.classList.add('active');
+                }
+            });
+
+            // Filter cards
+            const cards = document.querySelectorAll('.forum-live-card');
+            cards.forEach(card => {
+                const cardCat = card.getAttribute('data-category');
+                
+                // First hide with animation
+                card.style.opacity = '0';
+                card.style.transform = 'scale(0.95)';
+                
+                setTimeout(() => {
+                    if (category === 'All' || cardCat === category) {
+                        card.classList.remove('hidden');
+                        // Small delay before showing to allow display block to apply
+                        setTimeout(() => {
+                            card.style.opacity = '1';
+                            card.style.transform = 'scale(1)';
+                        }, 50);
+                    } else {
+                        card.classList.add('hidden');
+                    }
+                }, 300); // Wait for fade out animation
+            });
+        };
+
+        window.showForumLiveHeart = function() {
+            const heart = document.createElement('div');
+            heart.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="#ff2d55" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>`;
+            heart.style.position = 'fixed';
+            heart.style.bottom = '100px';
+            heart.style.right = '40px';
+            heart.style.zIndex = '3000';
+            heart.style.pointerEvents = 'none';
+            heart.style.transition = 'all 1s ease-out';
+            heart.style.transform = `translate(${Math.random()*40 - 20}px, 0) scale(1)`;
+            heart.style.opacity = '1';
+
+            document.getElementById('forum-app').appendChild(heart);
+
+            // Animate
+            requestAnimationFrame(() => {
+                heart.style.transform = `translate(${Math.random()*60 - 30}px, -200px) scale(0.5)`;
+                heart.style.opacity = '0';
+            });
+
+            setTimeout(() => {
+                heart.remove();
+            }, 1000);
+        };
 
         // Restore images stored in separate localStorage keys
         loadPostImages();
@@ -165,6 +573,10 @@
         switch(forumState.activeTab) {
             case 'home':
                 contentHtml = renderHomeTab();
+                break;
+            case 'video':
+                headerHtml = renderLiveHeader();
+                contentHtml = renderLiveTab();
                 break;
             case 'share': // Using share tab for the "Middle Button" (Search/Messages/Map) view requested
                 headerHtml = renderDMHeader(); // Special header for this view
@@ -232,6 +644,124 @@
                 ${multiSelectBarHtml}
                 <div class="forum-back-to-top" id="forum-back-to-top">
                     <i class="fas fa-arrow-up"></i>
+                </div>
+
+                <!-- Live Room Page Overlay -->
+                <div id="forum-room-page" class="forum-live-room-page">
+                    <div class="forum-room-bg">
+                        <div style="text-align:center; opacity:0.3;">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                                <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                            </svg>
+                            <div style="font-size:14px; margin-top:10px;">LIVE FEED</div>
+                        </div>
+                    </div>
+
+                    <div class="forum-room-overlay">
+                        <div class="forum-room-header">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <button class="forum-room-back-btn" onclick="window.closeForumLiveRoom()">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                                </button>
+                                <div class="forum-room-host-info">
+                                    <div class="forum-room-host-avatar"></div>
+                                    <div class="forum-room-host-name" id="forum-room-host-name">Host</div>
+                                    <button class="forum-room-follow-btn">Follow</button>
+                                </div>
+                            </div>
+                            <!-- Share Button moved here -->
+                            <button class="forum-room-action-btn" style="width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.2);">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+                            </button>
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; gap: 12px; flex: 1; overflow: hidden; margin-top: 20px;">
+                            <div class="forum-room-desc-container" style="display: flex; justify-content: center; margin-top: 50vh; height: 100px; overflow-y: auto; flex-shrink: 0;">
+                            </div>
+                            
+                            <div class="forum-room-chat-container" style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;">
+                                <div class="forum-room-chat-area">
+                                    <div class="forum-room-chat-msg"><span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Alex</span>Hello! 👋</div>
+                                    <div class="forum-room-chat-msg"><span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Sarah_99</span>Love the vibe here</div>
+                                    <div class="forum-room-chat-msg"><span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Mike_D</span>Can you show the setup?</div>
+                                </div>
+                            </div>
+
+                            <div class="forum-room-controls" style="align-items: center; width: 100%; flex-shrink: 0; gap: 8px;">
+                                <!-- Input Field Wrapper (includes buttons) -->
+                                <div style="flex: 1; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 22px; padding: 4px 8px; display: flex; align-items: center; border: 1px solid rgba(255,255,255,0.1);">
+                                    
+                                    <!-- Regenerate Button -->
+                                    <div id="live-regenerate-btn" onclick="window.regenerateLiveContent()" style="width: 32px; height: 32px; display: none; align-items: center; justify-content: center; cursor: pointer; color: white; margin-right: 2px;">
+                                        <i class="fas fa-sync-alt" style="font-size: 14px;"></i>
+                                    </div>
+
+                                    <input type="text" placeholder="Say something..." style="background: transparent; border: none; color: white; flex: 1; outline: none; font-size: 14px; padding: 0 4px; min-width: 0;" onkeypress="window.handleForumChatEnter(event)">
+                                    
+                                    <!-- Generate Button -->
+                                    <div id="live-generate-btn" onclick="window.generateLiveContent()" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; margin-left: 2px;">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                                    </div>
+                                </div>
+
+                                <div class="forum-room-action-bar" style="gap: 8px;">
+                                    <!-- Gift Button -->
+                                    <div class="forum-room-action-btn" onclick="window.toggleForumGiftMenu()" style="width: 36px; height: 36px;">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="14" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="22"></line><path d="M12 8V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v4"></path><path d="M12 8V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"></path></svg>
+                                    </div>
+                                    <!-- Heart Button -->
+                                    <div class="forum-room-action-btn" style="background: #ff2d55; border:none; width: 36px; height: 36px;" onclick="window.showForumLiveHeart()">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gift Menu Overlay -->
+                    <div class="forum-gift-menu" id="forum-gift-menu">
+                        <div class="forum-gift-menu-header">
+                            <h4 style="font-size: 18px; font-weight: 700; color: #1c1c1e;">Send Gift</h4>
+                            <button onclick="window.toggleForumGiftMenu()" style="background: rgba(0,0,0,0.05); border: none; width: 30px; height: 30px; border-radius: 50%; font-size: 14px; font-weight: bold; cursor: pointer; color: #1c1c1e;">✕</button>
+                        </div>
+                        <div class="forum-gift-grid">
+                            <div class="forum-gift-item active" onclick="window.selectForumGift(this)">
+                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff2d55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-8"/><path d="M12 14a4 4 0 0 0 4-4 4 4 0 0 0-4-4 4 4 0 0 0-4 4 4 4 0 0 0 4 4z"/><path d="M12 14c-2.2 0-4 1.8-4 4s1.8 4 4 4"/><path d="M12 14c2.2 0 4 1.8 4 4s-1.8 4-4 4"/></svg></div>
+                                <div class="forum-gift-name">Rose</div>
+                                <div class="forum-gift-price">10 Coins</div>
+                            </div>
+                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
+                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8b5a2b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg></div>
+                                <div class="forum-gift-name">Coffee</div>
+                                <div class="forum-gift-price">20 Coins</div>
+                            </div>
+                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
+                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff9500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg></div>
+                                <div class="forum-gift-name">Rocket</div>
+                                <div class="forum-gift-price">99 Coins</div>
+                            </div>
+                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
+                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ffcc00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="2 20 22 20 19 6 15 13 12 4 9 13 5 6 2 20"/></svg></div>
+                                <div class="forum-gift-name">Crown</div>
+                                <div class="forum-gift-price">299 Coins</div>
+                            </div>
+                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
+                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#5ac8fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 22 22 7 12 2"/><polyline points="2 7 12 7 22 7"/><polyline points="12 22 12 7"/></svg></div>
+                                <div class="forum-gift-name">Diamond</div>
+                                <div class="forum-gift-price">499 Coins</div>
+                            </div>
+                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
+                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#af52de" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 15 6 6m-6-6v-2.5a2.5 2.5 0 1 0-5-5H7.5a2.5 2.5 0 1 0-5 5V15a2.5 2.5 0 1 0 5 5h2.5a2.5 2.5 0 1 0 5-5z"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="5" r="1"/><circle cx="5" cy="19" r="1"/></svg></div>
+                                <div class="forum-gift-name">Magic Wand</div>
+                                <div class="forum-gift-price">999 Coins</div>
+                            </div>
+                        </div>
+                        <div class="forum-gift-action">
+                            <input type="number" id="forum-gift-count" value="1" min="1" max="99">
+                            <button class="forum-send-gift-btn" onclick="window.sendForumGift()">Send Gift</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -842,6 +1372,23 @@
         `;
     }
 
+    function renderLiveHeader() {
+        return `
+            <div class="forum-live-header">
+                <div>
+                    <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.5; margin-bottom: 4px;">Discover</div>
+                    <h1>Now Streaming</h1>
+                </div>
+                <div class="forum-live-header-icon" onclick="window.generateForumLives()" style="cursor: pointer;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                </div>
+            </div>
+        `;
+    }
+
     function renderHeader() {
         // Default Home Header
         return `
@@ -972,6 +1519,59 @@
             </div>
             <div class="feed-container">
                 ${forumState.posts.map(renderPost).join('')}
+            </div>
+        `;
+    }
+
+    function renderLiveTab() {
+        let lives = forumState.liveStreams;
+        if (!lives || lives.length === 0) {
+            lives = [
+                { category: 'Music', title: 'Midnight Jazz 🎷', username: 'Alice', viewers: '1.2k', image: 'https://i.postimg.cc/fymR94qp/IMG-6099.jpg' },
+                { category: 'Design', title: 'Minimalist UI Design', username: 'Studio A', viewers: '856', image: 'https://i.postimg.cc/kGKgbrY0/IMG-6100.jpg' },
+                { category: 'Chatting', title: 'Late Night Code 💻', username: 'DevJohn', viewers: '2.3k', image: 'https://i.postimg.cc/3RPwNr1v/IMG-6101.jpg' },
+                { category: 'Travel', title: 'Tokyo Rain ☔️', username: 'Walker', viewers: '5.1k', image: 'https://i.postimg.cc/bJKvrYgd/IMG-6102.jpg' },
+                { category: 'Chatting', title: 'Morning Brew ☕️', username: 'Barista', viewers: '300', image: 'https://i.postimg.cc/NMW0FGDJ/IMG-6103.jpg' },
+                { category: 'Music', title: 'Study With Me 📚', username: 'Beats', viewers: '10k', image: 'https://i.postimg.cc/C1Z1wnGx/IMG-6104.jpg' }
+            ];
+        }
+
+        const categories = ['All', ...new Set(lives.map(l => l.category))].slice(0, 6);
+
+        const categoryHtml = categories.map((cat, i) => `
+            <div class="forum-cat-btn ${i === 0 ? 'active' : ''}" onclick="window.filterForumLiveCategory('${cat}')">${cat}</div>
+        `).join('');
+
+        const cardsHtml = lives.map(live => {
+            const titleEnc = encodeURIComponent(live.title || '').replace(/'/g, "%27");
+            const usernameEnc = encodeURIComponent(live.username || '').replace(/'/g, "%27");
+            const actionDescEnc = encodeURIComponent(live.action_desc || '').replace(/'/g, "%27");
+            const initialCommentsStr = encodeURIComponent(JSON.stringify(live.initial_comments || [])).replace(/'/g, "%27");
+            return `
+            <div class="forum-live-card" data-category="${live.category}" onclick="window.openForumLiveRoom(decodeURIComponent('${titleEnc}'), decodeURIComponent('${usernameEnc}'), decodeURIComponent('${actionDescEnc}'), '${initialCommentsStr}')">
+                <div class="forum-live-card-image" style="background-image: url('${live.image}'); background-size: cover; background-position: center;"></div>
+                <div class="forum-live-card-badge">
+                    <div class="forum-live-status-dot"></div> LIVE
+                </div>
+                <div class="forum-live-card-info">
+                    <div class="forum-live-card-title">${live.title}</div>
+                    <div class="forum-live-card-meta">
+                        <span>${live.username} • ${live.viewers} watching</span>
+                    </div>
+                </div>
+                <div class="forum-live-card-category">${live.category}</div>
+            </div>
+        `}).join('');
+
+        return `
+            <div class="forum-live-big-text">Live</div>
+            
+            <div class="forum-category-scroll">
+                ${categoryHtml}
+            </div>
+
+            <div class="forum-live-grid">
+                ${cardsHtml}
             </div>
         `;
     }
@@ -5180,6 +5780,154 @@ ${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人�
             window.addEventListener('mouseup', onMouseUp);
         });
     }
+
+    window.generateForumLives = async function() {
+        const btn = document.querySelector('.forum-live-header-icon');
+        if (btn && btn.classList.contains('generating')) return;
+        
+        if (btn) {
+            btn.classList.add('generating');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 20px; color: #000;"></i>';
+        }
+
+        try {
+            let settings = { url: '', key: '', model: '' };
+            if (window.iphoneSimState) {
+                if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) {
+                    settings = window.iphoneSimState.aiSettings;
+                } else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) {
+                    settings = window.iphoneSimState.aiSettings2;
+                }
+            }
+
+            if (!settings.url || !settings.key) {
+                alert('请先在设置中配置AI接口信息');
+                throw new Error('No AI settings');
+            }
+
+            const linkedContactIds = forumState.settings.linkedContacts || [];
+            const contacts = window.iphoneSimState.contacts || [];
+            const profiles = forumState.settings.contactProfiles || {};
+            
+            const linkedContactsData = linkedContactIds.map(id => {
+                const contact = contacts.find(c => c.id === id);
+                if (!contact) return null;
+                const profile = profiles[id] || {};
+                return {
+                    id: contact.id,
+                    name: profile.name || contact.remark || contact.name,
+                    persona: contact.persona || '普通网友'
+                };
+            }).filter(c => c);
+
+            const forumWorldview = forumState.settings.forumWorldview || '';
+
+            let contactPrompt = '';
+            if (linkedContactsData.length > 0) {
+                const charList = linkedContactsData.map(c => `- ${c.name} (人设: ${c.persona})`).join('\\n');
+                contactPrompt = `必须至少包含以下联系人中的一个作为主播:\\n${charList}\\n`;
+            }
+
+            const prompt = `
+请为社交论坛生成一组直播列表。
+世界观背景: ${forumWorldview}
+
+要求:
+1. 生成总数不超过 12 个直播。
+${contactPrompt}
+2. 返回纯JSON数组。
+3. 每个对象包含:
+   - category: 直播分类 (例如: Music, Gaming, Chatting, Design, Travel, Dance, Art 等)
+   - title: 直播标题 (吸引人，符合主播人设或分类)
+   - username: 主播名字 (如果是联系人，请使用联系人的名字；否则生成一个真实的网名)
+   - viewers: 观看人数 (例如 "1.2k", "856", "10w")
+   - type: "food", "travel", "mood", "hobby", "daily", "pet", "scenery" 中的一个，用于生成背景图
+   - image_description: 直播封面画面描述(英文，Stable Diffusion格式标签)
+   - action_desc: 详细描述主播当前所在的画面、正在做什么以及说的话 (例如: "坐在洒满阳光的卧室里，一边弹奏吉他一边微笑着说：'这首新歌送给你们'。")
+   - initial_comments: 一个数组，包含3-5条当前直播间里正在发送的评论对象，每个对象包含 { username: "发送者名字", content: "评论内容" }
+
+只返回JSON数组，不要Markdown标记。
+`;
+
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + settings.key
+                },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: '你是模拟社交网络数据的生成器。只返回JSON数据。' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.8
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('API request failed');
+            }
+
+            const data = await response.json();
+            let content = data.choices[0].message.content;
+            
+            content = content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+
+            let newLives = [];
+            try {
+                newLives = JSON.parse(content);
+            } catch (e) {
+                console.error("JSON parse failed", content);
+                throw new Error("AI生成的数据格式有误");
+            }
+
+            if (!Array.isArray(newLives)) {
+                 throw new Error("AI生成的不是数组");
+            }
+
+            newLives = newLives.slice(0, 12);
+
+            const existingImages = [
+                'https://i.postimg.cc/fymR94qp/IMG-6099.jpg',
+                'https://i.postimg.cc/kGKgbrY0/IMG-6100.jpg',
+                'https://i.postimg.cc/3RPwNr1v/IMG-6101.jpg',
+                'https://i.postimg.cc/bJKvrYgd/IMG-6102.jpg',
+                'https://i.postimg.cc/NMW0FGDJ/IMG-6103.jpg',
+                'https://i.postimg.cc/C1Z1wnGx/IMG-6104.jpg'
+            ];
+
+            newLives.forEach((live, index) => {
+                live.image = existingImages[index % existingImages.length];
+            });
+
+            forumState.liveStreams = newLives;
+            localStorage.setItem('forum_liveStreams', JSON.stringify(forumState.liveStreams));
+            
+            if (forumState.activeTab === 'video') {
+                renderForum(false);
+            }
+
+        } catch (error) {
+            console.error('Generate lives error:', error);
+            alert('生成直播失败: ' + error.message);
+        } finally {
+            if (btn) {
+                btn.classList.remove('generating');
+                btn.innerHTML = `
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                `;
+            }
+        }
+    };
 
     window.initForumApp = initForum;
     if (window.appInitFunctions) {
