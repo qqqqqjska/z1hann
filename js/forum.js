@@ -99,7 +99,9 @@
         dmNotes: [
              { id: 1, name: '你的便签', avatar: '', isMe: true, note: '分享便签', subtext: '位置共享已关闭' },
              { id: 2, name: '地图', avatar: 'https://placehold.co/100x100/87CEEB/ffffff?text=Map', isMap: true, note: '全新' }
-        ]
+        ],
+        liveWallpapers: JSON.parse(localStorage.getItem('forum_liveWallpapers')) || [],
+        currentLiveWallpaper: localStorage.getItem('forum_currentLiveWallpaper') || ''
     };
 
     function initForum() {
@@ -159,7 +161,73 @@
 
         // Expose function to open live room
         window.openForumLiveRoom = function(title, host, actionDesc, initialCommentsStr) {
-            document.getElementById('forum-room-host-name').textContent = host;
+            // Resolve Host Info (Avatar & Display Name)
+            let avatarUrl = '';
+            let displayName = host; // Default to provided host name
+
+            const contacts = (window.iphoneSimState && window.iphoneSimState.contacts) ? window.iphoneSimState.contacts : [];
+            const profiles = (forumState.settings && forumState.settings.contactProfiles) ? forumState.settings.contactProfiles : {};
+            
+            // Helper to check match
+            const isMatch = (c, nameToCheck) => {
+                if (!nameToCheck) return false;
+                const p = profiles[c.id] || {};
+                
+                // 1. Exact Name Matches (High Confidence)
+                if (c.remark === nameToCheck || p.name === nameToCheck || c.name === nameToCheck) return true;
+                
+                // 2. Bio/Persona Content Match (Medium Confidence - used because AI sometimes picks names from bio)
+                // Only if nameToCheck is specific enough (e.g. > 1 char)
+                if (nameToCheck.length > 1) {
+                     if (p.bio && p.bio.includes(nameToCheck)) return true;
+                     if (c.persona && c.persona.includes(nameToCheck)) return true;
+                }
+                
+                return false;
+            };
+
+            // Find matching contact
+            let foundContact = null;
+            
+            // 1. Try linked contacts first (Prioritize these for bio matching)
+            const linkedIds = (forumState.settings && forumState.settings.linkedContacts) ? forumState.settings.linkedContacts : [];
+            for (const id of linkedIds) {
+                const c = contacts.find(contact => contact.id === id);
+                if (c && isMatch(c, host)) {
+                    foundContact = c;
+                    break;
+                }
+            }
+
+            // 2. Fallback to all contacts (Only exact match to avoid false positives)
+            if (!foundContact) {
+                foundContact = contacts.find(c => {
+                    const p = profiles[c.id] || {};
+                    return c.remark === host || p.name === host || c.name === host;
+                });
+            }
+
+            if (foundContact) {
+                const p = profiles[foundContact.id] || {};
+                // Priority: Profile Name > Remark > Contact Name (for display)
+                // Actually user requested "User Set Name" (Remark) priority for display
+                displayName = p.name || foundContact.remark || foundContact.name;
+                avatarUrl = p.avatar || foundContact.avatar;
+            }
+
+            // Fallback Avatar if not found
+            if (!avatarUrl) {
+                avatarUrl = `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(host)}`;
+            }
+
+            // Update DOM
+            document.getElementById('forum-room-host-name').textContent = displayName;
+
+            const avatarEl = document.querySelector('.forum-room-host-avatar');
+            if (avatarEl) {
+                avatarEl.innerHTML = `<img src="${avatarUrl}" style="width:100%; height:100%; object-fit:cover; border-radius:50%; display:block;">`;
+                avatarEl.style.background = 'transparent';
+            }
             
             forumState.currentLiveRoom = {
                 title: title,
@@ -172,20 +240,28 @@
             // Set action description
             let actionDescHtml = '';
             if (actionDesc && actionDesc !== 'undefined') {
-                actionDescHtml = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${actionDesc}</div>`;
+                actionDescHtml = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${actionDesc}</div>`;
             }
             
             const roomBg = document.querySelector('.forum-room-bg');
             if (roomBg) {
-                roomBg.innerHTML = `
-                    <div style="text-align:center; opacity:0.3; display: flex; flex-direction: column; align-items: center; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);">
-                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                            <polygon points="23 7 16 12 23 17 23 7"></polygon>
-                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-                        </svg>
-                        <div style="font-size:14px; margin-top:10px;">LIVE FEED</div>
-                    </div>
-                `;
+                if (forumState.currentLiveWallpaper) {
+                    roomBg.style.backgroundImage = `url('${forumState.currentLiveWallpaper}')`;
+                    roomBg.style.backgroundSize = 'cover';
+                    roomBg.style.backgroundPosition = 'center';
+                    roomBg.innerHTML = '';
+                } else {
+                    roomBg.style.backgroundImage = '';
+                    roomBg.innerHTML = `
+                        <div style="text-align:center; opacity:0.3; display: flex; flex-direction: column; align-items: center; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                                <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                            </svg>
+                            <div style="font-size:14px; margin-top:10px;">LIVE FEED</div>
+                        </div>
+                    `;
+                }
             }
 
             const descContainer = document.querySelector('.forum-room-desc-container');
@@ -210,7 +286,7 @@
                     if (Array.isArray(comments)) {
                         comments.forEach((c, index) => {
                             setTimeout(() => {
-                                window.appendForumLiveMessage(`<span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
+                                window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
                                 if (forumState.currentLiveRoom) {
                                     forumState.currentLiveRoom.comments.push({ username: c.username, content: c.content, isUser: false });
                                 }
@@ -221,11 +297,11 @@
                     console.error('Error parsing initial comments', e);
                     // Fallback default comments
                     setTimeout(() => {
-                        window.appendForumLiveMessage(`<span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Alex</span>Hello! 👋`);
+                        window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">Alex</span>Hello! 👋`);
                         if (forumState.currentLiveRoom) forumState.currentLiveRoom.comments.push({ username: 'Alex', content: 'Hello! 👋', isUser: false });
                     }, 400);
                     setTimeout(() => {
-                        window.appendForumLiveMessage(`<span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Sarah_99</span>Love the vibe here`);
+                        window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">Sarah_99</span>Love the vibe here`);
                         if (forumState.currentLiveRoom) forumState.currentLiveRoom.comments.push({ username: 'Sarah_99', content: 'Love the vibe here', isUser: false });
                     }, 1400);
                 }
@@ -242,6 +318,109 @@
 
         window.toggleForumGiftMenu = function() {
             document.getElementById('forum-gift-menu').classList.toggle('active');
+        };
+
+        // --- Live Wallpaper Logic ---
+        window.toggleLiveWallpaperMenu = function() {
+            const menu = document.getElementById('forum-wallpaper-menu');
+            if (menu) {
+                menu.classList.toggle('active');
+                if (menu.classList.contains('active')) {
+                    window.renderRoomWallpaperGrid();
+                }
+            }
+        };
+
+        window.renderRoomWallpaperGrid = function() {
+            const grid = document.getElementById('forum-wallpaper-grid');
+            if (!grid) return;
+
+            const wallpapers = forumState.liveWallpapers || [];
+            const isDefaultSelected = !forumState.currentLiveWallpaper;
+
+            const gridHtml = wallpapers.map((img, index) => {
+                const isSelected = forumState.currentLiveWallpaper === img;
+                return `
+                    <div class="live-wallpaper-item" onclick="window.setRoomWallpaper('${img}')" style="position: relative; aspect-ratio: 9/16; background-image: url('${img}'); background-size: cover; background-position: center; border-radius: 8px; overflow: hidden; cursor: pointer; border: ${isSelected ? '3px solid #0095f6' : '1px solid #ddd'};">
+                        ${isSelected ? '<div style="position: absolute; top: 5px; right: 5px; background: #0095f6; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 12px;"><i class="fas fa-check"></i></div>' : ''}
+                        <div onclick="window.deleteRoomWallpaper(event, ${index})" style="position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.5); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;"><i class="fas fa-trash"></i></div>
+                    </div>
+                `;
+            }).join('');
+
+            const defaultHtml = `
+                <div class="live-wallpaper-item" onclick="window.setRoomWallpaper('')" style="aspect-ratio: 9/16; background: #f0f2f5; border-radius: 8px; display: flex; justify-content: center; align-items: center; cursor: pointer; border: ${isDefaultSelected ? '3px solid #0095f6' : '1px solid #ddd'}; color: #666; font-size: 13px;">
+                    默认
+                    ${isDefaultSelected ? '<div style="position: absolute; top: 5px; right: 5px; background: #0095f6; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 12px;"><i class="fas fa-check"></i></div>' : ''}
+                </div>
+            `;
+
+            grid.innerHTML = defaultHtml + gridHtml;
+        };
+
+        window.handleRoomWallpaperUpload = function(input) {
+            if (input.files && input.files.length > 0) {
+                Array.from(input.files).forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        try {
+                            const compressed = await compressImage(e.target.result, 0.7, 800);
+                            if (!forumState.liveWallpapers) forumState.liveWallpapers = [];
+                            forumState.liveWallpapers.unshift(compressed);
+                            localStorage.setItem('forum_liveWallpapers', JSON.stringify(forumState.liveWallpapers));
+                            window.renderRoomWallpaperGrid();
+                        } catch (err) {
+                            console.error("Image upload failed", err);
+                            alert("图片处理失败");
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+        };
+
+        window.setRoomWallpaper = function(img) {
+            forumState.currentLiveWallpaper = img;
+            localStorage.setItem('forum_currentLiveWallpaper', img);
+            
+            // Apply immediately
+            const bgDiv = document.querySelector('.forum-room-bg');
+            if (bgDiv) {
+                if (img) {
+                    bgDiv.style.backgroundImage = `url('${img}')`;
+                    bgDiv.style.backgroundSize = 'cover';
+                    bgDiv.style.backgroundPosition = 'center';
+                    bgDiv.innerHTML = ''; // Clear default SVG content
+                } else {
+                    bgDiv.style.backgroundImage = '';
+                    // Restore default SVG
+                    bgDiv.innerHTML = `
+                        <div style="text-align:center; opacity:0.3; display: flex; flex-direction: column; align-items: center; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                                <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                            </svg>
+                            <div style="font-size:14px; margin-top:10px;">LIVE FEED</div>
+                        </div>
+                    `;
+                }
+            }
+            window.renderRoomWallpaperGrid();
+        };
+
+        window.deleteRoomWallpaper = function(e, index) {
+            e.stopPropagation();
+            if (confirm('确定删除这张壁纸吗？')) {
+                const deletedImg = forumState.liveWallpapers[index];
+                forumState.liveWallpapers.splice(index, 1);
+                
+                if (forumState.currentLiveWallpaper === deletedImg) {
+                    window.setRoomWallpaper('');
+                }
+                
+                localStorage.setItem('forum_liveWallpapers', JSON.stringify(forumState.liveWallpapers));
+                window.renderRoomWallpaperGrid();
+            }
         };
 
         let selectedGiftIcon = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff2d55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-8"/><path d="M12 14a4 4 0 0 0 4-4 4 4 0 0 0-4-4 4 4 0 0 0-4 4 4 4 0 0 0 4 4z"/><path d="M12 14c-2.2 0-4 1.8-4 4s1.8 4 4 4"/><path d="M12 14c2.2 0 4 1.8 4 4s-1.8 4-4 4"/></svg>';
@@ -403,13 +582,13 @@ ${recentComments}
                 room.actionDesc = result.actionDesc;
                 const descContainer = document.querySelector('.forum-room-desc-container');
                 if (descContainer) {
-                    descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${result.actionDesc}</div>`;
+                    descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${result.actionDesc}</div>`;
                 }
 
                 if (result.comments && Array.isArray(result.comments)) {
                     result.comments.forEach((c, index) => {
                         setTimeout(() => {
-                            window.appendForumLiveMessage(`<span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
+                            window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
                             room.comments.push({ username: c.username, content: c.content, isUser: false });
                         }, 400 + index * 1000);
                     });
@@ -437,7 +616,7 @@ ${recentComments}
             room.actionDesc = room.preGenState.actionDesc;
             const descContainer = document.querySelector('.forum-room-desc-container');
             if (descContainer) {
-                descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${room.actionDesc}</div>`;
+                descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${room.actionDesc}</div>`;
             }
 
             // Restore comments list
@@ -453,7 +632,7 @@ ${recentComments}
                 chatArea.appendChild(wrapper);
 
                 room.comments.forEach(c => {
-                    const color = c.isUser ? '#ff2d55' : '#a1a1aa';
+                    const color = c.isUser ? '#ff2d55' : 'white';
                     const newMsg = document.createElement('div');
                     newMsg.className = 'forum-room-chat-msg';
                     newMsg.innerHTML = `<span style="color: ${color}; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`;
@@ -670,21 +849,25 @@ ${recentComments}
                                     <button class="forum-room-follow-btn">Follow</button>
                                 </div>
                             </div>
-                            <!-- Share Button moved here -->
-                            <button class="forum-room-action-btn" style="width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.2);">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+                            <!-- Wallpaper Button -->
+                            <button class="forum-room-action-btn" onclick="window.toggleLiveWallpaperMenu()" style="width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.2);">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                    <polyline points="21 15 16 10 5 21"></polyline>
+                                </svg>
                             </button>
                         </div>
 
                         <div style="display: flex; flex-direction: column; gap: 12px; flex: 1; overflow: hidden; margin-top: 20px;">
-                            <div class="forum-room-desc-container" style="display: flex; justify-content: center; margin-top: 50vh; height: 100px; overflow-y: auto; flex-shrink: 0;">
+                            <div class="forum-room-desc-container" style="display: flex; justify-content: center; align-items: center; width: 100%; margin-top: 10vh; height: 200px; overflow-y: auto; flex-shrink: 0;">
                             </div>
                             
                             <div class="forum-room-chat-container" style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;">
                                 <div class="forum-room-chat-area">
-                                    <div class="forum-room-chat-msg"><span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Alex</span>Hello! 👋</div>
-                                    <div class="forum-room-chat-msg"><span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Sarah_99</span>Love the vibe here</div>
-                                    <div class="forum-room-chat-msg"><span style="color: #a1a1aa; font-weight: 600; margin-right: 6px;">Mike_D</span>Can you show the setup?</div>
+                                    <div class="forum-room-chat-msg"><span style="color: white; font-weight: 600; margin-right: 6px;">Alex</span>Hello! 👋</div>
+                                    <div class="forum-room-chat-msg"><span style="color: white; font-weight: 600; margin-right: 6px;">Sarah_99</span>Love the vibe here</div>
+                                    <div class="forum-room-chat-msg"><span style="color: white; font-weight: 600; margin-right: 6px;">Mike_D</span>Can you show the setup?</div>
                                 </div>
                             </div>
 
@@ -760,6 +943,25 @@ ${recentComments}
                         <div class="forum-gift-action">
                             <input type="number" id="forum-gift-count" value="1" min="1" max="99">
                             <button class="forum-send-gift-btn" onclick="window.sendForumGift()">Send Gift</button>
+                        </div>
+                    </div>
+
+                    <!-- Wallpaper Menu Overlay -->
+                    <div class="forum-gift-menu" id="forum-wallpaper-menu" style="height: auto; max-height: 70vh;">
+                        <div class="forum-gift-menu-header">
+                            <h4 style="font-size: 18px; font-weight: 700; color: #1c1c1e;">直播背景</h4>
+                            <button onclick="window.toggleLiveWallpaperMenu()" style="background: rgba(0,0,0,0.05); border: none; width: 30px; height: 30px; border-radius: 50%; font-size: 14px; font-weight: bold; cursor: pointer; color: #1c1c1e;">✕</button>
+                        </div>
+                        <div style="padding: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <div style="font-weight: 600; color: #666;">我的壁纸</div>
+                                <button onclick="document.getElementById('room-wallpaper-upload').click()" style="background: #0095f6; color: white; border: none; padding: 6px 14px; border-radius: 16px; font-size: 13px; font-weight: 600;">上传</button>
+                                <input type="file" id="room-wallpaper-upload" accept="image/*" style="display: none;" onchange="window.handleRoomWallpaperUpload(this)">
+                            </div>
+                            
+                            <div class="forum-wallpaper-grid" id="forum-wallpaper-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding-bottom: 20px;">
+                                <!-- Populated by JS -->
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1543,10 +1745,58 @@ ${recentComments}
         `).join('');
 
         const cardsHtml = lives.map(live => {
+            // Resolve Display Name for Card (prioritize Remark)
+            let displayUsername = live.username;
+            if (window.iphoneSimState && window.iphoneSimState.contacts) {
+                const contacts = window.iphoneSimState.contacts;
+                const profiles = (forumState.settings && forumState.settings.contactProfiles) ? forumState.settings.contactProfiles : {};
+                
+                // Try to find contact matching this username (which might be Name, Remark, or Profile Name)
+                // Helper to check match
+                const isMatch = (c, nameToCheck) => {
+                    if (!nameToCheck) return false;
+                    const p = profiles[c.id] || {};
+                    
+                    // 1. Exact Name Matches
+                    if (c.remark === nameToCheck || p.name === nameToCheck || c.name === nameToCheck) return true;
+                    
+                    // 2. Bio/Persona Content Match
+                    if (nameToCheck.length > 1) {
+                         if (p.bio && p.bio.includes(nameToCheck)) return true;
+                         if (c.persona && c.persona.includes(nameToCheck)) return true;
+                    }
+                    return false;
+                };
+
+                let foundContact = null;
+                // 1. Try linked contacts
+                const linkedIds = (forumState.settings && forumState.settings.linkedContacts) ? forumState.settings.linkedContacts : [];
+                for (const id of linkedIds) {
+                    const c = contacts.find(contact => contact.id === id);
+                    if (c && isMatch(c, live.username)) {
+                        foundContact = c;
+                        break;
+                    }
+                }
+                // 2. Fallback (Exact only)
+                if (!foundContact) {
+                    foundContact = contacts.find(c => {
+                        const p = profiles[c.id] || {};
+                        return c.remark === live.username || p.name === live.username || c.name === live.username;
+                    });
+                }
+
+                if (foundContact) {
+                    const p = profiles[foundContact.id] || {};
+                    displayUsername = p.name || foundContact.remark || foundContact.name;
+                }
+            }
+
             const titleEnc = encodeURIComponent(live.title || '').replace(/'/g, "%27");
-            const usernameEnc = encodeURIComponent(live.username || '').replace(/'/g, "%27");
+            const usernameEnc = encodeURIComponent(displayUsername || '').replace(/'/g, "%27"); // Pass resolved name
             const actionDescEnc = encodeURIComponent(live.action_desc || '').replace(/'/g, "%27");
             const initialCommentsStr = encodeURIComponent(JSON.stringify(live.initial_comments || [])).replace(/'/g, "%27");
+            
             return `
             <div class="forum-live-card" data-category="${live.category}" onclick="window.openForumLiveRoom(decodeURIComponent('${titleEnc}'), decodeURIComponent('${usernameEnc}'), decodeURIComponent('${actionDescEnc}'), '${initialCommentsStr}')">
                 <div class="forum-live-card-image" style="background-image: url('${live.image}'); background-size: cover; background-position: center;"></div>
@@ -1556,7 +1806,7 @@ ${recentComments}
                 <div class="forum-live-card-info">
                     <div class="forum-live-card-title">${live.title}</div>
                     <div class="forum-live-card-meta">
-                        <span>${live.username} • ${live.viewers} watching</span>
+                        <span>${displayUsername} • ${live.viewers} watching</span>
                     </div>
                 </div>
                 <div class="forum-live-card-category">${live.category}</div>
@@ -1572,6 +1822,104 @@ ${recentComments}
 
             <div class="forum-live-grid">
                 ${cardsHtml}
+            </div>
+        `;
+    }
+
+    window.openLiveWallpaperSettings = function() {
+        forumState.activeTab = 'live_settings';
+        renderForum();
+    };
+
+    window.closeLiveWallpaperSettings = function() {
+        forumState.activeTab = 'video';
+        renderForum();
+    };
+
+    window.handleLiveWallpaperUpload = function(input) {
+        if (input.files && input.files.length > 0) {
+            Array.from(input.files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        // Compress image to avoid QuotaExceededError
+                        const compressed = await compressImage(e.target.result, 0.7, 800);
+                        if (!forumState.liveWallpapers) forumState.liveWallpapers = [];
+                        forumState.liveWallpapers.unshift(compressed);
+                        
+                        // Persist
+                        localStorage.setItem('forum_liveWallpapers', JSON.stringify(forumState.liveWallpapers));
+                        renderForum();
+                    } catch (err) {
+                        console.error("Image upload failed", err);
+                        alert("图片处理失败");
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+    };
+
+    window.setLiveWallpaper = function(img) {
+        forumState.currentLiveWallpaper = img;
+        localStorage.setItem('forum_currentLiveWallpaper', img);
+        renderForum();
+    };
+
+    window.deleteLiveWallpaper = function(e, index) {
+        e.stopPropagation();
+        if (confirm('确定删除这张壁纸吗？')) {
+            const deletedImg = forumState.liveWallpapers[index];
+            forumState.liveWallpapers.splice(index, 1);
+            
+            // If deleting current wallpaper, clear it
+            if (forumState.currentLiveWallpaper === deletedImg) {
+                forumState.currentLiveWallpaper = '';
+                localStorage.setItem('forum_currentLiveWallpaper', '');
+            }
+            
+            localStorage.setItem('forum_liveWallpapers', JSON.stringify(forumState.liveWallpapers));
+            renderForum();
+        }
+    };
+
+    function renderLiveSettings() {
+        const wallpapers = forumState.liveWallpapers || [];
+        
+        const gridHtml = wallpapers.map((img, index) => {
+            const isSelected = forumState.currentLiveWallpaper === img;
+            return `
+                <div class="live-wallpaper-item ${isSelected ? 'selected' : ''}" onclick="window.setLiveWallpaper('${img}')" style="position: relative; aspect-ratio: 9/16; background-image: url('${img}'); background-size: cover; background-position: center; border-radius: 8px; overflow: hidden; cursor: pointer; border: ${isSelected ? '3px solid #0095f6' : '1px solid #ddd'};">
+                    ${isSelected ? '<div style="position: absolute; top: 5px; right: 5px; background: #0095f6; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 12px;"><i class="fas fa-check"></i></div>' : ''}
+                    <div onclick="window.deleteLiveWallpaper(event, ${index})" style="position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.5); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;"><i class="fas fa-trash"></i></div>
+                </div>
+            `;
+        }).join('');
+
+        const isDefaultSelected = !forumState.currentLiveWallpaper;
+
+        return `
+            <div style="padding: 20px;">
+                <div style="margin-bottom: 20px;">
+                    <div style="font-weight: 600; margin-bottom: 10px;">当前壁纸</div>
+                    <div style="width: 100px; aspect-ratio: 9/16; background: ${forumState.currentLiveWallpaper ? `url('${forumState.currentLiveWallpaper}')` : '#f0f2f5'}; background-size: cover; border-radius: 8px; border: 1px solid #ddd;"></div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <div style="font-weight: 600; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                        <span>我的壁纸</span>
+                        <button onclick="document.getElementById('live-wallpaper-upload').click()" style="background: #0095f6; color: white; border: none; padding: 5px 12px; border-radius: 4px; font-size: 13px; font-weight: 600;">上传</button>
+                    </div>
+                    <input type="file" id="live-wallpaper-upload" accept="image/*" style="display: none;" onchange="window.handleLiveWallpaperUpload(this)">
+                    
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <div class="live-wallpaper-item ${isDefaultSelected ? 'selected' : ''}" onclick="window.setLiveWallpaper('')" style="aspect-ratio: 9/16; background: #f0f2f5; border-radius: 8px; display: flex; justify-content: center; align-items: center; cursor: pointer; border: ${isDefaultSelected ? '3px solid #0095f6' : '1px solid #ddd'}; color: #666; font-size: 13px;">
+                            默认
+                            ${isDefaultSelected ? '<div style="position: absolute; top: 5px; right: 5px; background: #0095f6; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 12px;"><i class="fas fa-check"></i></div>' : ''}
+                        </div>
+                        ${gridHtml}
+                    </div>
+                </div>
             </div>
         `;
     }
@@ -5839,7 +6187,7 @@ ${contactPrompt}
 3. 每个对象包含:
    - category: 直播分类 (例如: Music, Gaming, Chatting, Design, Travel, Dance, Art 等)
    - title: 直播标题 (吸引人，符合主播人设或分类)
-   - username: 主播名字 (如果是联系人，请使用联系人的名字；否则生成一个真实的网名)
+   - username: 主播名字 (如果是联系人，必须严格使用提供的 'Name'，禁止从人设中提取其他名字；否则生成一个真实的网名)
    - viewers: 观看人数 (例如 "1.2k", "856", "10w")
    - type: "food", "travel", "mood", "hobby", "daily", "pet", "scenery" 中的一个，用于生成背景图
    - image_description: 直播封面画面描述(英文，Stable Diffusion格式标签)
@@ -5899,7 +6247,13 @@ ${contactPrompt}
                 'https://i.postimg.cc/3RPwNr1v/IMG-6101.jpg',
                 'https://i.postimg.cc/bJKvrYgd/IMG-6102.jpg',
                 'https://i.postimg.cc/NMW0FGDJ/IMG-6103.jpg',
-                'https://i.postimg.cc/C1Z1wnGx/IMG-6104.jpg'
+                'https://i.postimg.cc/C1Z1wnGx/IMG-6104.jpg',
+                'https://i.postimg.cc/zGj37rDZ/IMG-6105.jpg',
+                'https://i.postimg.cc/zG5VTBrw/IMG-6106.jpg',
+                'https://i.postimg.cc/0yxb7QsY/IMG-6107.jpg',
+                'https://i.postimg.cc/K8FRtz2r/IMG-6108.jpg',
+                'https://i.postimg.cc/fRZJYLN9/IMG-6109.jpg',
+                'https://i.postimg.cc/x1YcLC2q/IMG-6110.jpg'
             ];
 
             newLives.forEach((live, index) => {

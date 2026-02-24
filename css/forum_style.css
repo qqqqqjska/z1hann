@@ -2443,7 +2443,8 @@ input:checked + .slider:before {
     font-size: 13px;
     align-self: flex-start;
     max-width: 80%;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
 .forum-room-action-bar {
