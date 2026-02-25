@@ -2278,7 +2278,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     let extraClass = '';
-    const cardTypes = ['transfer', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite'];
+    const cardTypes = ['transfer', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
     }
@@ -2527,6 +2527,43 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     } else if (type === 'minesweeper_invite') {
         extraClass += ' minesweeper-invite-msg';
         contentHtml = `<div class="minesweeper-card" style="display: flex; flex-direction: column; width: 100%; height: 100%; justify-content: space-between;" onclick="window.startMinesweeper()"><div class="minesweeper-invite-top" style="display: flex; align-items: center; padding: 12px 15px; gap: 12px; background: linear-gradient(135deg, #f9f9f9 0%, #ffffff 100%); border-bottom: 1px solid #f0f0f0; width: 100%;"><div class="minesweeper-icon" style="width: 40px; height: 40px; border-radius: 8px; background-color: #ff3b30; display: flex; justify-content: center; align-items: center; font-size: 20px; color: #fff;">💣</div><div class="minesweeper-info" style="display: flex; flex-direction: column; justify-content: center; flex: 1;"><div class="minesweeper-title" style="font-size: 16px; font-weight: 600; color: #000; margin-bottom: 2px;">扫雷</div><div class="minesweeper-desc" style="font-size: 12px; color: #8e8e93;">邀请你玩游戏</div></div></div><div class="minesweeper-invite-bottom" style="padding: 8px 15px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #8e8e93; width: 100%;"><span>经典游戏</span><i class="fas fa-chevron-right"></i></div></div>`;
+    } else if (type === 'pdd_cash_share') {
+        let data = {};
+        try { data = JSON.parse(text); } catch(e) {}
+        
+        contentHtml = `
+            <div class="pdd-share-msg" onclick="if(window.renderCashActivity) { document.getElementById('shopping-app').classList.remove('hidden'); window.renderCashActivity(); }">
+                <div class="pdd-share-header">
+                    <i class="fas fa-money-bill-wave"></i> <span class="pdd-header-text">天天领现金</span>
+                </div>
+                <div class="pdd-share-content">
+                    <div class="pdd-share-title">点一下！就差你了</div>
+                    <div class="pdd-share-amount">¥${data.amount || '99.9'}</div>
+                </div>
+            </div>
+        `;
+    } else if (type === 'pdd_bargain_share') {
+        let data = {};
+        try { data = JSON.parse(text); } catch(e) {}
+        
+        contentHtml = `
+            <div class="pdd-share-msg" onclick="if(window.startBargain) { document.getElementById('shopping-app').classList.remove('hidden'); window.startBargain({id: '${data.productId}', title: '${data.title}', price: ${data.currentPrice}, image: '${data.image}'}); }">
+                <div class="pdd-share-header" style="background:#ff6600;">
+                    <i class="fas fa-cut"></i> <span class="pdd-header-text">砍价免费拿</span>
+                </div>
+                <div class="pdd-share-content">
+                    <div style="display:flex; gap:10px; margin-bottom:10px;">
+                        <div style="width:60px; height:60px; background:#f0f0f0; border-radius:4px; flex-shrink:0; display:flex; align-items:center; justify-content:center;">
+                            <i class="fas fa-gift" style="font-size:24px; color:#ff6600;"></i>
+                        </div>
+                        <div style="text-align:left; flex:1; display:flex; flex-direction:column; justify-content:space-between;">
+                            <div style="font-size:13px; font-weight:bold; line-height:1.2; height:32px; overflow:hidden; color:#333;">${data.title}</div>
+                            <div style="color:#ff0000; font-weight:bold; font-size:14px;">当前: ¥${data.currentPrice}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     let replyHtml = '';
@@ -3590,6 +3627,10 @@ ${contact.showThought ? `
   - command: "UPDATE_WXID", payload: "新微信号"
   - command: "UPDATE_SIGNATURE", payload: "新签名"
   - command: "UPDATE_AVATAR", payload: "" (将用户发送的最后一张图片设为自己的头像)
+- 拼多多领现金助力 -> command: "PDD_CASH_HELP", payload: "" (留空)
+  *说明*：当用户发送领现金链接时，如果决定帮他助力，请输出此指令。
+- 拼多多砍价助力 -> command: "PDD_BARGAIN_HELP", payload: "商品ID" (从用户的分享链接中获取)
+  *说明*：当用户发送砍价链接时，如果决定帮他砍一刀，请输出此指令。
 
 【记忆提取指令】
 在对话过程中，当你注意到用户提到关于自己的新信息时（如喜好、习惯、特征、经历等），请将其记录下来。
@@ -3884,6 +3925,14 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 }
                 
                 return { role: h.role, content: `[分享了 iCity 日记 (${authorInfo}): "${cardData.content || '内容'}"${commentsInfo}]` };
+            } else if (h.type === 'pdd_cash_share') {
+                let data = {};
+                try { data = JSON.parse(content); } catch(e) {}
+                return { role: h.role, content: `[分享了天天领现金链接：差 ${data.diff} 元提现]` };
+            } else if (h.type === 'pdd_bargain_share') {
+                let data = {};
+                try { data = JSON.parse(content); } catch(e) {}
+                return { role: h.role, content: `[分享了砍价免费拿链接：${data.title}，当前价格 ¥${data.currentPrice}，商品ID: ${data.productId}]` };
             } else {
                 if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
                      try {
@@ -4062,6 +4111,8 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         const msFlagRegex = /ACTION:\s*MINESWEEPER_FLAG:\s*(\d+)\s*,\s*(\d+)(?:\n|$)/;
         const witchGuessRegex = /ACTION:\s*WITCH_GUESS:\s*(\d+)\s*,\s*(\d+)(?:\n|$)/;
         const recordImportantStateRegex = /ACTION:\s*RECORD_IMPORTANT_STATE:\s*(.*?)(?:\n|$)/;
+        const pddCashHelpRegex = /ACTION:\s*PDD_CASH_HELP(?:\s*|$)/;
+        const pddBargainHelpRegex = /ACTION:\s*PDD_BARGAIN_HELP:\s*(.*?)(?:\n|$)/;
 
         let replyToObj = null;
         let hasUpdatedName = false;
@@ -4071,6 +4122,23 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         for (let i = 0; i < actions.length; i++) {
             let segment = actions[i];
             let processedSegment = segment;
+
+            let pddCashHelpMatch;
+            while ((pddCashHelpMatch = processedSegment.match(pddCashHelpRegex)) !== null) {
+                if (window.processPddHelp) {
+                    setTimeout(() => window.processPddHelp('cash', null), 1000);
+                }
+                processedSegment = processedSegment.replace(pddCashHelpMatch[0], '');
+            }
+
+            let pddBargainHelpMatch;
+            while ((pddBargainHelpMatch = processedSegment.match(pddBargainHelpRegex)) !== null) {
+                const prodId = pddBargainHelpMatch[1].trim();
+                if (window.processPddHelp) {
+                    setTimeout(() => window.processPddHelp('bargain', prodId), 1000);
+                }
+                processedSegment = processedSegment.replace(pddBargainHelpMatch[0], '');
+            }
 
             let recordImportantStateMatch;
             while ((recordImportantStateMatch = processedSegment.match(recordImportantStateRegex)) !== null) {

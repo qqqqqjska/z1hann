@@ -3454,7 +3454,6 @@ input:checked + .slider:before {
 .chat-message .message-content.gift-card-msg {
     width: fit-content !important;
     height: fit-content !important;
-    background-color: transparent !important;
     padding: 0 !important;
     border: none !important;
     border-radius: 0 !important;
@@ -3468,7 +3467,7 @@ input:checked + .slider:before {
 /* Specific Card Dimensions */
 .order-share-card {
     width: 240px !important;
-    height: 220px !important; /* Reverted to compact height */
+    height: 150px !important; /* Reverted to compact height */
     display: flex !important;
     flex-direction: column !important;
     justify-content: flex-start !important; /* Stack from top */
@@ -3485,7 +3484,7 @@ input:checked + .slider:before {
 .delivery-share-card,
 .pay-request-card {
     width: 230px !important;
-    height: 130px !important;
+    height: 150px !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
@@ -3495,7 +3494,7 @@ input:checked + .slider:before {
 
 .product-share-card {
     width: 230px !important;
-    height: 115px !important;
+    height: 150px !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;

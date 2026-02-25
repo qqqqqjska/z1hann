@@ -2,6 +2,13 @@
 
 // 状态
 let isShoppingManageMode = false;
+let cashActivityState = {
+    active: false,
+    amount: 0,
+    target: 100,
+    helpers: [],
+    bargains: {} // {productId: {currentPrice: 0, originalPrice: 0, logs: []}}
+};
 let selectedShoppingProducts = new Set();
 let currentShoppingProduct = null;
 let currentShoppingCategory = 'All';
@@ -152,6 +159,14 @@ function ensureShoppingContainer() {
         gridContainer = document.createElement('div');
         gridContainer.className = 'shopping-product-grid shopping-animate-enter';
         container.appendChild(gridContainer);
+        
+        const exploreBtn = container.querySelector('.shopping-hero-btn');
+        if (exploreBtn) {
+            exploreBtn.onclick = (e) => {
+                e.preventDefault();
+                initCashActivity();
+            };
+        }
         
         renderShoppingCategories();
     }
@@ -649,6 +664,18 @@ window.initShoppingUI = function() {
     }
 
     updateLinkButtonState();
+    
+    // 25% chance to trigger "Cash Withdrawal" popup
+    if (Math.random() < 0.25) {
+        setTimeout(() => {
+            if (!document.getElementById('shopping-app').classList.contains('hidden')) {
+                initCashActivity();
+            }
+        }, 1000);
+    }
+    
+    // Always show float entry if active or just randomly
+    renderCashFloatEntry();
 };
 
 function renderShoppingCategories() {
@@ -1020,6 +1047,55 @@ function openShoppingProductDetail(product) {
                 }
             }
         };
+    }
+    
+    // Insert "Bargain" Button (Minimalist Style)
+    // Fix: existingBtn is child of detailView, not shopping-pd-info
+    const existingBtn = detailView.querySelector('.shopping-add-btn');
+    let buttonGroup = document.getElementById('shopping-action-group');
+
+    // Remove old trashy button if it exists outside group
+    const oldBargainBtn = document.getElementById('shopping-bargain-btn');
+    if (oldBargainBtn && (!buttonGroup || !buttonGroup.contains(oldBargainBtn))) {
+        oldBargainBtn.remove();
+    }
+
+    if (!buttonGroup && existingBtn) {
+        buttonGroup = document.createElement('div');
+        buttonGroup.id = 'shopping-action-group';
+        buttonGroup.style.cssText = 'position: absolute; bottom: 20px; left: 24px; right: 24px; display: flex; gap: 12px; height: 50px; align-items: center; z-index: 10;';
+        
+        const bargainBtn = document.createElement('button');
+        bargainBtn.id = 'shopping-bargain-btn';
+        bargainBtn.textContent = 'Bargain for Free';
+        bargainBtn.style.cssText = 'flex: 1; height: 100%; border: none; border-radius: 25px; background-color: #f2f2f7; color: #333; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; justify-content: center; align-items: center;';
+        bargainBtn.onclick = () => startBargain(product);
+        
+        // Reset existingBtn styles to fit flexbox
+        existingBtn.style.position = 'static';
+        existingBtn.style.width = 'auto';
+        existingBtn.style.margin = '0';
+        existingBtn.style.flex = '1';
+        existingBtn.style.height = '100%';
+        existingBtn.style.borderRadius = '25px';
+        existingBtn.style.display = 'flex';
+        existingBtn.style.justifyContent = 'center';
+        existingBtn.style.alignItems = 'center';
+        existingBtn.style.bottom = 'auto';
+        existingBtn.style.left = 'auto';
+        existingBtn.style.right = 'auto';
+        
+        // Append to detailView (parent container)
+        detailView.appendChild(buttonGroup);
+        buttonGroup.appendChild(bargainBtn);
+        // Move existingBtn inside wrapper
+        buttonGroup.appendChild(existingBtn);
+    } else if (buttonGroup) {
+        // Update product reference in click handler
+        const bargainBtn = document.getElementById('shopping-bargain-btn');
+        if (bargainBtn) {
+            bargainBtn.onclick = () => startBargain(product);
+        }
     }
 
     detailView.classList.add('active');
@@ -2375,4 +2451,453 @@ function showOrderNotification(title, message) {
 
 if (window.appInitFunctions) {
     window.appInitFunctions.push(setupShoppingListeners);
+}
+
+// ==========================================
+// PDD Activity Logic (Cash & Bargain)
+// ==========================================
+
+function initCashActivity() {
+    // Force initialization if not active OR if amount is 0 (bug fix)
+    if (!cashActivityState.active || parseFloat(cashActivityState.amount) <= 0) {
+        cashActivityState.active = true;
+        // Initial amount 90.00 - 98.00
+        cashActivityState.amount = (90 + Math.random() * 8).toFixed(2); 
+    }
+    renderCashActivity();
+}
+
+function renderCashFloatEntry() {
+    let floatBtn = document.getElementById('pdd-float-btn');
+    if (floatBtn) {
+        floatBtn.remove();
+    }
+}
+
+function renderCashActivity() {
+    let modal = document.getElementById('pdd-cash-modal');
+    if (modal) modal.remove();
+
+    const diff = Math.max(0.01, 100 - parseFloat(cashActivityState.amount)).toFixed(2);
+    const percent = (parseFloat(cashActivityState.amount) / 100) * 100;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'pdd-cash-modal';
+    overlay.className = 'pdd-modal-overlay';
+    
+    overlay.innerHTML = `
+        <div class="pdd-modal">
+            <div class="pdd-close-btn" onclick="this.closest('.pdd-modal-overlay').remove()">×</div>
+            
+            <div class="pdd-title">天天领现金</div>
+            <div class="pdd-subtitle">提现到微信</div>
+            
+            <div class="pdd-amount-box">
+                <div style="font-size:14px;color:#333;">已获得现金</div>
+                <div class="pdd-amount"><span>¥</span>${cashActivityState.amount}</div>
+            </div>
+            
+            <div class="pdd-progress-container">
+                <div class="pdd-progress-bar" style="width: ${percent}%"></div>
+                <div class="pdd-progress-text">还差 ${diff} 元提现</div>
+            </div>
+            
+            <div class="pdd-tips">🔥 只差一点点！邀请好友助力 🔥</div>
+            
+            <div class="pdd-btn-group">
+                <button class="pdd-btn primary" onclick="shareCashActivity()">
+                    ⚡ 分享好友助力 ⚡
+                </button>
+                <button class="pdd-btn ad" onclick="watchAdToBoost()">
+                    📺 看视频领现金 📺
+                </button>
+            </div>
+            
+            <button class="pdd-cheat-btn" onclick="instantSuccess('cash')">.</button>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+}
+
+function shareCashActivity() {
+    const modal = document.getElementById('pdd-cash-modal');
+    if (modal) modal.remove();
+    openShoppingContactPickerForActivity('cash');
+}
+
+function watchAdToBoost() {
+    playAd(() => {
+        // Boost logic
+        const current = parseFloat(cashActivityState.amount);
+        const remaining = 100 - current;
+        let boost = 0;
+        
+        if (remaining > 5) boost = (Math.random() * 2).toFixed(2);
+        else if (remaining > 1) boost = (Math.random() * 0.5).toFixed(2);
+        else if (remaining > 0.1) boost = (Math.random() * 0.05).toFixed(2);
+        else boost = 0.01;
+        
+        cashActivityState.amount = (current + parseFloat(boost)).toFixed(2);
+        if (parseFloat(cashActivityState.amount) >= 100) {
+            cashActivityState.amount = "100.00";
+            handleSuccess('cash');
+        } else {
+            renderCashActivity();
+            alert(`恭喜！看广告获得 ${boost} 元红包！`);
+        }
+    });
+}
+
+function startBargain(product) {
+    if (!cashActivityState.bargains[product.id]) {
+        cashActivityState.bargains[product.id] = {
+            title: product.title,
+            image: product.aiImage || product.image,
+            currentPrice: product.price,
+            originalPrice: product.price,
+            logs: []
+        };
+    }
+    renderBargainActivity(product.id);
+}
+
+function renderBargainActivity(productId) {
+    const data = cashActivityState.bargains[productId];
+    if (!data) return;
+    
+    let modal = document.getElementById('pdd-bargain-modal');
+    if (modal) modal.remove();
+
+    const cut = (data.originalPrice - data.currentPrice).toFixed(2);
+    const percent = ((data.originalPrice - data.currentPrice) / data.originalPrice) * 100;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'pdd-bargain-modal';
+    overlay.className = 'pdd-modal-overlay';
+    
+    overlay.innerHTML = `
+        <div class="pdd-modal" style="background: linear-gradient(180deg, #ff4400 0%, #ff0000 100%);">
+            <div class="pdd-close-btn" onclick="this.closest('.pdd-modal-overlay').remove()">×</div>
+            
+            <div class="pdd-title">砍价免费拿</div>
+            <div class="pdd-subtitle">${data.title.substring(0, 15)}...</div>
+            
+            <div class="pdd-amount-box">
+                <div style="font-size:14px;color:#333;">已砍掉</div>
+                <div class="pdd-amount"><span>¥</span>${cut}</div>
+            </div>
+            
+            <div class="pdd-progress-container">
+                <div class="pdd-progress-bar" style="width: ${percent}%"></div>
+                <div class="pdd-progress-text">还差 ¥${data.currentPrice.toFixed(2)}</div>
+            </div>
+            
+            <div class="pdd-btn-group">
+                <button class="pdd-btn primary" onclick="shareBargainActivity('${productId}')">
+                    🔪 邀请好友砍一刀 🔪
+                </button>
+                <button class="pdd-btn ad" onclick="watchAdToBargain('${productId}')">
+                    📺 看视频砍一刀 📺
+                </button>
+            </div>
+            
+            <button class="pdd-cheat-btn" onclick="instantSuccess('bargain', '${productId}')">.</button>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+}
+
+function shareBargainActivity(productId) {
+    const modal = document.getElementById('pdd-bargain-modal');
+    if (modal) modal.remove();
+    openShoppingContactPickerForActivity('bargain', productId);
+}
+
+function watchAdToBargain(productId) {
+    playAd(() => {
+        const data = cashActivityState.bargains[productId];
+        if (!data) return;
+        
+        let cut = 0;
+        if (data.currentPrice > 50) cut = (Math.random() * 5 + 1).toFixed(2);
+        else if (data.currentPrice > 10) cut = (Math.random() * 2).toFixed(2);
+        else if (data.currentPrice > 1) cut = (Math.random() * 0.1).toFixed(2);
+        else cut = 0.01;
+        
+        data.currentPrice = Math.max(0, data.currentPrice - cut);
+        
+        if (data.currentPrice <= 0.01) {
+            handleSuccess('bargain', productId);
+        } else {
+            renderBargainActivity(productId);
+            alert(`恭喜！看广告砍掉了 ${cut} 元！`);
+        }
+    });
+}
+
+function playAd(callback) {
+    const overlay = document.createElement('div');
+    overlay.className = 'pdd-video-ad-overlay';
+    
+    // Bilibili Video Embed
+    // BVID: BV1jvf4BnEU5
+    const bvid = 'BV1jvf4BnEU5';
+    
+    // Added 'sandbox' to prevent top-navigation (jumping to Bilibili app/site)
+    // Added transparent interaction layer to capture clicks if needed, but Bilibili player needs clicks.
+    // We rely on sandbox to block jumps.
+    overlay.innerHTML = `
+        <div class="pdd-video-container" id="pdd-ad-container" style="background: #000;">
+            <iframe 
+                src="//player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&danmaku=0&autoplay=1" 
+                scrolling="no" 
+                border="0" 
+                frameborder="no" 
+                framespacing="0" 
+                allowfullscreen="true"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                style="width: 100%; height: 100%;">
+            </iframe>
+            <div style="position:absolute; bottom: 60px; width:100%; text-align:center; color:rgba(255,255,255,0.9); font-size:14px; pointer-events:none; text-shadow: 0 1px 2px rgba(0,0,0,0.8); font-weight: bold;">
+                👆 点击视频开启声音 / 播放 👆
+            </div>
+        </div>
+        <div class="pdd-ad-timer">广告剩余 <span id="ad-countdown">15</span>s</div>
+        <button id="pdd-skip-btn" class="pdd-ad-skip">跳过广告</button>
+    `;
+    
+    document.body.appendChild(overlay);
+
+    const skipBtn = document.getElementById('pdd-skip-btn');
+    let seconds = 15;
+    let interval = null;
+
+    // Cleanup Function
+    const cleanup = (shouldCallback = false) => {
+        if (interval) clearInterval(interval);
+        if (overlay) overlay.remove();
+        if (shouldCallback && callback) callback();
+    };
+
+    skipBtn.onclick = () => cleanup(false);
+
+    // Countdown Timer
+    const timerEl = document.getElementById('ad-countdown');
+    interval = setInterval(() => {
+        seconds--;
+        if (timerEl) timerEl.textContent = seconds;
+        
+        if (seconds <= 0) {
+            cleanup(true);
+        }
+    }, 1000);
+}
+
+function openShoppingContactPickerForActivity(type, productId = null) {
+    const modal = document.getElementById('contact-picker-modal');
+    const list = document.getElementById('contact-picker-list');
+    const sendBtn = document.getElementById('contact-picker-send-btn');
+    const closeBtn = document.getElementById('close-contact-picker');
+    
+    if (!modal || !list) return;
+    
+    // Ensure contact picker is above product detail (z-index: 2000)
+    modal.style.zIndex = '10005';
+    
+    const header = modal.querySelector('.modal-header h3');
+    if (header) header.textContent = type === 'cash' ? '邀请好友助力' : '邀请好友砍价';
+    
+    if (sendBtn) {
+        sendBtn.textContent = '发送';
+        const newSendBtn = sendBtn.cloneNode(true);
+        sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
+        
+        newSendBtn.onclick = () => {
+            const selected = list.querySelectorAll('input[type="checkbox"]:checked');
+            const ids = Array.from(selected).map(cb => parseInt(cb.value)).filter(id => id !== 0);
+            
+            if (ids.length > 0) {
+                ids.forEach(id => {
+                    let msgType = '';
+                    let content = '';
+                    
+                    if (type === 'cash') {
+                        msgType = 'pdd_cash_share';
+                        content = JSON.stringify({
+                            amount: cashActivityState.amount,
+                            diff: (100 - parseFloat(cashActivityState.amount)).toFixed(2)
+                        });
+                    } else {
+                        msgType = 'pdd_bargain_share';
+                        const data = cashActivityState.bargains[productId];
+                        content = JSON.stringify({
+                            productId: productId,
+                            title: data.title,
+                            image: data.image,
+                            currentPrice: data.currentPrice
+                        });
+                    }
+                    
+                    if (typeof sendMessage !== 'undefined') {
+                        sendMessage(content, true, msgType, null, id);
+                        // AI interaction is now handled by the AI prompt generating ACTION: PDD_HELP
+                    }
+                });
+                modal.classList.add('hidden');
+                
+                // Auto-close shopping app to return to chat
+                document.getElementById('shopping-app').classList.add('hidden');
+                const pd = document.getElementById('product-detail');
+                if (pd) pd.classList.remove('active');
+                
+                if (type === 'cash') {
+                    if (window.showChatToast) window.showChatToast('Shared! Friends can click to help!');
+                    else alert('Shared! Friends can click to help!');
+                } else {
+                    if (window.showChatToast) window.showChatToast('Shared! Waiting for friends to cut!');
+                    else alert('Shared! Waiting for friends to cut!');
+                }
+            } else {
+                alert('Please select a contact');
+            }
+        };
+    }
+    
+    // Reuse existing contact rendering
+    if (closeBtn) {
+        const newCloseBtn = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+        newCloseBtn.onclick = () => modal.classList.add('hidden');
+    }
+
+    list.innerHTML = '';
+    if (window.iphoneSimState.contacts) {
+        window.iphoneSimState.contacts.forEach(c => {
+            const item = document.createElement('div');
+            item.className = 'list-item';
+            item.innerHTML = `<span style="font-size: 16px;">${c.remark || c.name}</span><input type="checkbox" value="${c.id}" style="width: 20px; height: 20px;">`;
+            item.onclick = (e) => { if (e.target.type !== 'checkbox') item.querySelector('input').click(); };
+            list.appendChild(item);
+        });
+    }
+    modal.classList.remove('hidden');
+}
+
+window.processPddHelp = function(type, productId = null) {
+    if (type === 'cash') {
+        const current = parseFloat(cashActivityState.amount);
+        const remaining = 100 - current;
+        let boost = 0;
+        
+        // Diminishing returns
+        if (remaining > 5) boost = (Math.random() * 1.5 + 0.5).toFixed(2);
+        else if (remaining > 1) boost = (Math.random() * 0.3 + 0.1).toFixed(2);
+        else if (remaining > 0.1) boost = (Math.random() * 0.05 + 0.01).toFixed(2);
+        else boost = 0.01;
+        
+        cashActivityState.amount = (current + parseFloat(boost)).toFixed(2);
+        
+        if (typeof sendMessage !== 'undefined') {
+            sendMessage(`成功助力！现金增加 ${boost} 元`, false, 'system');
+        }
+
+        if (parseFloat(cashActivityState.amount) >= 100) {
+            cashActivityState.amount = "100.00";
+            handleSuccess('cash');
+        } else {
+            // Only re-render if modal is open
+            if (document.getElementById('pdd-cash-modal')) {
+                renderCashActivity();
+            }
+        }
+        
+    } else {
+        const data = cashActivityState.bargains[productId];
+        if (data) {
+            let cut = 0;
+            if (data.currentPrice > 50) cut = (Math.random() * 5 + 2).toFixed(2);
+            else if (data.currentPrice > 10) cut = (Math.random() * 1 + 0.5).toFixed(2);
+            else if (data.currentPrice > 1) cut = (Math.random() * 0.1 + 0.01).toFixed(2);
+            else cut = 0.01;
+            
+            data.currentPrice = Math.max(0, data.currentPrice - cut);
+            
+            if (typeof sendMessage !== 'undefined') {
+                sendMessage(`砍价成功！商品降价 ${cut} 元`, false, 'system');
+            }
+
+            if (data.currentPrice <= 0.01) {
+                data.currentPrice = 0;
+                handleSuccess('bargain', productId);
+            } else {
+                if (document.getElementById('pdd-bargain-modal')) {
+                    renderBargainActivity(productId);
+                }
+            }
+        }
+    }
+}
+
+function handleSuccess(type, productId) {
+    if (type === 'cash') {
+        if (!window.iphoneSimState.wallet) window.iphoneSimState.wallet = { balance: 0, transactions: [] };
+        window.iphoneSimState.wallet.balance += 100;
+        window.iphoneSimState.wallet.transactions.unshift({
+            id: Date.now(),
+            type: 'income',
+            amount: 100,
+            title: '现金活动提现',
+            time: Date.now()
+        });
+        saveConfig();
+        
+        let modal = document.getElementById('pdd-cash-modal');
+        if (modal) modal.remove();
+        
+        alert('🎉 提现成功！100元已到账！ 🎉');
+        cashActivityState.active = false;
+        
+    } else {
+        const data = cashActivityState.bargains[productId];
+        
+        // Add to orders
+        if (!window.iphoneSimState.shoppingOrders) window.iphoneSimState.shoppingOrders = [];
+        window.iphoneSimState.shoppingOrders.unshift({
+            id: 'bargain_' + Date.now(),
+            items: [{
+                title: data.title,
+                price: 0,
+                image: data.image,
+                count: 1
+            }],
+            total: '0.00',
+            time: Date.now(),
+            status: '待发货',
+            shipDelay: 3600000,
+            deliverDelay: 86400000
+        });
+        saveConfig();
+        
+        let modal = document.getElementById('pdd-bargain-modal');
+        if (modal) modal.remove();
+        
+        alert('🎉 砍价成功！商品已0元发货！ 🎉');
+        delete cashActivityState.bargains[productId];
+    }
+}
+
+function instantSuccess(type, productId) {
+    if (type === 'cash') {
+        cashActivityState.amount = "100.00";
+        handleSuccess('cash');
+    } else {
+        const data = cashActivityState.bargains[productId];
+        if (data) {
+            data.currentPrice = 0;
+            handleSuccess('bargain', productId);
+        }
+    }
 }
