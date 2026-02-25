@@ -626,7 +626,7 @@ window.generateNovelAiImageApi = async function(options) {
         // UI State
         btn.disabled = true;
         btn.textContent = '生成中...';
-        resultContainer.classList.remove('hidden');
+        resultContainer.style.display = 'block';
         statusText.textContent = '准备请求...';
         resultImg.style.display = 'none';
         resultImg.src = '';

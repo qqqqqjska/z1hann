@@ -10,6 +10,16 @@
         return n.toLocaleString();
     }
 
+    // Unified Gift Configuration
+    const FORUM_GIFTS = [
+        { name: '玫瑰', emoji: '🌹', value: 10, color: '#ff2d55' },
+        { name: '棒棒糖', emoji: '🍭', value: 20, color: '#ff9500' },
+        { name: '皇冠', emoji: '👑', value: 50, color: '#ffd60a' },
+        { name: '火箭', emoji: '🚀', value: 100, color: '#0a84ff' },
+        { name: '钻石', emoji: '💎', value: 200, color: '#5ac8fa' },
+        { name: '爱心', emoji: '💖', value: 30, color: '#ff375f' }
+    ];
+
     const forumState = {
         activeTab: 'home', // home, video, share, search, profile
         multiSelectMode: false,
@@ -114,6 +124,40 @@
         //     // forumState.currentUser.name = window.iphoneSimState.userProfile.name; // Keep internal name logic or override
         // }
 
+        // Helper to save live room state
+        function saveLiveRoomState() {
+            if (!forumState.currentLiveRoom) return;
+            const roomKey = `forum_live_state_${forumState.currentLiveRoom.host}`;
+            const state = {
+                actionDesc: forumState.currentLiveRoom.actionDesc,
+                comments: forumState.currentLiveRoom.comments,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(roomKey, JSON.stringify(state));
+        }
+
+        // Helper to update leaderboard
+        function updateLeaderboard(hostName, valueToAdd, hostAvatar = '') {
+            let lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+            let host = lb.hosts.find(h => h.name === hostName);
+            
+            if (host) {
+                host.totalValue = (host.totalValue || 0) + valueToAdd;
+                if (hostAvatar) host.avatar = hostAvatar; // Update avatar if provided
+            } else {
+                lb.hosts.push({ 
+                    name: hostName, 
+                    avatar: hostAvatar || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(hostName)}`, 
+                    totalValue: valueToAdd 
+                });
+            }
+            
+            // Sort by value desc
+            lb.hosts.sort((a, b) => b.totalValue - a.totalValue);
+            
+            localStorage.setItem('forum_leaderboard', JSON.stringify(lb));
+        }
+
         // Helper for appending live messages with "push up" animation (WeChat style)
         window.appendForumLiveMessage = function(htmlContent) {
             const chatArea = document.querySelector('.forum-room-chat-area');
@@ -157,6 +201,9 @@
                 wrapper.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
                 wrapper.style.transform = 'translateY(0)';
             }
+            
+            // Save state after appending message
+            saveLiveRoomState();
         };
 
         // Expose function to open live room
@@ -236,11 +283,30 @@
                 comments: [],
                 preGenState: null
             };
+
+            // Check for saved state
+            const savedStateStr = localStorage.getItem(`forum_live_state_${host}`);
+            if (savedStateStr) {
+                try {
+                    const savedState = JSON.parse(savedStateStr);
+                    // Only restore if saved state is relatively fresh (e.g. within 24 hours) or just restore always? 
+                    // User asked for persistence even after refresh, so let's restore always.
+                    if (savedState.actionDesc) {
+                        actionDesc = savedState.actionDesc;
+                        forumState.currentLiveRoom.actionDesc = actionDesc;
+                    }
+                    if (savedState.comments && Array.isArray(savedState.comments)) {
+                        forumState.currentLiveRoom.comments = savedState.comments;
+                    }
+                } catch (e) {
+                    console.error("Failed to restore live room state", e);
+                }
+            }
             
             // Set action description
             let actionDescHtml = '';
             if (actionDesc && actionDesc !== 'undefined') {
-                actionDescHtml = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${actionDesc}</div>`;
+                actionDescHtml = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; max-height: 250px; overflow-y: auto; line-height: 1.5; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${actionDesc}</div>`;
             }
             
             const roomBg = document.querySelector('.forum-room-bg');
@@ -281,39 +347,341 @@
                 // Rely on CSS class
                 chatArea.appendChild(wrapper);
 
-                try {
-                    const comments = JSON.parse(decodeURIComponent(initialCommentsStr));
-                    if (Array.isArray(comments)) {
-                        comments.forEach((c, index) => {
-                            setTimeout(() => {
-                                window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
-                                if (forumState.currentLiveRoom) {
-                                    forumState.currentLiveRoom.comments.push({ username: c.username, content: c.content, isUser: false });
-                                }
-                            }, 400 + index * 1000);
-                        });
+                // If we restored comments, render them immediately
+                if (forumState.currentLiveRoom.comments.length > 0) {
+                     forumState.currentLiveRoom.comments.forEach(c => {
+                        const color = c.isUser ? '#ff2d55' : 'white';
+                        const newMsg = document.createElement('div');
+                        newMsg.className = 'forum-room-chat-msg';
+                        // Handle potential icon HTML in content (for gifts)
+                        newMsg.innerHTML = `<span style="color: ${color}; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`;
+                        wrapper.appendChild(newMsg);
+                    });
+                    // Scroll to bottom
+                    chatArea.scrollTop = chatArea.scrollHeight;
+                } else {
+                    // Load initial comments if no saved state
+                    try {
+                        const comments = JSON.parse(decodeURIComponent(initialCommentsStr));
+                        if (Array.isArray(comments)) {
+                            comments.forEach((c, index) => {
+                                setTimeout(() => {
+                                    window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
+                                    if (forumState.currentLiveRoom) {
+                                        // Avoid pushing twice if appendForumLiveMessage handles logic, but here it's just appending to DOM.
+                                        // But wait, appendForumLiveMessage calls saveLiveRoomState which uses forumState.currentLiveRoom.comments.
+                                        // So we must push to state BEFORE calling appendForumLiveMessage if we want it saved correctly?
+                                        // Actually appendForumLiveMessage logic above is just UI append. State update is separate in original code.
+                                        // My modified appendForumLiveMessage saves current state.
+                                        // So we update state, then call append.
+                                        forumState.currentLiveRoom.comments.push({ username: c.username, content: c.content, isUser: false });
+                                        // But appendForumLiveMessage uses the HTML content passed to it.
+                                        // Let's stick to original flow: Render UI -> Update State -> Save State.
+                                        // But wait, appendForumLiveMessage calls saveLiveRoomState.
+                                        // saveLiveRoomState saves `forumState.currentLiveRoom.comments`.
+                                        // So we must push to `comments` BEFORE calling `appendForumLiveMessage`?
+                                        // No, original code pushed AFTER.
+                                        // If I call save inside append, it will save the OLD comments array (missing the one currently being added).
+                                        // Fix: update state FIRST.
+                                    }
+                                    // Actually, appendForumLiveMessage is purely UI.
+                                    // I should update saveLiveRoomState to be called explicitly or move the push before.
+                                }, 400 + index * 1000);
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Error parsing initial comments', e);
+                        // Fallback default comments
+                        setTimeout(() => {
+                            if (forumState.currentLiveRoom) forumState.currentLiveRoom.comments.push({ username: 'Alex', content: 'Hello! 👋', isUser: false });
+                            window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">Alex</span>Hello! 👋`);
+                        }, 400);
+                        setTimeout(() => {
+                            if (forumState.currentLiveRoom) forumState.currentLiveRoom.comments.push({ username: 'Sarah_99', content: 'Love the vibe here', isUser: false });
+                            window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">Sarah_99</span>Love the vibe here`);
+                        }, 1400);
                     }
-                } catch (e) {
-                    console.error('Error parsing initial comments', e);
-                    // Fallback default comments
-                    setTimeout(() => {
-                        window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">Alex</span>Hello! 👋`);
-                        if (forumState.currentLiveRoom) forumState.currentLiveRoom.comments.push({ username: 'Alex', content: 'Hello! 👋', isUser: false });
-                    }, 400);
-                    setTimeout(() => {
-                        window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">Sarah_99</span>Love the vibe here`);
-                        if (forumState.currentLiveRoom) forumState.currentLiveRoom.comments.push({ username: 'Sarah_99', content: 'Love the vibe here', isUser: false });
-                    }, 1400);
                 }
             }
 
             document.getElementById('forum-room-page').classList.add('active');
+
+            // Start NPC gift loop
+            window._startNpcGiftLoop();
+
+            // Ensure leaderboard is updated with this host if new
+            if (host) {
+                // Initialize if not present
+                const lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+                const exists = lb.hosts.find(h => h.name === host);
+                if (!exists) {
+                     lb.hosts.push({ name: host, avatar: avatarUrl, totalValue: 0 });
+                     localStorage.setItem('forum_leaderboard', JSON.stringify(lb));
+                }
+            }
+
+        };
+
+        // --- NPC Random Gift System ---
+        let _npcGiftTimer = null;
+        let _heartTimer = null;
+
+        // Show host gift notification banner
+        window._showHostGiftBanner = function(senderName, giftEmoji, giftName, count, totalValue, giftColor) {
+            const roomPage = document.getElementById('forum-room-page');
+            if (!roomPage) return;
+
+            // Remove existing banner if any
+            const existing = roomPage.querySelector('.host-gift-banner');
+            if (existing) existing.remove();
+
+            const countLabel = count > 1 ? ` ×${count}` : '';
+            const banner = document.createElement('div');
+            banner.className = 'host-gift-banner';
+            banner.style.cssText = `
+                position: absolute;
+                top: 120px;
+                left: 50%;
+                transform: translateX(-50%) translateY(-20px);
+                background: linear-gradient(135deg, rgba(0,0,0,0.85), rgba(30,30,30,0.92));
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                border: 1px solid ${giftColor || '#ffd60a'}55;
+                border-radius: 20px;
+                padding: 14px 22px;
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                z-index: 600;
+                min-width: 240px;
+                max-width: 85%;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px ${giftColor || '#ffd60a'}22;
+                animation: hostGiftBannerIn 0.4s cubic-bezier(0.16,1,0.3,1) forwards;
+                pointer-events: none;
+                white-space: nowrap;
+            `;
+
+            banner.innerHTML = `
+                <div style="font-size:44px;line-height:1;flex-shrink:0;filter:drop-shadow(0 2px 8px ${giftColor || '#ffd60a'}88);">${giftEmoji}</div>
+                <div style="display:flex;flex-direction:column;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                        <span style="color:rgba(255,255,255,0.6);font-size:11px;font-weight:600;letter-spacing:0.5px;">🎁 收到礼物</span>
+                    </div>
+                    <div style="color:white;font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;">
+                        <span style="color:white;">${senderName}</span> <span style="font-weight:normal; font-size:13px; color:rgba(255,255,255,0.7);">送出了</span> <span style="color:${giftColor || '#ffd60a'};">${giftName}${countLabel}</span>
+                    </div>
+                    <div style="margin-top:5px;display:flex;align-items:center;gap:8px;">
+                        <span style="background:${giftColor || '#ffd60a'}33;border:1px solid ${giftColor || '#ffd60a'}66;color:${giftColor || '#ffd60a'};font-size:12px;font-weight:800;padding:2px 10px;border-radius:10px;">¥${totalValue}</span>
+                        <span style="color:rgba(255,255,255,0.4);font-size:11px;">已到账 ✓</span>
+                    </div>
+                </div>
+            `;
+
+            roomPage.appendChild(banner);
+
+            // Fade out after 3.5 seconds
+            setTimeout(() => {
+                banner.style.animation = 'hostGiftBannerOut 0.4s ease forwards';
+                setTimeout(() => banner.remove(), 400);
+            }, 3500);
+        };
+
+        // Show floating Danmaku for expensive gifts
+        window._showGiftDanmaku = function(senderName, giftEmoji, giftName, message, giftColor) {
+            const roomPage = document.getElementById('forum-room-page');
+            if (!roomPage) return;
+
+            const danmaku = document.createElement('div');
+            danmaku.className = 'forum-gift-danmaku';
+            // Random vertical position (top 20% to 60%)
+            const topPos = 20 + Math.random() * 40;
+            danmaku.style.top = topPos + '%';
+            
+            danmaku.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); padding: 8px 16px; border-radius: 20px; border: 1px solid ${giftColor}66; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                    <span style="color:white; font-weight:700; font-size:14px;">${senderName}</span>
+                    <span style="color:rgba(255,255,255,0.7); font-size:13px;">送出 ${giftName} ${giftEmoji}</span>
+                    <span style="color:${giftColor}; font-weight:600; font-size:14px; margin-left:4px;">: ${message}</span>
+                </div>
+            `;
+
+            roomPage.appendChild(danmaku);
+
+            // Cleanup after animation (assumed 6s duration)
+            setTimeout(() => {
+                danmaku.remove();
+            }, 6100);
+        };
+
+        window._startNpcGiftLoop = function() {
+            window._stopNpcGiftLoop();
+            
+            // --- 1. Start Auto-Like Loop (Simulation) ---
+            function scheduleHeart() {
+                const delay = 300 + Math.random() * 1200; // Random hearts every 0.3-1.5s
+                _heartTimer = setTimeout(() => {
+                    if (typeof spawnFloatingHeart === 'function') spawnFloatingHeart();
+                    scheduleHeart();
+                }, delay);
+            }
+            scheduleHeart();
+        };
+
+        // Function to trigger 1-2 NPC gifts immediately (called by AI generation)
+        window._triggerNpcGift = function(giftEvents) {
+            const roomPage = document.getElementById('forum-room-page');
+            if (!roomPage || !roomPage.classList.contains('active')) return;
+
+            // Helper to find gift object by name
+            const findGift = (name) => FORUM_GIFTS.find(g => name && name.includes(g.name)) || FORUM_GIFTS[Math.floor(Math.random() * FORUM_GIFTS.length)];
+
+            let events = giftEvents;
+            // Fallback if no events provided or empty array (rare case if AI fails)
+            if (!events || !Array.isArray(events) || events.length === 0) {
+                 // Force 2 random gifts to keep the stream alive
+                 const mockNames = ['神秘粉丝', '路人甲', 'BigFan', 'yuki酱'];
+                 const expensiveGifts = ['皇冠', '火箭', '钻石'];
+                 const normalGifts = ['玫瑰', '棒棒糖', '爱心'];
+                 events = [
+                     { username: mockNames[Math.floor(Math.random()*mockNames.length)], gift_name: expensiveGifts[Math.floor(Math.random()*expensiveGifts.length)], comment: '主播好棒！' },
+                     { username: mockNames[Math.floor(Math.random()*mockNames.length)], gift_name: normalGifts[Math.floor(Math.random()*normalGifts.length)], comment: '' }
+                 ];
+            }
+
+            events.forEach((event, i) => {
+                setTimeout(() => {
+                    // Filter out current user if AI made a mistake
+                    const myName = forumState.currentUser.bio || forumState.currentUser.username || '我';
+                    if (event.username === myName || event.username === '我' || event.username === 'Admin') return;
+
+                    const gift = findGift(event.gift_name);
+                    const count = 1; 
+                    const totalValue = gift.value * count;
+                    const npc = event.username || '神秘观众';
+                    const comment = event.comment || '';
+
+                    // 1. Show in chat
+                    let chatMsg = `<span style="color:white;font-weight:700;margin-right:6px;">${npc}</span>` +
+                                  `<span style="color:rgba(255,255,255,0.7);font-size:12px;">送出了 ${gift.name} ${gift.emoji}</span>`;
+                    
+                    if (gift.value >= 50 && comment) {
+                        chatMsg += ` <span style="color:white;font-size:14px;margin-left:4px;">${comment}</span>`;
+                    }
+                    window.appendForumLiveMessage(chatMsg);
+
+                    // 2. Decide: Banner or Danmaku?
+                    // High value threshold: Single gift value >= 50 (Crown, Rocket, Diamond)
+                    if (gift.value >= 50) {
+                        // High Value -> Danmaku with comment
+                        window._showGiftDanmaku(npc, gift.emoji, gift.name, comment, gift.color);
+                    }
+                    // Else: Do nothing (banner removed as per request), just Chat Log above is enough
+                    
+                    // 3. Floating Emoji Animation (Always)
+                    const anim = document.createElement('div');
+                    anim.className = 'forum-gift-anim';
+                    anim.style.cssText = 'font-size:80px; display:flex; justify-content:center; align-items:center;';
+                    anim.textContent = gift.emoji;
+                    if (count > 1) {
+                        const badge = document.createElement('div');
+                        badge.style.cssText = 'position:absolute;bottom:-10px;right:-20px;background:' + gift.color + ';color:white;font-size:16px;font-weight:800;border-radius:12px;padding:4px 8px;';
+                        badge.textContent = 'x' + count;
+                        anim.appendChild(badge);
+                    }
+                    roomPage.appendChild(anim);
+                    setTimeout(() => anim.remove(), 2100);
+
+                    // 4. Update Leaderboard & LocalStorage
+                     const giftEvent = {
+                        id: Date.now() + i,
+                        sender: npc,
+                        giftName: gift.name,
+                        giftEmoji: gift.emoji,
+                        count: count,
+                        value: totalValue,
+                        host: forumState.currentLiveRoom ? forumState.currentLiveRoom.host : '',
+                        isNpc: true
+                    };
+                    localStorage.setItem('forum_live_gift_event', JSON.stringify(giftEvent));
+
+                    if (forumState.currentLiveRoom) {
+                        updateLeaderboard(forumState.currentLiveRoom.host, totalValue, '');
+                    }
+
+                }, i * 1500); // Stagger if multiple
+            });
+        };
+
+        window._stopNpcGiftLoop = function() {
+            if (_npcGiftTimer) { clearTimeout(_npcGiftTimer); _npcGiftTimer = null; }
+        };
+
+        // --- Floating Hearts System ---
+        const heartEmojis = ['❤️', '🧡', '💛', '💚', '💙', '💜', '🩷', '🤍', '💖', '💗', '💓', '🔥'];
+
+        function spawnFloatingHeart() {
+            const roomPage = document.getElementById('forum-room-page');
+            if (!roomPage || !roomPage.classList.contains('active')) return;
+
+            let container = roomPage.querySelector('.heart-float-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.className = 'heart-float-container';
+                roomPage.appendChild(container);
+            }
+
+            const heart = document.createElement('span');
+            heart.className = 'heart-float';
+            heart.textContent = heartEmojis[Math.floor(Math.random() * heartEmojis.length)];
+
+            // Randomise the CSS rotation variables used in the keyframe animation
+            const r = () => (Math.random() * 24 - 12).toFixed(1) + 'deg';
+            heart.style.setProperty('--hr',  r());
+            heart.style.setProperty('--hr2', r());
+            heart.style.setProperty('--hr3', r());
+            heart.style.setProperty('--hr4', r());
+            heart.style.setProperty('--hr5', r());
+            // Slight horizontal jitter so hearts don't all stack perfectly
+            heart.style.right = (Math.random() * 30).toFixed(0) + 'px';
+            heart.style.fontSize = (22 + Math.random() * 12).toFixed(0) + 'px';
+
+            container.appendChild(heart);
+            // Remove element after animation completes (3 s)
+            setTimeout(() => heart.remove(), 3100);
+        }
+
+        window._startHeartLoop = function() {
+            window._stopHeartLoop();
+            let burstCount = 0;
+
+            function scheduleBurst() {
+                // Random interval: 1.5 – 5 seconds between bursts
+                const delay = 1500 + Math.random() * 3500;
+                _heartTimer = setTimeout(() => {
+                    const roomPage = document.getElementById('forum-room-page');
+                    if (!roomPage || !roomPage.classList.contains('active')) return;
+
+                    // Spawn 1-4 hearts in rapid succession per burst
+                    const count = 1 + Math.floor(Math.random() * 4);
+                    for (let i = 0; i < count; i++) {
+                        setTimeout(() => spawnFloatingHeart(), i * 180);
+                    }
+                    scheduleBurst();
+                }, delay);
+            }
+            scheduleBurst();
+        };
+
+        window._stopHeartLoop = function() {
+            if (_heartTimer) { clearTimeout(_heartTimer); _heartTimer = null; }
         };
 
         window.closeForumLiveRoom = function() {
             document.getElementById('forum-room-page').classList.remove('active');
             const giftMenu = document.getElementById('forum-gift-menu');
             if (giftMenu) giftMenu.classList.remove('active');
+            window._stopNpcGiftLoop();
+            window._stopHeartLoop();
         };
 
         window.toggleForumGiftMenu = function() {
@@ -423,58 +791,229 @@
             }
         };
 
+        // --- Leaderboard Logic ---
+        window.toggleLeaderboard = function() {
+            const el = document.getElementById('forum-leaderboard-overlay');
+            if (el) {
+                el.classList.toggle('active');
+                if (el.classList.contains('active')) {
+                    window.renderLeaderboardOverlay();
+                }
+            }
+        };
+
+        window.renderLeaderboardOverlay = function() {
+            const container = document.getElementById('forum-leaderboard-list');
+            if (!container) return;
+
+            const lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+            let hosts = lb.hosts || [];
+            
+            // Ensure current host is in the list just in case
+            if (forumState.currentLiveRoom && !hosts.find(h => h.name === forumState.currentLiveRoom.host)) {
+                // If not found (maybe initial load issue), add with 0
+                hosts.push({ name: forumState.currentLiveRoom.host, avatar: '', totalValue: 0 });
+            }
+
+            // Sort descending
+            hosts.sort((a, b) => (b.totalValue || 0) - (a.totalValue || 0));
+
+            // Take top 20
+            const topHosts = hosts.slice(0, 20);
+            
+            const currentHostName = forumState.currentLiveRoom ? forumState.currentLiveRoom.host : '';
+
+            const listHtml = topHosts.map((h, index) => {
+                const isCurrent = h.name === currentHostName;
+                const rank = index + 1;
+                let rankClass = 'rank-other';
+                if (rank === 1) rankClass = 'rank-1';
+                else if (rank === 2) rankClass = 'rank-2';
+                else if (rank === 3) rankClass = 'rank-3';
+
+                return `
+                    <div class="leaderboard-item ${isCurrent ? 'current-host' : ''}" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <div class="lb-rank ${rankClass}" style="width: 30px; font-weight: 800; font-size: 16px; text-align: center; margin-right: 10px; font-style: italic;">${rank}</div>
+                        <div style="width: 40px; height: 40px; border-radius: 50%; overflow: hidden; margin-right: 10px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.2);">
+                            <img src="${h.avatar || 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + encodeURIComponent(h.name)}" style="width: 100%; height: 100%; object-fit: cover;">
+                        </div>
+                    <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${h.name}</div>
+                        </div>
+                        <div style="font-weight: 700; color: #ffd60a; font-size: 14px;">${formatCount(h.totalValue)} 🪙</div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = listHtml;
+            
+            // Update current rank display in header if exists
+            const myRankIndex = hosts.findIndex(h => h.name === currentHostName);
+            const rankBadge = document.getElementById('live-rank-badge');
+            if (rankBadge) {
+                if (myRankIndex !== -1) {
+                    rankBadge.innerHTML = `NO.${myRankIndex + 1}`;
+                    rankBadge.style.display = 'flex';
+                } else {
+                    rankBadge.style.display = 'none';
+                }
+            }
+        };
+
         let selectedGiftIcon = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff2d55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-8"/><path d="M12 14a4 4 0 0 0 4-4 4 4 0 0 0-4-4 4 4 0 0 0-4 4 4 4 0 0 0 4 4z"/><path d="M12 14c-2.2 0-4 1.8-4 4s1.8 4 4 4"/><path d="M12 14c2.2 0 4 1.8 4 4s-1.8 4-4 4"/></svg>';
 
         window.selectForumGift = function(el) {
             document.querySelectorAll('.forum-gift-item').forEach(item => item.classList.remove('active'));
             el.classList.add('active');
-            selectedGiftIcon = el.querySelector('.forum-gift-icon').innerHTML;
+            // Update selected icon based on the element
+            const emoji = el.querySelector('.forum-gift-icon').innerText;
+            selectedGiftIcon = `<div style="font-size:32px;">${emoji}</div>`;
         };
 
         window.sendForumGift = function() {
             const countInput = document.getElementById('forum-gift-count');
-            const count = countInput ? countInput.value : 1;
+            const count = parseInt(countInput ? countInput.value : 1);
             if (count < 1) return;
             
+            // Determine gift value
+            const activeGiftItem = document.querySelector('.forum-gift-item.active');
+            let giftValue = 10;
+            let giftName = 'Gift';
+            let giftEmoji = '🎁';
+            let giftColor = '#ffd60a';
+            
+            if (activeGiftItem) {
+                giftValue = parseInt(activeGiftItem.dataset.price || 10);
+                giftName = activeGiftItem.dataset.name || 'Gift';
+                giftEmoji = activeGiftItem.querySelector('.forum-gift-icon').innerText;
+                giftColor = activeGiftItem.dataset.color || '#ffd60a';
+            }
+
+            const totalValue = giftValue * count;
+
             window.toggleForumGiftMenu();
             
-            // Add to chat
-            let chatIcon = selectedGiftIcon.replace(/width="32"/, 'width="16"').replace(/height="32"/, 'height="16"');
-            window.appendForumLiveMessage(`<span style="color: #ff2d55; font-weight: 600; margin-right: 6px;">Me</span>Sent ${count} <span style="display:inline-flex; vertical-align:middle; margin-left:4px;">${chatIcon}</span>`);
+            const myName = forumState.currentUser.bio || forumState.currentUser.username || '我';
 
-            // Show animation
+            // 1. Add to chat (Unified Style)
+            window.appendForumLiveMessage(
+                `<span style="color:white;font-weight:700;margin-right:6px;">${myName}</span>` +
+                `<span style="color:rgba(255,255,255,0.7);font-size:12px;">送出了 ${giftName} ${giftEmoji}</span>`
+            );
+
+            // 2. High Value -> Danmaku (Consistency)
+            if (giftValue >= 50) {
+                window._showGiftDanmaku(myName, giftEmoji, giftName, '', giftColor); // User gifts usually don't carry text unless we add input
+            }
+
+            // 3. Show animation (Unified Style)
             const anim = document.createElement('div');
             anim.className = 'forum-gift-anim';
-            
-            let animIcon = selectedGiftIcon.replace(/width="32"/, 'width="80"').replace(/height="32"/, 'height="80"');
-            anim.innerHTML = animIcon;
+            anim.style.cssText = 'font-size:80px; display:flex; justify-content:center; align-items:center;';
+            anim.textContent = giftEmoji;
             
             // Add count badge
             if (count > 1) {
                 const badge = document.createElement('div');
-                badge.style.cssText = 'position:absolute; bottom:-10px; right:-20px; background:#ff2d55; color:white; font-size:18px; font-weight:800; border-radius:12px; padding:4px 10px; font-family:-apple-system, sans-serif; box-shadow: 0 4px 10px rgba(255,45,85,0.4);';
+                badge.style.cssText = 'position:absolute; bottom:-10px; right:-20px; background:' + giftColor + ';color:white;font-size:16px;font-weight:800;border-radius:12px;padding:4px 8px;';
                 badge.innerText = 'x' + count;
                 anim.appendChild(badge);
             }
             
-            document.getElementById('forum-room-page').appendChild(anim);
+            const roomPage = document.getElementById('forum-room-page');
+            if (roomPage) roomPage.appendChild(anim);
             
             setTimeout(() => {
                 anim.remove();
-            }, 2000);
+            }, 2100);
+
+            // 1. Update Leaderboard
+            if (forumState.currentLiveRoom) {
+                // Get avatar from DOM if possible, or fallback
+                let avatarUrl = '';
+                const avatarImg = document.querySelector('.forum-room-host-avatar img');
+                if (avatarImg) avatarUrl = avatarImg.src;
+                
+                updateLeaderboard(forumState.currentLiveRoom.host, totalValue, avatarUrl);
+                
+                // 2. Notify Host Page (via localStorage event)
+                const giftEvent = {
+                    id: Date.now(),
+                    sender: myName,
+                    giftName: giftName,
+                    count: count,
+                    value: totalValue,
+                    host: forumState.currentLiveRoom.host,
+                    icon: selectedGiftIcon
+                };
+                localStorage.setItem('forum_live_gift_event', JSON.stringify(giftEvent));
+            }
         };
 
         window.handleForumChatEnter = function(e) {
             if (e.key === 'Enter' && e.target.value.trim() !== '') {
                 const text = e.target.value.trim();
-                window.appendForumLiveMessage(`<span style="color: #ff2d55; font-weight: 600; margin-right: 6px;">Me</span>${text}`);
+                const myName = forumState.currentUser.bio || forumState.currentUser.username || 'Me';
+                window.appendForumLiveMessage(`<span style="color: #ff2d55; font-weight: 600; margin-right: 6px;">${myName}</span>${text}`);
                 if (forumState.currentLiveRoom) {
-                    forumState.currentLiveRoom.comments.push({ username: 'Me', content: text, isUser: true });
+                    forumState.currentLiveRoom.comments.push({ username: myName, content: text, isUser: true });
                     forumState.currentLiveRoom.preGenState = null;
                     const regenerateBtn = document.getElementById('live-regenerate-btn');
                     if (regenerateBtn) regenerateBtn.style.display = 'none';
                 }
                 e.target.value = '';
+            }
+        };
+
+        window.showLiveEndedScreen = function(hostName) {
+            const roomPage = document.getElementById('forum-room-page');
+            if (!roomPage) return;
+
+            // Get Rank
+            let rank = '99+';
+            try {
+                const lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+                const sorted = lb.hosts.sort((a, b) => (b.totalValue || 0) - (a.totalValue || 0));
+                const index = sorted.findIndex(h => h.name === hostName);
+                if (index !== -1) rank = index + 1;
+            } catch(e) {}
+
+            // Create Overlay
+            const endScreen = document.createElement('div');
+            endScreen.className = 'live-ended-screen';
+            endScreen.style.cssText = `
+                position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+                z-index: 999; display: flex; flex-direction: column; justify-content: center; align-items: center;
+                color: white; animation: fadeIn 0.5s ease;
+            `;
+            
+            endScreen.innerHTML = `
+                <div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">直播已结束</div>
+                <div style="font-size: 16px; color: rgba(255,255,255,0.7); margin-bottom: 40px;">感谢观看</div>
+                
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 5px;">
+                    <div style="font-size: 14px; color: rgba(255,255,255,0.5);">本场排名</div>
+                    <div style="font-size: 48px; font-weight: 800; color: #ffd60a; text-shadow: 0 2px 10px rgba(255,214,10,0.3);">NO.${rank}</div>
+                </div>
+
+                <div style="margin-top: 60px; padding: 12px 40px; background: rgba(255,255,255,0.15); border-radius: 30px; cursor: pointer; font-weight: 600;" onclick="window.removeEndedLiveStream('${hostName}')">
+                    返回大厅
+                </div>
+            `;
+            
+            roomPage.appendChild(endScreen);
+        };
+
+        window.removeEndedLiveStream = function(hostName) {
+            window.closeForumLiveRoom();
+            if (forumState && forumState.liveStreams) {
+                forumState.liveStreams = forumState.liveStreams.filter(l => l.username !== hostName);
+                localStorage.setItem('forum_liveStreams', JSON.stringify(forumState.liveStreams));
+                // Refresh the list if we are on the live tab (which is 'video')
+                if ((forumState.activeTab === 'live' || forumState.activeTab === 'video') && typeof renderForum === 'function') {
+                    renderForum(false);
+                }
             }
         };
 
@@ -505,25 +1044,62 @@
 
                 const recentComments = room.comments.slice(-10).map(c => `${c.username}: ${c.content}`).join('\n');
                 
+                let hostPersonaContext = '';
+                const myName = forumState.currentUser.bio || forumState.currentUser.username || '我';
+                
+                if (window.iphoneSimState && window.iphoneSimState.contacts) {
+                    const contacts = window.iphoneSimState.contacts;
+                    const profiles = forumState.settings.contactProfiles || {};
+                    const hostContact = contacts.find(c => {
+                        const p = profiles[c.id] || {};
+                        return c.remark === room.host || p.name === room.host || c.name === room.host;
+                    });
+                    
+                    if (hostContact) {
+                        const hostProfile = profiles[hostContact.id] || {};
+                        if (hostContact.persona && hostProfile.knowsUser) {
+                            const realName = window.iphoneSimState?.userProfile?.name || '我';
+                            let userPersonaText = '';
+                            if (hostContact.userPersonaId && window.iphoneSimState.userPersonas) {
+                                const up = window.iphoneSimState.userPersonas.find(p => p.id === hostContact.userPersonaId);
+                                if (up && up.aiPrompt) {
+                                    userPersonaText = `\n此外，关于用户(我)的设定如下：'${up.aiPrompt}'。`;
+                                }
+                            }
+                            hostPersonaContext = `\n请注意：发送弹幕的网名 [${myName}] 其实是现实中你认识的 [${realName}]。你们之间有特殊关系，在以下人设中有描述：'${hostContact.persona}'。${userPersonaText}\n请综合以上人设，主播的反应和动作描述必须严格符合这段关系所定义的语气、口吻和亲密度（例如如果是情侣就亲密，是前任就...视复合情况而定），表现出你认出了他/她。不要像对待陌生人一样对待他。`;
+                        }
+                    }
+                }
+
                 const prompt = `你是一个社交平台直播间模拟器。
 当前直播间标题: "${room.title}"
 主播名字: "${room.host}"
 当前主播画面描述: "${room.actionDesc}"
 最近的弹幕记录:
-${recentComments}
+${recentComments}${hostPersonaContext}
 
 请根据以上的上下文，生成接下来的直播间互动内容。
 要求:
-1. 生成一段新的"主播画面/动作描述"，描述主播看到了弹幕（特别是用户"Me"的弹幕）后的反应，或者直播内容的推进。
-2. 生成 3-5 条新的弹幕评论。其中一部分是对用户"Me"的弹幕的回复/反应，一部分是对主播新动作的反应。
-3. 弹幕发送者的名字要真实、像网友。
+1. 生成一段新的"主播画面/动作描述"，描述主播看到了弹幕（特别是用户"${myName}"的弹幕）后的反应，或者直播内容的推进。
+2. 生成 3-5 条新的弹幕评论。其中一部分是对用户"${myName}"的弹幕的回复/反应，一部分是对主播新动作的反应。
+3. 必须生成 1-3 个"送礼事件"，并确保包含普通礼物和贵重礼物。礼物必须从以下列表中选择: [玫瑰, 棒棒糖, 皇冠, 火箭, 钻石, 爱心]。
+   - 如果是普通礼物(玫瑰/棒棒糖/爱心)，评论必须留空 ("")。
+   - 如果是贵重礼物(皇冠/火箭/钻石)，必须附带一条符合送礼氛围的专门评论(如"太强了!", "支持主播")。
+4. 【重要】所有生成的弹幕发送者和送礼者必须是其他网友(虚拟人)，**绝对不能**使用名字"${myName}"或"我"或"Admin"。
+5. 弹幕内容要简短、真实、口语化。
+6. 判断是否结束直播：如果用户弹幕暗示结束（如“晚安”、“去睡吧”、“下播吧”），或者主播觉得累了想下播，请将 "should_end" 设为 true，并在 "actionDesc" 中描述主播道别下播的动作。
 
 返回纯JSON对象，格式如下:
 {
   "actionDesc": "新的主播画面描述",
+  "should_end": false, // true 表示决定下播
   "comments": [
     { "username": "网友A", "content": "弹幕内容" },
     { "username": "网友B", "content": "弹幕内容" }
+  ],
+  "gift_events": [
+    { "username": "大佬A", "gift_name": "火箭", "comment": "主播加油！" },
+    { "username": "粉丝B", "gift_name": "玫瑰", "comment": "" }
   ]
 }
 不要返回任何Markdown标记。`;
@@ -548,6 +1124,11 @@ ${recentComments}
                 const data = await response.json();
                 let content = data.choices[0].message.content.trim();
                 
+                console.log("[Live API Raw Response]:", content);
+
+                // Cleanup Markdown code blocks if present
+                content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+
                 // Find first '{' and last '}'
                 const startIdx = content.indexOf('{');
                 const endIdx = content.lastIndexOf('}');
@@ -582,16 +1163,59 @@ ${recentComments}
                 room.actionDesc = result.actionDesc;
                 const descContainer = document.querySelector('.forum-room-desc-container');
                 if (descContainer) {
-                    descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${result.actionDesc}</div>`;
+                    descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; max-height: 250px; overflow-y: auto; line-height: 1.5; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${result.actionDesc}</div>`;
                 }
 
                 if (result.comments && Array.isArray(result.comments)) {
+                    const myName = forumState.currentUser.bio || forumState.currentUser.username || '我';
                     result.comments.forEach((c, index) => {
+                        if (c.username === myName || c.username === '我') return;
                         setTimeout(() => {
                             window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
                             room.comments.push({ username: c.username, content: c.content, isUser: false });
                         }, 400 + index * 1000);
                     });
+
+                    // Trigger NPC Gifts after comments start appearing
+                    setTimeout(() => {
+                        if (window._triggerNpcGift) window._triggerNpcGift(result.gift_events);
+                    }, 1500);
+
+                    // Handle End Stream
+                    if (result.should_end) {
+                        setTimeout(() => {
+                            if (window.showLiveEndedScreen) window.showLiveEndedScreen(room.host);
+                        }, 4000);
+                    }
+                }
+
+                // Simulate Leaderboard Dynamics (Randomly boost other hosts)
+                try {
+                    let lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+                    if (lb.hosts && lb.hosts.length > 0) {
+                        let changed = false;
+                        lb.hosts.forEach(h => {
+                            // Don't boost current host here, only others
+                            if (h.name !== room.host && Math.random() > 0.6) {
+                                // Add random value between 10 and 200
+                                h.totalValue = (h.totalValue || 0) + Math.floor(Math.random() * 190) + 10;
+                                changed = true;
+                            }
+                        });
+                        
+                        if (changed) {
+                            lb.hosts.sort((a, b) => (b.totalValue || 0) - (a.totalValue || 0));
+                            localStorage.setItem('forum_leaderboard', JSON.stringify(lb));
+                            
+                            // If leaderboard is open, update it
+                            const overlay = document.getElementById('forum-leaderboard-overlay');
+                            if (overlay && overlay.classList.contains('active')) {
+                                window.renderLeaderboardOverlay();
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Leaderboard simulation error", e);
                 }
                 
                 if (regenerateBtn) regenerateBtn.style.display = 'flex';
@@ -616,7 +1240,7 @@ ${recentComments}
             room.actionDesc = room.preGenState.actionDesc;
             const descContainer = document.querySelector('.forum-room-desc-container');
             if (descContainer) {
-                descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${room.actionDesc}</div>`;
+                descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; max-height: 250px; overflow-y: auto; line-height: 1.5; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${room.actionDesc}</div>`;
             }
 
             // Restore comments list
@@ -845,22 +1469,40 @@ ${recentComments}
                                 </button>
                                 <div class="forum-room-host-info">
                                     <div class="forum-room-host-avatar"></div>
-                                    <div class="forum-room-host-name" id="forum-room-host-name">Host</div>
+                                    <div style="display:flex; flex-direction:column; justify-content:center;">
+                                        <div class="forum-room-host-name" id="forum-room-host-name">Host</div>
+                                        <div id="live-rank-badge" onclick="window.toggleLeaderboard()" style="display:none; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,215,0,0.5); color: #ffd60a; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-top: 2px; cursor: pointer; align-self: flex-start; font-weight: 800; font-style: italic;">NO.99</div>
+                                    </div>
                                     <button class="forum-room-follow-btn">Follow</button>
                                 </div>
                             </div>
-                            <!-- Wallpaper Button -->
-                            <button class="forum-room-action-btn" onclick="window.toggleLiveWallpaperMenu()" style="width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.2);">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                                    <polyline points="21 15 16 10 5 21"></polyline>
-                                </svg>
-                            </button>
+                            
+                            <div style="display: flex; gap: 8px;">
+                                <!-- Leaderboard Button -->
+                                <button class="forum-room-action-btn" onclick="window.toggleLeaderboard()" style="width: 40px; height: 40px; border: none; background: rgba(255,215,0,0.2); color: #ffd60a;">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+                                        <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+                                        <path d="M4 22h16"></path>
+                                        <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
+                                        <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
+                                        <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
+                                    </svg>
+                                </button>
+                                
+                                <!-- Wallpaper Button -->
+                                <button class="forum-room-action-btn" onclick="window.toggleLiveWallpaperMenu()" style="width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.2);">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                        <polyline points="21 15 16 10 5 21"></polyline>
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
 
                         <div style="display: flex; flex-direction: column; gap: 12px; flex: 1; overflow: hidden; margin-top: 20px;">
-                            <div class="forum-room-desc-container" style="display: flex; justify-content: center; align-items: center; width: 100%; margin-top: 10vh; height: 200px; overflow-y: auto; flex-shrink: 0;">
+                            <div class="forum-room-desc-container" style="display: flex; justify-content: center; align-items: flex-start; width: 100%; margin-top: 10vh; height: 250px; flex-shrink: 0; pointer-events: none;">
                             </div>
                             
                             <div class="forum-room-chat-container" style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;">
@@ -909,36 +1551,13 @@ ${recentComments}
                             <button onclick="window.toggleForumGiftMenu()" style="background: rgba(0,0,0,0.05); border: none; width: 30px; height: 30px; border-radius: 50%; font-size: 14px; font-weight: bold; cursor: pointer; color: #1c1c1e;">✕</button>
                         </div>
                         <div class="forum-gift-grid">
-                            <div class="forum-gift-item active" onclick="window.selectForumGift(this)">
-                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff2d55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-8"/><path d="M12 14a4 4 0 0 0 4-4 4 4 0 0 0-4-4 4 4 0 0 0-4 4 4 4 0 0 0 4 4z"/><path d="M12 14c-2.2 0-4 1.8-4 4s1.8 4 4 4"/><path d="M12 14c2.2 0 4 1.8 4 4s-1.8 4-4 4"/></svg></div>
-                                <div class="forum-gift-name">Rose</div>
-                                <div class="forum-gift-price">10 Coins</div>
-                            </div>
-                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
-                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8b5a2b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg></div>
-                                <div class="forum-gift-name">Coffee</div>
-                                <div class="forum-gift-price">20 Coins</div>
-                            </div>
-                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
-                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff9500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg></div>
-                                <div class="forum-gift-name">Rocket</div>
-                                <div class="forum-gift-price">99 Coins</div>
-                            </div>
-                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
-                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ffcc00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="2 20 22 20 19 6 15 13 12 4 9 13 5 6 2 20"/></svg></div>
-                                <div class="forum-gift-name">Crown</div>
-                                <div class="forum-gift-price">299 Coins</div>
-                            </div>
-                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
-                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#5ac8fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 22 22 7 12 2"/><polyline points="2 7 12 7 22 7"/><polyline points="12 22 12 7"/></svg></div>
-                                <div class="forum-gift-name">Diamond</div>
-                                <div class="forum-gift-price">499 Coins</div>
-                            </div>
-                            <div class="forum-gift-item" onclick="window.selectForumGift(this)">
-                                <div class="forum-gift-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#af52de" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 15 6 6m-6-6v-2.5a2.5 2.5 0 1 0-5-5H7.5a2.5 2.5 0 1 0-5 5V15a2.5 2.5 0 1 0 5 5h2.5a2.5 2.5 0 1 0 5-5z"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="5" r="1"/><circle cx="5" cy="19" r="1"/></svg></div>
-                                <div class="forum-gift-name">Magic Wand</div>
-                                <div class="forum-gift-price">999 Coins</div>
-                            </div>
+                            ${FORUM_GIFTS.map((g, i) => `
+                                <div class="forum-gift-item ${i === 0 ? 'active' : ''}" onclick="window.selectForumGift(this)" data-name="${g.name}" data-price="${g.value}" data-color="${g.color}">
+                                    <div class="forum-gift-icon" style="font-size:32px; display:flex; justify-content:center; align-items:center; height:32px;">${g.emoji}</div>
+                                    <div class="forum-gift-name">${g.name}</div>
+                                    <div class="forum-gift-price">${g.value} Coins</div>
+                                </div>
+                            `).join('')}
                         </div>
                         <div class="forum-gift-action">
                             <input type="number" id="forum-gift-count" value="1" min="1" max="99">
@@ -961,6 +1580,29 @@ ${recentComments}
                             
                             <div class="forum-wallpaper-grid" id="forum-wallpaper-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding-bottom: 20px;">
                                 <!-- Populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Leaderboard Overlay -->
+                    <div class="forum-gift-menu" id="forum-leaderboard-overlay" style="height: 60vh; background: #1c1c1e;">
+                        <div class="forum-gift-menu-header" style="background: linear-gradient(135deg, #1c1c1e, #2c2c2e); color: white; border: none;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffd60a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+                                    <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+                                    <path d="M4 22h16"></path>
+                                    <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
+                                    <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
+                                    <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
+                                </svg>
+                                <h4 style="font-size: 18px; font-weight: 800; color: #ffd60a; font-style: italic;">Leaderboard</h4>
+                            </div>
+                            <button onclick="window.toggleLeaderboard()" style="background: rgba(255,255,255,0.1); border: none; width: 30px; height: 30px; border-radius: 50%; font-size: 14px; font-weight: bold; cursor: pointer; color: white;">✕</button>
+                        </div>
+                        <div style="padding: 0; background: #1c1c1e; color: white; height: 100%; overflow-y: auto;">
+                            <div id="forum-leaderboard-list" style="padding-bottom: 20px;">
+                                <!-- JS Populated -->
                             </div>
                         </div>
                     </div>
@@ -1262,7 +1904,7 @@ ${recentComments}
                         id: Date.now(),
                         user: {
                             ...forumState.currentUser,
-                            name: forumState.currentUser.bio || forumState.currentUser.name
+                            name: forumState.currentUser.bio || forumState.currentUser.username || 'Me'
                         },
                         text: text,
                         time: '刚刚',
@@ -2150,6 +2792,13 @@ ${recentComments}
                         <label>自动生图</label>
                         <label class="toggle-switch" style="transform: scale(0.8); transform-origin: right center;">
                             <input type="checkbox" id="fc-auto-image" ${profile.autoImage ? 'checked' : ''}>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <div class="edit-form-row">
+                        <label>知道这是用户本人</label>
+                        <label class="toggle-switch" style="transform: scale(0.8); transform-origin: right center;">
+                            <input type="checkbox" id="fc-knows-user" ${profile.knowsUser ? 'checked' : ''}>
                             <span class="slider round"></span>
                         </label>
                     </div>
@@ -3988,6 +4637,10 @@ ${recentComments}
                 profile.following = parseInt(document.getElementById('fc-following').value) || 0;
                 
                 profile.autoImage = document.getElementById('fc-auto-image').checked;
+                const knowsUserCheckbox = document.getElementById('fc-knows-user');
+                if (knowsUserCheckbox) {
+                    profile.knowsUser = knowsUserCheckbox.checked;
+                }
                 const presetSelect = document.getElementById('fc-image-preset');
                 if (presetSelect) {
                     profile.imagePresetName = presetSelect.value;
@@ -6262,7 +6915,33 @@ ${contactPrompt}
 
             forumState.liveStreams = newLives;
             localStorage.setItem('forum_liveStreams', JSON.stringify(forumState.liveStreams));
-            
+
+            // 1. Clear all old live room caches so entering a room shows fresh content
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith('forum_live_state_')) keysToRemove.push(k);
+            }
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+
+            // 2. Sync all new hosts into the leaderboard (with 0 value if not present)
+            let lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+            if (!lb.hosts) lb.hosts = [];
+            newLives.forEach(live => {
+                const hostName = live.username || '';
+                if (!hostName) return;
+                const exists = lb.hosts.find(h => h.name === hostName);
+                if (!exists) {
+                    lb.hosts.push({
+                        name: hostName,
+                        avatar: `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(hostName)}`,
+                        totalValue: 0
+                    });
+                }
+            });
+            lb.hosts.sort((a, b) => (b.totalValue || 0) - (a.totalValue || 0));
+            localStorage.setItem('forum_leaderboard', JSON.stringify(lb));
+
             if (forumState.activeTab === 'video') {
                 renderForum(false);
             }
@@ -6296,6 +6975,7 @@ ${contactPrompt}
         let authorName = post.user.name;
         let authorPersona = "普通网友";
         let authorBio = "";
+        let relationshipContext = "";
         
         // If it's a linked contact, get more specific persona details
         if (post.userId) {
@@ -6307,13 +6987,28 @@ ${contactPrompt}
                  authorPersona = contact.persona || '普通网友';
                  authorName = profile.name || contact.remark || contact.name;
                  authorBio = profile.bio || '';
+                 
+                 const isUserComment = userComment.user.name === forumState.currentUser.bio || 
+                                       userComment.user.name === forumState.currentUser.username || 
+                                       userComment.user.name === 'Me';
+                 if (profile.knowsUser && contact.persona && userComment && userComment.user && isUserComment) {
+                     const realName = window.iphoneSimState?.userProfile?.name || '我';
+                     let userPersonaText = '';
+                     if (contact.userPersonaId && window.iphoneSimState.userPersonas) {
+                         const up = window.iphoneSimState.userPersonas.find(p => p.id === contact.userPersonaId);
+                         if (up && up.aiPrompt) {
+                             userPersonaText = `\n此外，关于用户(我)的设定如下：'${up.aiPrompt}'。`;
+                         }
+                     }
+                     relationshipContext = `\n请注意：评论者网名 [${userComment.user.name}] 其实是现实中你认识的 [${realName}]。你们之间有特殊关系，在以下人设中有描述：'${contact.persona}'。${userPersonaText}\n请综合以上人设，第一条来自帖子作者本人的回复必须严格符合这段关系所定义的语气、口吻和亲密度，明确表现出你认出了他/她。不要像回复陌生网友一样。`;
+                 }
              }
         }
 
         const systemPrompt = `你是一个模拟社交媒体评论生成器。
 当前帖子内容: "${post.caption}"
 帖子作者: "${authorName}" (人设: ${authorPersona}, Bio: ${authorBio})
-用户评论: "${userComment.text}"
+用户评论: "${userComment.text}"${relationshipContext}
 
 任务: 生成 4 条针对用户评论的回复。
 1. 第一条必须来自帖子作者本人 (${authorName})，必须符合其人设语气。

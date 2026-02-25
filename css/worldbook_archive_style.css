@@ -263,6 +263,14 @@
     font-weight: 700;
     font-size: 12px;
     color: var(--wb-accent-gray);
+    cursor: pointer; /* Suggest clickable */
+    transition: background-color 0.2s, color 0.2s;
+}
+
+/* Active state for enabled entries */
+.wb-file-icon.active {
+    background-color: #000000;
+    color: #ffffff;
 }
 
 .wb-file-info {

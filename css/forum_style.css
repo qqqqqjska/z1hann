@@ -2583,3 +2583,204 @@ input:checked + .slider:before {
     50% { opacity: 0.5; }
     100% { opacity: 1; }
 }
+
+/* =========================================================
+   Leaderboard Overlay Styles
+   ========================================================= */
+
+.lb-rank {
+    color: #aaa;
+    min-width: 30px;
+    text-align: center;
+}
+
+.lb-rank.rank-1 {
+    color: #ffd60a;
+    font-size: 20px;
+    text-shadow: 0 0 8px rgba(255, 214, 10, 0.6);
+}
+
+.lb-rank.rank-2 {
+    color: #c0c0c0;
+    font-size: 18px;
+    text-shadow: 0 0 6px rgba(192, 192, 192, 0.5);
+}
+
+.lb-rank.rank-3 {
+    color: #cd7f32;
+    font-size: 17px;
+    text-shadow: 0 0 6px rgba(205, 127, 50, 0.5);
+}
+
+.lb-rank.rank-other {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 14px;
+}
+
+.leaderboard-item {
+    transition: background 0.2s;
+}
+
+.leaderboard-item:active {
+    background: rgba(255,255,255,0.05) !important;
+}
+
+.leaderboard-item.current-host {
+    background: linear-gradient(90deg, rgba(255,214,10,0.08), transparent) !important;
+    border-left: 3px solid #ffd60a !important;
+}
+
+/* Live Room Chat Push-Up Animation */
+.forum-room-chat-area {
+    flex: 1;
+    mask-image: linear-gradient(to top, black 80%, transparent);
+    -webkit-mask-image: linear-gradient(to top, black 80%, transparent);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 8px;
+    padding-bottom: 10px;
+    /* Hide scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.forum-room-chat-area::-webkit-scrollbar {
+    display: none;
+}
+
+.forum-chat-list-wrapper {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: auto;
+    width: 100%;
+    will-change: transform;
+}
+
+/* Live Rank Badge animation */
+#live-rank-badge {
+    animation: rankPulse 3s ease-in-out infinite;
+}
+
+@keyframes rankPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Gift event notification (for cross-page communication) */
+.live-gift-notification {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: white;
+    padding: 16px 24px;
+    border-radius: 20px;
+    text-align: center;
+    z-index: 500;
+    animation: giftNotifyFade 3s ease-out forwards;
+    pointer-events: none;
+}
+
+@keyframes giftNotifyFade {
+    0% { opacity: 0; transform: translate(-50%, -40%); }
+    15% { opacity: 1; transform: translate(-50%, -50%); }
+    70% { opacity: 1; transform: translate(-50%, -50%); }
+    100% { opacity: 0; transform: translate(-50%, -60%); }
+}
+
+/* =========================================================
+   Floating Hearts (Live Room Audience Likes)
+   ========================================================= */
+
+.heart-float-container {
+    position: absolute;
+    bottom: 90px;
+    right: 18px;
+    width: 50px;
+    pointer-events: none;
+    z-index: 300;
+    overflow: visible;
+}
+
+.heart-float {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    font-size: 26px;
+    opacity: 1;
+    animation: heartFloatUp 3s ease-out forwards;
+    pointer-events: none;
+    will-change: transform, opacity;
+    transform-origin: center bottom;
+}
+
+@keyframes heartFloatUp {
+    0% {
+        transform: translateY(0) scale(0.6) rotate(var(--hr, 0deg));
+        opacity: 1;
+    }
+    20% {
+        transform: translateY(-60px) scale(1.1) rotate(var(--hr2, -5deg));
+        opacity: 1;
+    }
+    50% {
+        transform: translateY(-160px) scale(0.95) rotate(var(--hr3, 8deg));
+        opacity: 0.85;
+    }
+    80% {
+        transform: translateY(-260px) scale(0.8) rotate(var(--hr4, -6deg));
+        opacity: 0.4;
+    }
+    100% {
+        transform: translateY(-340px) scale(0.6) rotate(var(--hr5, 4deg));
+        opacity: 0;
+    }
+}
+
+/* Host Gift Banner Animations */
+@keyframes hostGiftBannerIn {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-40px) scale(0.85);
+    }
+    60% {
+        transform: translateX(-50%) translateY(4px) scale(1.02);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0px) scale(1);
+    }
+}
+
+@keyframes hostGiftBannerOut {
+    0% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0px) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px) scale(0.9);
+    }
+}
+
+/* Danmaku Styling */
+.forum-gift-danmaku {
+    position: absolute;
+    right: -100%;
+    white-space: nowrap;
+    z-index: 610;
+    pointer-events: none;
+    animation: danmakuScroll 6s linear forwards;
+}
+
+@keyframes danmakuScroll {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-200vw); }
+}

@@ -185,12 +185,7 @@
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 20px;
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-
-#settings-app .option-card:active {
-    transform: scale(0.98);
-    background: #fafafa;
+    transition: box-shadow 0.2s;
 }
 
 #settings-app .option-header {

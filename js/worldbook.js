@@ -139,14 +139,32 @@ function renderWbEntries(categoryId) {
         el.className = 'wb-file-item';
         const title = entry.remark || (entry.keys && entry.keys.length > 0 ? entry.keys.join(', ') : '无标题');
         
+        // Check if enabled (default true if undefined, though create logic sets it to true)
+        const isEnabled = entry.enabled !== false;
+        const activeClass = isEnabled ? 'active' : '';
+
         el.innerHTML = `
-            <div class="wb-file-icon">DOC</div>
+            <div class="wb-file-icon ${activeClass}">DOC</div>
             <div class="wb-file-info">
                 <div class="wb-file-title">${title}</div>
                 <div class="wb-file-desc">${entry.content}</div>
             </div>
             <div style="font-family: var(--wb-font-mono); font-size: 10px; color: var(--wb-text-secondary);">#${entry.id.toString().slice(-4)}</div>
         `;
+        
+        // Click on icon to toggle enabled state
+        const icon = el.querySelector('.wb-file-icon');
+        icon.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent opening detail view
+            entry.enabled = !entry.enabled;
+            if (entry.enabled) {
+                icon.classList.add('active');
+            } else {
+                icon.classList.remove('active');
+            }
+            saveConfig();
+        });
+
         el.addEventListener('click', () => openWbEntryDetail(entry));
         wbElements.entriesList.appendChild(el);
     });
