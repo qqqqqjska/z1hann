@@ -37,7 +37,10 @@
     <link rel="stylesheet" href="css/settings_v3.css">
     <link rel="stylesheet" href="css/beautify_center.css">
     <link rel="stylesheet" href="css/schedule_v4.css">
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- 替换为国内更稳定的静态链接，避免 Live Server 自动刷新时因 jsdelivr 被墙而报错 -->
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/fill/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/bold/style.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -455,8 +458,8 @@
                     <div class="input-wrapper">
                         <select id="novelai-model-select">
                             <option value="nai-diffusion-3">nai-diffusion-3</option>
-                            <option value="nai-diffusion-4-curated-preview">nai-diffusion-4-curated-preview</option>
-                            <option value="nai-diffusion-4-full">nai-diffusion-4-full</option>
+                            <option value="nai-diffusion-4-5-curated-preview">nai-diffusion-4-5-curated-preview</option>
+                            <option value="nai-diffusion-4-5-full">nai-diffusion-4-5-full</option>
                         </select>
                     </div>
                     <div class="input-wrapper">
