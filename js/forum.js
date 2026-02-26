@@ -641,50 +641,32 @@
         }
 
         async function requestPkInviteDecision(room, target) {
-            const settings = getLiveAiSettings();
-            if (!settings.url || !settings.key) throw new Error('请先配置AI接口');
-            let fetchUrl = settings.url;
-            if (!fetchUrl.endsWith('/chat/completions')) fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
-            const recentComments = (room.comments || []).slice(-8).map(c => `${c.username}: ${c.content}`).join('\n');
-            const prompt = `你是直播PK邀请判定器。请判断主播"${target.name}"是否接受来自"${room.host}"的PK邀请。
-当前房间最近互动:
-${recentComments || '(无)'}
-请只返回JSON:
-{"status":"accepted"|"rejected","reason":"一句话原因"}`;
-            const resp = await fetch(fetchUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
-                body: JSON.stringify({
-                    model: settings.model || 'gpt-3.5-turbo',
-                    messages: [
-                        { role: 'system', content: '你是直播PK邀请判定器，只返回JSON。' },
-                        { role: 'user', content: prompt }
-                    ],
-                    temperature: 0.7
-                })
-            });
-            if (!resp.ok) throw new Error('邀请判定失败');
-            const data = await resp.json();
-            const raw = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
-            console.log('[PK Invite AI Raw]:', raw);
-            const parsed = JSON.parse(normalizeJsonFromAi(raw));
-            const aiStatus = String(parsed.status || '').toLowerCase();
-            const isLinked = !!(target && target.isLinked);
-            let acceptProb = isLinked ? 0.68 : 0.58;
-            if (aiStatus === 'accepted') acceptProb += 0.10;
-            if (aiStatus === 'rejected') acceptProb -= 0.08;
-            acceptProb = Math.max(0.2, Math.min(0.9, acceptProb));
+            const delayMs = 2000 + Math.floor(Math.random() * 3000); // 2-5s
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+
+            const acceptProb = 0.7;
             const roll = Math.random();
-            const finalStatus = roll > acceptProb ? 'accepted' : 'rejected';
+            const accepted = roll < acceptProb;
+            const rejectReasons = [
+                '对方主播正在和观众互动，暂时不方便连线。',
+                '对方主播设备正在调试中，稍后再试。',
+                '对方主播当前有既定直播流程，暂不接受PK。',
+                '对方主播刚开播，想先稳定节奏。',
+                '对方主播网络状态不太稳定，先不连线。'
+            ];
+            const reason = accepted ? '' : rejectReasons[Math.floor(Math.random() * rejectReasons.length)];
+
             console.log('[PK Invite Decision Prob]:', {
-                aiStatus,
-                acceptProb: Number(acceptProb.toFixed(3)),
+                acceptProb,
                 roll: Number(roll.toFixed(3)),
-                finalStatus
+                delayMs,
+                finalStatus: accepted ? 'accepted' : 'rejected',
+                reason
             });
+
             return {
-                status: finalStatus,
-                reason: String(parsed.reason || '').trim()
+                status: accepted ? 'accepted' : 'rejected',
+                reason
             };
         }
 
