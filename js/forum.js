@@ -1,4 +1,4 @@
-// 仿 Instagram 论坛应用逻辑 (UI Update)
+﻿// 仿 Instagram 论坛应用逻辑 (UI Update)
 
 (function() {
     function formatCount(num) {
@@ -21,7 +21,7 @@
     ];
 
     const forumState = {
-        activeTab: 'home', // home, video, share, search, profile
+        activeTab: 'home', // home, video, share, search, profile, forum_wallet
         multiSelectMode: false,
         selectedPostIds: new Set(),
         stories: [
@@ -111,7 +111,18 @@
              { id: 2, name: '地图', avatar: 'https://placehold.co/100x100/87CEEB/ffffff?text=Map', isMap: true, note: '全新' }
         ],
         liveWallpapers: JSON.parse(localStorage.getItem('forum_liveWallpapers')) || [],
-        currentLiveWallpaper: localStorage.getItem('forum_currentLiveWallpaper') || ''
+        currentLiveWallpaper: localStorage.getItem('forum_currentLiveWallpaper') || '',
+        forumWallet: (() => {
+            const raw = JSON.parse(localStorage.getItem('forum_wallet_state') || 'null');
+            return {
+                initialized: !!(raw && raw.initialized),
+                balance: raw && Number.isFinite(Number(raw.balance)) ? Number(raw.balance) : 0,
+                transactions: raw && Array.isArray(raw.transactions) ? raw.transactions : [],
+                isGenerating: false,
+                source: raw && raw.source ? raw.source : 'none',
+                generatedAt: raw && raw.generatedAt ? raw.generatedAt : null
+            };
+        })()
     };
 
     function initForum() {
@@ -139,24 +150,1209 @@
         // Helper to update leaderboard
         function updateLeaderboard(hostName, valueToAdd, hostAvatar = '') {
             let lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+            if (!Array.isArray(lb.hosts)) lb.hosts = [];
+            const delta = Number(valueToAdd) || 0;
             let host = lb.hosts.find(h => h.name === hostName);
             
             if (host) {
-                host.totalValue = (host.totalValue || 0) + valueToAdd;
+                host.totalValue = (Number(host.totalValue) || 0) + delta;
                 if (hostAvatar) host.avatar = hostAvatar; // Update avatar if provided
             } else {
                 lb.hosts.push({ 
                     name: hostName, 
-                    avatar: hostAvatar || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(hostName)}`, 
-                    totalValue: valueToAdd 
+                    avatar: hostAvatar || resolveLeaderboardAvatarByHost(hostName), 
+                    totalValue: delta
                 });
             }
             
             // Sort by value desc
-            lb.hosts.sort((a, b) => b.totalValue - a.totalValue);
+            lb.hosts.sort((a, b) => (Number(b.totalValue) || 0) - (Number(a.totalValue) || 0));
             
             localStorage.setItem('forum_leaderboard', JSON.stringify(lb));
+
+            // Broadcast rank change in host mode so viewers know current ranking.
+            if (forumState.currentLiveRoom && forumState.currentLiveRoom.mode === 'host' && forumState.currentLiveRoom.host === hostName) {
+                const rank = Math.max(1, lb.hosts.findIndex(h => h.name === hostName) + 1);
+                if (rank > 0 && forumState.currentLiveRoom.lastAnnouncedRank !== rank) {
+                    forumState.currentLiveRoom.lastAnnouncedRank = rank;
+                    if (typeof window.appendForumLiveMessage === 'function') {
+                        window.appendForumLiveMessage(
+                            `<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">冲榜实时排名：NO.${rank}</span>`
+                        );
+                    }
+                }
+            }
+
+            // Keep leaderboard overlay and rank badge in sync in real-time.
+            const overlay = document.getElementById('forum-leaderboard-overlay');
+            if (overlay && overlay.classList.contains('active') && typeof window.renderLeaderboardOverlay === 'function') {
+                window.renderLeaderboardOverlay();
+            }
         }
+
+        // Helper to post a new forum entry programmatically
+        window.addForumPost = function(contactId, caption, images = []) {
+            const user = forumState.currentUser;
+            let likes = 0, commentsCount = 0, forwards = 0, shares = 0;
+            const followers = user.followers || 0;
+            if (followers > 0) {
+                const likeRate = 0.05 + Math.random() * 0.1;
+                likes = Math.max(0, Math.floor(followers * likeRate));
+                const commentRate = 0.005 + Math.random() * 0.015;
+                commentsCount = Math.max(0, Math.floor(followers * commentRate));
+                const shareRate = 0.001 + Math.random() * 0.009;
+                forwards = Math.max(0, Math.floor(followers * shareRate));
+                shares = Math.max(0, Math.floor(followers * shareRate));
+            }
+
+            const newPost = {
+                id: Date.now(),
+                user: { ...user, name: user.bio || user.username },
+                images: (images && images.length > 0) ? [...images] : [],
+                image: (images && images.length > 0) ? images[0] : null,
+                caption: caption || '',
+                time: '刚刚',
+                stats: { likes, comments: commentsCount, forwards, shares, sends: shares },
+                comments_list: [],
+                userId: contactId || null
+            };
+            forumState.posts.unshift(newPost);
+            saveForumData();
+            forumState.activeTab = 'home';
+            renderForum();
+            generateCommentsForPost(newPost);
+            generateStrangerDMs(newPost);
+            if (contactId) {
+                window.syncForumEventToChat(contactId, `[发布了论坛帖子]: "${caption}"`);
+            }
+        };
+
+        // sync forum events to chat history for a contact
+        // `role` defaults to 'system' but can be overridden (e.g. 'user')
+        // `msgType` can be 'text' or 'system_event' (hidden in UI but kept in context)
+        window.syncForumEventToChat = function(contactId, text, role = 'system', msgType = 'text') {
+            if (!contactId) return;
+            if (!isWechatSyncEnabled(contactId)) return;
+            if (!window.iphoneSimState.chatHistory) window.iphoneSimState.chatHistory = {};
+            if (!window.iphoneSimState.chatHistory[contactId]) window.iphoneSimState.chatHistory[contactId] = [];
+            window.iphoneSimState.chatHistory[contactId].push({ role: role, type: msgType, content: text, time: Date.now() });
+            if (window.saveConfig) saveConfig();
+        };
+
+        function getContactProfile(contactId) {
+            const profiles = (forumState.settings && forumState.settings.contactProfiles) ? forumState.settings.contactProfiles : {};
+            return profiles[contactId] || {};
+        }
+
+        function isWechatSyncEnabled(contactId) {
+            if (!contactId) return false;
+            const profile = getContactProfile(contactId);
+            return !!profile.syncWechat;
+        }
+
+        function resolveLiveContactByHost(hostName) {
+            const contacts = (window.iphoneSimState && window.iphoneSimState.contacts) ? window.iphoneSimState.contacts : [];
+            const profiles = (forumState.settings && forumState.settings.contactProfiles) ? forumState.settings.contactProfiles : {};
+            const match = contacts.find(c => {
+                const p = profiles[c.id] || {};
+                return c.remark === hostName || c.name === hostName || p.name === hostName;
+            });
+            if (!match) return null;
+            return { contactId: match.id, contact: match, profile: profiles[match.id] || {} };
+        }
+
+        function resolveLeaderboardAvatarByHost(hostName) {
+            const resolved = resolveLiveContactByHost(hostName);
+            if (!resolved) return `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(hostName)}`;
+            const linkedIds = (forumState.settings && forumState.settings.linkedContacts) ? forumState.settings.linkedContacts : [];
+            const isLinked = linkedIds.includes(resolved.contactId);
+            if (isLinked && resolved.profile && resolved.profile.avatar) return resolved.profile.avatar;
+            if (resolved.contact && resolved.contact.avatar) return resolved.contact.avatar;
+            return `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(hostName)}`;
+        }
+
+        function getCurrentUserLiveAvatar() {
+            return (forumState.currentUser && forumState.currentUser.avatar) ||
+                (window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.avatar) ||
+                `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent((forumState.currentUser && (forumState.currentUser.bio || forumState.currentUser.username)) || 'me')}`;
+        }
+
+        function maybeSyncLiveEventToChat(room, text, role = 'system', msgType = 'live_sync_hidden') {
+            if (!room || !text) return;
+            let targetId = room.userId || null;
+            if (!targetId) {
+                const resolved = resolveLiveContactByHost(room.host);
+                if (resolved) targetId = resolved.contactId;
+            }
+            if (!targetId || !isWechatSyncEnabled(targetId)) return;
+            const syncType = (msgType === 'system_event') ? 'live_sync_hidden' : (msgType || 'live_sync_hidden');
+            window.syncForumEventToChat(targetId, text, role, syncType);
+        }
+
+        function maybePushLiveDmFromActionDesc(room, actionDesc) {
+            if (!room || !actionDesc || typeof actionDesc !== 'string') return;
+            const hit = /(给你发消息|给我发消息|私信你|私信我|在微信上发了消息|发来消息)/.test(actionDesc);
+            if (!hit) return;
+
+            let targetId = room.userId || null;
+            if (!targetId) {
+                const resolved = resolveLiveContactByHost(room.host);
+                if (resolved) targetId = resolved.contactId;
+            }
+            if (!targetId || !isWechatSyncEnabled(targetId)) return;
+
+            const shortText = actionDesc.length > 48 ? actionDesc.slice(0, 48) + '…' : actionDesc;
+            if (typeof window.sendMessage === 'function') {
+                window.sendMessage(`[直播间私信] ${shortText}`, false, 'live_sync_hidden', null, targetId);
+            } else {
+                window.syncForumEventToChat(targetId, `[直播间私信] ${shortText}`, 'assistant', 'live_sync_hidden');
+            }
+        }
+
+        function createEmptyPkState() {
+            return {
+                enabled: false,
+                mode: 'pk',
+                phase: 'idle',
+                inviteTargetName: '',
+                opponent: { name: '', avatar: '', contactId: null, isLinked: false },
+                leftActionDesc: '',
+                rightActionDesc: '',
+                leftGiftValue: 0,
+                rightGiftValue: 0,
+                leftTotalGiftValue: 0,
+                rightTotalGiftValue: 0,
+                timerSec: 0,
+                timerHandle: null,
+                timerPaused: false,
+                pauseReason: '',
+                autoStartOnPreEnd: true,
+                addTimeUsed: { pre: 0, post: 0 },
+                winner: null
+            };
+        }
+
+        function getLeaderboardGiftValueByHost(hostName) {
+            if (!hostName) return 0;
+            try {
+                const lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+                const hosts = Array.isArray(lb.hosts) ? lb.hosts : [];
+                const hit = hosts.find(h => h && h.name === hostName);
+                return Math.max(0, Number(hit && hit.totalValue) || 0);
+            } catch (e) {
+                return 0;
+            }
+        }
+
+        function clearPkTimer(room) {
+            if (!room || !room.pk) return;
+            if (room.pk.timerHandle) {
+                clearInterval(room.pk.timerHandle);
+                room.pk.timerHandle = null;
+            }
+        }
+
+        function formatPkTimer(seconds) {
+            const sec = Math.max(0, Number(seconds) || 0);
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function getPkSideTag(side) {
+            if (side === 'left') return '[我方]';
+            if (side === 'right') return '[对方]';
+            return '[系统]';
+        }
+
+        function resolveOpponentSenderName(eventUsername, room) {
+            const fixedName = room && room.pk && room.pk.opponent && room.pk.opponent.name ? String(room.pk.opponent.name).trim() : '';
+            if (fixedName) return fixedName;
+            const fallback = String(eventUsername || '').trim();
+            return fallback || '对方主播';
+        }
+
+        function resolvePkInviteTarget(hostName) {
+            const resolved = resolveLiveContactByHost(hostName);
+            if (!resolved) {
+                return {
+                    name: hostName,
+                    avatar: resolveLeaderboardAvatarByHost(hostName),
+                    contactId: null,
+                    profile: {},
+                    isLinked: false
+                };
+            }
+            const linkedIds = (forumState.settings && forumState.settings.linkedContacts) ? forumState.settings.linkedContacts : [];
+            const isLinked = linkedIds.includes(resolved.contactId);
+            const avatar = (isLinked && resolved.profile && resolved.profile.avatar)
+                ? resolved.profile.avatar
+                : (resolved.contact && resolved.contact.avatar)
+                    ? resolved.contact.avatar
+                    : resolveLeaderboardAvatarByHost(hostName);
+            return {
+                name: hostName,
+                avatar,
+                contactId: resolved.contactId,
+                profile: resolved.profile || {},
+                contact: resolved.contact || null,
+                isLinked
+            };
+        }
+
+        function getPkSyncContactId(room) {
+            if (!room || !room.pk || !room.pk.enabled) return null;
+            const id = room.pk.opponent && room.pk.opponent.contactId ? room.pk.opponent.contactId : null;
+            if (!id) return null;
+            return isWechatSyncEnabled(id) ? id : null;
+        }
+
+        function syncPkEvent(room, text, role = 'system', msgType = 'live_sync_hidden') {
+            const contactId = getPkSyncContactId(room);
+            if (!contactId || !text) return;
+            window.syncForumEventToChat(contactId, text, role, 'live_sync_hidden');
+        }
+
+        function buildPkProgressWidths(pk) {
+            if (pk && (pk.phase === 'pre_pk' || pk.mode === 'chat')) return { leftPct: 50, rightPct: 50 };
+            const left = Math.max(0, Number(pk && pk.leftGiftValue) || 0);
+            const right = Math.max(0, Number(pk && pk.rightGiftValue) || 0);
+            const total = left + right;
+            if (total <= 0) return { leftPct: 50, rightPct: 50 };
+            const leftPct = Math.max(0, Math.min(100, (left / total) * 100));
+            const rightPct = 100 - leftPct;
+            return { leftPct, rightPct };
+        }
+
+        window.renderPkPanel = function() {
+            const room = forumState.currentLiveRoom;
+            const panel = document.getElementById('forum-pk-panel');
+            const descContainer = document.querySelector('.forum-room-desc-container');
+            if (!room || !panel || !room.pk || !room.pk.enabled) {
+                if (panel) panel.style.display = 'none';
+                if (descContainer) descContainer.classList.remove('pk-mode');
+                return;
+            }
+            const pk = room.pk;
+            const progress = buildPkProgressWidths(pk);
+            const phaseMap = {
+                pre_pk: 'PK预备',
+                pk_running: 'PK进行中',
+                post_pk: 'PK后互动'
+            };
+            const isChatMode = pk.mode === 'chat';
+            const showStart = pk.phase === 'pre_pk';
+            const canAddTime = pk.phase === 'pre_pk' || pk.phase === 'post_pk';
+            const addTimeCount = pk.phase === 'post_pk' ? pk.addTimeUsed.post : pk.addTimeUsed.pre;
+            const leftAvatar = getCurrentUserLiveAvatar();
+            const rightAvatar = pk.opponent.avatar || resolveLeaderboardAvatarByHost(pk.opponent.name || 'opponent');
+
+            panel.style.display = 'block';
+            panel.classList.toggle('mode-chat', isChatMode);
+            panel.innerHTML = `
+                <div class="forum-pk-mode-switch">
+                    <button class="forum-pk-mode-btn ${isChatMode ? '' : 'active'}" onclick="window.switchPkMode('pk')">PK模式</button>
+                    <button class="forum-pk-mode-btn ${isChatMode ? 'active' : ''}" onclick="window.switchPkMode('chat')">闲聊模式</button>
+                    <button class="forum-pk-mode-btn danger" onclick="window.exitPkLinkSession()">退出连线</button>
+                </div>
+                <div class="forum-pk-hosts-row">
+                    <div class="forum-pk-host forum-pk-host-left">
+                        <img src="${leftAvatar}" alt="left">
+                        <div class="forum-pk-host-meta">
+                            <div class="forum-pk-host-name">${room.host || '我方主播'}</div>
+                            <div class="forum-pk-gift-value">¥${formatWalletAmount(pk.leftGiftValue || 0)}</div>
+                        </div>
+                    </div>
+                    <div class="forum-pk-phase-wrap">
+                        ${isChatMode ? '' : `<div class="forum-pk-phase">${phaseMap[pk.phase] || 'PK'}</div>`}
+                        ${isChatMode ? '' : `<div class="forum-pk-timer">${formatPkTimer(pk.timerSec)}</div>`}
+                    </div>
+                    <div class="forum-pk-host forum-pk-host-right">
+                        <div class="forum-pk-host-meta forum-pk-host-meta-right">
+                            <div class="forum-pk-host-name">${pk.opponent.name || '对方主播'}</div>
+                            <div class="forum-pk-gift-value">¥${formatWalletAmount(pk.rightGiftValue || 0)}</div>
+                        </div>
+                        <img src="${rightAvatar}" alt="right">
+                    </div>
+                </div>
+                ${isChatMode ? '' : `
+                    <div class="forum-pk-progress">
+                        <div class="forum-pk-progress-left" style="width:${progress.leftPct}%;"></div>
+                        <div class="forum-pk-progress-right" style="width:${progress.rightPct}%;"></div>
+                    </div>
+                    <div class="forum-pk-actions">
+                        ${showStart ? '<button class="forum-pk-btn" onclick="window.startPkBattle()">开始PK</button>' : ''}
+                        ${canAddTime ? '<button class="forum-pk-btn ghost" onclick="window.extendPkTime()">加时 +30s</button>' : ''}
+                        <button class="forum-pk-btn ghost" onclick="window.togglePkTimerPause()">${pk.timerPaused ? '继续计时' : '暂停计时'}</button>
+                    </div>
+                `}
+            `;
+        };
+
+        window.switchPkMode = function(mode) {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.pk || !room.pk.enabled) return;
+            const nextMode = mode === 'chat' ? 'chat' : 'pk';
+            if (room.pk.mode === nextMode) return;
+            room.pk.mode = nextMode;
+            window.appendForumLiveMessage(
+                `<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">已切换到${nextMode === 'chat' ? '闲聊模式' : 'PK模式'}。</span>`
+            );
+            syncPkEvent(room, `[PK模式] ${nextMode}`, 'system', 'system_event');
+            window.renderPkPanel();
+        };
+
+        async function summarizeLiveLinkSession(room, contactId) {
+            if (!room || !room.pk || !room.pk.enabled || !contactId) return;
+            const settings = getLiveAiSettings();
+            const modeLabel = room.pk.mode === 'chat' ? '闲聊模式' : 'PK模式';
+            const rawTimeline = [
+                `模式:${modeLabel}`,
+                `我方礼物值:¥${formatWalletAmount(room.pk.leftGiftValue || 0)}`,
+                `对方礼物值:¥${formatWalletAmount(room.pk.rightGiftValue || 0)}`,
+                `我方画面:${String(room.pk.leftActionDesc || room.actionDesc || '').trim() || '(无)'}`,
+                `对方画面:${String(room.pk.rightActionDesc || '').trim() || '(无)'}`,
+                `评论摘要:${(room.comments || []).slice(-20).map(c => `[${c.side || 'left'}]${c.username || '观众'}:${c.content || ''}`).join(' | ') || '(无)'}`
+            ].join('\n');
+            const fallbackSummary = `【直播原始记录】\n${rawTimeline}`;
+
+            let summaryText = '';
+            if (!settings.url || !settings.key) {
+                if (typeof showNotification === 'function') showNotification('直播总结失败：未配置AI', 2000, 'error');
+                window.syncForumEventToChat(contactId, fallbackSummary, 'system', 'live_sync_hidden');
+                return;
+            }
+
+            try {
+                let fetchUrl = settings.url;
+                if (!fetchUrl.endsWith('/chat/completions')) fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+                const prompt = `请总结这次直播连线，输出1-3句简洁中文，突出模式、互动和结果。\n${rawTimeline}`;
+                const resp = await fetch(fetchUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+                    body: JSON.stringify({
+                        model: settings.model || 'gpt-3.5-turbo',
+                        messages: [
+                            { role: 'system', content: '你是直播连线总结助手，只输出纯文本总结。' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: 0.5
+                    })
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                summaryText = String(data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '').trim();
+                if (!summaryText) throw new Error('empty summary');
+
+                if (!window.iphoneSimState.memories) window.iphoneSimState.memories = [];
+                window.iphoneSimState.memories.push({
+                    id: Date.now(),
+                    contactId,
+                    content: `【直播连线总结】${summaryText}`,
+                    time: Date.now(),
+                    type: '直播',
+                    title: '直播连线总结',
+                    range: `${room.host || '我方'} vs ${(room.pk.opponent && room.pk.opponent.name) || '对方'}`
+                });
+                if (typeof saveConfig === 'function') saveConfig();
+                window.syncForumEventToChat(contactId, `[直播连线总结] ${summaryText}`, 'system', 'live_sync_hidden');
+            } catch (err) {
+                const msg = (err && err.message) ? err.message : '未知错误';
+                if (typeof showNotification === 'function') showNotification(`直播总结失败：${msg}`, 2200, 'error');
+                window.syncForumEventToChat(contactId, fallbackSummary, 'system', 'live_sync_hidden');
+            }
+        }
+
+        window.exitPkLinkSession = async function() {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.pk || !room.pk.enabled) return;
+            const linkSnapshot = JSON.parse(JSON.stringify(room.pk));
+            const summaryRoom = { ...room, pk: linkSnapshot, comments: Array.isArray(room.comments) ? room.comments.slice() : [] };
+            const summaryContactId = room.pk.opponent && room.pk.opponent.contactId ? room.pk.opponent.contactId : null;
+            clearPkTimer(room);
+            room.pk = createEmptyPkState();
+            const descContainer = document.querySelector('.forum-room-desc-container');
+            if (descContainer) {
+                descContainer.classList.remove('pk-mode');
+                descContainer.innerHTML = renderLiveActionDesc(room.actionDesc || '');
+            }
+            window.appendForumLiveMessage(
+                `<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">已退出连线，返回普通直播。</span>`
+            );
+            window.renderPkPanel();
+            if (typeof window.renderLeaderboardOverlay === 'function') window.renderLeaderboardOverlay();
+            if (summaryContactId) {
+                await summarizeLiveLinkSession(summaryRoom, summaryContactId);
+            }
+        };
+
+        window.renderPkActionDesc = function() {
+            const room = forumState.currentLiveRoom;
+            const container = document.querySelector('.forum-room-desc-container');
+            if (!container || !room || !room.pk || !room.pk.enabled) return;
+            container.classList.add('pk-mode');
+            const leftDesc = String(room.pk.leftActionDesc || room.actionDesc || '').trim() || '我方准备中...';
+            const rightDesc = String(room.pk.rightActionDesc || '').trim() || '对方准备中...';
+            container.innerHTML = `
+                <div class="forum-pk-desc-wrap">
+                    <div class="forum-pk-desc-card">
+                        <div class="forum-pk-desc-head">
+                            <div class="forum-pk-desc-title">我方画面</div>
+                            <div class="forum-pk-desc-head-value">¥${formatWalletAmount(room.pk.leftTotalGiftValue || 0)}</div>
+                        </div>
+                        <div class="forum-pk-desc-text">${leftDesc}</div>
+                    </div>
+                    <div class="forum-pk-desc-card right">
+                        <div class="forum-pk-desc-head">
+                            <div class="forum-pk-desc-title">对方画面</div>
+                            <div class="forum-pk-desc-head-value">¥${formatWalletAmount(room.pk.rightTotalGiftValue || 0)}</div>
+                        </div>
+                        <div class="forum-pk-desc-text">${rightDesc}</div>
+                    </div>
+                </div>
+            `;
+        };
+
+        function appendPkChatComment(side, username, content, isUser = false) {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.pk || !room.pk.enabled) return;
+            const sideTag = getPkSideTag(side);
+            const sideText = side === 'right' ? '对方' : '我方';
+            const badgeClass = side === 'right' ? 'forum-pk-side-badge right' : 'forum-pk-side-badge left';
+            const safeUser = username || '观众';
+            const safeContent = content || '';
+            const html = `
+                <span class="${badgeClass}">${sideText}</span><span style="color:#ffffff;font-weight:700;margin-right:6px;">${safeUser}</span>${safeContent}
+            `;
+            window.appendForumLiveMessage(html);
+            room.comments.push({ username: safeUser, content: safeContent, isUser: !!isUser, side });
+            syncPkEvent(room, `[PK评论][${sideTag}] ${safeUser}: ${safeContent}`, isUser ? 'user' : 'assistant', 'text');
+        }
+
+        function normalizeJsonFromAi(rawText) {
+            let content = String(rawText || '').trim();
+            content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+            const startIdx = content.indexOf('{');
+            const endIdx = content.lastIndexOf('}');
+            if (startIdx !== -1 && endIdx !== -1) {
+                content = content.substring(startIdx, endIdx + 1);
+            }
+            return content;
+        }
+
+        async function requestPkInviteDecision(room, target) {
+            const settings = getLiveAiSettings();
+            if (!settings.url || !settings.key) throw new Error('请先配置AI接口');
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            const recentComments = (room.comments || []).slice(-8).map(c => `${c.username}: ${c.content}`).join('\n');
+            const prompt = `你是直播PK邀请判定器。请判断主播"${target.name}"是否接受来自"${room.host}"的PK邀请。
+当前房间最近互动:
+${recentComments || '(无)'}
+请只返回JSON:
+{"status":"accepted"|"rejected","reason":"一句话原因"}`;
+            const resp = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: '你是直播PK邀请判定器，只返回JSON。' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.7
+                })
+            });
+            if (!resp.ok) throw new Error('邀请判定失败');
+            const data = await resp.json();
+            const raw = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
+            console.log('[PK Invite AI Raw]:', raw);
+            const parsed = JSON.parse(normalizeJsonFromAi(raw));
+            const aiStatus = String(parsed.status || '').toLowerCase();
+            const isLinked = !!(target && target.isLinked);
+            let acceptProb = isLinked ? 0.68 : 0.58;
+            if (aiStatus === 'accepted') acceptProb += 0.10;
+            if (aiStatus === 'rejected') acceptProb -= 0.08;
+            acceptProb = Math.max(0.2, Math.min(0.9, acceptProb));
+            const roll = Math.random();
+            const finalStatus = roll > acceptProb ? 'accepted' : 'rejected';
+            console.log('[PK Invite Decision Prob]:', {
+                aiStatus,
+                acceptProb: Number(acceptProb.toFixed(3)),
+                roll: Number(roll.toFixed(3)),
+                finalStatus
+            });
+            return {
+                status: finalStatus,
+                reason: String(parsed.reason || '').trim()
+            };
+        }
+
+        function buildPkPersonaContext(room) {
+            if (!room || !room.pk || !room.pk.enabled) return '';
+            const opponent = room.pk.opponent || {};
+            if (!opponent.isLinked || !opponent.contactId) return '\n对方是陌生主播，不需要关系化口吻。';
+            const profiles = (forumState.settings && forumState.settings.contactProfiles) ? forumState.settings.contactProfiles : {};
+            const contacts = (window.iphoneSimState && window.iphoneSimState.contacts) ? window.iphoneSimState.contacts : [];
+            const c = contacts.find(x => x.id === opponent.contactId);
+            const p = profiles[opponent.contactId] || {};
+            const realName = (window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name) || '用户';
+            let userPersonaPrompt = '';
+            if (c && c.userPersonaId && window.iphoneSimState && Array.isArray(window.iphoneSimState.userPersonas)) {
+                const up = window.iphoneSimState.userPersonas.find(item => item.id === c.userPersonaId);
+                if (up && up.aiPrompt) userPersonaPrompt = up.aiPrompt;
+            }
+            const knows = !!p.knowsUser;
+            let relation = '';
+            if (c && c.persona) relation += `对方人设:${c.persona}\n`;
+            if (userPersonaPrompt) relation += `用户人设:${userPersonaPrompt}\n`;
+            relation += knows ? `对方知道当前主播就是${realName}本人。` : '对方不一定知道主播真实身份。';
+            let wechatContext = '';
+            if (p.syncWechat && window.iphoneSimState && window.iphoneSimState.chatHistory && window.iphoneSimState.chatHistory[opponent.contactId]) {
+                const hist = window.iphoneSimState.chatHistory[opponent.contactId].slice(-8);
+                const text = hist.map(m => `${m.role === 'user' ? '我' : '对方'}:${m.content || ''}`).join('\n');
+                if (text) wechatContext = `\n最近微信上下文:\n${text}`;
+            }
+            return `\n当前PK双方存在现实关系，请严格按关系生成：\n${relation}${wechatContext}`;
+        }
+
+        async function requestPkGeneratedContent(room, userInputText) {
+            const settings = getLiveAiSettings();
+            if (!settings.url || !settings.key) throw new Error('请先配置AI接口');
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            const comments = (room.comments || []).slice(-10).map(c => `${getPkSideTag(c.side)}${c.username}: ${c.content}`).join('\n');
+            const myName = forumState.currentUser.bio || forumState.currentUser.username || '我';
+            const personaContext = buildPkPersonaContext(room);
+            const leftValue = Math.max(0, Number(room.pk.leftGiftValue) || 0);
+            const rightValue = Math.max(0, Number(room.pk.rightGiftValue) || 0);
+            const diff = Math.abs(leftValue - rightValue);
+            const lead = leftValue === rightValue ? '平局' : (leftValue > rightValue ? '我方领先' : '对方领先');
+            const prompt = `你在模拟直播PK对战。双方信息:
+我方主播:${room.host}
+对方主播:${room.pk.opponent.name}
+当前模式:${room.pk.mode === 'chat' ? '闲聊模式(不比拼)' : 'PK模式(比拼中)'}
+我方礼物值:${leftValue}
+对方礼物值:${rightValue}
+领先方:${lead}
+礼物差值:${diff}
+用户本轮输入:${userInputText || '(无)'}
+最近评论:
+${comments || '(无)'}
+${personaContext}
+
+请输出JSON，字段必须完整:
+{
+  "left_action_desc":"我方画面描述",
+  "right_action_desc":"对方画面描述",
+  "left_comments":[{"username":"...","content":"..."}],
+  "right_comments":[{"username":"...","content":"..."}],
+  "left_gift_events":[{"username":"...","gift_name":"火箭","count":3,"comment":"..."}],
+  "opponent_host_gift_events":[{"username":"对方主播","gift_name":"皇冠","count":1,"comment":"给你一点支持"}],
+  "right_gift_delta":120,
+  "suggested_actions":["建议1","建议2"],
+  "next_action_hint":"一句简短建议"
+}
+规则:
+1) 评论简短口语化，且不能把${myName}当成送礼人。
+2) left_gift_events 的礼物必须来自[玫瑰,棒棒糖,皇冠,火箭,钻石,爱心]，count为1-20整数。
+3) left_action_desc必须保持和“用户本轮输入”一致（可原样复述，不能改写）。
+4) opponent_host_gift_events可为空数组；若有，表示对方主播给我方送礼，礼物同样来自上述列表。
+5) right_gift_delta是对方本轮新增礼物总价值(数字)。
+6) 如果opponent_host_gift_events非空，right_action_desc必须明确体现“对方主播知道自己给我方送了礼物”。
+7) 必须返回至少2条suggested_actions，且next_action_hint不超过20字。
+8) 只返回JSON，不要Markdown。`;
+            const resp = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: '你是直播PK互动数据生成器，只返回JSON。' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.82
+                })
+            });
+            if (!resp.ok) throw new Error('PK生成失败');
+            const data = await resp.json();
+            const raw = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
+            const parsed = JSON.parse(normalizeJsonFromAi(raw));
+            return parsed;
+        }
+
+        window.enterPkPhase = function(phase, seconds) {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.pk || !room.pk.enabled) return;
+            clearPkTimer(room);
+            room.pk.phase = phase;
+            room.pk.timerSec = Math.max(0, Number(seconds) || 0);
+            room.pk.timerPaused = false;
+            const phaseLabel = phase === 'pre_pk' ? 'PK预备阶段' : phase === 'pk_running' ? 'PK正式开始' : phase === 'post_pk' ? 'PK后互动阶段' : phase;
+            window.appendForumLiveMessage(`<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">${phaseLabel}（${formatPkTimer(room.pk.timerSec)}）</span>`);
+            syncPkEvent(room, `[PK阶段] ${phase} (${room.pk.timerSec}s)`, 'system', 'live_sync_hidden');
+            window.renderPkPanel();
+            if (room.pk.timerSec <= 0) return;
+                room.pk.timerHandle = setInterval(() => {
+                if (!forumState.currentLiveRoom || !forumState.currentLiveRoom.pk || !forumState.currentLiveRoom.pk.enabled) {
+                    clearPkTimer(room);
+                    return;
+                }
+                if (room.pk.timerPaused) return;
+                room.pk.timerSec = Math.max(0, room.pk.timerSec - 1);
+                window.renderPkPanel();
+                if (room.pk.timerSec <= 0) {
+                    clearPkTimer(room);
+                    if (room.pk.phase === 'pre_pk') {
+                        if (room.pk.mode === 'pk' && room.pk.autoStartOnPreEnd !== false) {
+                            window.startPkBattle();
+                            return;
+                        }
+                    } else if (room.pk.phase === 'pk_running') {
+                        window.finishPkBattle();
+                        window.enterPkPhase('post_pk', 120);
+                    }
+                }
+            }, 1000);
+        };
+
+        window.initPkSession = function(opponentInfo) {
+            const room = forumState.currentLiveRoom;
+            if (!room) return;
+            const base = createEmptyPkState();
+            room.pk = { ...base, enabled: true };
+            room.pk.opponent = {
+                name: opponentInfo.name || '对方主播',
+                avatar: opponentInfo.avatar || resolveLeaderboardAvatarByHost(opponentInfo.name || 'opponent'),
+                contactId: opponentInfo.contactId || null,
+                isLinked: !!opponentInfo.isLinked
+            };
+            room.pk.leftActionDesc = room.actionDesc || '';
+            room.pk.rightActionDesc = '对方进入PK连线，准备中...';
+            room.pk.mode = 'pk';
+            room.pk.autoStartOnPreEnd = true;
+            room.pk.leftGiftValue = 0;
+            room.pk.rightGiftValue = 0;
+            room.pk.leftTotalGiftValue = getLeaderboardGiftValueByHost(room.host);
+            room.pk.rightTotalGiftValue = getLeaderboardGiftValueByHost(room.pk.opponent.name);
+            room.pk.addTimeUsed = { pre: 0, post: 0 };
+            room.pk.winner = null;
+            room.comments = [];
+            const chatArea = document.querySelector('.forum-room-chat-area');
+            if (chatArea) {
+                chatArea.innerHTML = '';
+                const wrapper = document.createElement('div');
+                wrapper.className = 'forum-chat-list-wrapper';
+                chatArea.appendChild(wrapper);
+            }
+            window.renderPkPanel();
+            window.renderPkActionDesc();
+            syncPkEvent(room, `[PK邀请] 已和 ${room.pk.opponent.name} 建立连线`, 'system', 'live_sync_hidden');
+            window.enterPkPhase('pre_pk', 120);
+            let rankText = 'NO.99+';
+            try {
+                const lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+                const hosts = Array.isArray(lb.hosts) ? lb.hosts.slice() : [];
+                hosts.sort((a, b) => (Number(b.totalValue) || 0) - (Number(a.totalValue) || 0));
+                const idx = hosts.findIndex(h => h.name === room.host);
+                if (idx >= 0) rankText = `NO.${idx + 1}`;
+            } catch (e) {}
+            window.appendForumLiveMessage(`<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.95);">PK预备阶段开始，观众送礼可帮我方冲榜，当前排名 ${rankText}。</span>`);
+        };
+
+        window.startPkBattle = function() {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.pk || !room.pk.enabled || room.pk.phase !== 'pre_pk') return;
+            room.pk.leftGiftValue = 0;
+            room.pk.rightGiftValue = 0;
+            window.enterPkPhase('pk_running', 180);
+            window.renderPkPanel();
+        };
+
+        window.finishPkBattle = function() {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.pk || !room.pk.enabled) return;
+            const left = Math.max(0, Number(room.pk.leftGiftValue) || 0);
+            const right = Math.max(0, Number(room.pk.rightGiftValue) || 0);
+            let winner = 'draw';
+            if (left > right) winner = 'left';
+            else if (right > left) winner = 'right';
+            room.pk.winner = winner;
+            const msg = winner === 'draw'
+                ? `PK结束：平局（我方¥${formatWalletAmount(left)} / 对方¥${formatWalletAmount(right)}）`
+                : winner === 'left'
+                    ? `PK结束：我方胜利（我方¥${formatWalletAmount(left)} / 对方¥${formatWalletAmount(right)}）`
+                    : `PK结束：对方胜利（我方¥${formatWalletAmount(left)} / 对方¥${formatWalletAmount(right)}）`;
+            window.appendForumLiveMessage(`<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.95);">${msg}</span>`);
+            syncPkEvent(room, `[PK结算] ${msg}`, 'system', 'live_sync_hidden');
+            window.renderPkPanel();
+        };
+
+        window.extendPkTime = function() {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.pk || !room.pk.enabled) return;
+            const phase = room.pk.phase;
+            if (phase !== 'pre_pk' && phase !== 'post_pk') return;
+            room.pk.timerSec = Math.max(0, Number(room.pk.timerSec) || 0) + 30;
+            syncPkEvent(room, `[PK加时] ${phase} +30s`, 'system', 'live_sync_hidden');
+            window.renderPkPanel();
+        };
+
+        window.togglePkTimerPause = function() {
+            const room = forumState.currentLiveRoom;
+            if (!room || !room.pk || !room.pk.enabled) return;
+            room.pk.timerPaused = !room.pk.timerPaused;
+            syncPkEvent(room, `[PK计时] ${room.pk.timerPaused ? '暂停' : '继续'}`, 'system', 'live_sync_hidden');
+            window.renderPkPanel();
+        };
+
+        function getLiveAiSettings() {
+            let settings = { url: '', key: '', model: '' };
+            if (window.iphoneSimState) {
+                if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) settings = window.iphoneSimState.aiSettings;
+                else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) settings = window.iphoneSimState.aiSettings2;
+            }
+            return settings;
+        }
+
+        function buildFallbackLiveStartPack(username, title, history) {
+            const textHistory = (history || [])
+                .slice(-12)
+                .map(m => (m && typeof m.content === 'string') ? m.content : '')
+                .filter(Boolean);
+            const lastLine = textHistory.length > 0 ? textHistory[textHistory.length - 1].substring(0, 60) : '';
+            const t = (title || '直播').trim() || '直播';
+            const actionDesc = lastLine
+                ? `主播 ${username} 调整好镜头后开播，笑着和大家打招呼：“${lastLine}”，直播间节奏慢慢热起来。`
+                : `主播 ${username} 刚开播，整理麦克风和灯光，轻松和大家打招呼，准备开始今天的 ${t}。`;
+
+            const namePool = ['Mika_17','RinCat','南风不晚','Cloudie','PixelTea','夜航星','阿青在看','LemonRoom','Sora_98','KiteRunner'];
+            const commentPool = [`刚进来，${t}主题我爱看`,'主播状态好好','这场氛围好舒服','前排打卡','今天会讲到重点吗','声音很清楚','来了来了','期待后面内容'];
+            const picked = [];
+            while (picked.length < 4 && namePool.length > 0) {
+                const idx = Math.floor(Math.random() * namePool.length);
+                const uname = namePool.splice(idx, 1)[0];
+                const cidx = Math.floor(Math.random() * commentPool.length);
+                picked.push({ username: uname, content: commentPool[cidx], isUser: false });
+            }
+            const viewerCandidates = ['96', '188', '356', '628', '1.1k', '1.6k', '2.3k', '3.8k'];
+            const viewers = viewerCandidates[Math.floor(Math.random() * viewerCandidates.length)];
+            return { actionDesc, initialComments: picked, viewers };
+        }
+
+        async function generateLiveStartPack(contactId, username, title) {
+            const history = (window.iphoneSimState.chatHistory && window.iphoneSimState.chatHistory[contactId]) || [];
+            const fallback = buildFallbackLiveStartPack(username, title, history);
+            const settings = getLiveAiSettings();
+            if (!settings.url || !settings.key) return fallback;
+
+            const historyText = history.slice(-24).map(m => {
+                const role = m && m.role === 'user' ? '用户' : '角色';
+                const msg = (m && typeof m.content === 'string') ? m.content : '';
+                return msg ? `${role}: ${msg}` : '';
+            }).filter(Boolean).join('\n');
+            const myName = forumState.currentUser.bio || forumState.currentUser.username || '我';
+
+            const prompt = `你是论坛直播开场内容生成器。请根据以下聊天上下文，生成“开播后立刻展示”的内容。\n角色名: ${username}\n直播标题: ${title || '直播'}\n用户在论坛中的名字: ${myName}\n最近聊天上下文:\n${historyText || '（无）'}\n\n要求:\n1. 生成 action_desc: 一段主播开播时的画面描述（30-80字，具体自然）。\n2. 生成 initial_comments: 3-5条评论，格式为对象数组。\n3. 评论用户名必须像真实网名，严禁使用“观众1/观众2/用户/我/admin”等占位名。\n4. 评论内容要和上下文相关、口语化、简短。\n5. 生成 viewers: 直播卡片展示的观看人数，格式如 "356"、"1.2k"。\n6. 只返回JSON，不要Markdown。\n\n返回格式:\n{\n  "action_desc": "......",\n  "viewers": "1.2k",\n  "initial_comments": [\n    { "username": "xxx", "content": "xxx" }\n  ]\n}`;
+
+            try {
+                let fetchUrl = settings.url;
+                if (!fetchUrl.endsWith('/chat/completions')) {
+                    fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+                }
+                const response = await fetch(fetchUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+                    body: JSON.stringify({
+                        model: settings.model || 'gpt-3.5-turbo',
+                        messages: [
+                            { role: 'system', content: '你是严格只输出JSON的助手。' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: 0.8
+                    })
+                });
+                if (!response.ok) return fallback;
+                const data = await response.json();
+                let out = (((data || {}).choices || [])[0] || {}).message?.content || '';
+                out = out.replace(/```json/g, '').replace(/```/g, '').trim();
+                const s = out.indexOf('{');
+                const e = out.lastIndexOf('}');
+                if (s !== -1 && e !== -1 && e > s) out = out.substring(s, e + 1);
+                const parsed = JSON.parse(out);
+
+                const actionDesc = (parsed.action_desc || parsed.actionDesc || '').trim();
+                const rawComments = Array.isArray(parsed.initial_comments) ? parsed.initial_comments : [];
+                const cleaned = rawComments.map(c => ({
+                    username: (c && c.username ? String(c.username) : '').trim(),
+                    content: (c && c.content ? String(c.content) : '').trim(),
+                    isUser: false
+                })).filter(c => c.username && c.content)
+                  .filter(c => !/^观众\d+$/i.test(c.username))
+                  .filter(c => !/^(观众|用户|我|admin)$/i.test(c.username));
+
+                return {
+                    actionDesc: actionDesc || fallback.actionDesc,
+                    initialComments: cleaned.length > 0 ? cleaned.slice(0, 5) : fallback.initialComments,
+                    viewers: (parsed.viewers ? String(parsed.viewers).trim() : '') || fallback.viewers
+                };
+            } catch (e) {
+                console.warn('generateLiveStartPack fallback:', e);
+                return fallback;
+            }
+        }
+
+        function openForumLiveFromNotification(live) {
+            if (!live) return;
+            document.querySelectorAll('.app-screen, .sub-screen').forEach(el => {
+                if (el.id !== 'forum-app') el.classList.add('hidden');
+            });
+            const forumApp = document.getElementById('forum-app');
+            if (forumApp) forumApp.classList.remove('hidden');
+            forumState.activeTab = 'video';
+            renderForum && renderForum();
+            setTimeout(() => {
+                const initialCommentsStr = encodeURIComponent(JSON.stringify(live.initial_comments || []));
+                window.openForumLiveRoom(live.title || '直播', live.username || live.host || '', live.actionDesc || '', initialCommentsStr, (live.viewers || '').toString());
+            }, 40);
+        }
+
+        // bgUrl is optional background image used for the live card
+        window.createForumLiveStream = async function(contactId, title, actionDesc, bgUrl, initialCommentsInput, viewersInput) {
+            const contacts = window.iphoneSimState.contacts || [];
+            const c = contacts.find(c => c.id === contactId);
+            if (!c) return;
+            const username = c.remark || c.name;
+
+            const bgPool = [
+                'https://i.postimg.cc/fymR94qp/IMG-6099.jpg',
+                'https://i.postimg.cc/kGKgbrY0/IMG-6100.jpg',
+                'https://i.postimg.cc/3RPwNr1v/IMG-6101.jpg',
+                'https://i.postimg.cc/bJKvrYgd/IMG-6102.jpg',
+                'https://i.postimg.cc/NMW0FGDJ/IMG-6103.jpg',
+                'https://i.postimg.cc/C1Z1wnGx/IMG-6104.jpg'
+            ];
+            const randomBg = bgPool[Math.floor(Math.random() * bgPool.length)];
+            const finalBg = (bgUrl && bgUrl.trim()) ? bgUrl.trim() : randomBg;
+
+            const hasInputComments = Array.isArray(initialCommentsInput) && initialCommentsInput.length > 0;
+            let initialComments = hasInputComments
+                ? initialCommentsInput.map(c => ({ username: c.username, content: c.content, isUser: false }))
+                : [];
+            let viewers = viewersInput ? String(viewersInput).trim() : '';
+
+            if (!actionDesc || !actionDesc.trim() || initialComments.length === 0) {
+                const generated = await generateLiveStartPack(contactId, username, title || '直播');
+                if (!actionDesc || !actionDesc.trim()) actionDesc = generated.actionDesc || '';
+                if (initialComments.length === 0) initialComments = generated.initialComments || [];
+                if (!viewers) viewers = generated.viewers || '';
+            }
+            if (!viewers) viewers = '128';
+
+            const newLive = {
+                category: 'Chat',
+                title: title || '直播',
+                username: username,
+                viewers: viewers,
+                image: finalBg,
+                host: username,
+                actionDesc: actionDesc || '',
+                userId: contactId,
+                initial_comments: initialComments
+            };
+
+            if (!forumState.liveStreams) forumState.liveStreams = [];
+            forumState.liveStreams.unshift(newLive);
+            localStorage.setItem('forum_liveStreams', JSON.stringify(forumState.liveStreams));
+
+            if (contactId && isWechatSyncEnabled(contactId)) {
+                window.syncForumEventToChat(contactId, `[开始直播]: "${title || '直播'}"`);
+                if (window.showChatNotification) {
+                    window.showChatNotification(contactId, `对方开始直播: ${title || '直播'}`, {
+                        onClick: function() {
+                            openForumLiveFromNotification(newLive);
+                        }
+                    });
+                }
+            }
+
+            renderForum && renderForum();
+        };
+
+        window.showForumLiveNotification = function(username, title) {
+            // append to body so re-renders of #forum-app don't remove it
+            const container = document.body || document.documentElement;
+            if (!container) return;
+            const notif = document.createElement('div');
+            notif.className = 'forum-live-notification';
+            notif.textContent = `${username} 开始直播: ${title}`;
+            notif.onclick = () => { window.openForumLiveRoom(title, username, '', '[]', '128'); notif.remove(); };
+            container.appendChild(notif);
+            setTimeout(() => notif.remove(), 5000);
+        };
+
+        function randomHostViewers() {
+            const n = 60 + Math.floor(Math.random() * 2200);
+            if (n >= 1000) return (Math.round(n / 100) / 10) + 'k';
+            return String(n);
+        }
+
+        function buildHostInitialComments(seedText = '') {
+            const hook = (seedText || '').trim();
+            const suffix = hook ? `，${hook.slice(0, 12)}` : '';
+            const pool = [
+                { username: '橘子汽水', content: `开播啦${suffix}` },
+                { username: '今晚不熬夜', content: '主播来了，蹲后续' },
+                { username: 'Aki_77', content: '这个开场挺有氛围' },
+                { username: '北极熊同学', content: '继续继续，节奏不错' },
+                { username: 'LuckyMint', content: '已点赞，等高能' },
+                { username: '猫耳朵', content: '这段描述很有画面感' }
+            ];
+            const count = 3 + Math.floor(Math.random() * 3);
+            return pool
+                .sort(() => Math.random() - 0.5)
+                .slice(0, count)
+                .map(c => ({ username: c.username, content: c.content, isUser: false }));
+        }
+
+        function renderLiveActionDesc(text) {
+            const safe = (text || '').trim();
+            if (!safe) return '';
+            return `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; max-height: 250px; overflow-y: auto; line-height: 1.5; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${safe}</div>`;
+        }
+
+        function buildHostActionSuggestions(result, room) {
+            const comments = Array.isArray(result && result.comments) ? result.comments : [];
+            const gifts = Array.isArray(result && result.gift_events) ? result.gift_events : [];
+            const suggestions = [];
+
+            if (comments[0] && comments[0].content) suggestions.push(`回应弹幕：“${comments[0].content}”，并微笑点头。`);
+            if (comments[1] && comments[1].content) suggestions.push(`根据“${comments[1].content}”切换镜头，做一次细节展示。`);
+            if (gifts[0] && gifts[0].gift_name) suggestions.push(`感谢 ${gifts[0].username || '粉丝'} 送的${gifts[0].gift_name}，做一个互动挑战。`);
+            if (gifts[1] && gifts[1].gift_name) suggestions.push(`带着${gifts[1].gift_name}特效节奏，说一句感谢词并推进下一段内容。`);
+            if (result && result.actionDesc) suggestions.push(`沿用当前氛围“${result.actionDesc.slice(0, 18)}...”，继续放大情绪。`);
+            suggestions.push('总结刚才互动，抛一个二选一问题让观众投票。');
+
+            const dedup = [];
+            const seen = new Set();
+            suggestions.forEach(s => {
+                const k = (s || '').trim();
+                if (!k || seen.has(k)) return;
+                seen.add(k);
+                dedup.push(k);
+            });
+            if (room) room.suggestedActions = dedup.slice(0, 5);
+            return (room && room.suggestedActions) ? room.suggestedActions : dedup.slice(0, 5);
+        }
+
+        window.renderForumActionSuggestionMenu = function() {
+            const room = forumState.currentLiveRoom;
+            const list = document.getElementById('forum-action-suggestion-list');
+            if (!list || !room) return;
+            const items = (room.suggestedActions && room.suggestedActions.length > 0) ? room.suggestedActions : [];
+            if (items.length === 0) {
+                list.innerHTML = `
+                    <div style="padding:16px; color:#666; font-size:13px; line-height:1.5;">
+                        先点击一次“生成回复”，系统会结合本轮弹幕和礼物生成下一步建议。
+                    </div>
+                `;
+                return;
+            }
+            list.innerHTML = items.map(text => `
+                <div class="create-menu-item" style="border-bottom:1px solid #f0f0f0;" onclick="window.pickForumActionSuggestion('${encodeURIComponent(text).replace(/'/g, '%27')}')">
+                    <div class="create-menu-text" style="font-size:14px; line-height:1.45;">${text}</div>
+                </div>
+            `).join('');
+        };
+
+        window.toggleForumActionSuggestionMenu = function() {
+            const menu = document.getElementById('forum-action-suggestion-menu');
+            if (!menu) return;
+            menu.classList.toggle('active');
+            if (menu.classList.contains('active')) window.renderForumActionSuggestionMenu();
+        };
+
+        window.pickForumActionSuggestion = function(encodedText) {
+            const input = document.getElementById('forum-live-input');
+            if (!input) return;
+            const text = decodeURIComponent(encodedText || '').trim();
+            if (!text) return;
+            input.value = text;
+            input.focus();
+            window.toggleForumActionSuggestionMenu();
+        };
+
+        window.startMyLiveRoom = function() {
+            const myName = forumState.currentUser.bio || forumState.currentUser.username || '我';
+            const title = '我的直播间';
+            const actionDesc = '我调整好镜头，和大家打招呼，准备开始今天的直播内容。';
+            const initialComments = buildHostInitialComments(actionDesc);
+            const viewers = randomHostViewers();
+            const initialCommentsStr = encodeURIComponent(JSON.stringify(initialComments));
+            // Build leaderboard hosts from live list page hosts (video tab list).
+            const listLives = Array.isArray(forumState.liveStreams) ? forumState.liveStreams : [];
+            const hostMap = new Map();
+            const parseViewers = (v) => {
+                const s = String(v || '').toLowerCase().trim();
+                if (!s) return 0;
+                if (s.endsWith('k')) return Math.round((parseFloat(s) || 0) * 1000);
+                if (s.endsWith('w')) return Math.round((parseFloat(s) || 0) * 10000);
+                return parseInt(s.replace(/[^\d]/g, ''), 10) || 0;
+            };
+            listLives.forEach((live) => {
+                const hostName = String((live && (live.username || live.host)) || '').trim();
+                if (!hostName || hostMap.has(hostName)) return;
+                const viewersNum = parseViewers(live && live.viewers);
+                const seedValue = Math.max(80, Math.floor(viewersNum * (0.08 + Math.random() * 0.18)));
+                hostMap.set(hostName, {
+                    name: hostName,
+                    avatar: resolveLeaderboardAvatarByHost(hostName),
+                    totalValue: seedValue
+                });
+            });
+            if (!hostMap.has(myName)) {
+                hostMap.set(myName, {
+                    name: myName,
+                    avatar: getCurrentUserLiveAvatar(),
+                    totalValue: 0
+                });
+            }
+            const hosts = Array.from(hostMap.values()).map((h) => {
+                if (h.name === myName) {
+                    return {
+                        ...h,
+                        avatar: getCurrentUserLiveAvatar(),
+                        totalValue: 0
+                    };
+                }
+                return h;
+            });
+            localStorage.setItem('forum_leaderboard', JSON.stringify({ hosts }));
+            window.openForumLiveRoom(title, myName, actionDesc, initialCommentsStr, viewers, { mode: 'host' });
+        };
+
+        function ensureWalletReadyForLiveSettlement() {
+            const wallet = getForumWalletState();
+            if (!wallet.initialized) {
+                const initBase = fallbackInitialWalletBalance(
+                    (forumState.currentUser && forumState.currentUser.publicIdentity) || '',
+                    (forumState.currentUser && forumState.currentUser.followers) || 0
+                );
+                wallet.initialized = true;
+                wallet.balance = Math.max(0, Number(wallet.balance) || initBase);
+                wallet.transactions = Array.isArray(wallet.transactions) ? wallet.transactions : [];
+                saveForumWalletState();
+            }
+            return wallet;
+        }
+
+        window.showHostLiveSummary = function(giftIncome, gainedFans, rank, rankBonus) {
+            const roomPage = document.getElementById('forum-room-page');
+            if (!roomPage) return;
+            const existing = document.getElementById('host-live-summary-overlay');
+            if (existing) existing.remove();
+
+            const giftVal = Math.max(0, Number(giftIncome) || 0);
+            const fansVal = Math.max(0, Number(gainedFans) || 0);
+            const rankVal = Math.max(1, Number(rank) || 99);
+            const bonusVal = Math.max(0, Number(rankBonus) || 0);
+            const totalIncome = giftVal + bonusVal;
+
+            const overlay = document.createElement('div');
+            overlay.id = 'host-live-summary-overlay';
+            overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.76);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);z-index:1200;display:flex;align-items:center;justify-content:center;padding:24px;';
+            overlay.innerHTML = `
+                <div style="width:100%;max-width:320px;background:#111;border:1px solid rgba(255,255,255,0.18);border-radius:18px;padding:18px 16px;color:white;box-shadow:0 18px 42px rgba(0,0,0,0.45);">
+                    <div style="font-size:18px;font-weight:800;margin-bottom:12px;">本场直播结算</div>
+                    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.06);padding:10px 12px;border-radius:12px;">
+                            <span style="font-size:13px;color:rgba(255,255,255,0.75);">礼物总价值</span>
+                            <span style="font-size:18px;font-weight:800;color:#ffd60a;">+¥${formatWalletAmount(giftVal)}</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.06);padding:10px 12px;border-radius:12px;">
+                            <span style="font-size:13px;color:rgba(255,255,255,0.75);">新增粉丝</span>
+                            <span style="font-size:18px;font-weight:800;color:#5ac8fa;">+${fansVal}</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.06);padding:10px 12px;border-radius:12px;">
+                            <span style="font-size:13px;color:rgba(255,255,255,0.75);">结束时排名</span>
+                            <span style="font-size:18px;font-weight:800;color:#ffd60a;">NO.${rankVal}</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.06);padding:10px 12px;border-radius:12px;">
+                            <span style="font-size:13px;color:rgba(255,255,255,0.75);">排名奖金</span>
+                            <span style="font-size:18px;font-weight:800;color:#34c759;">+¥${formatWalletAmount(bonusVal)}</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.1);padding:10px 12px;border-radius:12px;">
+                            <span style="font-size:13px;color:rgba(255,255,255,0.85);">本场总入账</span>
+                            <span style="font-size:20px;font-weight:900;color:#34c759;">+¥${formatWalletAmount(totalIncome)}</span>
+                        </div>
+                    </div>
+                    <button onclick="window.closeHostLiveSummary()" style="width:100%;height:40px;border:none;border-radius:12px;background:#0095f6;color:#fff;font-weight:700;cursor:pointer;">完成</button>
+                </div>
+            `;
+            roomPage.appendChild(overlay);
+        };
+
+        window.closeHostLiveSummary = function() {
+            const overlay = document.getElementById('host-live-summary-overlay');
+            if (overlay) overlay.remove();
+            window.closeForumLiveRoom();
+            forumState.activeTab = 'profile';
+            renderForum(false);
+        };
+
+        window.endMyLiveStream = function() {
+            const room = forumState.currentLiveRoom;
+            if (!room || room.mode !== 'host') return;
+            if (!confirm('确定结束直播吗？')) return;
+
+            const giftIncome = Math.max(0, Number(room.sessionGiftIncome) || 0);
+            const baseFans = 3 + Math.floor(Math.random() * 12);
+            const giftBoost = Math.floor(giftIncome / 120);
+            const viewBoost = Math.max(0, Math.floor((Number(room.sessionPeakViewers) || 0) / 800));
+            const gainedFans = Math.max(1, baseFans + giftBoost + viewBoost);
+
+            forumState.currentUser.followers = Math.max(0, Number(forumState.currentUser.followers || 0) + gainedFans);
+            localStorage.setItem('forum_currentUser', JSON.stringify(forumState.currentUser));
+
+            const wallet = ensureWalletReadyForLiveSettlement();
+            let rank = 99;
+            try {
+                const lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+                let hosts = Array.isArray(lb.hosts) ? lb.hosts : [];
+                const myAvatar = (forumState.currentUser && forumState.currentUser.avatar) || '';
+                const me = room.host;
+                const mine = hosts.find(h => h.name === me);
+                if (mine) {
+                    if (myAvatar) mine.avatar = myAvatar;
+                } else {
+                    hosts.push({ name: me, avatar: myAvatar, totalValue: Math.max(0, giftIncome) });
+                }
+                hosts.sort((a, b) => (b.totalValue || 0) - (a.totalValue || 0));
+                rank = Math.max(1, hosts.findIndex(h => h.name === me) + 1);
+                localStorage.setItem('forum_leaderboard', JSON.stringify({ hosts }));
+            } catch (e) {}
+
+            const rankBonusMap = { 1: 2000, 2: 1200, 3: 800 };
+            const rankBonus = rankBonusMap[rank] || 0;
+            const settlementIncome = giftIncome + rankBonus;
+
+            if (settlementIncome > 0) {
+                wallet.balance = Math.max(0, Number(wallet.balance || 0) + settlementIncome);
+                wallet.transactions.unshift({
+                    id: Date.now(),
+                    title: `Live Settlement${rank <= 3 ? ` (NO.${rank} Bonus)` : ''}`,
+                    timeText: 'Just now',
+                    amount: settlementIncome,
+                    type: 'positive',
+                    iconType: 'income',
+                    iconSvg: getWalletTxIconSvg('income')
+                });
+                if (wallet.transactions.length > 30) wallet.transactions = wallet.transactions.slice(0, 30);
+                saveForumWalletState();
+            }
+
+            window.showHostLiveSummary(giftIncome, gainedFans, rank, rankBonus);
+        };
 
         // Helper for appending live messages with "push up" animation (WeChat style)
         window.appendForumLiveMessage = function(htmlContent) {
@@ -207,7 +1403,19 @@
         };
 
         // Expose function to open live room
-        window.openForumLiveRoom = function(title, host, actionDesc, initialCommentsStr) {
+        window.openForumLiveRoom = function(title, host, actionDesc, initialCommentsStr, viewersOrOptions, maybeOptions) {
+            let viewersText = '';
+            let modeOptions = {};
+            if (viewersOrOptions && typeof viewersOrOptions === 'object' && !Array.isArray(viewersOrOptions)) {
+                modeOptions = viewersOrOptions;
+            } else if (viewersOrOptions !== undefined && viewersOrOptions !== null) {
+                viewersText = String(viewersOrOptions).trim();
+            }
+            if (maybeOptions && typeof maybeOptions === 'object') {
+                modeOptions = maybeOptions;
+            }
+            const isHostMode = modeOptions.mode === 'host';
+
             // Resolve Host Info (Avatar & Display Name)
             let avatarUrl = '';
             let displayName = host; // Default to provided host name
@@ -266,6 +1474,10 @@
             if (!avatarUrl) {
                 avatarUrl = `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(host)}`;
             }
+            if (isHostMode) {
+                displayName = forumState.currentUser.username || forumState.currentUser.bio || host || '我';
+                avatarUrl = getCurrentUserLiveAvatar() || avatarUrl;
+            }
 
             // Update DOM
             document.getElementById('forum-room-host-name').textContent = displayName;
@@ -281,12 +1493,42 @@
                 host: host,
                 actionDesc: actionDesc,
                 comments: [],
-                preGenState: null
+                preGenState: null,
+                userId: (foundContact && foundContact.id) ? foundContact.id : null,
+                mode: isHostMode ? 'host' : 'viewer',
+                viewers: viewersText || randomHostViewers(),
+                suggestedActions: [],
+                sessionGiftIncome: 0,
+                sessionPeakViewers: 0,
+                lastAnnouncedRank: null,
+                pk: createEmptyPkState()
             };
+            if (isHostMode) {
+                forumState.currentLiveRoom.suggestedActions = [];
+                const vNum = Number(String(forumState.currentLiveRoom.viewers).replace(/[^\d.]/g, '')) || 0;
+                forumState.currentLiveRoom.sessionPeakViewers = vNum >= 100 ? vNum : Math.round(vNum * 1000);
+                try {
+                    const lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
+                    const hosts = Array.isArray(lb.hosts) ? lb.hosts : [];
+                    const myAvatar = getCurrentUserLiveAvatar();
+                    const mine = hosts.find(h => h.name === host);
+                    if (mine) {
+                        if (myAvatar) mine.avatar = myAvatar;
+                    } else {
+                        hosts.push({ name: host, avatar: myAvatar, totalValue: 0 });
+                    }
+                    localStorage.setItem('forum_leaderboard', JSON.stringify({ hosts }));
+                    const rank = Math.max(1, hosts.sort((a, b) => (Number(b.totalValue) || 0) - (Number(a.totalValue) || 0)).findIndex(h => h.name === host) + 1);
+                    forumState.currentLiveRoom.lastAnnouncedRank = rank;
+                } catch (e) {}
+            }
 
             // Check for saved state
-            const savedStateStr = localStorage.getItem(`forum_live_state_${host}`);
-            if (savedStateStr) {
+            const roomStateKey = `forum_live_state_${host}`;
+            const savedStateStr = localStorage.getItem(roomStateKey);
+            if (isHostMode) {
+                localStorage.removeItem(roomStateKey);
+            } else if (savedStateStr) {
                 try {
                     const savedState = JSON.parse(savedStateStr);
                     // Only restore if saved state is relatively fresh (e.g. within 24 hours) or just restore always? 
@@ -332,7 +1574,34 @@
 
             const descContainer = document.querySelector('.forum-room-desc-container');
             if (descContainer) {
+                descContainer.classList.remove('pk-mode');
                 descContainer.innerHTML = actionDescHtml;
+            }
+            window.renderPkPanel();
+
+            const viewersEl = document.getElementById('forum-room-viewers');
+            if (viewersEl) {
+                viewersEl.textContent = `${forumState.currentLiveRoom.viewers} 在看`;
+            }
+            const giftBtn = document.getElementById('forum-live-gift-btn');
+            const suggestBtn = document.getElementById('forum-live-suggest-btn');
+            const input = document.getElementById('forum-live-input');
+            const endBtn = document.getElementById('forum-live-end-btn');
+            const followBtn = document.getElementById('forum-room-follow-btn');
+            if (giftBtn && suggestBtn && input) {
+                if (isHostMode) {
+                    giftBtn.style.display = 'none';
+                    suggestBtn.style.display = 'flex';
+                    input.placeholder = '输入你此刻的画面描述/行动，回车同步';
+                    if (endBtn) endBtn.style.display = 'flex';
+                    if (followBtn) followBtn.style.display = 'none';
+                } else {
+                    giftBtn.style.display = 'flex';
+                    suggestBtn.style.display = 'none';
+                    input.placeholder = 'Say something...';
+                    if (endBtn) endBtn.style.display = 'none';
+                    if (followBtn) followBtn.style.display = 'inline-flex';
+                }
             }
 
             // Set initial comments
@@ -364,6 +1633,11 @@
                     try {
                         const comments = JSON.parse(decodeURIComponent(initialCommentsStr));
                         if (Array.isArray(comments)) {
+                            if (isHostMode) {
+                                const rankTip = { username: '系统', content: '送礼可帮助主播冲榜，礼物越多冲榜越快！', isUser: false };
+                                forumState.currentLiveRoom.comments.push(rankTip);
+                                window.appendForumLiveMessage(`<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">${rankTip.content}</span>`);
+                            }
                             comments.forEach((c, index) => {
                                 setTimeout(() => {
                                     window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
@@ -543,8 +1817,8 @@
                  const expensiveGifts = ['皇冠', '火箭', '钻石'];
                  const normalGifts = ['玫瑰', '棒棒糖', '爱心'];
                  events = [
-                     { username: mockNames[Math.floor(Math.random()*mockNames.length)], gift_name: expensiveGifts[Math.floor(Math.random()*expensiveGifts.length)], comment: '主播好棒！' },
-                     { username: mockNames[Math.floor(Math.random()*mockNames.length)], gift_name: normalGifts[Math.floor(Math.random()*normalGifts.length)], comment: '' }
+                     { username: mockNames[Math.floor(Math.random()*mockNames.length)], gift_name: expensiveGifts[Math.floor(Math.random()*expensiveGifts.length)], count: 2 + Math.floor(Math.random()*3), comment: '主播好棒！' },
+                     { username: mockNames[Math.floor(Math.random()*mockNames.length)], gift_name: normalGifts[Math.floor(Math.random()*normalGifts.length)], count: 1 + Math.floor(Math.random()*3), comment: '' }
                  ];
             }
 
@@ -555,27 +1829,31 @@
                     if (event.username === myName || event.username === '我' || event.username === 'Admin') return;
 
                     const gift = findGift(event.gift_name);
-                    const count = 1; 
+                    const rawCount = parseInt(event.count, 10);
+                    const count = Number.isFinite(rawCount) && rawCount > 0
+                        ? Math.min(99, rawCount)
+                        : (Math.random() < 0.35 ? (2 + Math.floor(Math.random() * 4)) : 1);
                     const totalValue = gift.value * count;
                     const npc = event.username || '神秘观众';
                     const comment = event.comment || '';
 
                     // 1. Show in chat
                     let chatMsg = `<span style="color:white;font-weight:700;margin-right:6px;">${npc}</span>` +
-                                  `<span style="color:rgba(255,255,255,0.7);font-size:12px;">送出了 ${gift.name} ${gift.emoji}</span>`;
+                                  `<span style="color:rgba(255,255,255,0.7);font-size:12px;">送出了 ${gift.name} ${gift.emoji}${count > 1 ? ` x${count}` : ''}</span>`;
                     
                     if (gift.value >= 50 && comment) {
                         chatMsg += ` <span style="color:white;font-size:14px;margin-left:4px;">${comment}</span>`;
                     }
                     window.appendForumLiveMessage(chatMsg);
 
-                    // 2. Decide: Banner or Danmaku?
-                    // High value threshold: Single gift value >= 50 (Crown, Rocket, Diamond)
+                    // 2. Host visibility + high-value danmaku
+                    if (window._showHostGiftBanner) {
+                        window._showHostGiftBanner(npc, gift.emoji, gift.name, count, totalValue, gift.color);
+                    }
                     if (gift.value >= 50) {
                         // High Value -> Danmaku with comment
                         window._showGiftDanmaku(npc, gift.emoji, gift.name, comment, gift.color);
                     }
-                    // Else: Do nothing (banner removed as per request), just Chat Log above is enough
                     
                     // 3. Floating Emoji Animation (Always)
                     const anim = document.createElement('div');
@@ -605,7 +1883,13 @@
                     localStorage.setItem('forum_live_gift_event', JSON.stringify(giftEvent));
 
                     if (forumState.currentLiveRoom) {
-                        updateLeaderboard(forumState.currentLiveRoom.host, totalValue, '');
+                        const hostAvatar = forumState.currentLiveRoom.mode === 'host'
+                            ? ((forumState.currentUser && forumState.currentUser.avatar) || '')
+                            : '';
+                        updateLeaderboard(forumState.currentLiveRoom.host, totalValue, hostAvatar);
+                        if (forumState.currentLiveRoom.mode === 'host') {
+                            forumState.currentLiveRoom.sessionGiftIncome = Math.max(0, Number(forumState.currentLiveRoom.sessionGiftIncome) || 0) + totalValue;
+                        }
                     }
 
                 }, i * 1500); // Stagger if multiple
@@ -677,9 +1961,21 @@
         };
 
         window.closeForumLiveRoom = function() {
+            if (forumState.currentLiveRoom) {
+                clearPkTimer(forumState.currentLiveRoom);
+                if (forumState.currentLiveRoom.pk) forumState.currentLiveRoom.pk = createEmptyPkState();
+            }
             document.getElementById('forum-room-page').classList.remove('active');
             const giftMenu = document.getElementById('forum-gift-menu');
             if (giftMenu) giftMenu.classList.remove('active');
+            const actionMenu = document.getElementById('forum-action-suggestion-menu');
+            if (actionMenu) actionMenu.classList.remove('active');
+            const leaderboard = document.getElementById('forum-leaderboard-overlay');
+            if (leaderboard) leaderboard.classList.remove('active');
+            const pkPanel = document.getElementById('forum-pk-panel');
+            if (pkPanel) pkPanel.style.display = 'none';
+            const summary = document.getElementById('host-live-summary-overlay');
+            if (summary) summary.remove();
             window._stopNpcGiftLoop();
             window._stopHeartLoop();
         };
@@ -822,25 +2118,38 @@
             const topHosts = hosts.slice(0, 20);
             
             const currentHostName = forumState.currentLiveRoom ? forumState.currentLiveRoom.host : '';
+            const isHostMode = !!(forumState.currentLiveRoom && forumState.currentLiveRoom.mode === 'host');
+            const isLinkBusy = !!(forumState.currentLiveRoom && forumState.currentLiveRoom.pk && forumState.currentLiveRoom.pk.enabled);
+            const activeInviteName = (isHostMode && forumState.currentLiveRoom && forumState.currentLiveRoom.pk && forumState.currentLiveRoom.pk.phase === 'inviting')
+                ? String(forumState.currentLiveRoom.pk.inviteTargetName || '')
+                : '';
 
             const listHtml = topHosts.map((h, index) => {
                 const isCurrent = h.name === currentHostName;
+                const isInvitingThis = !!activeInviteName && activeInviteName === h.name;
                 const rank = index + 1;
+                const rowAvatar = (isCurrent && isHostMode)
+                    ? getCurrentUserLiveAvatar()
+                    : (resolveLeaderboardAvatarByHost(h.name) || h.avatar || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(h.name)}`);
                 let rankClass = 'rank-other';
                 if (rank === 1) rankClass = 'rank-1';
                 else if (rank === 2) rankClass = 'rank-2';
                 else if (rank === 3) rankClass = 'rank-3';
+                const inviteHtml = (isHostMode && !isCurrent && !isLinkBusy)
+                    ? `<button ${isInvitingThis ? 'disabled' : ''} onclick="window.handleLeaderboardInviteClick('${encodeURIComponent(h.name).replace(/'/g, '%27')}')" class="forum-leaderboard-invite-btn ${isInvitingThis ? 'is-pending' : ''}">${isInvitingThis ? '邀请中' : '邀请'}</button>`
+                    : '';
 
                 return `
                     <div class="leaderboard-item ${isCurrent ? 'current-host' : ''}" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
                         <div class="lb-rank ${rankClass}" style="width: 30px; font-weight: 800; font-size: 16px; text-align: center; margin-right: 10px; font-style: italic;">${rank}</div>
                         <div style="width: 40px; height: 40px; border-radius: 50%; overflow: hidden; margin-right: 10px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.2);">
-                            <img src="${h.avatar || 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + encodeURIComponent(h.name)}" style="width: 100%; height: 100%; object-fit: cover;">
+                            <img src="${rowAvatar}" style="width: 100%; height: 100%; object-fit: cover;">
                         </div>
-                    <div style="flex: 1; min-width: 0;">
+                        <div style="flex: 1; min-width: 0;">
                             <div style="font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${h.name}</div>
                         </div>
                         <div style="font-weight: 700; color: #ffd60a; font-size: 14px;">${formatCount(h.totalValue)} 🪙</div>
+                        ${inviteHtml}
                     </div>
                 `;
             }).join('');
@@ -890,6 +2199,22 @@
             }
 
             const totalValue = giftValue * count;
+            const wallet = getForumWalletState();
+            if (wallet.isGenerating) {
+                alert('钱包初始化中，请稍后再试');
+                return;
+            }
+            if (!wallet.initialized) {
+                const initBase = fallbackInitialWalletBalance(
+                    (forumState.currentUser && forumState.currentUser.publicIdentity) || '',
+                    (forumState.currentUser && forumState.currentUser.followers) || 0
+                );
+                wallet.initialized = true;
+                wallet.balance = Math.max(0, Number(wallet.balance) || initBase);
+                wallet.transactions = Array.isArray(wallet.transactions) ? wallet.transactions : [];
+                saveForumWalletState();
+            }
+            if (!applyWalletGiftExpense(totalValue, giftName, count, giftEmoji)) return;
 
             window.toggleForumGiftMenu();
             
@@ -904,6 +2229,9 @@
             // 2. High Value -> Danmaku (Consistency)
             if (giftValue >= 50) {
                 window._showGiftDanmaku(myName, giftEmoji, giftName, '', giftColor); // User gifts usually don't carry text unless we add input
+            }
+            if (window._showHostGiftBanner) {
+                window._showHostGiftBanner(myName, giftEmoji, giftName, count, totalValue, giftColor);
             }
 
             // 3. Show animation (Unified Style)
@@ -941,25 +2269,108 @@
                     id: Date.now(),
                     sender: myName,
                     giftName: giftName,
+                    giftEmoji: giftEmoji,
                     count: count,
                     value: totalValue,
                     host: forumState.currentLiveRoom.host,
                     icon: selectedGiftIcon
                 };
                 localStorage.setItem('forum_live_gift_event', JSON.stringify(giftEvent));
+                maybeSyncLiveEventToChat(
+                    forumState.currentLiveRoom,
+                    `[直播间送礼]: ${myName} -> ${giftName}${count > 1 ? ` x${count}` : ''} (¥${totalValue})`,
+                    'system',
+                    'system_event'
+                );
             }
+        };
+
+        window.handleLeaderboardInviteClick = function(encodedHostName) {
+            const hostName = decodeURIComponent(encodedHostName || '');
+            if (!hostName) return;
+            const room = forumState.currentLiveRoom;
+            if (!room || room.mode !== 'host') return;
+            if (room.pk && (room.pk.enabled || room.pk.phase === 'inviting')) {
+                alert(room.pk.phase === 'inviting' ? '邀请判定中，请稍候。' : '当前已在PK中，请先结束本场PK。');
+                return;
+            }
+            const target = resolvePkInviteTarget(hostName);
+            if (!target || !target.name) return;
+            const loadingMsg = `已向 ${target.name} 发出PK邀请，等待回应...`;
+            window.appendForumLiveMessage(
+                `<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">${loadingMsg}</span>`
+            );
+            room.pk = createEmptyPkState();
+            room.pk.phase = 'inviting';
+            room.pk.inviteTargetName = target.name;
+            window.renderPkPanel();
+            if (typeof window.renderLeaderboardOverlay === 'function') window.renderLeaderboardOverlay();
+            syncPkEvent(room, `[PK邀请发起] -> ${target.name}`, 'user', 'system_event');
+
+            requestPkInviteDecision(room, target).then((decision) => {
+                if (!forumState.currentLiveRoom || forumState.currentLiveRoom !== room) return;
+                if (decision.status === 'accepted') {
+                    window.appendForumLiveMessage(
+                        `<span style="color:#34c759;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">${target.name} 接受了PK邀请，进入预备阶段。</span>`
+                    );
+                    if (typeof window.toggleLeaderboard === 'function') {
+                        const overlay = document.getElementById('forum-leaderboard-overlay');
+                        if (overlay && overlay.classList.contains('active')) window.toggleLeaderboard();
+                    }
+                    window.initPkSession(target);
+                } else {
+                    const reason = decision.reason ? `（${decision.reason}）` : '';
+                    window.appendForumLiveMessage(
+                        `<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">${target.name} 暂未接受PK邀请${reason}</span>`
+                    );
+                    syncPkEvent(room, `[PK邀请拒绝] ${target.name}${reason}`, 'system', 'system_event');
+                    room.pk = createEmptyPkState();
+                    window.renderPkPanel();
+                    if (typeof window.renderLeaderboardOverlay === 'function') window.renderLeaderboardOverlay();
+                    alert(`${target.name} 暂未接受PK邀请${reason}`);
+                }
+            }).catch((err) => {
+                if (!forumState.currentLiveRoom || forumState.currentLiveRoom !== room) return;
+                const msg = (err && err.message) ? err.message : '邀请判定失败';
+                window.appendForumLiveMessage(
+                    `<span style="color:#ffd60a;font-weight:700;margin-right:6px;">系统</span><span style="color:rgba(255,255,255,0.92);">邀请失败：${msg}</span>`
+                );
+                syncPkEvent(room, `[PK邀请失败] ${msg}`, 'system', 'system_event');
+                room.pk = createEmptyPkState();
+                window.renderPkPanel();
+                if (typeof window.renderLeaderboardOverlay === 'function') window.renderLeaderboardOverlay();
+                alert(`邀请失败：${msg}`);
+            });
         };
 
         window.handleForumChatEnter = function(e) {
             if (e.key === 'Enter' && e.target.value.trim() !== '') {
                 const text = e.target.value.trim();
-                const myName = forumState.currentUser.bio || forumState.currentUser.username || 'Me';
-                window.appendForumLiveMessage(`<span style="color: #ff2d55; font-weight: 600; margin-right: 6px;">${myName}</span>${text}`);
-                if (forumState.currentLiveRoom) {
-                    forumState.currentLiveRoom.comments.push({ username: myName, content: text, isUser: true });
-                    forumState.currentLiveRoom.preGenState = null;
-                    const regenerateBtn = document.getElementById('live-regenerate-btn');
-                    if (regenerateBtn) regenerateBtn.style.display = 'none';
+                const room = forumState.currentLiveRoom;
+                if (room && room.pk && room.pk.enabled) {
+                    room.pk.leftActionDesc = text;
+                    room.actionDesc = text;
+                    window.renderPkActionDesc();
+                    syncPkEvent(room, `[PK输入] 我方画面描述: "${text}"`, 'user', 'text');
+                    e.target.value = '';
+                    return;
+                }
+                if (room && room.mode === 'host') {
+                    room.actionDesc = text;
+                    room.preGenState = null;
+                    const descContainer = document.querySelector('.forum-room-desc-container');
+                    if (descContainer) descContainer.innerHTML = renderLiveActionDesc(text);
+                    maybeSyncLiveEventToChat(room, `[直播间画面]: "${text}"`, 'user');
+                } else {
+                    const myName = forumState.currentUser.bio || forumState.currentUser.username || 'Me';
+                    window.appendForumLiveMessage(`<span style="color: #ff2d55; font-weight: 600; margin-right: 6px;">${myName}</span>${text}`);
+                    if (room) {
+                        room.comments.push({ username: myName, content: text, isUser: true });
+                        room.preGenState = null;
+                        maybeSyncLiveEventToChat(room, `[直播间弹幕]: "${text}"`, 'user');
+                        const regenerateBtn = document.getElementById('live-regenerate-btn');
+                        if (regenerateBtn) regenerateBtn.style.display = 'none';
+                    }
                 }
                 e.target.value = '';
             }
@@ -1020,6 +2431,27 @@
         window.generateLiveContent = async function() {
             const room = forumState.currentLiveRoom;
             if (!room) return;
+            const isPkMode = !!(room.pk && room.pk.enabled);
+            let pkUserInput = '';
+            if (isPkMode) {
+                const input = document.getElementById('forum-live-input');
+                pkUserInput = input ? input.value.trim() : '';
+                if (pkUserInput) {
+                    room.pk.leftActionDesc = pkUserInput;
+                    room.actionDesc = pkUserInput;
+                    window.renderPkActionDesc();
+                }
+            }
+            const hostLockedActionDesc = room.mode === 'host' ? String(room.actionDesc || '').trim() : '';
+            if (!isPkMode && room.mode === 'host') {
+                const input = document.getElementById('forum-live-input');
+                const draft = input ? input.value.trim() : '';
+                if (draft) {
+                    room.actionDesc = draft;
+                    const descContainer = document.querySelector('.forum-room-desc-container');
+                    if (descContainer) descContainer.innerHTML = renderLiveActionDesc(draft);
+                }
+            }
 
             const generateBtn = document.getElementById('live-generate-btn');
             const regenerateBtn = document.getElementById('live-regenerate-btn');
@@ -1031,6 +2463,121 @@
             if (generateBtn) generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 14px;"></i>';
 
             try {
+                if (isPkMode) {
+                    const result = await requestPkGeneratedContent(room, pkUserInput);
+                    const rightDesc = String(result.right_action_desc || '').trim();
+                    if (rightDesc) room.pk.rightActionDesc = rightDesc;
+                    window.renderPkActionDesc();
+                    if (rightDesc) syncPkEvent(room, `[PK画面][对方] ${rightDesc}`, 'assistant', 'text');
+
+                    const leftComments = Array.isArray(result.left_comments) ? result.left_comments : [];
+                    const rightComments = Array.isArray(result.right_comments) ? result.right_comments : [];
+                    leftComments.forEach((c, index) => {
+                        setTimeout(() => appendPkChatComment('left', c.username || '我方观众', c.content || '', false), index * 650);
+                    });
+                    rightComments.forEach((c, index) => {
+                        setTimeout(() => appendPkChatComment('right', c.username || '对方观众', c.content || '', false), 260 + index * 650);
+                    });
+
+                    const leftGiftEvents = Array.isArray(result.left_gift_events) ? result.left_gift_events : [];
+                    const findGift = (name) => FORUM_GIFTS.find(g => name && name.includes(g.name)) || FORUM_GIFTS[0];
+                    leftGiftEvents.forEach((event, i) => {
+                        setTimeout(() => {
+                            const gift = findGift(event.gift_name);
+                            const rawCount = parseInt(event.count, 10);
+                            const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.min(99, rawCount) : 1;
+                            const totalValue = Math.max(0, Number(gift.value) || 0) * count;
+                            room.pk.leftGiftValue = Math.max(0, Number(room.pk.leftGiftValue) || 0) + totalValue;
+                            room.pk.leftTotalGiftValue = Math.max(0, Number(room.pk.leftTotalGiftValue) || 0) + totalValue;
+                            room.sessionGiftIncome = Math.max(0, Number(room.sessionGiftIncome) || 0) + totalValue;
+                            updateLeaderboard(room.host, totalValue, getCurrentUserLiveAvatar());
+                            const npc = event.username || '我方观众';
+                            const comment = event.comment ? ` ${event.comment}` : '';
+                            window.appendForumLiveMessage(
+                                `<span style="color:#ffffff;font-weight:700;margin-right:6px;">${npc}</span><span style="color:rgba(255,255,255,0.78);">送出 ${gift.name} ${gift.emoji}${count > 1 ? ` x${count}` : ''}</span>${comment}`
+                            );
+                            room.comments.push({
+                                username: npc,
+                                content: `送出 ${gift.name}${count > 1 ? ` x${count}` : ''}${comment}`.trim(),
+                                side: 'left',
+                                isUser: false
+                            });
+                            syncPkEvent(room, `[PK送礼][我方] ${npc} -> ${gift.name}${count > 1 ? ` x${count}` : ''} (+¥${totalValue})`, 'assistant', 'system_event');
+                            window.renderPkPanel();
+                            window.renderPkActionDesc();
+                        }, 800 + i * 850);
+                    });
+
+                    const opponentHostGiftEvents = Array.isArray(result.opponent_host_gift_events) ? result.opponent_host_gift_events : [];
+                    opponentHostGiftEvents.forEach((event, i) => {
+                        setTimeout(() => {
+                            const gift = findGift(event.gift_name);
+                            const rawCount = parseInt(event.count, 10);
+                            const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.min(99, rawCount) : 1;
+                            const totalValue = Math.max(0, Number(gift.value) || 0) * count;
+                            const hostName = resolveOpponentSenderName(event.username, room);
+                            const comment = event.comment ? ` ${event.comment}` : '';
+                            room.pk.leftGiftValue = Math.max(0, Number(room.pk.leftGiftValue) || 0) + totalValue;
+                            room.pk.leftTotalGiftValue = Math.max(0, Number(room.pk.leftTotalGiftValue) || 0) + totalValue;
+                            room.sessionGiftIncome = Math.max(0, Number(room.sessionGiftIncome) || 0) + totalValue;
+                            updateLeaderboard(room.host, totalValue, getCurrentUserLiveAvatar());
+
+                            window.appendForumLiveMessage(
+                                `<span class="forum-pk-side-badge right">对方</span><span class="forum-opponent-host-highlight">${hostName}</span><span style="color:rgba(255,255,255,0.82);margin-left:6px;">送出 ${gift.name} ${gift.emoji}${count > 1 ? ` x${count}` : ''}${comment}</span>`
+                            );
+                            room.comments.push({
+                                username: hostName,
+                                content: `送出 ${gift.name}${count > 1 ? ` x${count}` : ''}${comment}`.trim(),
+                                side: 'right',
+                                isUser: false
+                            });
+
+                            if (typeof window._showHostGiftBanner === 'function') {
+                                window._showHostGiftBanner(hostName, gift.emoji, gift.name, count, totalValue, gift.color);
+                            }
+                            if (typeof window._showGiftDanmaku === 'function') {
+                                window._showGiftDanmaku(hostName, gift.name, gift.emoji, totalValue);
+                            }
+                            const roomPage = document.querySelector('.forum-room-page');
+                            if (roomPage) {
+                                const anim = document.createElement('div');
+                                anim.className = 'forum-gift-anim';
+                                anim.innerHTML = `<div class="forum-gift-emoji">${gift.emoji}</div><div class="forum-gift-name">${gift.name} x${count}</div>`;
+                                roomPage.appendChild(anim);
+                                setTimeout(() => anim.remove(), 1800);
+                            }
+                            syncPkEvent(room, `[PK送礼][对方主播->我方] ${hostName} -> ${gift.name}${count > 1 ? ` x${count}` : ''} (+¥${totalValue})`, 'assistant', 'system_event');
+                            window.renderPkPanel();
+                            window.renderPkActionDesc();
+                        }, 1000 + i * 900);
+                    });
+
+                    const rightDeltaRaw = Number(result.right_gift_delta);
+                    const rightDelta = Number.isFinite(rightDeltaRaw) ? Math.max(0, Math.floor(rightDeltaRaw)) : 0;
+                    if (rightDelta > 0) {
+                        setTimeout(() => {
+                            room.pk.rightGiftValue = Math.max(0, Number(room.pk.rightGiftValue) || 0) + rightDelta;
+                            room.pk.rightTotalGiftValue = Math.max(0, Number(room.pk.rightTotalGiftValue) || 0) + rightDelta;
+                            updateLeaderboard(room.pk.opponent.name, rightDelta, room.pk.opponent.avatar || '');
+                            syncPkEvent(room, `[PK送礼汇总][对方] +¥${rightDelta}`, 'assistant', 'system_event');
+                            window.renderPkPanel();
+                            window.renderPkActionDesc();
+                        }, 1200);
+                    }
+
+                    const pkSuggestions = Array.isArray(result.suggested_actions)
+                        ? result.suggested_actions.map(x => String(x || '').trim()).filter(Boolean)
+                        : [];
+                    if (result.next_action_hint) pkSuggestions.unshift(String(result.next_action_hint).trim());
+                    room.suggestedActions = pkSuggestions.length > 0 ? pkSuggestions.slice(0, 5) : buildHostActionSuggestions(result, room);
+
+                    window.renderPkPanel();
+                    if (regenerateBtn) regenerateBtn.style.display = 'flex';
+                    const input = document.getElementById('forum-live-input');
+                    if (input) input.value = '';
+                    return;
+                }
+
                 let settings = { url: '', key: '', model: '' };
                 if (window.iphoneSimState) {
                     if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) settings = window.iphoneSimState.aiSettings;
@@ -1071,6 +2618,12 @@
                     }
                 }
 
+            const hostModeExtra = room.mode === 'host' ? `
+7. 严格保留当前主播画面描述，不要改写，不要扩写，输出时原样放在 actionDesc 字段。
+8. 输出 "suggested_actions"：3-5条给主播下一步参考的行动文案，要求可直接作为画面描述输入。
+9. 额外输出 "next_action_hint"：一句20字以内的主播下一步建议。
+10. comments 中至少有 1 条要自然提到“送礼可以帮主播冲榜”或类似意思（口语化即可）。` : '';
+
                 const prompt = `你是一个社交平台直播间模拟器。
 当前直播间标题: "${room.title}"
 主播名字: "${room.host}"
@@ -1085,9 +2638,11 @@ ${recentComments}${hostPersonaContext}
 3. 必须生成 1-3 个"送礼事件"，并确保包含普通礼物和贵重礼物。礼物必须从以下列表中选择: [玫瑰, 棒棒糖, 皇冠, 火箭, 钻石, 爱心]。
    - 如果是普通礼物(玫瑰/棒棒糖/爱心)，评论必须留空 ("")。
    - 如果是贵重礼物(皇冠/火箭/钻石)，必须附带一条符合送礼氛围的专门评论(如"太强了!", "支持主播")。
+   - 每个送礼事件必须提供 count（整数，范围 1-20）。
 4. 【重要】所有生成的弹幕发送者和送礼者必须是其他网友(虚拟人)，**绝对不能**使用名字"${myName}"或"我"或"Admin"。
 5. 弹幕内容要简短、真实、口语化。
 6. 判断是否结束直播：如果用户弹幕暗示结束（如“晚安”、“去睡吧”、“下播吧”），或者主播觉得累了想下播，请将 "should_end" 设为 true，并在 "actionDesc" 中描述主播道别下播的动作。
+${hostModeExtra}
 
 返回纯JSON对象，格式如下:
 {
@@ -1098,9 +2653,11 @@ ${recentComments}${hostPersonaContext}
     { "username": "网友B", "content": "弹幕内容" }
   ],
   "gift_events": [
-    { "username": "大佬A", "gift_name": "火箭", "comment": "主播加油！" },
-    { "username": "粉丝B", "gift_name": "玫瑰", "comment": "" }
-  ]
+    { "username": "大佬A", "gift_name": "火箭", "count": 3, "comment": "主播加油！" },
+    { "username": "粉丝B", "gift_name": "玫瑰", "count": 2, "comment": "" }
+  ],
+  "suggested_actions": ["下一步建议1", "下一步建议2"],
+  "next_action_hint": "主播下一步建议"
 }
 不要返回任何Markdown标记。`;
 
@@ -1160,10 +2717,19 @@ ${recentComments}${hostPersonaContext}
                     };
                 }
 
-                room.actionDesc = result.actionDesc;
+                if (room.mode === 'host') {
+                    const locked = hostLockedActionDesc || room.actionDesc || '';
+                    room.actionDesc = locked;
+                } else {
+                    room.actionDesc = result.actionDesc;
+                    if (result.actionDesc) {
+                        maybeSyncLiveEventToChat(room, `[直播间画面]: "${result.actionDesc}"`, 'system');
+                        maybePushLiveDmFromActionDesc(room, result.actionDesc);
+                    }
+                }
                 const descContainer = document.querySelector('.forum-room-desc-container');
                 if (descContainer) {
-                    descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; max-height: 250px; overflow-y: auto; line-height: 1.5; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${result.actionDesc}</div>`;
+                    descContainer.innerHTML = renderLiveActionDesc(room.actionDesc);
                 }
 
                 if (result.comments && Array.isArray(result.comments)) {
@@ -1173,6 +2739,7 @@ ${recentComments}${hostPersonaContext}
                         setTimeout(() => {
                             window.appendForumLiveMessage(`<span style="color: white; font-weight: 600; margin-right: 6px;">${c.username}</span>${c.content}`);
                             room.comments.push({ username: c.username, content: c.content, isUser: false });
+                            maybeSyncLiveEventToChat(room, `[直播间互动]: ${c.username}: ${c.content}`, 'assistant');
                         }, 400 + index * 1000);
                     });
 
@@ -1187,6 +2754,15 @@ ${recentComments}${hostPersonaContext}
                             if (window.showLiveEndedScreen) window.showLiveEndedScreen(room.host);
                         }, 4000);
                     }
+                }
+
+                if (room.mode === 'host') {
+                    const fromAi = Array.isArray(result.suggested_actions)
+                        ? result.suggested_actions.map(s => String(s || '').trim()).filter(Boolean)
+                        : [];
+                    if (result.next_action_hint) fromAi.unshift(String(result.next_action_hint).trim());
+                    room.suggestedActions = fromAi.length > 0 ? fromAi.slice(0, 5) : buildHostActionSuggestions(result, room);
+                    window.renderForumActionSuggestionMenu();
                 }
 
                 // Simulate Leaderboard Dynamics (Randomly boost other hosts)
@@ -1240,7 +2816,7 @@ ${recentComments}${hostPersonaContext}
             room.actionDesc = room.preGenState.actionDesc;
             const descContainer = document.querySelector('.forum-room-desc-container');
             if (descContainer) {
-                descContainer.innerHTML = `<div style="text-align:center; font-size: 15px; color: white; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 20px; border-radius: 20px; display: inline-block; max-width: 85%; max-height: 250px; overflow-y: auto; line-height: 1.5; pointer-events: auto; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${room.actionDesc}</div>`;
+                descContainer.innerHTML = renderLiveActionDesc(room.actionDesc);
             }
 
             // Restore comments list
@@ -1389,6 +2965,10 @@ ${recentComments}${hostPersonaContext}
                 headerHtml = renderProfileHeader();
                 contentHtml = renderProfileTab();
                 break;
+            case 'forum_wallet':
+                headerHtml = renderForumWalletHeader();
+                contentHtml = renderForumWallet();
+                break;
             case 'edit_profile':
                 headerHtml = renderEditProfileHeader();
                 contentHtml = renderEditProfile();
@@ -1425,7 +3005,7 @@ ${recentComments}${hostPersonaContext}
                 contentHtml = renderHomeTab();
         }
 
-        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts' && forumState.activeTab !== 'my_profile_posts' && forumState.activeTab !== 'create_post';
+        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts' && forumState.activeTab !== 'my_profile_posts' && forumState.activeTab !== 'create_post' && forumState.activeTab !== 'forum_wallet';
 
         const multiSelectBarHtml = forumState.multiSelectMode ? `
             <div class="forum-multi-select-bar">
@@ -1471,13 +3051,17 @@ ${recentComments}${hostPersonaContext}
                                     <div class="forum-room-host-avatar"></div>
                                     <div style="display:flex; flex-direction:column; justify-content:center;">
                                         <div class="forum-room-host-name" id="forum-room-host-name">Host</div>
+                                        <div id="forum-room-viewers" style="font-size: 11px; color: rgba(255,255,255,0.85); margin-top: 2px;">128 在看</div>
                                         <div id="live-rank-badge" onclick="window.toggleLeaderboard()" style="display:none; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,215,0,0.5); color: #ffd60a; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-top: 2px; cursor: pointer; align-self: flex-start; font-weight: 800; font-style: italic;">NO.99</div>
                                     </div>
-                                    <button class="forum-room-follow-btn">Follow</button>
+                                    <button class="forum-room-follow-btn" id="forum-room-follow-btn">Follow</button>
                                 </div>
                             </div>
                             
                             <div style="display: flex; gap: 8px;">
+                                <button id="forum-live-end-btn" class="forum-room-action-btn" onclick="window.endMyLiveStream()" style="width: 40px; height: 40px; border: none; background: rgba(255,59,48,0.2); color: #ff453a; display:none;">
+                                    <i class="fas fa-stop" style="font-size: 14px;"></i>
+                                </button>
                                 <!-- Leaderboard Button -->
                                 <button class="forum-room-action-btn" onclick="window.toggleLeaderboard()" style="width: 40px; height: 40px; border: none; background: rgba(255,215,0,0.2); color: #ffd60a;">
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1502,6 +3086,7 @@ ${recentComments}${hostPersonaContext}
                         </div>
 
                         <div style="display: flex; flex-direction: column; gap: 12px; flex: 1; overflow: hidden; margin-top: 20px;">
+                            <div id="forum-pk-panel" class="forum-pk-panel" style="display:none;"></div>
                             <div class="forum-room-desc-container" style="display: flex; justify-content: center; align-items: flex-start; width: 100%; margin-top: 10vh; height: 250px; flex-shrink: 0; pointer-events: none;">
                             </div>
                             
@@ -1522,7 +3107,7 @@ ${recentComments}${hostPersonaContext}
                                         <i class="fas fa-sync-alt" style="font-size: 14px;"></i>
                                     </div>
 
-                                    <input type="text" placeholder="Say something..." style="background: transparent; border: none; color: white; flex: 1; outline: none; font-size: 14px; padding: 0 4px; min-width: 0;" onkeypress="window.handleForumChatEnter(event)">
+                                    <input type="text" id="forum-live-input" placeholder="Say something..." style="background: transparent; border: none; color: white; flex: 1; outline: none; font-size: 14px; padding: 0 4px; min-width: 0;" onkeypress="window.handleForumChatEnter(event)">
                                     
                                     <!-- Generate Button -->
                                     <div id="live-generate-btn" onclick="window.generateLiveContent()" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; margin-left: 2px;">
@@ -1532,8 +3117,11 @@ ${recentComments}${hostPersonaContext}
 
                                 <div class="forum-room-action-bar" style="gap: 8px;">
                                     <!-- Gift Button -->
-                                    <div class="forum-room-action-btn" onclick="window.toggleForumGiftMenu()" style="width: 36px; height: 36px;">
+                                    <div class="forum-room-action-btn" id="forum-live-gift-btn" onclick="window.toggleForumGiftMenu()" style="width: 36px; height: 36px;">
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="14" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="22"></line><path d="M12 8V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v4"></path><path d="M12 8V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"></path></svg>
+                                    </div>
+                                    <div class="forum-room-action-btn" id="forum-live-suggest-btn" onclick="window.toggleForumActionSuggestionMenu()" style="width: 36px; height: 36px; display:none;">
+                                        <i class="fas fa-lightbulb" style="font-size: 16px;"></i>
                                     </div>
                                     <!-- Heart Button -->
                                     <div class="forum-room-action-btn" style="background: #ff2d55; border:none; width: 36px; height: 36px;" onclick="window.showForumLiveHeart()">
@@ -1562,6 +3150,15 @@ ${recentComments}${hostPersonaContext}
                         <div class="forum-gift-action">
                             <input type="number" id="forum-gift-count" value="1" min="1" max="99">
                             <button class="forum-send-gift-btn" onclick="window.sendForumGift()">Send Gift</button>
+                        </div>
+                    </div>
+
+                    <div class="forum-gift-menu" id="forum-action-suggestion-menu" style="height: auto; max-height: 62vh;">
+                        <div class="forum-gift-menu-header">
+                            <h4 style="font-size: 18px; font-weight: 700; color: #1c1c1e;">下一步建议</h4>
+                            <button onclick="window.toggleForumActionSuggestionMenu()" style="background: rgba(0,0,0,0.05); border: none; width: 30px; height: 30px; border-radius: 50%; font-size: 14px; font-weight: bold; cursor: pointer; color: #1c1c1e;">✕</button>
+                        </div>
+                        <div id="forum-action-suggestion-list" style="padding-bottom: 10px;">
                         </div>
                     </div>
 
@@ -1936,6 +3533,15 @@ ${recentComments}${hostPersonaContext}
                     
                     renderCommentsOverlay(post.comments_list, post); // Re-render logic
 
+                    // sync this manual comment to chat if the post belongs to a linked contact
+                    if (post.userId) {
+                        let chatMsg = `[评论了你的帖子]: "${text}"`;
+                        if (replyContext && replyContext.type === 'reply' && replyContext.parentComment) {
+                            chatMsg = `[回复了你的帖子评论]: "${text}"`;
+                        }
+                        window.syncForumEventToChat(post.userId, chatMsg, 'user');
+                    }
+
                     // Trigger AI Reply Logic
                     generateAIReply(post, newComment, replyContext);
                 }
@@ -2284,11 +3890,251 @@ ${recentComments}${hostPersonaContext}
                     <i class="fas fa-chevron-down header-title-arrow"></i>
                 </div>
                 <div class="header-right">
-                    <img src="https://i.postimg.cc/QCfGKHGC/无标题98_20260215024118.png" style="height: 32px; width: auto; margin-top: 5px;">
+                    <img src="https://i.postimg.cc/QCfGKHGC/无标题98_20260215024118.png" id="forum-wallet-entry-btn" style="height: 32px; width: auto; margin-top: 5px; cursor: pointer;">
                     <img src="https://i.postimg.cc/vT0FxcF9/无标题98_20260215024227.png" style="height: 32px; width: auto; margin-top: 5px;">
                 </div>
             </div>
         `;
+    }
+
+    function renderForumWalletHeader() {
+        return '';
+    }
+
+    function getForumWalletState() {
+        if (!forumState.forumWallet) {
+            forumState.forumWallet = { initialized: false, balance: 0, transactions: [], isGenerating: false, source: 'none', generatedAt: null };
+        }
+        return forumState.forumWallet;
+    }
+
+    function saveForumWalletState() {
+        const s = getForumWalletState();
+        localStorage.setItem('forum_wallet_state', JSON.stringify({
+            initialized: !!s.initialized,
+            balance: Number.isFinite(Number(s.balance)) ? Number(s.balance) : 0,
+            transactions: Array.isArray(s.transactions) ? s.transactions.slice(0, 30) : [],
+            source: s.source || 'none',
+            generatedAt: s.generatedAt || null
+        }));
+    }
+
+    function formatWalletAmount(value) {
+        const n = Number(value) || 0;
+        return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function getWalletTxIconSvg(type = 'income') {
+        if (type === 'expense') {
+            return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3" stroke="#1d1d1f" stroke-width="1.8"/><path d="M12 11v5" stroke="#1d1d1f" stroke-width="1.8" stroke-linecap="round"/><path d="M9.8 13.8L12 16l2.2-2.2" stroke="#1d1d1f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        }
+        if (type === 'gift') {
+            return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="10" width="18" height="10" rx="2" stroke="#1d1d1f" stroke-width="1.8"/><path d="M12 10v10" stroke="#1d1d1f" stroke-width="1.8"/><path d="M3 14h18" stroke="#1d1d1f" stroke-width="1.8"/><path d="M8.4 10c-1.5 0-2.4-.8-2.4-2 0-1.1.8-2 2.1-2 1.7 0 2.7 1.5 3.9 4" stroke="#1d1d1f" stroke-width="1.8" stroke-linecap="round"/><path d="M15.6 10c1.5 0 2.4-.8 2.4-2 0-1.1-.8-2-2.1-2-1.7 0-2.7 1.5-3.9 4" stroke="#1d1d1f" stroke-width="1.8" stroke-linecap="round"/></svg>';
+        }
+        return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3" stroke="#1d1d1f" stroke-width="1.8"/><path d="M12 16v-5" stroke="#1d1d1f" stroke-width="1.8" stroke-linecap="round"/><path d="M14.2 13.2L12 11l-2.2 2.2" stroke="#1d1d1f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    }
+
+    function fallbackInitialWalletBalance(identity, followers) {
+        const f = Math.max(0, Number(followers) || 0);
+        const identityText = (identity || '').toLowerCase();
+        let base = 800 + Math.min(200000, f * 2.2);
+        if (identityText.includes('明星') || identityText.includes('artist') || identityText.includes('演员')) base *= 2.1;
+        if (identityText.includes('主播') || identityText.includes('博主') || identityText.includes('creator') || identityText.includes('influencer')) base *= 1.55;
+        if (identityText.includes('企业') || identityText.includes('品牌') || identityText.includes('company') || identityText.includes('brand')) base *= 1.35;
+        const rounded = Math.round(base / 10) * 10;
+        return Math.max(100, Math.min(99999999, rounded));
+    }
+
+    function parseInitialBalanceFromText(text) {
+        if (!text) return null;
+        const cleaned = String(text).replace(/```json|```/g, '').trim();
+        try {
+            const obj = JSON.parse(cleaned);
+            if (obj && Number.isFinite(Number(obj.balance))) return Number(obj.balance);
+        } catch (e) {}
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            try {
+                const obj = JSON.parse(jsonMatch[0]);
+                if (obj && Number.isFinite(Number(obj.balance))) return Number(obj.balance);
+            } catch (e) {}
+        }
+        const numMatch = cleaned.match(/-?\d+(?:,\d{3})*(?:\.\d+)?/);
+        if (!numMatch) return null;
+        const n = Number(numMatch[0].replace(/,/g, ''));
+        return Number.isFinite(n) ? n : null;
+    }
+
+    async function requestInitialWalletBalanceByAI(identity, followers) {
+        let settings = { url: '', key: '', model: '' };
+        if (window.iphoneSimState) {
+            if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) settings = window.iphoneSimState.aiSettings;
+            else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) settings = window.iphoneSimState.aiSettings2;
+        }
+        if (!settings.url || !settings.key) {
+            return { balance: fallbackInitialWalletBalance(identity, followers), source: 'fallback' };
+        }
+
+        let fetchUrl = settings.url;
+        if (!fetchUrl.endsWith('/chat/completions')) {
+            fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+        }
+
+        const prompt = `你是钱包初始化计算器。请根据下面用户画像估算“初始钱包余额（人民币）”。
+公众身份：${identity || '未填写'}
+粉丝数量：${followers || 0}
+要求：返回严格 JSON，不要任何解释，格式为 {"balance":12345.67}。balance 必须为正数。`;
+
+        try {
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + settings.key
+                },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: 'You are a calculator that only returns compact JSON.' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.3
+                })
+            });
+            if (!response.ok) throw new Error('wallet init request failed');
+            const data = await response.json();
+            const text = (((data || {}).choices || [])[0] || {}).message ? (((data || {}).choices || [])[0].message.content || '') : '';
+            const parsed = parseInitialBalanceFromText(text);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                return { balance: Math.min(99999999, parsed), source: 'ai' };
+            }
+        } catch (e) {}
+
+        return { balance: fallbackInitialWalletBalance(identity, followers), source: 'fallback' };
+    }
+
+    async function ensureForumWalletInitialized() {
+        const wallet = getForumWalletState();
+        if (wallet.initialized || wallet.isGenerating) return;
+
+        wallet.isGenerating = true;
+        if (forumState.activeTab === 'forum_wallet') renderForum(false);
+
+        const identity = forumState.currentUser && forumState.currentUser.publicIdentity ? forumState.currentUser.publicIdentity : '';
+        const followers = forumState.currentUser && forumState.currentUser.followers ? Number(forumState.currentUser.followers) : 0;
+        const result = await requestInitialWalletBalanceByAI(identity, followers);
+
+        wallet.balance = Math.max(0, Number(result.balance) || 0);
+        wallet.initialized = true;
+        wallet.source = result.source;
+        wallet.generatedAt = Date.now();
+        wallet.transactions = [{
+            id: Date.now(),
+            title: 'Initial Wallet Setup',
+            timeText: 'Just now',
+            amount: wallet.balance,
+            type: 'positive',
+            iconType: 'income',
+            iconSvg: getWalletTxIconSvg('income')
+        }];
+        wallet.isGenerating = false;
+        saveForumWalletState();
+        if (forumState.activeTab === 'forum_wallet') renderForum(false);
+    }
+
+    function renderForumWallet() {
+        const wallet = getForumWalletState();
+        const loading = !!wallet.isGenerating;
+        const tx = Array.isArray(wallet.transactions) ? wallet.transactions : [];
+        const txHtml = tx.length > 0 ? tx.map(item => `
+            <div class="forum-wallet-tx-item">
+                <div class="forum-wallet-tx-icon">${item.iconSvg || getWalletTxIconSvg(item.type === 'negative' ? 'expense' : 'income')}</div>
+                <div class="forum-wallet-tx-info">
+                    <div class="forum-wallet-tx-title">${item.title || 'Wallet Activity'}</div>
+                    <div class="forum-wallet-tx-date">${item.timeText || 'Just now'}</div>
+                </div>
+                <div class="forum-wallet-tx-amount ${item.type === 'negative' ? 'negative' : 'positive'}">${item.type === 'negative' ? '-' : '+'}¥${formatWalletAmount(item.amount || 0)}</div>
+            </div>
+        `).join('') : `
+            <div class="forum-wallet-empty">No activity yet</div>
+        `;
+
+        return `
+            <div class="forum-wallet-page">
+                <div class="forum-wallet-top" id="forum-wallet-back-title" role="button">
+                    <div class="forum-wallet-greeting">
+                        <p>Total Balance</p>
+                        <h1>My Wallet</h1>
+                    </div>
+                </div>
+
+                <div class="forum-wallet-card">
+                    <div class="forum-wallet-card-label">AVAILABLE BALANCE</div>
+                    <div class="forum-wallet-balance">${loading ? '<span>¥</span>--' : `<span>¥</span>${formatWalletAmount(wallet.balance)}`}</div>
+                    <div class="forum-wallet-card-bottom">
+                        <div class="forum-wallet-card-number">${loading ? 'Generating...' : '**** **** **** 3829'}</div>
+                        <svg width="32" height="20" viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="10" cy="10" r="10" fill="#000" fill-opacity="0.2"/>
+                            <circle cx="22" cy="10" r="10" fill="#000" fill-opacity="0.4"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="forum-wallet-actions">
+                    <button class="forum-wallet-action-btn" type="button">
+                        <div class="forum-wallet-icon-box"><i class="fa-solid fa-arrow-up"></i></div>
+                        <span>Send</span>
+                    </button>
+                    <button class="forum-wallet-action-btn" type="button">
+                        <div class="forum-wallet-icon-box"><i class="fa-solid fa-arrow-down"></i></div>
+                        <span>Receive</span>
+                    </button>
+                    <button class="forum-wallet-action-btn" type="button">
+                        <div class="forum-wallet-icon-box"><i class="fa-solid fa-qrcode"></i></div>
+                        <span>Scan</span>
+                    </button>
+                    <button class="forum-wallet-action-btn" type="button">
+                        <div class="forum-wallet-icon-box"><i class="fa-solid fa-plus"></i></div>
+                        <span>Top Up</span>
+                    </button>
+                </div>
+
+                <div class="forum-wallet-transactions">
+                    <div class="forum-wallet-section-header">
+                        <h2>Recent Activity</h2>
+                        <a href="javascript:void(0)">See All</a>
+                    </div>
+                    <div class="forum-wallet-tx-list">${txHtml}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function applyWalletGiftExpense(totalValue, giftName, count, giftEmoji) {
+        const wallet = getForumWalletState();
+        const spend = Math.max(0, Number(totalValue) || 0);
+        if (!wallet.initialized) {
+            wallet.initialized = true;
+            wallet.balance = Math.max(0, Number(wallet.balance) || 0);
+        }
+        if (wallet.balance < spend) {
+            alert(`余额不足，当前余额 ¥${formatWalletAmount(wallet.balance)}`);
+            return false;
+        }
+        wallet.balance -= spend;
+        wallet.transactions.unshift({
+            id: Date.now(),
+            title: `Gift: ${giftName}${count > 1 ? ` x${count}` : ''} ${giftEmoji || ''}`.trim(),
+            timeText: 'Just now',
+            amount: spend,
+            type: 'negative',
+            iconType: 'gift',
+            iconSvg: getWalletTxIconSvg('gift')
+        });
+        if (wallet.transactions.length > 30) wallet.transactions = wallet.transactions.slice(0, 30);
+        saveForumWalletState();
+        if (forumState.activeTab === 'forum_wallet') renderForum(false);
+        return true;
     }
 
     function renderOtherProfileHeader() {
@@ -2436,11 +4282,12 @@ ${recentComments}${hostPersonaContext}
 
             const titleEnc = encodeURIComponent(live.title || '').replace(/'/g, "%27");
             const usernameEnc = encodeURIComponent(displayUsername || '').replace(/'/g, "%27"); // Pass resolved name
-            const actionDescEnc = encodeURIComponent(live.action_desc || '').replace(/'/g, "%27");
+            const actionDescEnc = encodeURIComponent(live.action_desc || live.actionDesc || '').replace(/'/g, "%27");
             const initialCommentsStr = encodeURIComponent(JSON.stringify(live.initial_comments || [])).replace(/'/g, "%27");
+            const viewersEnc = encodeURIComponent((live.viewers || '').toString()).replace(/'/g, "%27");
             
             return `
-            <div class="forum-live-card" data-category="${live.category}" onclick="window.openForumLiveRoom(decodeURIComponent('${titleEnc}'), decodeURIComponent('${usernameEnc}'), decodeURIComponent('${actionDescEnc}'), '${initialCommentsStr}')">
+            <div class="forum-live-card" data-category="${live.category}" onclick="window.openForumLiveRoom(decodeURIComponent('${titleEnc}'), decodeURIComponent('${usernameEnc}'), decodeURIComponent('${actionDescEnc}'), '${initialCommentsStr}', decodeURIComponent('${viewersEnc}'))">
                 <div class="forum-live-card-image" style="background-image: url('${live.image}'); background-size: cover; background-position: center;"></div>
                 <div class="forum-live-card-badge">
                     <div class="forum-live-status-dot"></div> LIVE
@@ -2750,6 +4597,9 @@ ${recentComments}${hostPersonaContext}
         const identity = profile.identity || '';
         const followers = profile.followers !== undefined ? profile.followers : 0;
         const following = profile.following !== undefined ? profile.following : 0;
+        const syncWechat = profile.syncWechat || false;
+        const autoPostEnabled = profile.autoPostEnabled || false;
+        const autoPostInterval = profile.autoPostInterval || 60; // in minutes
 
         return `
             <div class="edit-profile-container">
@@ -2801,6 +4651,24 @@ ${recentComments}${hostPersonaContext}
                             <input type="checkbox" id="fc-knows-user" ${profile.knowsUser ? 'checked' : ''}>
                             <span class="slider round"></span>
                         </label>
+                    </div>
+                    <div class="edit-form-row">
+                        <label>与微信记忆互通</label>
+                        <label class="toggle-switch" style="transform: scale(0.8); transform-origin: right center;">
+                            <input type="checkbox" id="fc-sync-wechat" ${syncWechat ? 'checked' : ''}>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <div class="edit-form-row">
+                        <label>定时自动发帖</label>
+                        <label class="toggle-switch" style="transform: scale(0.8); transform-origin: right center;">
+                            <input type="checkbox" id="fc-auto-post" ${autoPostEnabled ? 'checked' : ''}>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <div class="edit-form-row" style="flex-direction: column; align-items: flex-start;">
+                        <label style="margin-bottom:8px;">发帖间隔 (分钟)</label>
+                        <input type="number" id="fc-auto-post-interval" value="${autoPostInterval}" placeholder="60" style="width: 100%;">
                     </div>
                     <div class="edit-form-row" style="flex-direction: column; align-items: flex-start; height: auto;">
                         <label style="margin-bottom: 8px;">生图提示词预设</label>
@@ -4474,6 +6342,23 @@ ${recentComments}${hostPersonaContext}
             });
         }
 
+        const forumWalletEntryBtn = document.getElementById('forum-wallet-entry-btn');
+        if (forumWalletEntryBtn) {
+            forumWalletEntryBtn.addEventListener('click', () => {
+                forumState.activeTab = 'forum_wallet';
+                renderForum();
+                ensureForumWalletInitialized();
+            });
+        }
+
+        const forumWalletBackBtn = document.getElementById('forum-wallet-back-title');
+        if (forumWalletBackBtn) {
+            forumWalletBackBtn.addEventListener('click', () => {
+                forumState.activeTab = 'profile';
+                renderForum();
+            });
+        }
+
         const followBtn = document.getElementById('other-profile-follow-btn');
         if (followBtn) {
             followBtn.addEventListener('click', () => {
@@ -4652,6 +6537,14 @@ ${recentComments}${hostPersonaContext}
                 if (avatarPreview) {
                     profile.avatar = avatarPreview.src;
                 }
+
+                // sync options
+                const syncCb = document.getElementById('fc-sync-wechat');
+                if (syncCb) profile.syncWechat = syncCb.checked;
+                const autoPostCb = document.getElementById('fc-auto-post');
+                if (autoPostCb) profile.autoPostEnabled = autoPostCb.checked;
+                const intervalInput = document.getElementById('fc-auto-post-interval');
+                if (intervalInput) profile.autoPostInterval = parseInt(intervalInput.value) || 0;
 
                 forumState.settings.contactProfiles[contactId] = profile;
                 
@@ -5933,13 +7826,18 @@ ${charList}
         const overlay = document.getElementById('create-menu-overlay');
         if (overlay) overlay.remove();
 
-        if (action === 'post') {
-            forumState.activeTab = 'create_post';
-            forumState.createPostImages = []; // Reset images
-            renderForum();
-        }
-        // Handle other actions later if needed
-    };
+            if (action === 'post') {
+                forumState.activeTab = 'create_post';
+                forumState.createPostImages = []; // Reset images
+                renderForum();
+                return;
+            }
+            if (action === 'live') {
+                window.startMyLiveRoom();
+                return;
+            }
+            // Handle other actions later if needed
+        };
 
     function renderCreatePostHeader() {
         return `
@@ -6910,7 +8808,10 @@ ${contactPrompt}
             ];
 
             newLives.forEach((live, index) => {
-                live.image = existingImages[index % existingImages.length];
+                // only use default background if none provided by the AI-generated data
+                if (!live.image) {
+                    live.image = existingImages[index % existingImages.length];
+                }
             });
 
             forumState.liveStreams = newLives;
@@ -7142,6 +9043,12 @@ ${contactPrompt}
                     }
                     
                     post.stats.comments++;
+
+                    // sync the AI-generated reply back to chat history if post is from a contact
+                    if (post.userId) {
+                        const prefix = (context && context.type === 'reply') ? '[论坛评论回复]:' : '[论坛自动评论]:';
+                        window.syncForumEventToChat(post.userId, `${prefix} "${replyItem.text}"`, 'system');
+                    }
                 });
 
                 saveForumData();
