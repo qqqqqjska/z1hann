@@ -3628,16 +3628,25 @@ function setupChatListeners() {
         });
     }
 
-    const chatSettingTabs = document.querySelectorAll('.chat-settings-nav .nav-item');
-    const chatSettingIndicator = document.querySelector('.chat-settings-nav .nav-indicator');
+    const chatSettingsScreenEl = document.getElementById('chat-settings-screen');
+    const chatSettingTabs = chatSettingsScreenEl
+        ? chatSettingsScreenEl.querySelectorAll('.chat-settings-nav .nav-item[data-tab]')
+        : [];
+    const chatSettingIndicator = chatSettingsScreenEl
+        ? chatSettingsScreenEl.querySelector('.chat-settings-nav .nav-indicator')
+        : null;
     
     chatSettingTabs.forEach((tab, index) => {
         tab.addEventListener('click', () => {
             if (tab.classList.contains('active')) return;
 
-            const currentContent = document.querySelector('.chat-setting-tab-content.active');
+            const currentContent = chatSettingsScreenEl
+                ? chatSettingsScreenEl.querySelector('.chat-setting-tab-content.active')
+                : null;
             const tabName = tab.dataset.tab;
-            const nextContent = document.getElementById(`chat-setting-tab-${tabName}`);
+            const nextContent = chatSettingsScreenEl
+                ? chatSettingsScreenEl.querySelector(`#chat-setting-tab-${tabName}`)
+                : null;
 
             chatSettingTabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');

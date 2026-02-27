@@ -32,7 +32,7 @@
         const item = document.createElement('div');
         item.className = 'list-item';
         // 使用行内样式覆盖可能的外部冲突，确保显示
-        item.style.cssText = 'background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 10px 15px; display: flex; align-items: center; cursor: pointer;';
+        item.style.cssText = 'background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 12px 15px; display: flex; align-items: center; cursor: pointer; line-height: 1.2;';
         
         const name = contact.remark || contact.nickname || contact.name;
         

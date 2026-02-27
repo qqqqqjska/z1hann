@@ -1465,7 +1465,7 @@ textarea {
     background-color: #fff;
     display: flex;
     align-items: center;
-    padding: 15px 20px; /* 将内边距移到这里，实现内容对齐但背景通栏 */
+    padding: 14px 20px; /* 将内边距移到这里，实现内容对齐但背景通栏 */
     width: 100%;
     box-sizing: border-box; /* 确保 padding 包含在宽度内 */
     transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); /* 平滑回弹 */
@@ -1599,11 +1599,11 @@ textarea {
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
-.nav-item {
+.chat-settings-nav > .nav-item {
     flex: 1;
     text-align: center;
     line-height: 36px;
-    font-size: 15px;
+    font-size: 15px !important;
     font-weight: 500;
     color: #000;
     z-index: 2;
@@ -1611,11 +1611,11 @@ textarea {
     transition: color 0.3s;
 }
 
-.nav-item.active {
-    color: #fff;
+.chat-settings-nav > .nav-item.active {
+    color: #fff !important;
 }
 
-.nav-indicator {
+.chat-settings-nav > .nav-indicator {
     position: absolute;
     top: 4px;
     left: 4px;
@@ -1625,6 +1625,11 @@ textarea {
     border-radius: 26px;
     transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
     z-index: 1;
+}
+
+#chat-settings-screen .list-item:not(.no-padding) {
+    padding-top: 12px;
+    padding-bottom: 12px;
 }
 
 .chat-setting-tab-content {
