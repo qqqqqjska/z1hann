@@ -305,6 +305,9 @@ window.showChatNotification = function(contactId, content, options) {
     else if (content.startsWith('[亲属卡]')) previewText = '[亲属卡]';
     else if (content.includes('pay_request')) previewText = '[代付请求]';
     else if (content.includes('shopping_gift')) previewText = '[礼物]';
+    else if (content.includes('savings_invite')) previewText = '[共同存钱邀请]';
+    else if (content.includes('savings_withdraw_request')) previewText = '[共同存钱转出申请]';
+    else if (content.includes('savings_progress')) previewText = '[共同存钱进度]';
     else if (content.includes('delivery_share')) previewText = '[外卖]';
     
     // 如果内容包含HTML标签（如图片），尝试提取文本或显示类型
@@ -636,6 +639,12 @@ function renderContactList(filterGroup = 'all') {
                     lastMsgText = '[礼物]';
                 } else if (lastMsg && lastMsg.type === 'pay_request') {
                     lastMsgText = '[代付请求]';
+                } else if (lastMsg && lastMsg.type === 'savings_invite') {
+                    lastMsgText = '[共同存钱邀请]';
+                } else if (lastMsg && lastMsg.type === 'savings_withdraw_request') {
+                    lastMsgText = '[共同存钱转出申请]';
+                } else if (lastMsg && lastMsg.type === 'savings_progress') {
+                    lastMsgText = '[共同存钱进度]';
                 } else if (lastMsg && lastMsg.type === 'voice_call_text') {
                     lastMsgText = '[通话]';
                 }
@@ -2479,6 +2488,610 @@ let bankFamilyCardEntries = [];
 let currentBankFamilyCardKey = null;
 let bankFundingResolve = null;
 let bankFundingReject = null;
+let savingsAmountModalMode = 'deposit';
+
+function ensureBankSavingsState() {
+    if (!window.iphoneSimState) window.iphoneSimState = {};
+    if (!window.iphoneSimState.bankSavings || typeof window.iphoneSimState.bankSavings !== 'object') {
+        window.iphoneSimState.bankSavings = {};
+    }
+    const savings = window.iphoneSimState.bankSavings;
+    if (!Array.isArray(savings.plans)) savings.plans = [];
+    if (!savings.challengeSettings || typeof savings.challengeSettings !== 'object') {
+        savings.challengeSettings = { enabled: true, level: 'normal' };
+    }
+    if (!['easy', 'normal', 'hard'].includes(savings.challengeSettings.level)) {
+        savings.challengeSettings.level = 'normal';
+    }
+    if (!Object.prototype.hasOwnProperty.call(savings.challengeSettings, 'enabled')) {
+        savings.challengeSettings.enabled = true;
+    }
+    if (typeof savings.activePlanId === 'undefined') savings.activePlanId = null;
+
+    savings.plans.forEach((plan) => {
+        if (!plan || typeof plan !== 'object') return;
+        if (!plan.id) plan.id = `savings_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        if (!plan.status) plan.status = 'active';
+        plan.targetAmount = Number(plan.targetAmount) || 50000;
+        plan.balance = Number(plan.balance) || 0;
+        plan.interestAccrued = Number(plan.interestAccrued) || 0;
+        plan.aprBase = Number(plan.aprBase) || 2.4;
+        plan.aprBonus = Number(plan.aprBonus) || 0.3;
+        if (!Array.isArray(plan.activities)) plan.activities = [];
+        if (!Array.isArray(plan.withdrawRequests)) plan.withdrawRequests = [];
+        if (!plan.lastAccrueAt) plan.lastAccrueAt = Date.now();
+        if (!plan.updatedAt) plan.updatedAt = Date.now();
+    });
+
+    if (!savings.activePlanId && savings.plans.length) {
+        const active = savings.plans.find((p) => p.status === 'active') || savings.plans[0];
+        savings.activePlanId = active ? active.id : null;
+    }
+    return savings;
+}
+
+function getSavingsDayKey(ts = Date.now()) {
+    const d = new Date(ts);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function getSavingsContactName(contactId) {
+    const contact = (window.iphoneSimState.contacts || []).find((c) => c.id === contactId);
+    if (!contact) return `联系人${contactId}`;
+    return contact.remark || contact.nickname || contact.name || `联系人${contactId}`;
+}
+
+function getActiveSavingsPlan() {
+    const savings = ensureBankSavingsState();
+    const byId = savings.plans.find((p) => p.id === savings.activePlanId);
+    if (byId) return byId;
+    const fallback = savings.plans.find((p) => p.status === 'active') || savings.plans[0] || null;
+    if (fallback) savings.activePlanId = fallback.id;
+    return fallback;
+}
+
+function getSavingsPlanByPeerContactId(contactId) {
+    const targetId = Number(contactId);
+    if (!Number.isFinite(targetId)) return null;
+    const savings = ensureBankSavingsState();
+    const matchedPlans = savings.plans.filter((p) => Number(p.peerContactId) === targetId && (p.status === 'active' || p.status === 'completed'));
+    if (!matchedPlans.length) return null;
+    const plan = matchedPlans.find((p) => p.status === 'active') || matchedPlans[0];
+    if (plan) savings.activePlanId = plan.id;
+    return plan || null;
+}
+
+function getSavingsChallengeTarget(level) {
+    if (level === 'easy') return 100;
+    if (level === 'hard') return 1000;
+    return 500;
+}
+
+function appendSavingsActivity(plan, activity) {
+    if (!plan || !activity) return;
+    if (!Array.isArray(plan.activities)) plan.activities = [];
+    const record = {
+        id: activity.id || `s_act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: activity.type || 'system',
+        actor: activity.actor || 'system',
+        amount: Number(activity.amount) || 0,
+        note: activity.note || '',
+        time: Number(activity.time) || Date.now()
+    };
+    plan.activities.unshift(record);
+    if (plan.activities.length > 100) plan.activities = plan.activities.slice(0, 100);
+    plan.updatedAt = Date.now();
+}
+
+function refreshSavingsChallenges(plan) {
+    if (!plan) return;
+    const savings = ensureBankSavingsState();
+    const cfg = savings.challengeSettings || { enabled: true, level: 'normal' };
+    if (!cfg.enabled) {
+        plan.challenge = {
+            dayKey: getSavingsDayKey(),
+            enabled: false,
+            title: '挑战已关闭',
+            target: 0,
+            progress: 0,
+            completed: false
+        };
+        return;
+    }
+
+    const dayKey = getSavingsDayKey();
+    if (plan.challenge && plan.challenge.dayKey === dayKey) return;
+
+    const target = getSavingsChallengeTarget(cfg.level);
+    plan.challenge = {
+        dayKey,
+        enabled: true,
+        title: `今日存入达标 ¥${target.toFixed(2)}`,
+        target,
+        progress: 0,
+        completed: false,
+        completedAt: null
+    };
+}
+
+function updateSavingsChallengeOnDeposit(plan, amount) {
+    if (!plan || !plan.challenge || !plan.challenge.enabled || plan.challenge.completed) return;
+    plan.challenge.progress = Number(plan.challenge.progress || 0) + Number(amount || 0);
+    if (plan.challenge.progress >= Number(plan.challenge.target || 0)) {
+        plan.challenge.completed = true;
+        plan.challenge.completedAt = Date.now();
+        plan.activeBonusUntil = Date.now() + 24 * 3600 * 1000;
+        appendSavingsActivity(plan, {
+            type: 'challenge',
+            actor: 'system',
+            amount: 0,
+            note: '今日挑战完成，已获得临时加息'
+        });
+    }
+}
+
+function expireSavingsWithdrawRequests(plan) {
+    if (!plan || !Array.isArray(plan.withdrawRequests)) return;
+    const now = Date.now();
+    plan.withdrawRequests.forEach((req) => {
+        if (req.status === 'pending' && Number(req.expireAt || 0) <= now) {
+            req.status = 'expired';
+            req.handledAt = now;
+            appendSavingsActivity(plan, {
+                type: 'withdraw_expired',
+                actor: 'system',
+                amount: Number(req.amount) || 0,
+                note: '转出申请超时关闭'
+            });
+        }
+    });
+}
+
+function accrueSavingsInterest(plan) {
+    if (!plan || plan.status !== 'active') return;
+    const now = Date.now();
+    const last = Number(plan.lastAccrueAt || 0);
+    if (!last) {
+        plan.lastAccrueAt = now;
+        return;
+    }
+
+    const lastDate = new Date(last);
+    const nowDate = new Date(now);
+    const lastStart = new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate()).getTime();
+    const nowStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+    const days = Math.floor((nowStart - lastStart) / (24 * 3600 * 1000));
+    if (days <= 0) return;
+
+    let totalInterest = 0;
+    for (let i = 0; i < days; i++) {
+        const baseApr = Number(plan.aprBase || 0);
+        const bonusApr = Number(plan.activeBonusUntil && plan.activeBonusUntil > now ? plan.aprBonus || 0 : 0);
+        const daily = (Number(plan.balance) || 0) * ((baseApr + bonusApr) / 100) / 365;
+        totalInterest += daily;
+    }
+    totalInterest = Number(totalInterest.toFixed(2));
+    if (totalInterest > 0) {
+        plan.balance = Number((Number(plan.balance || 0) + totalInterest).toFixed(2));
+        plan.interestAccrued = Number((Number(plan.interestAccrued || 0) + totalInterest).toFixed(2));
+        appendSavingsActivity(plan, {
+            type: 'interest',
+            actor: 'system',
+            amount: totalInterest,
+            note: `利息入账（${days}天）`
+        });
+    }
+    plan.lastAccrueAt = now;
+}
+
+function getSavingsActivityIcon(type) {
+    if (type === 'deposit') {
+        return '<svg viewBox="0 0 24 24"><path d="M12 4v16"></path><path d="M6 10l6-6 6 6"></path></svg>';
+    }
+    if (type === 'withdraw_request') {
+        return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5l3 2"></path></svg>';
+    }
+    if (type === 'withdraw_approved') {
+        return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l2.5 2.5L16 9"></path></svg>';
+    }
+    if (type === 'withdraw_rejected' || type === 'withdraw_expired') {
+        return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9 9l6 6M15 9l-6 6"></path></svg>';
+    }
+    if (type === 'interest') {
+        return '<svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"></path></svg>';
+    }
+    if (type === 'challenge') {
+        return '<svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.2L20 9l-4 3.9.9 5.6L12 16l-4.9 2.5.9-5.6L4 9l5.4-.8z"></path></svg>';
+    }
+    return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle></svg>';
+}
+
+function renderSavingsActivityList(plan) {
+    const listEl = document.getElementById('bank-savings-activity-list');
+    if (!listEl) return;
+    if (!plan || !Array.isArray(plan.activities) || !plan.activities.length) {
+        listEl.innerHTML = '<div class="ssv1-empty">暂无共同存钱记录</div>';
+        return;
+    }
+    listEl.innerHTML = plan.activities.slice(0, 20).map((act) => {
+        const d = new Date(Number(act.time) || Date.now());
+        const subtitle = `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${act.note || ''}`;
+        const sign = Number(act.amount) >= 0 ? '+' : '-';
+        const absAmount = Math.abs(Number(act.amount) || 0).toFixed(2);
+        const amountText = Number(act.amount) ? `${sign}¥${absAmount}` : '--';
+        const titleMap = {
+            deposit: '转入',
+            withdraw_request: '转出申请',
+            withdraw_approved: '转出通过',
+            withdraw_rejected: '转出拒绝',
+            withdraw_expired: '转出超时',
+            interest: '利息入账',
+            challenge: '挑战奖励'
+        };
+        return `
+            <div class="ssv1-list-item">
+                <div class="ssv1-item-left">
+                    <div class="ssv1-item-icon">${getSavingsActivityIcon(act.type)}</div>
+                    <div class="ssv1-item-details">
+                        <div class="ssv1-item-title">${titleMap[act.type] || '记录'}</div>
+                        <div class="ssv1-item-subtitle">${subtitle}</div>
+                    </div>
+                </div>
+                <div class="ssv1-item-amount">${amountText}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderBankSavingsView() {
+    const amountEl = document.getElementById('bank-savings-amount');
+    const goalEl = document.getElementById('bank-savings-goal');
+    const aprEl = document.getElementById('bank-savings-apr');
+    const progressEl = document.getElementById('bank-savings-progress');
+    const switchBtn = document.getElementById('bank-savings-switch-btn');
+    const challengeEl = document.getElementById('bank-savings-challenge');
+    const depositBtn = document.getElementById('bank-savings-deposit-btn');
+    const withdrawBtn = document.getElementById('bank-savings-withdraw-btn');
+
+    const plan = getActiveSavingsPlan();
+    if (!plan) {
+        if (amountEl) amountEl.textContent = '¥0.00';
+        if (goalEl) goalEl.textContent = '目标：¥0.00';
+        if (aprEl) aprEl.textContent = '0.00% APY';
+        if (progressEl) progressEl.style.width = '0%';
+        if (switchBtn) switchBtn.textContent = '我 / 未选择';
+        if (challengeEl) challengeEl.textContent = '今日挑战：未开启';
+        if (depositBtn) depositBtn.disabled = true;
+        if (withdrawBtn) withdrawBtn.disabled = true;
+        renderSavingsActivityList(null);
+        return;
+    }
+
+    refreshSavingsChallenges(plan);
+    expireSavingsWithdrawRequests(plan);
+    accrueSavingsInterest(plan);
+
+    if (switchBtn) switchBtn.textContent = `我 / ${plan.peerName || getSavingsContactName(plan.peerContactId)}`;
+    if (amountEl) amountEl.textContent = `¥${Number(plan.balance || 0).toFixed(2)}`;
+    if (goalEl) goalEl.textContent = `目标：¥${Number(plan.targetAmount || 0).toFixed(2)}`;
+    const bonusOn = Number(plan.activeBonusUntil || 0) > Date.now();
+    const aprText = `${Number(plan.aprBase || 0).toFixed(2)}%${bonusOn ? ` + ${Number(plan.aprBonus || 0).toFixed(2)}%` : ''} APY`;
+    if (aprEl) aprEl.textContent = aprText;
+    const pct = plan.targetAmount > 0 ? Math.min(100, (Number(plan.balance || 0) / Number(plan.targetAmount || 1)) * 100) : 0;
+    if (progressEl) progressEl.style.width = `${pct.toFixed(1)}%`;
+    if (challengeEl) {
+        if (plan.challenge && plan.challenge.enabled) {
+            const c = plan.challenge;
+            const progress = Number(c.progress || 0).toFixed(2);
+            const target = Number(c.target || 0).toFixed(2);
+            challengeEl.textContent = c.completed ? `今日挑战：已完成 (${c.title})` : `今日挑战：${c.title} (${progress}/${target})`;
+        } else {
+            challengeEl.textContent = '今日挑战：已关闭';
+        }
+    }
+    if (depositBtn) depositBtn.disabled = false;
+    if (withdrawBtn) withdrawBtn.disabled = false;
+    renderSavingsActivityList(plan);
+}
+
+window.openSavingsMoreMenu = function() {
+    const modal = document.getElementById('bank-savings-more-modal');
+    if (modal) modal.classList.remove('hidden');
+};
+
+window.openSavingsInvitePicker = function() {
+    const modal = document.getElementById('contact-picker-modal');
+    const list = document.getElementById('contact-picker-list');
+    const sendBtn = document.getElementById('contact-picker-send-btn');
+    const closeBtn = document.getElementById('close-contact-picker');
+    if (!modal || !list || !sendBtn || !closeBtn) return;
+
+    const header = modal.querySelector('.modal-header h3');
+    if (header) header.textContent = '邀请一起存钱';
+
+    const contacts = Array.isArray(window.iphoneSimState.contacts) ? window.iphoneSimState.contacts : [];
+    list.innerHTML = contacts.map((c) => `
+        <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:16px;">${c.remark || c.nickname || c.name}</span>
+            <input type="checkbox" name="savings-target" value="${c.id}" style="width:20px;height:20px;">
+        </div>
+    `).join('');
+
+    list.querySelectorAll('.list-item').forEach((item) => {
+        const input = item.querySelector('input[name="savings-target"]');
+        item.addEventListener('click', (e) => {
+            if (e.target !== input) input.checked = !input.checked;
+            list.querySelectorAll('input[name="savings-target"]').forEach((cb) => {
+                if (cb !== input) cb.checked = false;
+            });
+        });
+    });
+
+    const newSendBtn = sendBtn.cloneNode(true);
+    sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
+    newSendBtn.textContent = '发送邀请';
+    newSendBtn.onclick = () => {
+        const selected = list.querySelector('input[name="savings-target"]:checked');
+        if (!selected) {
+            alert('请选择联系人');
+            return;
+        }
+        const contactId = parseInt(selected.value, 10);
+        if (!Number.isFinite(contactId)) return;
+        const savings = ensureBankSavingsState();
+        let plan = savings.plans.find((p) => p.peerContactId === contactId && (p.status === 'active' || p.status === 'completed'));
+        if (!plan) {
+            const peerName = getSavingsContactName(contactId);
+            plan = {
+                id: `s_plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                peerContactId: contactId,
+                peerName,
+                status: 'active',
+                title: `${peerName}共同存钱`,
+                targetAmount: 50000,
+                aprBase: 2.4,
+                aprBonus: 0.3,
+                balance: 0,
+                interestAccrued: 0,
+                createdAt: Date.now(),
+                acceptedAt: Date.now(),
+                updatedAt: Date.now(),
+                lastAccrueAt: Date.now(),
+                activities: [],
+                withdrawRequests: []
+            };
+            appendSavingsActivity(plan, {
+                type: 'system',
+                actor: 'system',
+                amount: 0,
+                note: '共同存钱计划已创建'
+            });
+            savings.plans.push(plan);
+        }
+        savings.activePlanId = plan.id;
+        if (typeof sendMessage !== 'undefined') {
+            const payload = {
+                planId: plan.id,
+                title: plan.title,
+                targetAmount: plan.targetAmount,
+                aprBase: plan.aprBase,
+                fromName: '我'
+            };
+            sendMessage(JSON.stringify(payload), true, 'savings_invite', null, contactId);
+        }
+        saveConfig();
+        modal.classList.add('hidden');
+        const moreModal = document.getElementById('bank-savings-more-modal');
+        if (moreModal) moreModal.classList.add('hidden');
+        renderBankSavingsView();
+        alert('邀请已发送');
+    };
+
+    const newCloseBtn = closeBtn.cloneNode(true);
+    closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+    newCloseBtn.onclick = () => modal.classList.add('hidden');
+    modal.classList.remove('hidden');
+};
+
+window.openSavingsSwitchModal = function() {
+    const modal = document.getElementById('bank-savings-switch-modal');
+    const list = document.getElementById('bank-savings-switch-list');
+    if (!modal || !list) return;
+    const savings = ensureBankSavingsState();
+    const plans = savings.plans.filter((p) => p.status === 'active' || p.status === 'completed');
+    if (!plans.length) {
+        list.innerHTML = '<div style="text-align:center;color:#8e8e93;padding:8px 0;">暂无可切换联系人</div>';
+    } else {
+        list.innerHTML = plans.map((p) => `
+            <button class="bank-family-option" type="button" onclick="window.switchSavingsPlanByContact(${p.peerContactId})">
+                <div>
+                    <div class="bank-family-option-title">${p.peerName || getSavingsContactName(p.peerContactId)}</div>
+                    <div class="bank-family-option-desc">余额 ¥${Number(p.balance || 0).toFixed(2)} / 目标 ¥${Number(p.targetAmount || 0).toFixed(0)}</div>
+                </div>
+                <i class="fas fa-chevron-right" style="color:#999;"></i>
+            </button>
+        `).join('');
+    }
+    modal.classList.remove('hidden');
+};
+
+window.switchSavingsPlanByContact = function(contactId) {
+    const savings = ensureBankSavingsState();
+    const plan = savings.plans.find((p) => p.peerContactId === Number(contactId) && (p.status === 'active' || p.status === 'completed'));
+    if (!plan) {
+        alert('未找到该联系人的共同存钱计划');
+        return;
+    }
+    savings.activePlanId = plan.id;
+    saveConfig();
+    const modal = document.getElementById('bank-savings-switch-modal');
+    if (modal) modal.classList.add('hidden');
+    renderBankSavingsView();
+};
+
+window.openSavingsAmountModal = function(mode) {
+    const plan = getActiveSavingsPlan();
+    if (!plan) {
+        alert('请先邀请联系人建立共同存钱计划');
+        return;
+    }
+    savingsAmountModalMode = mode === 'withdraw' ? 'withdraw' : 'deposit';
+    const modal = document.getElementById('bank-savings-amount-modal');
+    const title = document.getElementById('bank-savings-amount-title');
+    const input = document.getElementById('bank-savings-amount-input');
+    if (title) title.textContent = savingsAmountModalMode === 'deposit' ? '手动输入转入金额' : '手动输入转出金额';
+    if (input) input.value = '';
+    if (modal) modal.classList.remove('hidden');
+};
+
+window.closeSavingsAmountModal = function() {
+    const modal = document.getElementById('bank-savings-amount-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+function applySavingsDeposit(plan, amount) {
+    const bank = ensureBankAppState();
+    const val = Number(amount);
+    if (!Number.isFinite(val) || val <= 0) {
+        alert('请输入有效金额');
+        return false;
+    }
+    if (Number(bank.cashBalance || 0) < val) {
+        alert('银行余额不足');
+        return false;
+    }
+    bank.cashBalance = Number((Number(bank.cashBalance || 0) - val).toFixed(2));
+    appendBankTransaction({
+        type: 'expense',
+        amount: val,
+        title: '共同存钱转入',
+        sourceApp: 'shared_savings',
+        sourceType: 'cash',
+        sourceKey: 'cash',
+        sourceLabel: '共同存钱',
+        balanceAfterCash: Number(bank.cashBalance || 0)
+    });
+    plan.balance = Number((Number(plan.balance || 0) + val).toFixed(2));
+    appendSavingsActivity(plan, {
+        type: 'deposit',
+        actor: 'me',
+        amount: val,
+        note: '我发起转入'
+    });
+    updateSavingsChallengeOnDeposit(plan, val);
+    saveConfig();
+    renderBankBalance();
+    return true;
+}
+
+function applySavingsPeerDeposit(plan, amount, note, peerContactId) {
+    const val = Number(Number(amount).toFixed(2));
+    if (!Number.isFinite(val) || val <= 0) return false;
+    if (!plan || typeof plan !== 'object') return false;
+
+    plan.balance = Number((Number(plan.balance || 0) + val).toFixed(2));
+    appendSavingsActivity(plan, {
+        type: 'deposit',
+        actor: 'peer',
+        amount: val,
+        note: note || 'TA发起转入'
+    });
+    updateSavingsChallengeOnDeposit(plan, val);
+    if (Number.isFinite(Number(peerContactId))) {
+        plan.peerContactId = Number(peerContactId);
+    }
+    saveConfig();
+    if (typeof renderBankSavingsView === 'function') {
+        renderBankSavingsView();
+    }
+    return true;
+}
+
+function createSavingsWithdrawRequest(plan, amount) {
+    const val = Number(amount);
+    if (!Number.isFinite(val) || val <= 0) {
+        alert('请输入有效金额');
+        return false;
+    }
+    if (Number(plan.balance || 0) < val) {
+        alert('共同存钱余额不足');
+        return false;
+    }
+    const req = {
+        id: `s_req_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        amount: val,
+        status: 'pending',
+        requestBy: 'me',
+        createdAt: Date.now(),
+        expireAt: Date.now() + 24 * 3600 * 1000,
+        handledAt: null
+    };
+    if (!Array.isArray(plan.withdrawRequests)) plan.withdrawRequests = [];
+    plan.withdrawRequests.unshift(req);
+    appendSavingsActivity(plan, {
+        type: 'withdraw_request',
+        actor: 'me',
+        amount: val,
+        note: '待对方确认（24小时超时）'
+    });
+    if (typeof sendMessage !== 'undefined' && Number.isFinite(Number(plan.peerContactId))) {
+        sendMessage(JSON.stringify({
+            requestId: req.id,
+            planId: plan.id,
+            amount: val
+        }), true, 'savings_withdraw_request', null, plan.peerContactId);
+    }
+    saveConfig();
+    return true;
+}
+
+window.submitSavingsAmount = function() {
+    const input = document.getElementById('bank-savings-amount-input');
+    const plan = getActiveSavingsPlan();
+    if (!input || !plan) return;
+    const amount = Number(input.value);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        alert('请输入有效金额');
+        return;
+    }
+    const normalized = Number(amount.toFixed(2));
+    const ok = savingsAmountModalMode === 'withdraw'
+        ? createSavingsWithdrawRequest(plan, normalized)
+        : applySavingsDeposit(plan, normalized);
+    if (!ok) return;
+    window.closeSavingsAmountModal();
+    renderBankSavingsView();
+};
+
+window.openSavingsChallengeSettings = function() {
+    const savings = ensureBankSavingsState();
+    const modal = document.getElementById('bank-savings-challenge-modal');
+    const enabledEl = document.getElementById('bank-savings-challenge-enabled');
+    const levelEl = document.getElementById('bank-savings-challenge-level');
+    if (enabledEl) enabledEl.checked = savings.challengeSettings.enabled !== false;
+    if (levelEl) levelEl.value = savings.challengeSettings.level || 'normal';
+    if (modal) modal.classList.remove('hidden');
+};
+
+window.saveSavingsChallengeSettings = function() {
+    const savings = ensureBankSavingsState();
+    const enabledEl = document.getElementById('bank-savings-challenge-enabled');
+    const levelEl = document.getElementById('bank-savings-challenge-level');
+    savings.challengeSettings.enabled = !!(enabledEl && enabledEl.checked);
+    savings.challengeSettings.level = levelEl ? levelEl.value : 'normal';
+    if (!['easy', 'normal', 'hard'].includes(savings.challengeSettings.level)) {
+        savings.challengeSettings.level = 'normal';
+    }
+    const plan = getActiveSavingsPlan();
+    if (plan) refreshSavingsChallenges(plan);
+    saveConfig();
+    const modal = document.getElementById('bank-savings-challenge-modal');
+    if (modal) modal.classList.add('hidden');
+    renderBankSavingsView();
+};
 
 function getMonthKey(date = new Date()) {
     const y = date.getFullYear();
@@ -2934,13 +3547,18 @@ window.renderBankStatementView = function() {
 
 function setBankNavTab(tab) {
     const homeBtn = document.getElementById('bank-nav-home');
+    const savingsBtn = document.getElementById('bank-nav-savings');
     const historyBtn = document.getElementById('bank-nav-history');
     const mainView = document.querySelector('#bank-app > .bank-v2-scroll');
+    const savingsView = document.getElementById('bank-savings-view');
     const statementView = document.getElementById('bank-statement-view');
     if (homeBtn) homeBtn.classList.toggle('active', tab === 'home');
+    if (savingsBtn) savingsBtn.classList.toggle('active', tab === 'savings');
     if (historyBtn) historyBtn.classList.toggle('active', tab === 'history');
     if (mainView) mainView.classList.toggle('hidden', tab !== 'home');
+    if (savingsView) savingsView.classList.toggle('hidden', tab !== 'savings');
     if (statementView) statementView.classList.toggle('hidden', tab !== 'history');
+    if (tab === 'savings') renderBankSavingsView();
     if (tab === 'history' && window.renderBankStatementView) window.renderBankStatementView();
 }
 
@@ -2980,9 +3598,61 @@ window.initBankAppView = function() {
         historyBtn.addEventListener('click', () => setBankNavTab('history'));
         historyBtn.dataset.boundClick = '1';
     }
+    const savingsBtn = document.getElementById('bank-nav-savings');
+    if (savingsBtn && !savingsBtn.dataset.boundClick) {
+        savingsBtn.addEventListener('click', () => setBankNavTab('savings'));
+        savingsBtn.dataset.boundClick = '1';
+    }
+
+    const savingsMoreBtn = document.getElementById('bank-savings-more-btn');
+    if (savingsMoreBtn && !savingsMoreBtn.dataset.boundClick) {
+        savingsMoreBtn.addEventListener('click', () => window.openSavingsMoreMenu());
+        savingsMoreBtn.dataset.boundClick = '1';
+    }
+    const savingsInviteBtn = document.getElementById('bank-savings-invite-btn');
+    if (savingsInviteBtn && !savingsInviteBtn.dataset.boundClick) {
+        savingsInviteBtn.addEventListener('click', () => window.openSavingsInvitePicker());
+        savingsInviteBtn.dataset.boundClick = '1';
+    }
+    const savingsChallengeBtn = document.getElementById('bank-savings-challenge-btn');
+    if (savingsChallengeBtn && !savingsChallengeBtn.dataset.boundClick) {
+        savingsChallengeBtn.addEventListener('click', () => {
+            const moreModal = document.getElementById('bank-savings-more-modal');
+            if (moreModal) moreModal.classList.add('hidden');
+            window.openSavingsChallengeSettings();
+        });
+        savingsChallengeBtn.dataset.boundClick = '1';
+    }
+    const switchBtn = document.getElementById('bank-savings-switch-btn');
+    if (switchBtn && !switchBtn.dataset.boundClick) {
+        switchBtn.addEventListener('click', () => window.openSavingsSwitchModal());
+        switchBtn.dataset.boundClick = '1';
+    }
+    const depositBtn = document.getElementById('bank-savings-deposit-btn');
+    if (depositBtn && !depositBtn.dataset.boundClick) {
+        depositBtn.addEventListener('click', () => window.openSavingsAmountModal('deposit'));
+        depositBtn.dataset.boundClick = '1';
+    }
+    const withdrawBtn = document.getElementById('bank-savings-withdraw-btn');
+    if (withdrawBtn && !withdrawBtn.dataset.boundClick) {
+        withdrawBtn.addEventListener('click', () => window.openSavingsAmountModal('withdraw'));
+        withdrawBtn.dataset.boundClick = '1';
+    }
+    const amountConfirmBtn = document.getElementById('bank-savings-amount-confirm-btn');
+    if (amountConfirmBtn && !amountConfirmBtn.dataset.boundClick) {
+        amountConfirmBtn.addEventListener('click', () => window.submitSavingsAmount());
+        amountConfirmBtn.dataset.boundClick = '1';
+    }
+    const challengeSaveBtn = document.getElementById('bank-savings-challenge-save-btn');
+    if (challengeSaveBtn && !challengeSaveBtn.dataset.boundClick) {
+        challengeSaveBtn.addEventListener('click', () => window.saveSavingsChallengeSettings());
+        challengeSaveBtn.dataset.boundClick = '1';
+    }
 
     const fundingModal = document.getElementById('bank-funding-source-modal');
     if (fundingModal) ensureBankFundingModalMounted();
+    ensureBankSavingsState();
+    renderBankSavingsView();
 };
 
 window.ensureBankAppState = ensureBankAppState;
@@ -2993,6 +3663,8 @@ window.selectBankFundingSource = selectBankFundingSource;
 window.applyBankDebit = applyBankDebit;
 window.applyBankCredit = applyBankCredit;
 window.appendBankTransaction = appendBankTransaction;
+window.ensureBankSavingsState = ensureBankSavingsState;
+window.renderBankSavingsView = renderBankSavingsView;
 
 window.handleFamilyCardDecisionAction = function(payload, contactId, options = {}) {
     const pending = findLatestPendingFamilyCard(contactId);
@@ -3357,7 +4029,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     let extraClass = '';
-    const cardTypes = ['transfer', 'family_card', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share'];
+    const cardTypes = ['transfer', 'family_card', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
     }
@@ -3452,6 +4124,54 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 ${remarkHtml}
                 <div style="padding: 2px 12px; border-top: 1px solid #f5f5f5; text-align: right; line-height: 1;">
                      <span style="font-size: 12px; color: #999;">已发送</span>
+                </div>
+            </div>
+        `;
+    } else if (type === 'savings_invite') {
+        extraClass += ' savings-invite-msg';
+        let inviteData = {};
+        try {
+            inviteData = typeof text === 'string' ? JSON.parse(text) : text;
+        } catch (e) {}
+        const targetAmount = Number(inviteData.targetAmount || 0).toFixed(2);
+        const apr = Number(inviteData.aprBase || 0).toFixed(2);
+        contentHtml = `
+            <div style="background:#fff;border-radius:12px;overflow:hidden;width:240px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                <div style="background:#111;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">共同存钱邀请</div>
+                <div style="padding:10px 12px;font-size:13px;color:#333;line-height:1.45;">
+                    <div>计划：${inviteData.title || '共同存钱计划'}</div>
+                    <div>目标：¥${targetAmount}</div>
+                    <div>基础年化：${apr}%</div>
+                    <div style="margin-top:6px;color:#666;">已邀请你一起存钱</div>
+                </div>
+            </div>
+        `;
+    } else if (type === 'savings_withdraw_request') {
+        extraClass += ' savings-withdraw-msg';
+        let reqData = {};
+        try {
+            reqData = typeof text === 'string' ? JSON.parse(text) : text;
+        } catch (e) {}
+        contentHtml = `
+            <div style="background:#fff;border-radius:12px;overflow:hidden;width:240px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                <div style="background:#333;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">共同存钱转出申请</div>
+                <div style="padding:10px 12px;font-size:13px;color:#333;line-height:1.45;">
+                    <div>金额：¥${Number(reqData.amount || 0).toFixed(2)}</div>
+                    <div>状态：待确认（24小时）</div>
+                </div>
+            </div>
+        `;
+    } else if (type === 'savings_progress') {
+        extraClass += ' savings-progress-msg';
+        let pData = {};
+        try {
+            pData = typeof text === 'string' ? JSON.parse(text) : text;
+        } catch (e) {}
+        contentHtml = `
+            <div style="background:#fff;border-radius:12px;overflow:hidden;width:240px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                <div style="background:#111;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">共同存钱进度</div>
+                <div style="padding:10px 12px;font-size:13px;color:#333;line-height:1.45;">
+                    <div>${pData.text || '计划有新进展'}</div>
                 </div>
             </div>
         `;
@@ -4831,6 +5551,7 @@ ${contact.showThought ? `
 - 亲属卡决策 -> command: "FAMILY_CARD_DECISION", payload: "cardId | 同意/拒绝 | 月额度数字"
   *规则*：同意时必须给出月额度；拒绝时额度可留空或0。
 - 支付代付请求 -> command: "PAY_FOR_REQUEST", payload: "requestId" (当用户发送了代付请求时，你可以选择帮他支付。requestId在代付消息的JSON中)
+- 共同存钱转入 -> command: "SAVINGS_DEPOSIT", payload: "金额 | 备注(可选)" (例如 "200 | 这周一起攒")
 - 送礼物给用户 -> command: "SEND_GIFT", payload: "物品名称 | 价格 | 备注" (例如 "一束鲜花 | 52.0 | 节日快乐")
 - 点外卖给用户 -> command: "SEND_DELIVERY", payload: "餐品名称 | 价格 | 备注" (例如 "炸鸡啤酒 | 35.0 | 趁热吃")
 - 引用回复 -> command: "QUOTE_MESSAGE", payload: "消息内容摘要"
@@ -5130,6 +5851,18 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 const recipient = (giftData.recipientName || giftData.recipientText) ? `，收货人：${giftData.recipientName || giftData.recipientText}` : '';
                 const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
                 return { role: h.role, content: `${quotePrefix}[送出礼物：${items}，总价值：${amount}元${recipient}${payMethod}] (这是我在购物APP购买并送给你的)` };
+            } else if (h.type === 'savings_invite') {
+                let inviteData = {};
+                try {
+                    inviteData = typeof content === 'string' ? JSON.parse(content) : content;
+                } catch(e) {}
+                return { role: h.role, content: `${quotePrefix}[共同存钱邀请: 计划${inviteData.title || '共同存钱计划'}，目标¥${Number(inviteData.targetAmount || 0).toFixed(2)}，基础年化${Number(inviteData.aprBase || 0).toFixed(2)}%]` };
+            } else if (h.type === 'savings_withdraw_request') {
+                let reqData = {};
+                try {
+                    reqData = typeof content === 'string' ? JSON.parse(content) : content;
+                } catch(e) {}
+                return { role: h.role, content: `${quotePrefix}[共同存钱转出申请: 金额¥${Number(reqData.amount || 0).toFixed(2)}，状态待确认]` };
             } else if (h.type === 'icity_card') {
                 let cardData = {};
                 try {
@@ -5331,6 +6064,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         const returnTransferRegex = /ACTION:\s*RETURN_TRANSFER:\s*(\d+)(?:\n|$)/;
         const familyCardDecisionRegex = /ACTION:\s*FAMILY_CARD_DECISION:\s*(.*?)(?:\n|$)/;
         const payForRequestRegex = /ACTION:\s*PAY_FOR_REQUEST:\s*(.*?)(?:\n|$)/;
+        const savingsDepositRegex = /ACTION:\s*SAVINGS_DEPOSIT:\s*(.*?)(?:\n|$)/;
         const sendGiftRegex = /ACTION:\s*SEND_GIFT:\s*(.*?)(?:\n|$)/;
         const sendDeliveryRegex = /ACTION:\s*SEND_DELIVERY:\s*(.*?)(?:\n|$)/;
         const updateNameRegex = /ACTION:\s*UPDATE_NAME:\s*(.*?)(?:\n|$)/;
@@ -5352,6 +6086,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         let hasUpdatedWxid = false;
         let hasUpdatedSignature = false;
         let hasFamilyCardDecision = false;
+        let hasShownSavingsPlanMissingToast = false;
 
         for (let i = 0; i < actions.length; i++) {
             let segment = actions[i];
@@ -5795,6 +6530,42 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 processedSegment = processedSegment.replace(payForRequestMatch[0], '');
             }
 
+            let savingsDepositMatch;
+            while ((savingsDepositMatch = processedSegment.match(savingsDepositRegex)) !== null) {
+                const payloadRaw = (savingsDepositMatch[1] || '').trim();
+                const parts = payloadRaw.split('|').map(s => s.trim());
+                const amountRaw = parts[0] || '';
+                const note = parts.slice(1).join(' | ');
+                const validAmount = /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(amountRaw);
+                const amount = validAmount ? Number(amountRaw) : NaN;
+
+                if (!Number.isFinite(amount) || amount <= 0) {
+                    processedSegment = processedSegment.replace(savingsDepositMatch[0], '');
+                    continue;
+                }
+
+                const plan = getSavingsPlanByPeerContactId(contact.id);
+                if (!plan) {
+                    if (!hasShownSavingsPlanMissingToast && window.showChatToast) {
+                        showChatToast('未找到该联系人的共同存钱计划');
+                        hasShownSavingsPlanMissingToast = true;
+                    }
+                    processedSegment = processedSegment.replace(savingsDepositMatch[0], '');
+                    continue;
+                }
+
+                const normalizedAmount = Number(amount.toFixed(2));
+                const handled = applySavingsPeerDeposit(plan, normalizedAmount, note, contact.id);
+                if (handled && typeof sendMessage !== 'undefined') {
+                    const noteText = note ? `（备注：${note}）` : '';
+                    const systemNotice = `[系统消息]: 对方往共同存钱转入了¥${normalizedAmount.toFixed(2)}${noteText}`;
+                    setTimeout(() => {
+                        sendMessage(systemNotice, false, 'text', null, contact.id);
+                    }, 800);
+                }
+                processedSegment = processedSegment.replace(savingsDepositMatch[0], '');
+            }
+
             let sendGiftMatch;
             while ((sendGiftMatch = processedSegment.match(sendGiftRegex)) !== null) {
                 const payload = sendGiftMatch[1].trim();
@@ -5912,6 +6683,9 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                         else if (msg.type === '图片') notifContent = '[图片]';
                         else if (msg.type === '语音') notifContent = '[语音]';
                         else if (msg.type === 'family_card') notifContent = '[亲属卡]';
+                        else if (msg.type === 'savings_invite') notifContent = '[共同存钱邀请]';
+                        else if (msg.type === 'savings_withdraw_request') notifContent = '[共同存钱转出申请]';
+                        else if (msg.type === 'savings_progress') notifContent = '[共同存钱进度]';
                         else if (msg.type === 'virtual_image') notifContent = '[图片]';
                         else if (msg.type === 'sticker') notifContent = '[表情包]';
                     
@@ -6151,6 +6925,9 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 if (typeToSave === 'virtual_image' || typeToSave === 'image') notificationText = '[图片]';
                 if (typeToSave === 'voice') notificationText = '[语音]';
                 if (typeToSave === 'family_card') notificationText = '[亲属卡]';
+                if (typeToSave === 'savings_invite') notificationText = '[共同存钱邀请]';
+                if (typeToSave === 'savings_withdraw_request') notificationText = '[共同存钱转出申请]';
+                if (typeToSave === 'savings_progress') notificationText = '[共同存钱进度]';
                 
                 showChatNotification(contact.id, notificationText);
                 
