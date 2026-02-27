@@ -3383,16 +3383,24 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     } else if (type === 'gift_card') {
         extraClass += ' gift-card-msg';
         let giftData = typeof text === 'string' ? JSON.parse(text) : text;
+        const paymentAmount = giftData.paymentAmount || giftData.price || '0.00';
+        const recipientName = giftData.recipientName || '';
+        const paymentMethodLabel = giftData.paymentMethodLabel || '';
         contentHtml = `
-            <div class="gift-card" style="background: #fff; border-radius: 8px; padding: 12px 12px 10px 12px; width: 220px; height: 110px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-top: -45px; display: flex; flex-direction: column; justify-content: space-between;">
+            <div class="gift-card" style="background: #fff; border-radius: 8px; padding: 12px 12px 10px 12px; width: 230px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-top: -45px; display: flex; flex-direction: column; justify-content: space-between;">
                 <div style="display: flex; gap: 10px;">
                     <div style="width: 50px; height: 50px; border-radius: 4px; background: #FFDA44; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                         <i class="fas fa-gift" style="font-size: 24px; color: #333;"></i>
                     </div>
                     <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start;">
                         <div style="font-size: 14px; font-weight: bold; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4;">${giftData.title}</div>
-                        <div style="font-size: 14px; color: #000000; font-weight: bold; margin-top: 4px;">¥${giftData.price}</div>
+                        <div style="font-size: 14px; color: #000000; font-weight: bold; margin-top: 4px;">¥${paymentAmount}</div>
                     </div>
+                </div>
+                <div style="margin-top: 6px; font-size: 12px; color: #666; line-height: 1.45;">
+                    <div>金额：¥${paymentAmount}</div>
+                    ${recipientName ? `<div>收货人：${recipientName}</div>` : ''}
+                    ${paymentMethodLabel ? `<div>支付方式：${paymentMethodLabel}</div>` : ''}
                 </div>
                 <div style="border-top: 1px solid #f0f0f0; padding-top: 8px; font-size: 12px; color: #666; display: flex; align-items: center;">
                     <i class="fas fa-heart" style="color: #FF3B30; margin-right: 5px;"></i> 
@@ -3409,8 +3417,9 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         
         const itemCount = giftData.items ? giftData.items.length : 0;
         const firstItem = itemCount > 0 ? giftData.items[0] : { title: '礼物', image: '' };
-        const total = giftData.total || '0.00';
-        const recipientText = giftData.recipientText || '';
+        const total = giftData.total || giftData.paymentAmount || '0.00';
+        const recipientText = giftData.recipientName || giftData.recipientText || '';
+        const paymentMethodLabel = giftData.paymentMethodLabel || '';
         const itemNames = (giftData.items || []).map(i => {
             const count = Number(i.count || 1);
             return `${i.title}${count > 1 ? ` x${count}` : ''}`;
@@ -3437,7 +3446,8 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 <div style="padding: 8px 12px 0; font-size: 12px; color: #666; line-height: 1.4;">
                     <div>商品：${itemNamesText}</div>
                     <div>金额：¥${total}</div>
-                    ${recipientText ? `<div>送给：${recipientText}</div>` : ''}
+                    ${recipientText ? `<div>收货人：${recipientText}</div>` : ''}
+                    ${paymentMethodLabel ? `<div>支付方式：${paymentMethodLabel}</div>` : ''}
                 </div>
                 ${remarkHtml}
                 <div style="padding: 2px 12px; border-top: 1px solid #f5f5f5; text-align: right; line-height: 1;">
@@ -5106,14 +5116,20 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 } catch(e) {
                     giftData = { title: '礼物', price: '0' };
                 }
-                return { role: h.role, content: `${quotePrefix}[送出礼物：${giftData.title}，价值：${giftData.price}元] (这是我在闲鱼上看到你收藏的商品，特意买来送给你的)` };
+                const amount = giftData.paymentAmount || giftData.price || '0';
+                const recipient = giftData.recipientName ? `，收货人：${giftData.recipientName}` : '';
+                const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
+                return { role: h.role, content: `${quotePrefix}[送出礼物：${giftData.title}，金额：${amount}元${recipient}${payMethod}] (这是我在闲鱼上看到你收藏的商品，特意买来送给你的)` };
             } else if (h.type === 'shopping_gift') {
                 let giftData = {};
                 try {
                     giftData = typeof content === 'string' ? JSON.parse(content) : content;
                 } catch(e) {}
                 const items = giftData.items ? giftData.items.map(i => i.title).join(', ') : '礼物';
-                return { role: h.role, content: `${quotePrefix}[送出礼物：${items}，总价值：${giftData.total}元] (这是我在购物APP购买并送给你的)` };
+                const amount = giftData.paymentAmount || giftData.total || '0';
+                const recipient = (giftData.recipientName || giftData.recipientText) ? `，收货人：${giftData.recipientName || giftData.recipientText}` : '';
+                const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
+                return { role: h.role, content: `${quotePrefix}[送出礼物：${items}，总价值：${amount}元${recipient}${payMethod}] (这是我在购物APP购买并送给你的)` };
             } else if (h.type === 'icity_card') {
                 let cardData = {};
                 try {

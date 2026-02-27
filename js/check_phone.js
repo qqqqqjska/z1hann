@@ -4097,6 +4097,16 @@ function enhanceXianyuMessagesList() {
     });
 }
 
+let lastXianyuPaymentMeta = null;
+
+function mapXianyuPaymentError(reason) {
+    if (reason === 'wallet_insufficient') return '微信余额不足';
+    if (reason === 'bank_cash_insufficient') return '银行卡余额不足';
+    if (reason === 'family_card_insufficient') return '亲属卡额度不足';
+    if (reason === 'cancelled') return '';
+    return '支付失败，请稍后重试';
+}
+
 // 处理闲鱼购买逻辑
 window.handleXianyuPurchase = function(item) {
     console.log('立即购买按钮被点击，商品信息:', item);
@@ -4121,12 +4131,6 @@ window.handleXianyuPurchase = function(item) {
     if (isNaN(price)) {
         console.error('价格解析失败:', item.price);
         alert('商品价格无效');
-        return;
-    }
-    
-    if (window.iphoneSimState.wallet.balance < price) {
-        console.log('余额不足，当前余额:', window.iphoneSimState.wallet.balance, '需要:', price);
-        alert(`余额不足，当前余额: ¥${window.iphoneSimState.wallet.balance.toFixed(2)}，需要: ¥${price.toFixed(2)}\n请去微信-我-钱包充值`);
         return;
     }
     
@@ -4194,17 +4198,32 @@ function showXianyuPaymentModal(item, price) {
     console.log('强制设置display:flex后的样式:', modal.style.cssText);
 }
 
-function handleXianyuPaymentConfirm(item, price) {
-    // Deduct balance
-    window.iphoneSimState.wallet.balance -= price;
-    window.iphoneSimState.wallet.transactions.unshift({
-        id: Date.now(),
-        type: 'expense',
+async function handleXianyuPaymentConfirm(item, price) {
+    if (!window.resolvePurchasePayment) {
+        alert('支付能力不可用');
+        return;
+    }
+
+    const contact = currentCheckPhoneContactId
+        ? window.iphoneSimState.contacts.find(c => c.id === currentCheckPhoneContactId)
+        : null;
+    const recipientName = contact ? (contact.remark || contact.name || `联系人${currentCheckPhoneContactId}`) : '当前联系人';
+    const payResult = await window.resolvePurchasePayment({
         amount: price,
-        title: '闲鱼购物',
-        time: Date.now(),
-        relatedId: null
+        scene: 'xianyu_favorite',
+        itemSummary: `闲鱼收藏代购(收货人: ${recipientName}): ${item.title || '商品'}`
     });
+    if (!payResult || !payResult.ok) {
+        const msg = mapXianyuPaymentError(payResult && payResult.reason);
+        if (msg) alert(msg);
+        return;
+    }
+
+    lastXianyuPaymentMeta = {
+        paymentAmount: Number(price).toFixed(2),
+        paymentMethodLabel: payResult.sourceLabel || (payResult.method === 'wallet' ? '微信余额' : (payResult.method === 'bank_cash' ? '银行卡余额' : '亲属卡')),
+        recipientName
+    };
 
     // Update item status to "Sold Out"
     if (currentCheckPhoneContactId) {
@@ -4272,7 +4291,7 @@ function showXianyuPurchaseSuccessModal(item) {
     const tellBtn = document.getElementById('xianyu-tell-ta-btn');
     if (tellBtn) {
         tellBtn.onclick = () => {
-            notifyContactAboutGift(item);
+            notifyContactAboutGift(item, lastXianyuPaymentMeta || {});
             modal.classList.add('hidden');
         };
     }
@@ -4288,7 +4307,7 @@ function showXianyuPurchaseSuccessModal(item) {
     modal.classList.remove('hidden');
 }
 
-function notifyContactAboutGift(item) {
+function notifyContactAboutGift(item, paymentMeta = {}) {
     console.log('告诉TA功能被调用，商品:', item, '联系人ID:', currentCheckPhoneContactId);
     if (!currentCheckPhoneContactId) {
         console.error('没有当前联系人ID');
@@ -4317,7 +4336,10 @@ function notifyContactAboutGift(item) {
         setTimeout(() => {
             const giftData = {
                 title: item.title,
-                price: item.price
+                price: item.price,
+                recipientName: paymentMeta.recipientName || (contact.remark || contact.name),
+                paymentAmount: paymentMeta.paymentAmount || item.price,
+                paymentMethodLabel: paymentMeta.paymentMethodLabel || ''
             };
             // Send as 'gift_card' type
             if (window.sendMessage) {
