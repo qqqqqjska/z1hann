@@ -4063,13 +4063,13 @@ ${hostModeExtra}
                 </div>
 
                 <div class="forum-wallet-actions">
-                    <button class="forum-wallet-action-btn" type="button">
+                    <button id="forum-wallet-recharge-btn" class="forum-wallet-action-btn" type="button">
                         <div class="forum-wallet-icon-box"><i class="fa-solid fa-arrow-up"></i></div>
-                        <span>Send</span>
+                        <span>充值</span>
                     </button>
-                    <button class="forum-wallet-action-btn" type="button">
+                    <button id="forum-wallet-withdraw-btn" class="forum-wallet-action-btn" type="button">
                         <div class="forum-wallet-icon-box"><i class="fa-solid fa-arrow-down"></i></div>
-                        <span>Receive</span>
+                        <span>提现</span>
                     </button>
                     <button class="forum-wallet-action-btn" type="button">
                         <div class="forum-wallet-icon-box"><i class="fa-solid fa-qrcode"></i></div>
@@ -4090,6 +4090,141 @@ ${hostModeExtra}
                 </div>
             </div>
         `;
+    }
+
+    function openForumWalletAmountModal(mode, onConfirm) {
+        const isRecharge = mode === 'recharge';
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.zIndex = '360';
+        modal.style.alignItems = 'center';
+        modal.innerHTML = `
+            <div class="modal-content" style="height:auto;border-radius:12px;width:85%;max-width:320px;background-color:#fff;">
+                <div class="modal-header" style="border-bottom:none;padding-bottom:0;">
+                    <h3 style="width:100%;text-align:center;color:#000;">${isRecharge ? '论坛钱包充值' : '论坛钱包提现'}</h3>
+                    <button class="close-btn" style="position:absolute;right:15px;">&times;</button>
+                </div>
+                <div class="modal-body" style="padding:20px;">
+                    <div class="setting-group">
+                        <label>${isRecharge ? '充值金额' : '提现金额'}</label>
+                        <div style="display:flex;align-items:center;border-bottom:1px solid #eee;padding-bottom:5px;">
+                            <span style="font-size:24px;font-weight:bold;color:#000;">¥</span>
+                            <input type="number" id="forum-wallet-amount-input" placeholder="0.00" style="border:none;font-size:24px;font-weight:bold;width:100%;background:transparent;outline:none;color:#000;">
+                        </div>
+                    </div>
+                    <button id="forum-wallet-amount-confirm-btn" class="ios-btn-block" style="margin-top:20px;background-color:#000;">确认</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        const close = () => modal.remove();
+        const closeBtn = modal.querySelector('.close-btn');
+        const confirmBtn = modal.querySelector('#forum-wallet-amount-confirm-btn');
+        const input = modal.querySelector('#forum-wallet-amount-input');
+        if (closeBtn) closeBtn.addEventListener('click', close);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) close();
+        });
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', () => {
+                const amount = Number(input ? input.value : '');
+                if (!Number.isFinite(amount) || amount <= 0) {
+                    alert('请输入有效金额');
+                    return;
+                }
+                close();
+                onConfirm(amount);
+            });
+        }
+        if (input) {
+            input.focus();
+            input.value = '';
+        }
+    }
+
+    function handleForumWalletRecharge() {
+        ensureForumWalletInitialized();
+        openForumWalletAmountModal('recharge', (amount) => {
+            if (typeof window.ensureFamilyQuotaMonthReset === 'function') {
+                window.ensureFamilyQuotaMonthReset(false);
+            }
+            if (typeof window.selectBankFundingSource !== 'function' || typeof window.applyBankDebit !== 'function') {
+                alert('银行资金功能不可用');
+                return;
+            }
+            window.selectBankFundingSource({ amount }).then((source) => {
+                const debitResult = window.applyBankDebit(amount, source);
+                if (!debitResult.ok) {
+                    alert(debitResult.message || '扣款失败');
+                    return;
+                }
+                const wallet = getForumWalletState();
+                wallet.balance = Number((Number(wallet.balance || 0) + amount).toFixed(2));
+                wallet.transactions.unshift({
+                    id: Date.now(),
+                    title: 'Wallet Top-up from Bank',
+                    timeText: 'Just now',
+                    amount: amount,
+                    type: 'positive',
+                    iconType: 'income',
+                    iconSvg: getWalletTxIconSvg('income')
+                });
+                if (wallet.transactions.length > 30) wallet.transactions = wallet.transactions.slice(0, 30);
+                if (typeof window.appendBankTransaction === 'function') {
+                    window.appendBankTransaction({
+                        type: 'expense',
+                        amount,
+                        title: '转出到论坛钱包',
+                        sourceApp: 'forum_wallet',
+                        sourceType: source.type === 'family_card' ? 'family_card' : 'cash',
+                        sourceKey: source.key,
+                        sourceLabel: source.label
+                    });
+                }
+                saveForumWalletState();
+                if (window.saveConfig) window.saveConfig();
+                if (window.renderBankBalance) window.renderBankBalance();
+                if (window.renderBankStatementView) window.renderBankStatementView();
+                if (forumState.activeTab === 'forum_wallet') renderForum(false);
+            }).catch(() => {});
+        });
+    }
+
+    function handleForumWalletWithdraw() {
+        ensureForumWalletInitialized();
+        openForumWalletAmountModal('withdraw', (amount) => {
+            if (typeof window.ensureFamilyQuotaMonthReset === 'function') {
+                window.ensureFamilyQuotaMonthReset(false);
+            }
+            const wallet = getForumWalletState();
+            if (Number(wallet.balance || 0) < amount) {
+                alert('论坛钱包余额不足');
+                return;
+            }
+            wallet.balance = Number((Number(wallet.balance || 0) - amount).toFixed(2));
+            wallet.transactions.unshift({
+                id: Date.now(),
+                title: 'Withdraw to Bank',
+                timeText: 'Just now',
+                amount: amount,
+                type: 'negative',
+                iconType: 'expense',
+                iconSvg: getWalletTxIconSvg('expense')
+            });
+            if (wallet.transactions.length > 30) wallet.transactions = wallet.transactions.slice(0, 30);
+            if (typeof window.applyBankCredit === 'function') {
+                window.applyBankCredit(amount, '来自论坛钱包提现', {
+                    sourceApp: 'forum_wallet',
+                    sourceType: 'cash',
+                    sourceLabel: '论坛钱包'
+                });
+            }
+            saveForumWalletState();
+            if (window.saveConfig) window.saveConfig();
+            if (window.renderBankBalance) window.renderBankBalance();
+            if (window.renderBankStatementView) window.renderBankStatementView();
+            if (forumState.activeTab === 'forum_wallet') renderForum(false);
+        });
     }
 
     function applyWalletGiftExpense(totalValue, giftName, count, giftEmoji) {
@@ -6338,6 +6473,18 @@ ${hostModeExtra}
             forumWalletBackBtn.addEventListener('click', () => {
                 forumState.activeTab = 'profile';
                 renderForum();
+            });
+        }
+        const forumWalletRechargeBtn = document.getElementById('forum-wallet-recharge-btn');
+        if (forumWalletRechargeBtn) {
+            forumWalletRechargeBtn.addEventListener('click', () => {
+                handleForumWalletRecharge();
+            });
+        }
+        const forumWalletWithdrawBtn = document.getElementById('forum-wallet-withdraw-btn');
+        if (forumWalletWithdrawBtn) {
+            forumWalletWithdrawBtn.addEventListener('click', () => {
+                handleForumWalletWithdraw();
             });
         }
 

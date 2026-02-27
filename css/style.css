@@ -3464,6 +3464,133 @@ input:checked + .slider:before {
     align-self: flex-start;
 }
 
+/* Family card in chat uses the exact black bank card layout */
+.chat-bank-v2-card {
+    width: 280px;
+    height: 170px;
+    border-radius: 24px;
+    padding: 14px 22px 22px;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+    background: #111;
+    box-sizing: border-box;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.chat-bank-v2-decor {
+    position: absolute;
+    right: 20px;
+    top: 42%;
+    transform: translateY(-50%);
+    font-size: 78px;
+    color: rgba(255, 255, 255, 0.1);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.chat-bank-v2-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    position: relative;
+    z-index: 1;
+}
+
+.chat-bank-v2-card.chat-bank-v2-card-light {
+    background: #ffffff;
+    color: #000;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+    border: 1px solid #d8d8dc;
+}
+
+.chat-bank-v2-card.chat-bank-v2-card-light .chat-bank-v2-decor {
+    color: rgba(0, 0, 0, 0.12);
+}
+
+.chat-bank-v2-card-title {
+    font-size: 18px;
+    font-weight: 600;
+    font-style: italic;
+    line-height: 1.1;
+    margin-top: -80px;
+    position: relative;
+    z-index: 1;
+}
+
+.chat-bank-v2-chip {
+    width: 40px;
+    height: 28px;
+    border-radius: 6px;
+    margin-top: -50px;
+    background: linear-gradient(135deg, #f4f4f4, #9f9f9f);
+    position: relative;
+    z-index: 1;
+}
+
+.chat-bank-v2-card.chat-bank-v2-card-light .chat-bank-v2-chip {
+    background: linear-gradient(135deg, #fff, #ccc);
+}
+
+.chat-bank-v2-card-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: 0;
+    position: relative;
+    z-index: 1;
+}
+
+.chat-bank-v2-card-num {
+    font-family: "Courier New", monospace;
+    font-size: 15px;
+    letter-spacing: 2px;
+    line-height: 1;
+    position: relative;
+    z-index: 1;
+}
+
+.chat-bank-v2-card-info i {
+    font-size: 20px;
+    color: #fff;
+    line-height: 1;
+    position: relative;
+    z-index: 1;
+}
+
+.chat-bank-v2-card.chat-bank-v2-card-light .chat-bank-v2-card-info i {
+    color: #000;
+}
+
+.chat-bank-v2-status-check {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: -80px;
+    position: relative;
+    z-index: 1;
+}
+
+.chat-bank-v2-status-check i {
+    font-size: 9px;
+    line-height: 1;
+}
+
+.chat-bank-v2-card.chat-bank-v2-card-light .chat-bank-v2-status-check {
+    background: rgba(0, 0, 0, 0.35);
+    border-color: rgba(0, 0, 0, 0.4);
+}
+
 /* Specific Card Dimensions */
 .order-share-card {
     width: 240px !important;
@@ -5734,4 +5861,310 @@ html body .chat-message.user .voice-icon-box i { transform: rotate(-90deg); }
 .tod-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* Bank app (wallet_v2 style) */
+.bank-v2-screen {
+    background: #ffffff;
+    color: #000000;
+    z-index: 180;
+    display: flex;
+    flex-direction: column;
+}
+
+.bank-v2-top-nav {
+    padding: max(46px, env(safe-area-inset-top)) 24px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.bank-v2-icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid #e5e5ea;
+    background: #ffffff;
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+}
+
+.bank-v2-icon-btn:active {
+    background: #f2f2f7;
+    transform: scale(0.92);
+}
+
+.bank-v2-content {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 120px;
+}
+
+.bank-v2-balance-section {
+    padding: 20px 24px;
+    text-align: center;
+}
+
+.bank-v2-balance-label {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: #8e8e93;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.bank-v2-balance-amount {
+    font-size: 54px;
+    font-weight: 700;
+    letter-spacing: -2px;
+    line-height: 1;
+}
+
+.bank-v2-balance-amount span {
+    color: #8e8e93;
+    font-weight: 400;
+}
+
+.bank-v2-cards-container {
+    padding: 20px 0 20px 24px;
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.bank-v2-cards-container::-webkit-scrollbar {
+    display: none;
+}
+
+.bank-v2-credit-card {
+    min-width: 280px;
+    height: 170px;
+    border-radius: 24px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 15px 25px rgba(0, 0, 0, 0.16);
+}
+
+.bank-v2-credit-card-dark {
+    background: #000;
+    color: #fff;
+}
+
+.bank-v2-credit-card-dark::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 60%);
+    transform: rotate(30deg);
+}
+
+.bank-v2-credit-card-light {
+    background: #e5e5ea;
+    color: #000;
+    border: 1px solid #d1d1d6;
+    box-shadow: none;
+}
+
+.bank-v2-card-type {
+    font-size: 18px;
+    font-weight: 600;
+    font-style: italic;
+    letter-spacing: 1px;
+}
+
+.bank-v2-card-chip {
+    width: 40px;
+    height: 28px;
+    background: linear-gradient(135deg, #e0e0e0, #9e9e9e);
+    border-radius: 6px;
+    margin: 20px 0;
+    position: relative;
+}
+
+.bank-v2-card-chip::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.bank-v2-card-chip-light {
+    background: linear-gradient(135deg, #fff, #ccc);
+}
+
+.bank-v2-card-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+.bank-v2-card-number {
+    font-family: "Courier New", Courier, monospace;
+    font-size: 16px;
+    letter-spacing: 2px;
+}
+
+.bank-v2-action-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    padding: 10px 24px 30px;
+    gap: 15px;
+}
+
+.bank-v2-grid-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.bank-v2-grid-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 16px;
+    background: #f2f2f7;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 18px;
+    color: #000;
+}
+
+.bank-v2-grid-item:active .bank-v2-grid-icon {
+    transform: scale(0.9);
+    background: #e5e5ea;
+}
+
+.bank-v2-grid-item span {
+    font-size: 12px;
+    font-weight: 500;
+    color: #8e8e93;
+}
+
+.bank-v2-contacts {
+    padding: 0 24px;
+}
+
+.bank-v2-section-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 15px;
+    letter-spacing: -0.5px;
+}
+
+.bank-v2-contact-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.bank-v2-contact-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-radius: 16px;
+}
+
+.bank-v2-contact-item:active {
+    background: #f2f2f7;
+}
+
+.bank-v2-contact-avatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: #000;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 16px;
+    margin-right: 15px;
+}
+
+.bank-v2-contact-avatar-light {
+    background: #e5e5ea;
+    color: #000;
+}
+
+.bank-v2-contact-avatar-gray {
+    background: #8e8e93;
+    color: #fff;
+}
+
+.bank-v2-contact-details {
+    flex: 1;
+}
+
+.bank-v2-contact-name {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.bank-v2-contact-action {
+    font-size: 13px;
+    color: #8e8e93;
+}
+
+.bank-v2-send-btn {
+    padding: 8px 16px;
+    background: #f2f2f7;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #000;
+}
+
+.bank-v2-bottom-nav {
+    position: absolute;
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    width: 85%;
+    height: 65px;
+    background: rgba(255, 255, 255, 0.86);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border-radius: 30px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    padding: 0 10px;
+}
+
+.bank-v2-nav-item {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 20px;
+    color: #8e8e93;
+}
+
+.bank-v2-nav-item.active {
+    color: #fff;
+    background: #000;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.bank-v2-nav-item:active {
+    transform: scale(0.85);
 }

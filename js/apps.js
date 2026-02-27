@@ -1,4 +1,4 @@
-// 其他应用功能模块 (朋友圈, 钱包, 记忆, 行程, 音乐, 拍立得, 表情包, 身份)
+﻿// 其他应用功能模块 (朋友圈, 钱包, 记忆, 行程, 音乐, 拍立得, 表情包, 身份)
 
 let postMomentImages = [];
 let currentEditingPersonaId = null;
@@ -1064,35 +1064,288 @@ function renderWallet() {
     });
 }
 
-function handleRecharge() {
-    let amount = 0;
-    const inputAmount = document.getElementById('recharge-amount').value;
-    
-    if (inputAmount) {
-        amount = parseFloat(inputAmount);
+function ensureUnifiedPaymentMethodModal() {
+    let modal = document.getElementById('unified-payment-method-modal');
+    if (modal) return modal;
+
+    modal = document.createElement('div');
+    modal.id = 'unified-payment-method-modal';
+    modal.className = 'modal hidden';
+    modal.style.zIndex = '380';
+    modal.style.alignItems = 'center';
+    modal.innerHTML = `
+        <div class="modal-content" style="height:auto;border-radius:12px;width:86%;max-width:340px;background-color:#fff;">
+            <div class="modal-header">
+                <h3>选择支付方式</h3>
+                <button class="close-btn" id="close-unified-payment-method">&times;</button>
+            </div>
+            <div class="modal-body">
+                <button id="payment-method-wallet" class="ios-btn-block" style="margin-bottom:10px;background:#07C160;">微信余额</button>
+                <button id="payment-method-bank-cash" class="ios-btn-block" style="margin-bottom:10px;">银行卡余额</button>
+                <button id="payment-method-family-card" class="ios-btn-block secondary">亲属卡</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    return modal;
+}
+
+function chooseUnifiedPaymentMethod() {
+    return new Promise((resolve, reject) => {
+        const modal = ensureUnifiedPaymentMethodModal();
+        const closeBtn = document.getElementById('close-unified-payment-method');
+        const walletBtn = document.getElementById('payment-method-wallet');
+        const bankCashBtn = document.getElementById('payment-method-bank-cash');
+        const familyCardBtn = document.getElementById('payment-method-family-card');
+
+        if (!modal || !walletBtn || !bankCashBtn || !familyCardBtn || !closeBtn) {
+            reject(new Error('payment method modal missing'));
+            return;
+        }
+
+        const cleanup = () => {
+            if (closeBtn) closeBtn.onclick = null;
+            if (walletBtn) walletBtn.onclick = null;
+            if (bankCashBtn) bankCashBtn.onclick = null;
+            if (familyCardBtn) familyCardBtn.onclick = null;
+            modal.onclick = null;
+            modal.classList.add('hidden');
+        };
+        const pick = (method) => {
+            cleanup();
+            resolve(method);
+        };
+        const cancel = () => {
+            cleanup();
+            reject(new Error('cancelled'));
+        };
+
+        closeBtn.onclick = cancel;
+        walletBtn.onclick = () => pick('wallet');
+        bankCashBtn.onclick = () => pick('bank_cash');
+        familyCardBtn.onclick = () => pick('family_card');
+        modal.onclick = (e) => {
+            if (e.target === modal) cancel();
+        };
+        modal.classList.remove('hidden');
+    });
+}
+window.openUnifiedPaymentMethodModal = chooseUnifiedPaymentMethod;
+
+function getSceneTitles(scene) {
+    if (scene === 'shopping_gift') {
+        return { walletTitle: '送礼支付', bankTitle: '购物送礼支付' };
     }
-    
-    if (!amount || amount <= 0) {
+    if (scene === 'xianyu_favorite') {
+        return { walletTitle: '闲鱼支付', bankTitle: '闲鱼收藏购买支付' };
+    }
+    return { walletTitle: '购物支付', bankTitle: '购物支付' };
+}
+
+window.resolvePurchasePayment = async function(options = {}) {
+    const amount = Number(options.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        return { ok: false, reason: 'invalid_amount' };
+    }
+
+    if (!window.iphoneSimState.wallet) window.iphoneSimState.wallet = { balance: 0.00, transactions: [] };
+    if (typeof window.ensureFamilyQuotaMonthReset === 'function') {
+        window.ensureFamilyQuotaMonthReset(false);
+    }
+
+    let method = options.method;
+    if (!method) {
+        try {
+            method = await chooseUnifiedPaymentMethod();
+        } catch (e) {
+            return { ok: false, reason: 'cancelled' };
+        }
+    }
+
+    const scene = options.scene || 'shopping_self';
+    const sceneTitles = getSceneTitles(scene);
+    const now = Date.now();
+
+    if (method === 'wallet') {
+        const walletBalance = Number(window.iphoneSimState.wallet.balance || 0);
+        if (walletBalance < amount) return { ok: false, reason: 'wallet_insufficient' };
+
+        window.iphoneSimState.wallet.balance = Number((walletBalance - amount).toFixed(2));
+        if (!Array.isArray(window.iphoneSimState.wallet.transactions)) {
+            window.iphoneSimState.wallet.transactions = [];
+        }
+        window.iphoneSimState.wallet.transactions.unshift({
+            id: now,
+            type: 'expense',
+            amount,
+            title: sceneTitles.walletTitle,
+            time: now,
+            relatedId: options.relatedId || null
+        });
+        saveConfig();
+        if (window.renderWallet) window.renderWallet();
+        return { ok: true, method: 'wallet', amount };
+    }
+
+    if (method === 'bank_cash') {
+        if (typeof window.ensureBankAppState !== 'function') return { ok: false, reason: 'bank_unavailable' };
+        const bank = window.ensureBankAppState();
+        const cash = Number(bank.cashBalance || 0);
+        if (cash < amount) return { ok: false, reason: 'bank_cash_insufficient' };
+        bank.cashBalance = Number((cash - amount).toFixed(2));
+        if (typeof window.appendBankTransaction === 'function') {
+            window.appendBankTransaction({
+                type: 'expense',
+                amount,
+                title: sceneTitles.bankTitle,
+                sourceApp: 'bank',
+                sourceType: 'cash',
+                sourceKey: 'cash',
+                sourceLabel: '银行卡余额'
+            });
+        }
+        saveConfig();
+        if (window.renderBankBalance) window.renderBankBalance();
+        if (window.renderBankStatementView) window.renderBankStatementView();
+        return { ok: true, method: 'bank_cash', amount, sourceLabel: '银行卡余额' };
+    }
+
+    if (method === 'family_card') {
+        if (typeof window.selectBankFundingSource !== 'function' || typeof window.applyBankDebit !== 'function') {
+            return { ok: false, reason: 'bank_unavailable' };
+        }
+        let source = null;
+        try {
+            source = await window.selectBankFundingSource({ amount, onlyFamilyCard: true });
+        } catch (e) {
+            return { ok: false, reason: 'cancelled' };
+        }
+        const debitResult = window.applyBankDebit(amount, source);
+        if (!debitResult || !debitResult.ok) return { ok: false, reason: 'family_card_insufficient' };
+
+        if (typeof window.appendBankTransaction === 'function') {
+            window.appendBankTransaction({
+                type: 'expense',
+                amount,
+                title: sceneTitles.bankTitle,
+                sourceApp: 'family_card',
+                sourceType: 'family_card',
+                sourceKey: source.key,
+                sourceLabel: source.label
+            });
+        }
+        if (typeof window.pushFamilyCardSpendHiddenNotice === 'function') {
+            window.pushFamilyCardSpendHiddenNotice({
+                sourceKey: source.key,
+                sourceLabel: source.label,
+                amount,
+                scene,
+                itemSummary: options.itemSummary || ''
+            });
+        }
+        saveConfig();
+        if (window.renderBankBalance) window.renderBankBalance();
+        if (window.renderBankStatementView) window.renderBankStatementView();
+        return { ok: true, method: 'family_card', amount, sourceLabel: source.label };
+    }
+
+    return { ok: false, reason: 'unsupported_method' };
+};
+
+function handleRecharge() {
+    const inputAmount = document.getElementById('recharge-amount').value;
+    const amount = Number(inputAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
         alert('请输入有效的充值金额');
         return;
     }
-    
+
+    if (typeof window.ensureFamilyQuotaMonthReset === 'function') {
+        window.ensureFamilyQuotaMonthReset(false);
+    }
+
     if (!window.iphoneSimState.wallet) window.iphoneSimState.wallet = { balance: 0.00, transactions: [] };
-    
-    window.iphoneSimState.wallet.balance += amount;
+
+    const proceed = (source) => {
+        if (!source) return;
+        const debitResult = typeof window.applyBankDebit === 'function'
+            ? window.applyBankDebit(amount, source)
+            : { ok: false, message: '银行功能不可用' };
+        if (!debitResult.ok) {
+            alert(debitResult.message || '扣款失败');
+            return;
+        }
+        window.iphoneSimState.wallet.balance = Number((Number(window.iphoneSimState.wallet.balance || 0) + amount).toFixed(2));
+        const sourceText = source.type === 'cash' ? '银行余额' : (source.label || '亲属卡');
+        window.iphoneSimState.wallet.transactions.unshift({
+            id: Date.now(),
+            type: 'income',
+            amount: amount,
+            title: `余额充值（来源:${sourceText}）`,
+            time: Date.now(),
+            relatedId: null
+        });
+        if (typeof window.appendBankTransaction === 'function') {
+            window.appendBankTransaction({
+                type: 'expense',
+                amount,
+                title: '转出到微信钱包',
+                sourceApp: 'wechat_wallet',
+                sourceType: source.type === 'family_card' ? 'family_card' : 'cash',
+                sourceKey: source.key,
+                sourceLabel: source.label
+            });
+        }
+        saveConfig();
+        renderWallet();
+        if (window.renderBankBalance) window.renderBankBalance();
+        if (window.renderBankStatementView) window.renderBankStatementView();
+        document.getElementById('wallet-recharge-modal').classList.add('hidden');
+        alert(`成功充值 ¥${amount.toFixed(2)}`);
+    };
+
+    if (typeof window.selectBankFundingSource !== 'function') {
+        alert('银行资金来源选择不可用');
+        return;
+    }
+    window.selectBankFundingSource({ amount }).then(proceed).catch(() => {});
+}
+
+function handleWithdraw() {
+    const inputAmount = document.getElementById('withdraw-amount').value;
+    const amount = Number(inputAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        alert('请输入有效的提现金额');
+        return;
+    }
+    if (!window.iphoneSimState.wallet) window.iphoneSimState.wallet = { balance: 0.00, transactions: [] };
+    if (Number(window.iphoneSimState.wallet.balance || 0) < amount) {
+        alert('微信钱包余额不足');
+        return;
+    }
+
+    if (typeof window.ensureFamilyQuotaMonthReset === 'function') {
+        window.ensureFamilyQuotaMonthReset(false);
+    }
+
+    window.iphoneSimState.wallet.balance = Number((Number(window.iphoneSimState.wallet.balance || 0) - amount).toFixed(2));
     window.iphoneSimState.wallet.transactions.unshift({
         id: Date.now(),
-        type: 'income',
+        type: 'expense',
         amount: amount,
-        title: '余额充值',
+        title: '余额提现',
         time: Date.now(),
         relatedId: null
     });
-    
+    if (typeof window.applyBankCredit === 'function') {
+        window.applyBankCredit(amount, '来自微信钱包提现', { sourceApp: 'wechat_wallet', sourceType: 'cash', sourceLabel: '微信钱包' });
+    }
     saveConfig();
     renderWallet();
-    document.getElementById('wallet-recharge-modal').classList.add('hidden');
-    alert(`成功充值 ¥${amount.toFixed(2)}`);
+    if (window.renderBankBalance) window.renderBankBalance();
+    if (window.renderBankStatementView) window.renderBankStatementView();
+    document.getElementById('wallet-withdraw-modal').classList.add('hidden');
+    alert(`成功提现 ¥${amount.toFixed(2)}`);
 }
 
 function handleAiReturnTransfer(transferId) {
@@ -3424,8 +3677,22 @@ function setupAppsListeners() {
     const closeWalletBtn = document.getElementById('close-wallet-screen');
     const walletRechargeBtn = document.getElementById('wallet-recharge-btn');
     const walletRechargeModal = document.getElementById('wallet-recharge-modal');
+    const walletWithdrawBtn = document.getElementById('wallet-withdraw-btn');
+    const walletWithdrawModal = document.getElementById('wallet-withdraw-modal');
     const closeWalletRechargeBtn = document.getElementById('close-recharge-modal');
+    const closeWalletWithdrawBtn = document.getElementById('close-withdraw-modal');
     const doRechargeBtn = document.getElementById('do-recharge-btn');
+    const doWithdrawBtn = document.getElementById('do-withdraw-btn');
+
+    // Keep shared modals outside app containers so they can open from any page.
+    const ensureGlobalModal = (modalEl) => {
+        if (!modalEl) return null;
+        if (modalEl.parentElement !== document.body) document.body.appendChild(modalEl);
+        return modalEl;
+    };
+    ensureGlobalModal(walletRechargeModal);
+    ensureGlobalModal(walletWithdrawModal);
+    ensureGlobalModal(document.getElementById('bank-funding-source-modal'));
 
     if (closeWalletBtn) closeWalletBtn.addEventListener('click', () => document.getElementById('wallet-screen').classList.add('hidden'));
     if (walletRechargeBtn) walletRechargeBtn.addEventListener('click', () => {
@@ -3435,6 +3702,16 @@ function setupAppsListeners() {
     });
     if (closeWalletRechargeBtn) closeWalletRechargeBtn.addEventListener('click', () => walletRechargeModal.classList.add('hidden'));
     if (doRechargeBtn) doRechargeBtn.addEventListener('click', handleRecharge);
+    if (walletWithdrawBtn) walletWithdrawBtn.addEventListener('click', () => {
+        if (!walletWithdrawModal) return;
+        walletWithdrawModal.classList.remove('hidden');
+        const input = document.getElementById('withdraw-amount');
+        if (input) input.value = '';
+    });
+    if (closeWalletWithdrawBtn) closeWalletWithdrawBtn.addEventListener('click', () => {
+        if (walletWithdrawModal) walletWithdrawModal.classList.add('hidden');
+    });
+    if (doWithdrawBtn) doWithdrawBtn.addEventListener('click', handleWithdraw);
 
     const addMemoryBtn = document.getElementById('add-memory-btn');
     const manualSummaryBtn = document.getElementById('manual-summary-btn');

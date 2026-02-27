@@ -1,4 +1,4 @@
-// 购物应用功能模块
+﻿// 购物应用功能模块
 
 // 状态
 let isShoppingManageMode = false;

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -1397,7 +1397,7 @@
                             <div class="action-icon"><i class="fas fa-plus"></i></div>
                             <span>充值</span>
                         </button>
-                        <button class="wallet-action-btn" style="opacity: 0.5; cursor: not-allowed;">
+                        <button id="wallet-withdraw-btn" class="wallet-action-btn">
                             <div class="action-icon"><i class="fas fa-arrow-up"></i></div>
                             <span>提现</span>
                         </button>
@@ -4523,6 +4523,581 @@
                 <div style="margin-top: 20px; display: flex; gap: 10px;">
                     <button onclick="saveLookusSettings()" class="ios-btn-block" style="flex: 1; background-color: #000; margin-bottom: 0;">保存</button>
                     <button onclick="document.getElementById('lookus-settings-modal').classList.add('hidden')" class="ios-btn-block secondary" style="flex: 1; margin-bottom: 0;">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 银行应用（主屏入口） -->
+    <style>
+        #bank-app {
+            background: #ffffff;
+            z-index: 210;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #bank-app .bank-v2-top-nav {
+            padding: max(48px, env(safe-area-inset-top)) 20px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        #bank-app .bank-v2-icon-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 1px solid #e5e5ea;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+            cursor: pointer;
+        }
+        #bank-app .bank-v2-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding-bottom: calc(90px + env(safe-area-inset-bottom));
+            -webkit-overflow-scrolling: touch;
+        }
+        #bank-app .bank-v2-balance {
+            text-align: center;
+            padding: 4px 20px 14px;
+        }
+        #bank-app .bank-v2-balance-label {
+            font-size: 12px;
+            letter-spacing: 1.2px;
+            color: #8e8e93;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        #bank-app .bank-v2-balance-amount {
+            font-size: 48px;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: -1.5px;
+        }
+        #bank-app .bank-v2-cards {
+            padding: 16px 0 20px 20px;
+            display: flex;
+            gap: 14px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        #bank-app .bank-v2-cards::-webkit-scrollbar { display: none; }
+        #bank-app .bank-v2-card {
+            min-width: 280px;
+            height: 170px;
+            border-radius: 24px;
+            padding: 22px;
+            color: #fff;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 15px 24px rgba(0, 0, 0, 0.18);
+            background: #111;
+        }
+        #bank-app .bank-v2-card.light {
+            background: #e5e5ea;
+            color: #000;
+            box-shadow: none;
+            border: 1px solid #d8d8dc;
+        }
+        #bank-app .bank-v2-card-title {
+            font-size: 18px;
+            font-weight: 600;
+            font-style: italic;
+        }
+        #bank-app .bank-v2-chip {
+            width: 40px;
+            height: 28px;
+            border-radius: 6px;
+            margin: 18px 0;
+            background: linear-gradient(135deg, #f4f4f4, #9f9f9f);
+        }
+        #bank-app .bank-v2-card.light .bank-v2-chip {
+            background: linear-gradient(135deg, #fff, #ccc);
+        }
+        #bank-app .bank-v2-card-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        #bank-app .bank-v2-card-num {
+            font-family: "Courier New", monospace;
+            font-size: 15px;
+            letter-spacing: 2px;
+        }
+        #bank-app .bank-v2-family-card {
+            cursor: pointer;
+        }
+        #bank-app .bank-v2-family-card .bank-v2-card-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        #bank-app .bank-v2-family-badge {
+            font-size: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            border-radius: 10px;
+            padding: 2px 6px;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        #bank-app .bank-v2-card.light .bank-v2-family-badge {
+            border-color: rgba(0, 0, 0, 0.2);
+            color: rgba(0, 0, 0, 0.72);
+        }
+        #bank-app .bank-family-detail-kv {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+        #bank-app .bank-family-detail-kv:last-of-type {
+            border-bottom: none;
+        }
+        #bank-app .bank-family-detail-key {
+            color: #8e8e93;
+        }
+        #bank-app .bank-family-detail-val {
+            color: #111;
+            font-weight: 600;
+            text-align: right;
+        }
+        #bank-app .bank-v2-actions {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            padding: 4px 20px 24px;
+        }
+        #bank-app .bank-v2-action-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            color: #8e8e93;
+            font-size: 12px;
+        }
+        #bank-app .bank-v2-action-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 16px;
+            background: #f2f2f7;
+            color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        #bank-app .bank-v2-section {
+            padding: 0 20px;
+        }
+        #bank-app .bank-v2-section h3 {
+            font-size: 20px;
+            margin-bottom: 12px;
+        }
+        #bank-app .bank-v2-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #bank-app .bank-v2-contact {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-radius: 14px;
+            background: #fff;
+        }
+        #bank-app .bank-v2-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #111;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 600;
+            margin-right: 12px;
+        }
+        #bank-app .bank-v2-contact-meta {
+            flex: 1;
+            min-width: 0;
+        }
+        #bank-app .bank-v2-contact-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: #000;
+        }
+        #bank-app .bank-v2-contact-sub {
+            font-size: 12px;
+            color: #8e8e93;
+            margin-top: 2px;
+        }
+        #bank-app .bank-v2-send {
+            border: none;
+            background: #f2f2f7;
+            border-radius: 18px;
+            padding: 7px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #000;
+        }
+        #bank-app .bank-v2-bottom-nav {
+            position: absolute;
+            left: 50%;
+            bottom: calc(18px + env(safe-area-inset-bottom));
+            transform: translateX(-50%);
+            width: calc(100% - 40px);
+            max-width: 320px;
+            height: 62px;
+            border-radius: 30px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+        }
+        #bank-app .bank-v2-nav-item {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            color: #8e8e93;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 19px;
+        }
+        #bank-app .bank-v2-nav-item.active {
+            background: #000;
+            color: #fff;
+        }
+        #bank-app .bank-family-modal,
+        .bank-family-modal {
+            z-index: 260;
+            align-items: center;
+            justify-content: center;
+        }
+        #bank-app .bank-family-modal .modal-content,
+        .bank-family-modal .modal-content {
+            width: 86%;
+            max-width: 340px;
+            border-radius: 16px;
+            border: 1px solid #e5e5ea;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+            background: #fff;
+            overflow: hidden;
+        }
+        #bank-app .bank-family-option-list,
+        .bank-family-option-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #bank-app .bank-family-option,
+        .bank-family-option {
+            width: 100%;
+            border: 1px solid #e5e5ea;
+            background: #f8f8fa;
+            border-radius: 12px;
+            padding: 12px 14px;
+            text-align: left;
+            color: #000;
+            cursor: pointer;
+        }
+        #bank-app .bank-family-option-title,
+        .bank-family-option-title {
+            font-size: 15px;
+            font-weight: 700;
+        }
+        #bank-app .bank-family-option-desc,
+        .bank-family-option-desc {
+            font-size: 12px;
+            color: #8e8e93;
+            margin-top: 3px;
+        }
+        #bank-app .bank-family-compose .modal-content {
+            width: 86%;
+            max-width: 360px;
+            border-radius: 16px;
+            border: 1px solid #e5e5ea;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+            background: #fff;
+            overflow: hidden;
+        }
+        #bank-app .bank-family-compose .setting-group {
+            margin-bottom: 14px;
+        }
+        #bank-app .bank-family-compose .setting-group label {
+            display: block;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 6px;
+        }
+        #bank-app .bank-family-compose .setting-group input,
+        #bank-app .bank-family-compose .setting-group textarea {
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: #fafafa;
+            font-size: 14px;
+            color: #000;
+            outline: none;
+        }
+        #bank-app .bank-family-compose .setting-group textarea {
+            min-height: 74px;
+            resize: vertical;
+        }
+        #bank-app .bank-family-compose .compose-hint {
+            color: #8e8e93;
+            font-size: 12px;
+            margin-top: -6px;
+            margin-bottom: 10px;
+        }
+        #family-card-detail-modal .modal-content {
+            width: 86%;
+            max-width: 340px;
+            border-radius: 16px;
+            border: 1px solid #e5e5ea;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+            background: #fff;
+        }
+        .family-detail-kv {
+            padding: 10px 0;
+            border-bottom: 1px solid #f1f1f4;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 14px;
+        }
+        .family-detail-kv:last-child {
+            border-bottom: none;
+        }
+        .family-detail-key {
+            color: #8e8e93;
+            flex-shrink: 0;
+        }
+        .family-detail-val {
+            color: #000;
+            text-align: right;
+            word-break: break-word;
+        }
+    </style>
+    <div id="bank-app" class="app-screen hidden">
+        <div class="bank-v2-top-nav">
+            <button class="bank-v2-icon-btn" onclick="document.getElementById('bank-app').classList.add('hidden')">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <button class="bank-v2-icon-btn">
+                <i class="far fa-bell"></i>
+            </button>
+        </div>
+        <div class="bank-v2-scroll">
+            <div class="bank-v2-balance">
+                <div class="bank-v2-balance-label">Total Balance</div>
+                <div id="bank-v2-balance-amount" class="bank-v2-balance-amount"><span style="color:#8e8e93;font-weight:400;">¥</span>8,250<span style="color:#8e8e93;font-weight:400;">.50</span></div>
+            </div>
+
+            <div id="bank-v2-cards" class="bank-v2-cards">
+                <div class="bank-v2-card">
+                    <div class="bank-v2-card-title">Black Card</div>
+                    <div class="bank-v2-chip"></div>
+                    <div class="bank-v2-card-info">
+                        <div class="bank-v2-card-num">**** 4921</div>
+                        <i class="fas fa-credit-card"></i>
+                    </div>
+                </div>
+                <div class="bank-v2-card light">
+                    <div class="bank-v2-card-title">Platinum</div>
+                    <div class="bank-v2-chip"></div>
+                    <div class="bank-v2-card-info">
+                        <div class="bank-v2-card-num">**** 8302</div>
+                        <i class="fas fa-credit-card"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bank-v2-actions">
+                <div class="bank-v2-action-item"><div class="bank-v2-action-icon"><i class="fas fa-paper-plane"></i></div><span>Transfer</span></div>
+                <div class="bank-v2-action-item"><div class="bank-v2-action-icon"><i class="fas fa-wallet"></i></div><span>Deposit</span></div>
+                <div id="bank-family-card-btn" class="bank-v2-action-item" onclick="window.openFamilyCardTypeModal()"><div class="bank-v2-action-icon"><i class="fas fa-id-card"></i></div><span>亲属卡</span></div>
+                <div class="bank-v2-action-item"><div class="bank-v2-action-icon"><i class="fas fa-ellipsis"></i></div><span>More</span></div>
+            </div>
+
+            <div class="bank-v2-section">
+                <h3>Quick Send</h3>
+                <div class="bank-v2-list">
+                    <div class="bank-v2-contact">
+                        <div class="bank-v2-avatar">S</div>
+                        <div class="bank-v2-contact-meta">
+                            <div class="bank-v2-contact-name">Sarah Jenkins</div>
+                            <div class="bank-v2-contact-sub">sarah.j@email.com</div>
+                        </div>
+                        <button class="bank-v2-send">Send</button>
+                    </div>
+                    <div class="bank-v2-contact">
+                        <div class="bank-v2-avatar" style="background:#e5e5ea;color:#000;">M</div>
+                        <div class="bank-v2-contact-meta">
+                            <div class="bank-v2-contact-name">Mike Peterson</div>
+                            <div class="bank-v2-contact-sub">mike.p@email.com</div>
+                        </div>
+                        <button class="bank-v2-send">Send</button>
+                    </div>
+                    <div class="bank-v2-contact">
+                        <div class="bank-v2-avatar" style="background:#8e8e93;">A</div>
+                        <div class="bank-v2-contact-meta">
+                            <div class="bank-v2-contact-name">Alex Wong</div>
+                            <div class="bank-v2-contact-sub">alex.w@email.com</div>
+                        </div>
+                        <button class="bank-v2-send">Send</button>
+                    </div>
+                </div>
+            </div>
+            <div id="wallet-withdraw-modal" class="modal hidden" style="z-index: 200; align-items: center;">
+                <div class="modal-content" style="height: auto; border-radius: 12px; width: 85%; max-width: 320px; background-color: #fff;">
+                    <div class="modal-header" style="border-bottom: none; padding-bottom: 0;">
+                        <h3 style="width: 100%; text-align: center; color: #000;">提现</h3>
+                        <button class="close-btn" id="close-withdraw-modal" style="position: absolute; right: 15px;">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 20px;">
+                        <div class="setting-group">
+                            <label>提现金额</label>
+                            <div style="display: flex; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 5px;">
+                                <span style="font-size: 24px; font-weight: bold; color: #000;">¥</span>
+                                <input type="number" id="withdraw-amount" placeholder="0.00" style="border: none; font-size: 24px; font-weight: bold; width: 100%; background: transparent; outline: none; color: #000;">
+                            </div>
+                        </div>
+                        <button id="do-withdraw-btn" class="ios-btn-block" style="margin-top: 20px; background-color: #000;">确认提现</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="bank-statement-view" class="bank-v2-scroll hidden">
+            <div class="bank-v2-section">
+                <h3>银行流水</h3>
+                <div id="bank-statement-list" class="bank-v2-list"></div>
+            </div>
+        </div>
+        <div class="bank-v2-bottom-nav">
+            <div id="bank-nav-home" class="bank-v2-nav-item active"><i class="fas fa-house"></i></div>
+            <div class="bank-v2-nav-item"><i class="fas fa-chart-pie"></i></div>
+            <div id="bank-nav-history" class="bank-v2-nav-item"><i class="fas fa-clock-rotate-left"></i></div>
+            <div class="bank-v2-nav-item"><i class="far fa-user"></i></div>
+        </div>
+
+        <div id="family-card-type-modal" class="modal hidden bank-family-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>亲属卡</h3>
+                    <button class="close-btn" onclick="document.getElementById('family-card-type-modal').classList.add('hidden')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="bank-family-option-list">
+                        <button class="bank-family-option" onclick="window.openFamilyCardContactPicker('request')">
+                            <div class="bank-family-option-title">索要亲属卡</div>
+                            <div class="bank-family-option-desc">向联系人申请开通并设置月额度</div>
+                        </button>
+                        <button class="bank-family-option" onclick="window.openFamilyCardContactPicker('grant')">
+                            <div class="bank-family-option-title">给予亲属卡</div>
+                            <div class="bank-family-option-desc">为联系人发起亲属卡给予请求</div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="family-card-compose-modal" class="modal hidden bank-family-modal bank-family-compose">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="family-compose-title">填写亲属卡信息</h3>
+                    <button class="close-btn" onclick="window.closeFamilyCardComposeModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="setting-group">
+                        <label for="family-compose-note">备注</label>
+                        <textarea id="family-compose-note" placeholder="可填写说明（选填）"></textarea>
+                    </div>
+                    <div class="setting-group hidden" id="family-compose-limit-group">
+                        <label for="family-compose-limit">每月额度（给予时必填）</label>
+                        <input id="family-compose-limit" type="number" min="1" step="1" placeholder="例如：2000">
+                    </div>
+                    <div class="compose-hint" id="family-compose-hint">发送后由对方决定是否接受亲属卡。</div>
+                    <button id="family-compose-send-btn" class="ios-btn-block" style="background:#000;">发送</button>
+                    <button class="ios-btn-block secondary" style="margin-top:10px;" onclick="window.closeFamilyCardComposeModal()">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="bank-family-detail-modal" class="modal hidden bank-family-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>亲属卡详情</h3>
+                    <button class="close-btn" onclick="window.closeBankFamilyDetailModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="bank-family-detail-kv">
+                        <span class="bank-family-detail-key">关系</span>
+                        <span id="bank-family-detail-flow" class="bank-family-detail-val">-</span>
+                    </div>
+                    <div class="bank-family-detail-kv">
+                        <span class="bank-family-detail-key">本月总额度</span>
+                        <span id="bank-family-detail-limit" class="bank-family-detail-val">-</span>
+                    </div>
+                    <div class="bank-family-detail-kv">
+                        <span class="bank-family-detail-key">本月剩余额度</span>
+                        <span id="bank-family-detail-remaining" class="bank-family-detail-val">-</span>
+                    </div>
+                    <button id="bank-family-unbind-btn" class="ios-btn-block secondary" style="margin-top:16px;color:#ff3b30;">解绑亲属卡</button>
+                </div>
+            </div>
+        </div>
+        <div id="bank-funding-source-modal" class="modal hidden bank-family-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>选择资金来源</h3>
+                    <button class="close-btn" onclick="window.closeBankFundingSourceModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="bank-funding-source-list" class="bank-family-option-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="family-card-detail-modal" class="modal hidden" style="z-index: 320; align-items: center;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>亲属卡详情</h3>
+                <button class="close-btn" onclick="window.closeFamilyCardDetail()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding-top: 6px;">
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">类型</span>
+                    <span class="family-detail-val" id="family-detail-type">-</span>
+                </div>
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">状态</span>
+                    <span class="family-detail-val" id="family-detail-status">-</span>
+                </div>
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">每月额度</span>
+                    <span class="family-detail-val" id="family-detail-limit">-</span>
+                </div>
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">发起时间</span>
+                    <span class="family-detail-val" id="family-detail-time">-</span>
+                </div>
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">备注</span>
+                    <span class="family-detail-val" id="family-detail-note">-</span>
                 </div>
             </div>
         </div>

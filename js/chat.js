@@ -302,6 +302,7 @@ window.showChatNotification = function(contactId, content, options) {
     else if (content.startsWith('[表情包]') || content.startsWith('<img') && content.includes('sticker')) previewText = '[表情包]';
     else if (content.startsWith('[语音]')) previewText = '[语音]';
     else if (content.startsWith('[转账]')) previewText = '[转账]';
+    else if (content.startsWith('[亲属卡]')) previewText = '[亲属卡]';
     else if (content.includes('pay_request')) previewText = '[代付请求]';
     else if (content.includes('shopping_gift')) previewText = '[礼物]';
     else if (content.includes('delivery_share')) previewText = '[外卖]';
@@ -527,7 +528,7 @@ function isHiddenForumWechatSyncText(text) {
 
 function shouldHideChatSyncMsg(msg) {
     if (!msg) return false;
-    if (msg.type === 'system_event' || msg.type === 'live_sync_hidden') return true;
+    if (msg.type === 'system_event' || msg.type === 'live_sync_hidden' || msg.type === 'family_card_spend_notice_hidden') return true;
     if (msg.type === 'text' && typeof msg.content === 'string' && isHiddenForumWechatSyncText(msg.content)) return true;
     return false;
 }
@@ -625,6 +626,8 @@ function renderContactList(filterGroup = 'all') {
                     lastMsgText = '[表情包]';
                 } else if (lastMsg && lastMsg.type === 'transfer') {
                     lastMsgText = '[转账]';
+                } else if (lastMsg && lastMsg.type === 'family_card') {
+                    lastMsgText = '[亲属卡]';
                 } else if (lastMsg && lastMsg.type === 'voice') {
                     lastMsgText = '[语音]';
                 } else if (lastMsg && lastMsg.type === 'gift_card') {
@@ -2134,6 +2137,901 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     return msg;
 }
 
+let familyCardComposeState = null;
+
+function createFamilyCardPayload(mode, targetId, options = {}) {
+    const now = Date.now();
+    const safeMode = mode === 'grant' ? 'grant' : 'request';
+    const note = typeof options.note === 'string' ? options.note.trim() : '';
+    const limitRaw = options.monthlyLimit;
+    const monthlyLimit = safeMode === 'grant' && limitRaw !== null && limitRaw !== undefined && limitRaw !== ''
+        ? Number(limitRaw)
+        : null;
+    return {
+        id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+        mode: safeMode,
+        fromContactId: 'me',
+        toContactId: targetId,
+        status: 'pending',
+        monthlyLimit: Number.isFinite(monthlyLimit) ? monthlyLimit : null,
+        note: note || (safeMode === 'request' ? '可以给我开通亲属卡吗？' : '我想给你开通亲属卡'),
+        createdAt: now,
+        updatedAt: now
+    };
+}
+
+function findFamilyCardById(contactId, cardId) {
+    const history = window.iphoneSimState.chatHistory[contactId] || [];
+    for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i];
+        if (msg.type !== 'family_card') continue;
+        try {
+            const data = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+            if (String(data.id) === String(cardId)) {
+                return { msg, data, index: i };
+            }
+        } catch (e) {
+            console.error('解析亲属卡消息失败', e);
+        }
+    }
+    return null;
+}
+
+function updateFamilyCardStatus(contactId, cardId, updates = {}) {
+    const found = findFamilyCardById(contactId, cardId);
+    if (!found) return null;
+
+    const next = {
+        ...found.data,
+        status: updates.status || found.data.status || 'pending',
+        monthlyLimit: updates.monthlyLimit === undefined ? found.data.monthlyLimit : updates.monthlyLimit,
+        updatedAt: Date.now()
+    };
+    found.msg.content = JSON.stringify(next);
+    saveConfig();
+
+    if (window.iphoneSimState.currentChatContactId === contactId && window.renderChatHistory) {
+        renderChatHistory(contactId, true);
+    }
+    if (window.renderContactList) {
+        window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
+    }
+    if (window.refreshBankAppFamilyCards) {
+        window.refreshBankAppFamilyCards();
+    }
+    return next;
+}
+
+function formatFamilyCardTime(ts) {
+    if (!ts) return '-';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return '-';
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function findLatestPendingFamilyCard(contactId) {
+    const history = window.iphoneSimState.chatHistory[contactId] || [];
+    for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i];
+        if (msg.type !== 'family_card' || msg.role !== 'user') continue;
+        try {
+            const data = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+            if ((data.status || 'pending') === 'pending') {
+                return { msg, data, index: i };
+            }
+        } catch (e) {}
+    }
+    return null;
+}
+
+function parseFamilyCardDecisionFromPayload(payload, fallbackCardId = null) {
+    const raw = String(payload || '').trim();
+    if (!raw) return null;
+    let parts = raw.split(/\s*[|｜]\s*/).map(s => s.trim());
+    if (parts.length < 2) {
+        const m = raw.match(/^(\S+)\s+(同意|拒绝|accept|reject|agree|decline)\s*(\d{2,6})?/i);
+        if (m) {
+            parts = [m[1], m[2], m[3] || ''];
+        }
+    }
+    const parsed = {
+        cardId: parts[0] || fallbackCardId,
+        status: null,
+        monthlyLimit: null
+    };
+    const decisionRaw = (parts[1] || '').toLowerCase();
+    const rejectWords = ['拒绝', '不同意', '拒', 'no', 'reject', 'decline'];
+    const acceptWords = ['同意', '接受', '通过', '可以', 'agree', 'accept', 'yes', 'ok'];
+    if (rejectWords.some(w => decisionRaw.includes(w))) parsed.status = 'rejected';
+    if (!parsed.status && acceptWords.some(w => decisionRaw.includes(w))) parsed.status = 'accepted';
+
+    const numberMatch = (parts[2] || '').match(/(\d{2,6})/);
+    if (numberMatch) {
+        parsed.monthlyLimit = parseInt(numberMatch[1], 10);
+    }
+    if (parsed.status === 'accepted' && (!parsed.monthlyLimit || Number.isNaN(parsed.monthlyLimit))) {
+        const min = 500;
+        const max = 5000;
+        const step = 100;
+        const n = Math.floor(Math.random() * ((max - min) / step + 1));
+        parsed.monthlyLimit = min + n * step;
+    }
+    if (!parsed.status || !parsed.cardId) return null;
+    return parsed;
+}
+
+function deriveFamilyDecisionFromMessages(messagesList = []) {
+    const texts = messagesList
+        .filter(m => m && (m.type === 'text' || m.type === '消息') && typeof m.content === 'string')
+        .map(m => m.content)
+        .join('\n');
+
+    const t = texts.toLowerCase();
+    const hasReject = ['不同意', '拒绝', '先不办', '不太方便', '暂时不', 'reject', 'decline'].some(k => t.includes(k));
+    const hasAccept = ['同意', '可以', '给你开', '开通', '没问题', 'agree', 'accept'].some(k => t.includes(k));
+    const limitMatch = texts.match(/(\d{3,5})\s*(元|rmb|人民币)?/i);
+    const limit = limitMatch ? parseInt(limitMatch[1], 10) : null;
+
+    if (hasReject) {
+        return { status: 'rejected', monthlyLimit: null, fromText: true, hadLimit: false };
+    }
+    if (hasAccept) {
+        return { status: 'accepted', monthlyLimit: limit, fromText: true, hadLimit: !!limit };
+    }
+
+    const randomAccept = Math.random() < 0.7;
+    if (!randomAccept) return { status: 'rejected', monthlyLimit: null, fromText: false, hadLimit: false };
+
+    const min = 500;
+    const max = 5000;
+    const step = 100;
+    const n = Math.floor(Math.random() * ((max - min) / step + 1));
+    return { status: 'accepted', monthlyLimit: min + n * step, fromText: false, hadLimit: true };
+}
+
+window.openFamilyCardTypeModal = function() {
+    const modal = document.getElementById('family-card-type-modal');
+    if (!modal) return;
+    if (!modal.dataset.boundMaskClose) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+        modal.dataset.boundMaskClose = '1';
+    }
+    modal.classList.remove('hidden');
+};
+
+window.openFamilyCardContactPicker = function(mode) {
+    const safeMode = mode === 'grant' ? 'grant' : 'request';
+    const familyTypeModal = document.getElementById('family-card-type-modal');
+    if (familyTypeModal) familyTypeModal.classList.add('hidden');
+
+    const modal = document.getElementById('contact-picker-modal');
+    const list = document.getElementById('contact-picker-list');
+    const sendBtn = document.getElementById('contact-picker-send-btn');
+    const closeBtn = document.getElementById('close-contact-picker');
+    if (!modal || !list || !sendBtn) return;
+
+    const header = modal.querySelector('.modal-header h3');
+    if (header) header.textContent = safeMode === 'request' ? '选择要索要亲属卡的联系人' : '选择要给予亲属卡的联系人';
+
+    list.innerHTML = '';
+    (window.iphoneSimState.contacts || []).forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'list-item';
+        item.innerHTML = `
+            <div class="list-content" style="display:flex;align-items:center;justify-content:flex-start;">
+                <img src="${c.avatar}" style="width:38px;height:38px;border-radius:50%;margin-right:12px;object-fit:cover;flex-shrink:0;">
+                <span style="font-size:15px;">${c.remark || c.nickname || c.name}</span>
+            </div>
+            <input type="checkbox" name="family-card-target" value="${c.id}" style="width:20px;height:20px;">
+        `;
+        item.addEventListener('click', (e) => {
+            const target = item.querySelector('input[name="family-card-target"]');
+            if (!target) return;
+            if (e.target !== target) target.checked = !target.checked;
+            if (target.checked) {
+                list.querySelectorAll('input[name="family-card-target"]').forEach(cb => {
+                    if (cb !== target) cb.checked = false;
+                });
+            }
+        });
+        list.appendChild(item);
+    });
+
+    const newSendBtn = sendBtn.cloneNode(true);
+    sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
+    newSendBtn.textContent = '下一步';
+    newSendBtn.onclick = () => {
+        const selected = list.querySelector('input[name="family-card-target"]:checked');
+        if (!selected) {
+            alert('请选择一个联系人');
+            return;
+        }
+        const targetId = /^\d+$/.test(selected.value) ? parseInt(selected.value, 10) : selected.value;
+        modal.classList.add('hidden');
+        window.openFamilyCardComposeModal(safeMode, targetId);
+    };
+
+    if (closeBtn) {
+        const newCloseBtn = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+        newCloseBtn.onclick = () => modal.classList.add('hidden');
+    }
+
+    modal.classList.remove('hidden');
+};
+
+window.openFamilyCardComposeModal = function(mode, contactId) {
+    const safeMode = mode === 'grant' ? 'grant' : 'request';
+    familyCardComposeState = { mode: safeMode, contactId };
+
+    const modal = document.getElementById('family-card-compose-modal');
+    const titleEl = document.getElementById('family-compose-title');
+    const noteEl = document.getElementById('family-compose-note');
+    const limitGroup = document.getElementById('family-compose-limit-group');
+    const limitEl = document.getElementById('family-compose-limit');
+    const hintEl = document.getElementById('family-compose-hint');
+    const sendBtn = document.getElementById('family-compose-send-btn');
+    if (!modal || !titleEl || !noteEl || !limitGroup || !limitEl || !hintEl || !sendBtn) return;
+
+    titleEl.textContent = safeMode === 'request' ? '索要亲属卡' : '给予亲属卡';
+    noteEl.value = '';
+    limitEl.value = '';
+    if (safeMode === 'grant') {
+        limitGroup.classList.remove('hidden');
+        hintEl.textContent = '请填写每月额度后发送，由对方决定是否接受。';
+    } else {
+        limitGroup.classList.add('hidden');
+        hintEl.textContent = '可填写备注后发送，由对方决定是否接受。';
+    }
+
+    const newSendBtn = sendBtn.cloneNode(true);
+    sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
+    newSendBtn.textContent = safeMode === 'request' ? '发送索要' : '发送给予';
+    newSendBtn.onclick = () => window.confirmSendFamilyCard();
+
+    if (!modal.dataset.boundMaskClose) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+        modal.dataset.boundMaskClose = '1';
+    }
+    modal.classList.remove('hidden');
+};
+
+window.closeFamilyCardComposeModal = function() {
+    const modal = document.getElementById('family-card-compose-modal');
+    if (modal) modal.classList.add('hidden');
+    familyCardComposeState = null;
+};
+
+window.confirmSendFamilyCard = function() {
+    if (!familyCardComposeState) return;
+    const { mode, contactId } = familyCardComposeState;
+    const noteEl = document.getElementById('family-compose-note');
+    const limitEl = document.getElementById('family-compose-limit');
+    const note = noteEl ? noteEl.value.trim() : '';
+    const limitValue = limitEl ? limitEl.value.trim() : '';
+
+    let monthlyLimit = null;
+    if (mode === 'grant') {
+        if (!limitValue || isNaN(limitValue) || Number(limitValue) <= 0) {
+            alert('请填写有效的每月额度');
+            return;
+        }
+        monthlyLimit = Number(limitValue);
+    }
+
+    window.sendFamilyCardToContact(mode, contactId, { note, monthlyLimit });
+    window.closeFamilyCardComposeModal();
+};
+
+window.sendFamilyCardToContact = function(mode, contactId, options = {}) {
+    const safeMode = mode === 'grant' ? 'grant' : 'request';
+    const payload = createFamilyCardPayload(safeMode, contactId, options);
+    sendMessage(JSON.stringify(payload), true, 'family_card', null, contactId);
+    showChatToast(safeMode === 'request' ? '已发送亲属卡索要' : '已发送亲属卡给予');
+};
+
+window.openFamilyCardDetail = function(cardId, contactId) {
+    const safeContactId = contactId || window.iphoneSimState.currentChatContactId;
+    if (!safeContactId || !cardId) return;
+    const found = findFamilyCardById(safeContactId, cardId);
+    if (!found) return;
+
+    const data = found.data;
+    const typeText = data.mode === 'grant' ? '亲属卡给予' : '亲属卡申请';
+    const statusMap = { pending: '待处理', accepted: '已同意', rejected: '已拒绝' };
+    const statusText = statusMap[data.status] || '待处理';
+    const limitText = data.monthlyLimit ? `¥${parseFloat(data.monthlyLimit).toFixed(0)} / 月` : '待设置';
+    const noteText = data.note || '-';
+
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    setText('family-detail-type', typeText);
+    setText('family-detail-status', statusText);
+    setText('family-detail-limit', limitText);
+    setText('family-detail-time', formatFamilyCardTime(data.createdAt));
+    setText('family-detail-note', noteText);
+
+    const modal = document.getElementById('family-card-detail-modal');
+    if (modal) {
+        if (!modal.dataset.boundMaskClose) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.classList.add('hidden');
+            });
+            modal.dataset.boundMaskClose = '1';
+        }
+        modal.classList.remove('hidden');
+    }
+};
+
+window.closeFamilyCardDetail = function() {
+    const modal = document.getElementById('family-card-detail-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+let bankFamilyCardEntries = [];
+let currentBankFamilyCardKey = null;
+let bankFundingResolve = null;
+let bankFundingReject = null;
+
+function getMonthKey(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+}
+
+function ensureBankAppState() {
+    if (!window.iphoneSimState) window.iphoneSimState = {};
+    if (!window.iphoneSimState.bankApp || typeof window.iphoneSimState.bankApp !== 'object') {
+        window.iphoneSimState.bankApp = {};
+    }
+    const bank = window.iphoneSimState.bankApp;
+
+    const legacyBalance = Number.isFinite(Number(bank.balance)) ? Number(bank.balance) : null;
+    const legacyTotalBalance = Number.isFinite(Number(bank.totalBalance)) ? Number(bank.totalBalance) : null;
+    const newCash = Number.isFinite(Number(bank.cashBalance)) ? Number(bank.cashBalance) : null;
+    if (newCash === null) {
+        bank.cashBalance = legacyBalance !== null ? legacyBalance : (legacyTotalBalance !== null ? legacyTotalBalance : 0);
+    } else {
+        bank.cashBalance = newCash;
+    }
+
+    if (!Array.isArray(bank.transactions)) bank.transactions = [];
+    if (!bank.familyCardUsage || typeof bank.familyCardUsage !== 'object') bank.familyCardUsage = {};
+
+    const oldUnbound = Array.isArray(bank.unboundFamilyCardIds) ? bank.unboundFamilyCardIds : [];
+    const currentUnbound = Array.isArray(bank.unboundFamilyCards) ? bank.unboundFamilyCards : [];
+    bank.unboundFamilyCards = Array.from(new Set([...oldUnbound, ...currentUnbound].map(String)));
+    if (!bank.familyCardUsageMonthKey) bank.familyCardUsageMonthKey = getMonthKey();
+
+    return bank;
+}
+
+function appendBankTransaction(tx) {
+    const bank = ensureBankAppState();
+    const record = {
+        id: tx.id || `bank_tx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: tx.type || 'system',
+        amount: Number(tx.amount) || 0,
+        title: tx.title || '银行流水',
+        sourceApp: tx.sourceApp || 'system',
+        sourceType: tx.sourceType,
+        sourceKey: tx.sourceKey,
+        sourceLabel: tx.sourceLabel,
+        time: Number(tx.time) || Date.now(),
+        balanceAfterCash: Number.isFinite(Number(tx.balanceAfterCash)) ? Number(tx.balanceAfterCash) : Number(bank.cashBalance) || 0,
+        note: tx.note || ''
+    };
+    bank.transactions.unshift(record);
+    if (bank.transactions.length > 100) bank.transactions = bank.transactions.slice(0, 100);
+    return record;
+}
+
+function ensureFamilyQuotaMonthReset(forceSave = false) {
+    const bank = ensureBankAppState();
+    const nowKey = getMonthKey();
+    const prevKey = bank.familyCardUsageMonthKey || '';
+    if (prevKey !== nowKey) {
+        bank.familyCardUsage = {};
+        bank.familyCardUsageMonthKey = nowKey;
+        appendBankTransaction({
+            type: 'system',
+            amount: 0,
+            title: '亲属卡月额度重置',
+            sourceApp: 'system',
+            note: `month ${prevKey || '-'} -> ${nowKey}`
+        });
+        saveConfig();
+        return true;
+    }
+    if (forceSave) saveConfig();
+    return false;
+}
+
+function getReceivedFamilyCardsForBank() {
+    const result = [];
+    const bankState = ensureBankAppState();
+    const hiddenSet = new Set((bankState.unboundFamilyCards || []).map(String));
+    const contacts = Array.isArray(window.iphoneSimState.contacts) ? window.iphoneSimState.contacts : [];
+    const historyMap = window.iphoneSimState.chatHistory || {};
+
+    const inferFlow = (msg, data, contactName) => {
+        const mode = data && data.mode === 'grant' ? 'grant' : 'request';
+        const role = msg && msg.role === 'other' ? 'other' : 'user';
+        if (mode === 'request') {
+            if (role === 'user') return { isReceived: true, flowText: `${contactName} -> 我` };
+            return { isReceived: false, flowText: `我 -> ${contactName}` };
+        }
+        if (role === 'user') return { isReceived: false, flowText: `我 -> ${contactName}` };
+        return { isReceived: true, flowText: `${contactName} -> 我` };
+    };
+
+    contacts.forEach((contact) => {
+        const contactId = contact.id;
+        const history = Array.isArray(historyMap[contactId]) ? historyMap[contactId] : [];
+        history.forEach((msg) => {
+            if (!msg || msg.type !== 'family_card') return;
+            let data = null;
+            try {
+                data = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+            } catch (e) {
+                return;
+            }
+            if (!data || data.status !== 'accepted') return;
+            const contactName = contact.name || `联系人${contactId}`;
+            const flowInfo = inferFlow(msg, data, contactName);
+            if (!flowInfo.isReceived) return;
+            const cardId = String(data.id || '');
+            if (!cardId) return;
+            const entryKey = `${contactId}:${cardId}`;
+            if (hiddenSet.has(entryKey)) return;
+            const totalLimit = Number(data.monthlyLimit) || 0;
+            const used = Number(bankState.familyCardUsage[entryKey]) || 0;
+            const remaining = Math.max(totalLimit - used, 0);
+            result.push({
+                key: entryKey,
+                contactId,
+                contactName,
+                cardId,
+                totalLimit,
+                used,
+                remaining,
+                flowText: flowInfo.flowText,
+                createdAt: data.createdAt || msg.time || Date.now()
+            });
+        });
+    });
+
+    result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    return result;
+}
+
+function getBankSpendableSummary() {
+    const bank = ensureBankAppState();
+    const familyEntries = getReceivedFamilyCardsForBank();
+    const totalFamilyRemaining = familyEntries.reduce((sum, e) => sum + (Number(e.remaining) || 0), 0);
+    const cashBalance = Number(bank.cashBalance) || 0;
+    const totalSpendable = cashBalance + totalFamilyRemaining;
+    return {
+        cashBalance,
+        totalFamilyRemaining,
+        totalSpendable,
+        familyEntries
+    };
+}
+
+function applyBankDebit(amount, source) {
+    const bank = ensureBankAppState();
+    const debit = Number(amount);
+    if (!Number.isFinite(debit) || debit <= 0) return { ok: false, message: '金额无效' };
+    if (!source || !source.type) return { ok: false, message: '请选择资金来源' };
+
+    if (source.type === 'cash') {
+        if ((Number(bank.cashBalance) || 0) < debit) return { ok: false, message: '银行余额不足' };
+        bank.cashBalance = Number((Number(bank.cashBalance) - debit).toFixed(2));
+    } else if (source.type === 'family_card') {
+        const key = String(source.key || '');
+        if (!key) return { ok: false, message: '亲属卡来源无效' };
+        const summary = getBankSpendableSummary();
+        const entry = summary.familyEntries.find((e) => e.key === key);
+        if (!entry) return { ok: false, message: '亲属卡不可用' };
+        if ((Number(entry.remaining) || 0) < debit) return { ok: false, message: '亲属卡额度不足' };
+        bank.familyCardUsage[key] = Number(((Number(bank.familyCardUsage[key]) || 0) + debit).toFixed(2));
+    } else {
+        return { ok: false, message: '未知资金来源' };
+    }
+
+    return { ok: true };
+}
+
+function applyBankCredit(amount, title, meta = {}) {
+    const bank = ensureBankAppState();
+    const credit = Number(amount);
+    if (!Number.isFinite(credit) || credit <= 0) return { ok: false, message: '金额无效' };
+    bank.cashBalance = Number((Number(bank.cashBalance) + credit).toFixed(2));
+    appendBankTransaction({
+        type: 'income',
+        amount: credit,
+        title: title || '入账',
+        sourceApp: meta.sourceApp || 'bank',
+        sourceType: meta.sourceType,
+        sourceKey: meta.sourceKey,
+        sourceLabel: meta.sourceLabel,
+        note: meta.note
+    });
+    return { ok: true };
+}
+
+function closeBankFundingSourceModalInternal(isCancel) {
+    const modal = document.getElementById('bank-funding-source-modal');
+    if (modal) modal.classList.add('hidden');
+    if (isCancel && typeof bankFundingReject === 'function') {
+        bankFundingReject(new Error('cancelled'));
+    }
+    bankFundingResolve = null;
+    bankFundingReject = null;
+}
+
+window.closeBankFundingSourceModal = function() {
+    closeBankFundingSourceModalInternal(true);
+};
+
+function ensureBankFundingModalMounted() {
+    const modal = document.getElementById('bank-funding-source-modal');
+    if (!modal) return null;
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    if (!modal.dataset.boundMaskClose) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeBankFundingSourceModalInternal(true);
+        });
+        modal.dataset.boundMaskClose = '1';
+    }
+    return modal;
+}
+
+window.confirmBankFundingSource = function(type, encodedKey) {
+    if (!bankFundingResolve) return;
+    if (type === 'cash') {
+        bankFundingResolve({ type: 'cash', key: 'cash', label: '银行余额' });
+        closeBankFundingSourceModalInternal(false);
+        return;
+    }
+    const key = decodeURIComponent(String(encodedKey || ''));
+    const summary = getBankSpendableSummary();
+    const entry = summary.familyEntries.find((e) => e.key === key);
+    if (!entry) {
+        alert('亲属卡不可用');
+        return;
+    }
+    bankFundingResolve({ type: 'family_card', key, label: `亲属卡 ${entry.contactName}` });
+    closeBankFundingSourceModalInternal(false);
+};
+
+function selectBankFundingSource(options = {}) {
+    return new Promise((resolve, reject) => {
+        const amount = Number(options.amount);
+        const onlyFamilyCard = options.onlyFamilyCard === true;
+        ensureFamilyQuotaMonthReset(false);
+        const modal = ensureBankFundingModalMounted();
+        const listEl = document.getElementById('bank-funding-source-list');
+        if (!modal || !listEl) {
+            reject(new Error('funding source modal missing'));
+            return;
+        }
+        const summary = getBankSpendableSummary();
+        const rows = [];
+        if (!onlyFamilyCard) {
+            rows.push({
+                type: 'cash',
+                key: 'cash',
+                title: '银行余额',
+                desc: `可用 ¥${summary.cashBalance.toFixed(2)}`,
+                disabled: Number.isFinite(amount) && amount > 0 ? summary.cashBalance < amount : false
+            });
+        }
+        summary.familyEntries.forEach((entry) => {
+            rows.push({
+                type: 'family_card',
+                key: entry.key,
+                title: `亲属卡 ${entry.contactName}`,
+                desc: `剩余额度 ¥${Number(entry.remaining).toFixed(2)}`,
+                disabled: Number.isFinite(amount) && amount > 0 ? Number(entry.remaining) < amount : false
+            });
+        });
+        listEl.innerHTML = rows.map((row) => {
+            const encodedKey = encodeURIComponent(row.key);
+            return `
+                <button class="bank-family-option" ${row.disabled ? 'disabled' : ''} onclick="window.confirmBankFundingSource('${row.type}', '${encodedKey}')">
+                    <div class="bank-family-option-title">${row.title}</div>
+                    <div class="bank-family-option-desc">${row.desc}${row.disabled ? '（不足）' : ''}</div>
+                </button>
+            `;
+        }).join('');
+        if (!rows.length) {
+            listEl.innerHTML = '<div style="padding:12px 8px;color:#8e8e93;text-align:center;">暂无可用资金来源</div>';
+        }
+        bankFundingResolve = resolve;
+        bankFundingReject = reject;
+        modal.classList.remove('hidden');
+    });
+}
+
+window.pushFamilyCardSpendHiddenNotice = function(params = {}) {
+    try {
+        const sourceKey = String(params.sourceKey || '');
+        if (!sourceKey.includes(':')) return false;
+        const ownerId = parseInt(sourceKey.split(':')[0], 10);
+        if (!Number.isFinite(ownerId)) return false;
+        if (!window.iphoneSimState.chatHistory) window.iphoneSimState.chatHistory = {};
+        if (!Array.isArray(window.iphoneSimState.chatHistory[ownerId])) {
+            window.iphoneSimState.chatHistory[ownerId] = [];
+        }
+        const amount = Number(params.amount || 0);
+        const payload = {
+            type: 'family_card_spend_notice_hidden',
+            amount: Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0,
+            itemSummary: params.itemSummary || '',
+            scene: params.scene || '',
+            sourceLabel: params.sourceLabel || '',
+            time: Date.now()
+        };
+        window.iphoneSimState.chatHistory[ownerId].push({
+            id: Date.now() + Math.random(),
+            role: 'user',
+            type: 'family_card_spend_notice_hidden',
+            content: JSON.stringify(payload),
+            time: Date.now()
+        });
+        return true;
+    } catch (e) {
+        console.warn('pushFamilyCardSpendHiddenNotice failed', e);
+        return false;
+    }
+};
+
+function calcBankDisplayTotal() {
+    const summary = getBankSpendableSummary();
+    return Number((summary.cashBalance + summary.totalFamilyRemaining).toFixed(2));
+}
+
+function formatBankAmountParts(amount) {
+    const n = Number(amount);
+    const safe = Number.isFinite(n) ? n : 0;
+    const fixed = safe.toFixed(2);
+    const [intPartRaw, decPart] = fixed.split('.');
+    const intPart = intPartRaw.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return {
+        intPart,
+        decPart
+    };
+}
+
+function renderBankBalance() {
+    const el = document.getElementById('bank-v2-balance-amount');
+    if (!el) return;
+    const parts = formatBankAmountParts(calcBankDisplayTotal());
+    el.innerHTML = `<span style="color:#8e8e93;font-weight:400;">¥</span>${parts.intPart}<span style="color:#8e8e93;font-weight:400;">.${parts.decPart}</span>`;
+}
+
+function buildFamilyCardEntriesForBank() {
+    return getReceivedFamilyCardsForBank();
+}
+
+function renderBankFamilyCards() {
+    const cardsEl = document.getElementById('bank-v2-cards');
+    if (!cardsEl) return;
+    if (!cardsEl.dataset.baseHtml) {
+        cardsEl.dataset.baseHtml = cardsEl.innerHTML;
+    }
+
+    bankFamilyCardEntries = buildFamilyCardEntriesForBank();
+    const extraHtml = bankFamilyCardEntries.map((entry) => {
+        const keyAttr = encodeURIComponent(entry.key);
+        const tailDigits = `${String(entry.contactId)}${entry.cardId}`.replace(/\D/g, '').slice(-4).padStart(4, '0');
+        return `
+            <div class="bank-v2-card light bank-v2-family-card" onclick="window.openBankFamilyDetailModal('${keyAttr}')">
+                <div class="bank-v2-card-title">
+                    Family Card
+                    <span class="bank-v2-family-badge">亲属卡</span>
+                </div>
+                <div class="bank-v2-chip"></div>
+                <div class="bank-v2-card-info">
+                    <div class="bank-v2-card-num">**** ${tailDigits}</div>
+                    <i class="fas fa-credit-card"></i>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    cardsEl.innerHTML = cardsEl.dataset.baseHtml + extraHtml;
+}
+
+window.openBankFamilyDetailModal = function(encodedKey) {
+    const key = decodeURIComponent(String(encodedKey || ''));
+    const entry = bankFamilyCardEntries.find((item) => item.key === key);
+    if (!entry) return;
+    currentBankFamilyCardKey = key;
+
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    setText('bank-family-detail-flow', entry.flowText || `${entry.contactName} -> 我`);
+    setText('bank-family-detail-limit', `¥${entry.totalLimit.toFixed(0)} / 月`);
+    setText('bank-family-detail-remaining', `¥${entry.remaining.toFixed(0)} / 月`);
+
+    const modal = document.getElementById('bank-family-detail-modal');
+    if (!modal) return;
+    if (!modal.dataset.boundMaskClose) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+        modal.dataset.boundMaskClose = '1';
+    }
+    modal.classList.remove('hidden');
+};
+
+window.closeBankFamilyDetailModal = function() {
+    const modal = document.getElementById('bank-family-detail-modal');
+    if (modal) modal.classList.add('hidden');
+    currentBankFamilyCardKey = null;
+};
+
+window.unbindBankFamilyCard = function() {
+    if (!currentBankFamilyCardKey) return;
+    const bankState = ensureBankAppState();
+    if (!bankState.unboundFamilyCards.includes(currentBankFamilyCardKey)) {
+        bankState.unboundFamilyCards.push(currentBankFamilyCardKey);
+        saveConfig();
+    }
+    window.closeBankFamilyDetailModal();
+    window.refreshBankAppFamilyCards();
+};
+
+window.refreshBankAppFamilyCards = function() {
+    renderBankFamilyCards();
+    renderBankBalance();
+    if (window.renderBankStatementView) window.renderBankStatementView();
+};
+
+window.renderBankStatementView = function() {
+    const listEl = document.getElementById('bank-statement-list');
+    if (!listEl) return;
+    const bank = ensureBankAppState();
+    const txs = Array.isArray(bank.transactions) ? bank.transactions : [];
+    if (!txs.length) {
+        listEl.innerHTML = '<div style="text-align:center;color:#8e8e93;padding:16px 0;">暂无流水</div>';
+        return;
+    }
+    listEl.innerHTML = txs.map((tx) => {
+        const amount = Number(tx.amount) || 0;
+        const sign = tx.type === 'expense' ? '-' : (tx.type === 'income' ? '+' : '');
+        const cls = tx.type === 'expense' ? '#ff3b30' : (tx.type === 'income' ? '#34c759' : '#8e8e93');
+        const dt = new Date(Number(tx.time) || Date.now());
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        const hh = String(dt.getHours()).padStart(2, '0');
+        const mi = String(dt.getMinutes()).padStart(2, '0');
+        const src = tx.sourceLabel ? ` · ${tx.sourceLabel}` : '';
+        const cashText = `现金余额 ¥${(Number(tx.balanceAfterCash) || 0).toFixed(2)}`;
+        return `
+            <div class="bank-v2-contact" style="align-items:flex-start;">
+                <div class="bank-v2-contact-meta">
+                    <div class="bank-v2-contact-name">${tx.title || '银行流水'}</div>
+                    <div class="bank-v2-contact-sub">${mm}-${dd} ${hh}:${mi}${src} · ${cashText}</div>
+                </div>
+                <div style="font-weight:700;color:${cls};">${sign}¥${amount.toFixed(2)}</div>
+            </div>
+        `;
+    }).join('');
+};
+
+function setBankNavTab(tab) {
+    const homeBtn = document.getElementById('bank-nav-home');
+    const historyBtn = document.getElementById('bank-nav-history');
+    const mainView = document.querySelector('#bank-app > .bank-v2-scroll');
+    const statementView = document.getElementById('bank-statement-view');
+    if (homeBtn) homeBtn.classList.toggle('active', tab === 'home');
+    if (historyBtn) historyBtn.classList.toggle('active', tab === 'history');
+    if (mainView) mainView.classList.toggle('hidden', tab !== 'home');
+    if (statementView) statementView.classList.toggle('hidden', tab !== 'history');
+    if (tab === 'history' && window.renderBankStatementView) window.renderBankStatementView();
+}
+
+window.initBankAppView = function() {
+    const bankState = ensureBankAppState();
+    ensureFamilyQuotaMonthReset(false);
+    if (!Number.isFinite(Number(bankState.cashBalance)) || Number(bankState.cashBalance) < 10000) {
+        const min = 10000;
+        const max = 99999;
+        bankState.cashBalance = Math.floor(Math.random() * (max - min + 1)) + min + Math.random();
+        appendBankTransaction({
+            type: 'system',
+            amount: 0,
+            title: '银行初始化余额',
+            sourceApp: 'bank'
+        });
+        saveConfig();
+    }
+    renderBankBalance();
+    renderBankFamilyCards();
+    if (window.renderBankStatementView) window.renderBankStatementView();
+    setBankNavTab('home');
+
+    const unbindBtn = document.getElementById('bank-family-unbind-btn');
+    if (unbindBtn && !unbindBtn.dataset.boundClick) {
+        unbindBtn.addEventListener('click', () => window.unbindBankFamilyCard());
+        unbindBtn.dataset.boundClick = '1';
+    }
+
+    const homeBtn = document.getElementById('bank-nav-home');
+    if (homeBtn && !homeBtn.dataset.boundClick) {
+        homeBtn.addEventListener('click', () => setBankNavTab('home'));
+        homeBtn.dataset.boundClick = '1';
+    }
+    const historyBtn = document.getElementById('bank-nav-history');
+    if (historyBtn && !historyBtn.dataset.boundClick) {
+        historyBtn.addEventListener('click', () => setBankNavTab('history'));
+        historyBtn.dataset.boundClick = '1';
+    }
+
+    const fundingModal = document.getElementById('bank-funding-source-modal');
+    if (fundingModal) ensureBankFundingModalMounted();
+};
+
+window.ensureBankAppState = ensureBankAppState;
+window.ensureFamilyQuotaMonthReset = ensureFamilyQuotaMonthReset;
+window.getReceivedFamilyCardsForBank = getReceivedFamilyCardsForBank;
+window.getBankSpendableSummary = getBankSpendableSummary;
+window.selectBankFundingSource = selectBankFundingSource;
+window.applyBankDebit = applyBankDebit;
+window.applyBankCredit = applyBankCredit;
+window.appendBankTransaction = appendBankTransaction;
+
+window.handleFamilyCardDecisionAction = function(payload, contactId, options = {}) {
+    const pending = findLatestPendingFamilyCard(contactId);
+    const parsed = parseFamilyCardDecisionFromPayload(payload, pending ? pending.data.id : null);
+    if (!parsed) return false;
+
+    const rawPayload = String(payload || '');
+    const hasExplicitLimit = /(\d{2,6})/.test(rawPayload);
+    const existing = findFamilyCardById(contactId, parsed.cardId);
+    let resolvedLimit = null;
+    if (parsed.status === 'accepted') {
+        resolvedLimit = parsed.monthlyLimit;
+        if ((!hasExplicitLimit || !resolvedLimit || Number.isNaN(Number(resolvedLimit))) &&
+            existing && existing.data.mode === 'grant' && existing.data.monthlyLimit) {
+            resolvedLimit = Number(existing.data.monthlyLimit);
+        }
+    }
+
+    const updated = updateFamilyCardStatus(contactId, parsed.cardId, {
+        status: parsed.status,
+        monthlyLimit: parsed.status === 'accepted' ? resolvedLimit : null
+    });
+    if (!updated) return false;
+
+    const shouldSendText = options.sendText === true;
+    if (shouldSendText) {
+        if (parsed.status === 'accepted') {
+            sendMessage(`同意给你开亲属卡，每月额度 ¥${updated.monthlyLimit}。`, false, 'text', null, contactId);
+        } else {
+            sendMessage('这次我先不办亲属卡。', false, 'text', null, contactId);
+        }
+    }
+    return true;
+};
+
+window.createFamilyCardPayload = createFamilyCardPayload;
+window.findFamilyCardById = findFamilyCardById;
+window.updateFamilyCardStatus = updateFamilyCardStatus;
+
 window.refreshAiImage = async function(msgId, event) {
     if (event) event.stopPropagation();
 
@@ -2391,6 +3289,40 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 </div>
             `;
         }
+    } else if (type === 'family_card') {
+        let familyData = {
+            id: '',
+            mode: 'request',
+            status: 'pending',
+            monthlyLimit: null,
+            note: ''
+        };
+        try {
+            familyData = typeof text === 'string' ? JSON.parse(text) : text;
+        } catch (e) {
+            console.error('解析亲属卡数据失败', e);
+        }
+
+        const mode = familyData.mode === 'grant' ? 'grant' : 'request';
+        const isAccepted = familyData.status === 'accepted';
+        const safeCardId = String(familyData.id || '').replace(/'/g, "\\'");
+        const safeContactId = String(window.iphoneSimState.currentChatContactId || '').replace(/'/g, "\\'");
+        const cardClass = mode === 'grant' ? 'chat-bank-v2-card chat-bank-v2-card-light' : 'chat-bank-v2-card';
+        const cardTitle = mode === 'grant' ? '亲属卡' : 'Black Card';
+        contentHtml = `
+            <div class="${cardClass}" onclick="window.openFamilyCardDetail('${safeCardId}', '${safeContactId}')">
+                <i class="fas fa-coins chat-bank-v2-decor"></i>
+                <div class="chat-bank-v2-title-row">
+                    <div class="chat-bank-v2-card-title">${cardTitle}</div>
+                    ${isAccepted ? '<span class="chat-bank-v2-status-check"><i class="fas fa-check"></i></span>' : ''}
+                </div>
+                <div class="chat-bank-v2-chip"></div>
+                <div class="chat-bank-v2-card-info">
+                    <div class="chat-bank-v2-card-num">**** 4921</div>
+                    <i class="fas fa-credit-card"></i>
+                </div>
+            </div>
+        `;
     } else if (type === 'virtual_image') {
         const imgId = `virtual-img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const overlayId = `overlay-${imgId}`;
@@ -2425,7 +3357,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     let extraClass = '';
-    const cardTypes = ['transfer', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share'];
+    const cardTypes = ['transfer', 'family_card', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
     }
@@ -2478,6 +3410,12 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const itemCount = giftData.items ? giftData.items.length : 0;
         const firstItem = itemCount > 0 ? giftData.items[0] : { title: '礼物', image: '' };
         const total = giftData.total || '0.00';
+        const recipientText = giftData.recipientText || '';
+        const itemNames = (giftData.items || []).map(i => {
+            const count = Number(i.count || 1);
+            return `${i.title}${count > 1 ? ` x${count}` : ''}`;
+        });
+        const itemNamesText = itemNames.length ? itemNames.join('、') : (firstItem.title || '礼物');
         const remarkHtml = giftData.remark ? `<div style="padding: 6px 12px; font-size: 13px; color: #333; background: #fff; border-top: 1px solid #f5f5f5; font-style: italic;">"${giftData.remark}"</div>` : '';
         
         contentHtml = `
@@ -2495,6 +3433,11 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                         ${firstItem.selectedSpec ? `<div style="font-size: 11px; color: #999; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${firstItem.selectedSpec}</div>` : ''}
                         ${itemCount > 1 ? `<div style="font-size: 12px; color: #999; margin-top: 4px;">等 ${itemCount} 件商品</div>` : ''}
                     </div>
+                </div>
+                <div style="padding: 8px 12px 0; font-size: 12px; color: #666; line-height: 1.4;">
+                    <div>商品：${itemNamesText}</div>
+                    <div>金额：¥${total}</div>
+                    ${recipientText ? `<div>送给：${recipientText}</div>` : ''}
                 </div>
                 ${remarkHtml}
                 <div style="padding: 2px 12px; border-top: 1px solid #f5f5f5; text-align: right; line-height: 1;">
@@ -3152,6 +4095,7 @@ function handleQuote(msgData) {
     if (msgData.type === 'image') previewText = '[图片]';
     else if (msgData.type === 'sticker') previewText = '[表情包]';
     else if (msgData.type === 'transfer') previewText = '[转账]';
+    else if (msgData.type === 'family_card') previewText = '[亲属卡]';
     else if (msgData.type === 'pay_request') previewText = '[代付请求]';
     
     document.getElementById('reply-text').textContent = previewText;
@@ -3805,7 +4749,7 @@ ${timeContext}
 ${itineraryContext}
 
 你必须完全沉浸在角色中，绝对不能透露你是AI或语言模型。你的回复必须像一个真实的${contact.name}在使用微信聊天。
-你拥有一个“微信朋友圈”功能和“微信转账”功能。
+你拥有“微信朋友圈”“微信转账”“亲属卡”功能。
 
 ${contact.showThought ? `
 【⚡️强制要求：内心独白⚡️】
@@ -3874,6 +4818,8 @@ ${contact.showThought ? `
 - 转账 -> command: "TRANSFER", payload: "金额 备注" (例如 "88.88 节日快乐")
 - 接收转账 -> command: "ACCEPT_TRANSFER", payload: "ID" (当收到转账且决定接受时，必须使用此指令，否则转账状态不会更新)
 - 退回转账 -> command: "RETURN_TRANSFER", payload: "ID"
+- 亲属卡决策 -> command: "FAMILY_CARD_DECISION", payload: "cardId | 同意/拒绝 | 月额度数字"
+  *规则*：同意时必须给出月额度；拒绝时额度可留空或0。
 - 支付代付请求 -> command: "PAY_FOR_REQUEST", payload: "requestId" (当用户发送了代付请求时，你可以选择帮他支付。requestId在代付消息的JSON中)
 - 送礼物给用户 -> command: "SEND_GIFT", payload: "物品名称 | 价格 | 备注" (例如 "一束鲜花 | 52.0 | 节日快乐")
 - 点外卖给用户 -> command: "SEND_DELIVERY", payload: "餐品名称 | 价格 | 备注" (例如 "炸鸡啤酒 | 35.0 | 趁热吃")
@@ -4201,6 +5147,12 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                          if (h.type === 'transfer') {
                              const data = JSON.parse(content);
                              return { role: h.role, content: `${quotePrefix}[转账: ${data.amount}元] (ID: ${data.id})` };
+                         } else if (h.type === 'family_card') {
+                             const data = JSON.parse(content);
+                             const modeText = data.mode === 'grant' ? '给予' : '索要';
+                             const statusText = data.status || 'pending';
+                             const limitText = data.monthlyLimit ? `${data.monthlyLimit}元/月` : '待设置';
+                             return { role: h.role, content: `${quotePrefix}[亲属卡: ${modeText}, 状态:${statusText}, 额度:${limitText}] (ID: ${data.id})` };
                          }
                      } catch(e) {}
                 }
@@ -4361,6 +5313,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         const transferRegex = /ACTION:\s*TRANSFER:\s*(\d+(?:\.\d{1,2})?)\s*(.*?)(?:\n|$)/;
         const acceptTransferRegex = /ACTION:\s*ACCEPT_TRANSFER:\s*(\d+)(?:\n|$)/;
         const returnTransferRegex = /ACTION:\s*RETURN_TRANSFER:\s*(\d+)(?:\n|$)/;
+        const familyCardDecisionRegex = /ACTION:\s*FAMILY_CARD_DECISION:\s*(.*?)(?:\n|$)/;
         const payForRequestRegex = /ACTION:\s*PAY_FOR_REQUEST:\s*(.*?)(?:\n|$)/;
         const sendGiftRegex = /ACTION:\s*SEND_GIFT:\s*(.*?)(?:\n|$)/;
         const sendDeliveryRegex = /ACTION:\s*SEND_DELIVERY:\s*(.*?)(?:\n|$)/;
@@ -4382,6 +5335,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         let hasUpdatedName = false;
         let hasUpdatedWxid = false;
         let hasUpdatedSignature = false;
+        let hasFamilyCardDecision = false;
 
         for (let i = 0; i < actions.length; i++) {
             let segment = actions[i];
@@ -4778,6 +5732,16 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 processedSegment = processedSegment.replace(returnTransferMatch[0], '');
             }
 
+            let familyCardDecisionMatch;
+            while ((familyCardDecisionMatch = processedSegment.match(familyCardDecisionRegex)) !== null) {
+                const payload = familyCardDecisionMatch[1].trim();
+                if (payload && window.handleFamilyCardDecisionAction) {
+                    const handled = window.handleFamilyCardDecisionAction(payload, contact.id, { sendText: false });
+                    if (handled) hasFamilyCardDecision = true;
+                }
+                processedSegment = processedSegment.replace(familyCardDecisionMatch[0], '');
+            }
+
             let payForRequestMatch;
             while ((payForRequestMatch = processedSegment.match(payForRequestRegex)) !== null) {
                 const requestId = payForRequestMatch[1].trim();
@@ -4889,6 +5853,26 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
             }
         }
 
+        const pendingFamilyCard = findLatestPendingFamilyCard(contact.id);
+        if (pendingFamilyCard && !hasFamilyCardDecision) {
+            const fallback = deriveFamilyDecisionFromMessages(messagesList);
+            const payload = `${pendingFamilyCard.data.id} | ${fallback.status === 'accepted' ? '同意' : '拒绝'} | ${fallback.monthlyLimit || 0}`;
+            if (window.handleFamilyCardDecisionAction) {
+                const handled = window.handleFamilyCardDecisionAction(payload, contact.id, { sendText: false });
+                if (handled) hasFamilyCardDecision = true;
+            }
+        }
+
+        if (hasFamilyCardDecision) {
+            const familyDecisionTextRegex = /(亲属卡|每月额度|月额度|开亲属卡|同意给你|不办亲属卡)/;
+            messagesList = messagesList.filter(msg => {
+                const msgType = msg && (msg.type || '').toLowerCase();
+                const isTextLike = msgType === 'text' || msgType === '消息' || !msgType;
+                const content = String(msg && msg.content ? msg.content : '');
+                return !(isTextLike && familyDecisionTextRegex.test(content));
+            });
+        }
+
         if (thoughtContent && contact.showThought) {
             updateThoughtBubble(thoughtContent);
         }
@@ -4906,13 +5890,14 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
 
             if (shouldShowInChat) {
                 // 如果用户在聊天界面但页面被隐藏/最小化，仍然发送系统通知
-                if (document.hidden) {
-                    let notifContent = msg.content;
-                    if (msg.type === '表情包') notifContent = '[表情包]';
-                    else if (msg.type === '图片') notifContent = '[图片]';
-                    else if (msg.type === '语音') notifContent = '[语音]';
-                    else if (msg.type === 'virtual_image') notifContent = '[图片]';
-                    else if (msg.type === 'sticker') notifContent = '[表情包]';
+                    if (document.hidden) {
+                        let notifContent = msg.content;
+                        if (msg.type === '表情包') notifContent = '[表情包]';
+                        else if (msg.type === '图片') notifContent = '[图片]';
+                        else if (msg.type === '语音') notifContent = '[语音]';
+                        else if (msg.type === 'family_card') notifContent = '[亲属卡]';
+                        else if (msg.type === 'virtual_image') notifContent = '[图片]';
+                        else if (msg.type === 'sticker') notifContent = '[表情包]';
                     
                     sendSystemNotification(contact, notifContent);
                 }
@@ -5149,6 +6134,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 if (typeToSave === 'sticker') notificationText = '[表情包]';
                 if (typeToSave === 'virtual_image' || typeToSave === 'image') notificationText = '[图片]';
                 if (typeToSave === 'voice') notificationText = '[语音]';
+                if (typeToSave === 'family_card') notificationText = '[亲属卡]';
                 
                 showChatNotification(contact.id, notificationText);
                 
@@ -8875,6 +9861,17 @@ function handleSaveEditedChatMessage() {
 }
 
 // 初始化监听器
+function openAiMoments() {
+    const momentsTab = document.querySelector('.wechat-tab-item[data-tab="moments"]');
+    if (momentsTab) {
+        momentsTab.click();
+        return;
+    }
+    if (window.switchTab) {
+        window.switchTab('moments');
+    }
+}
+
 function setupChatListeners() {
     // 仅选择主微信应用的底栏 Tab
     const wechatTabs = document.querySelectorAll('#wechat-app .wechat-tab-item');
