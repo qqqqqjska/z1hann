@@ -3464,6 +3464,49 @@ input:checked + .slider:before {
     align-self: flex-start;
 }
 
+/* Keep bank-like cards stable when chat font size slider changes */
+.chat-message .message-content.family-card-msg,
+.chat-message .message-content.savings-invite-msg {
+    width: fit-content !important;
+    height: fit-content !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
+    display: block !important;
+    align-self: flex-start;
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+}
+
+.chat-message .message-content.family-card-msg .chat-bank-v2-card,
+.chat-message .message-content.savings-invite-msg .chat-bank-v2-card {
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+}
+
+.chat-message .message-content.family-card-msg .chat-bank-v2-card-title,
+.chat-message .message-content.savings-invite-msg .chat-bank-v2-card-title {
+    font-size: 18px !important;
+}
+
+.chat-message .message-content.family-card-msg .chat-bank-v2-card-num,
+.chat-message .message-content.savings-invite-msg .chat-bank-v2-card-num {
+    font-size: 15px !important;
+}
+
+.chat-message .message-content.family-card-msg .chat-bank-v2-card-info i,
+.chat-message .message-content.savings-invite-msg .chat-bank-v2-card-info i {
+    font-size: 20px !important;
+}
+
+.chat-message .message-content.family-card-msg .chat-bank-v2-status-check i,
+.chat-message .message-content.savings-invite-msg .chat-bank-v2-status-check i {
+    font-size: 9px !important;
+}
+
 /* Family card in chat uses the exact black bank card layout */
 .chat-bank-v2-card {
     width: 280px;

@@ -4764,6 +4764,21 @@
             display: flex;
             align-items: center;
             justify-content: space-around;
+            overflow: hidden;
+        }
+        #bank-app .bank-v2-nav-indicator {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: #000;
+            transform: translate(0, -50%);
+            opacity: 0;
+            transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 120ms ease;
+            pointer-events: none;
+            z-index: 0;
         }
         #bank-app .bank-v2-nav-item {
             width: 42px;
@@ -4774,10 +4789,41 @@
             align-items: center;
             justify-content: center;
             font-size: 19px;
+            position: relative;
+            z-index: 1;
+            transition: color 220ms ease;
         }
         #bank-app .bank-v2-nav-item.active {
-            background: #000;
             color: #fff;
+            background: transparent !important;
+            box-shadow: none !important;
+            transform: none !important;
+        }
+        #bank-app .bank-v2-scroll.bank-view-enter-right {
+            animation: bankViewInRight 220ms ease;
+        }
+        #bank-app .bank-v2-scroll.bank-view-enter-left {
+            animation: bankViewInLeft 220ms ease;
+        }
+        @keyframes bankViewInRight {
+            from {
+                opacity: 0;
+                transform: translateX(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        @keyframes bankViewInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
         }
         #bank-app .bank-family-modal,
         .bank-family-modal {
@@ -4862,7 +4908,8 @@
             margin-top: -6px;
             margin-bottom: 10px;
         }
-        #family-card-detail-modal .modal-content {
+        #family-card-detail-modal .modal-content,
+        #savings-invite-detail-modal .modal-content {
             width: 86%;
             max-width: 340px;
             border-radius: 16px;
@@ -5146,19 +5193,11 @@
             </div>
 
             <div id="bank-v2-cards" class="bank-v2-cards">
-                <div class="bank-v2-card">
+                <div id="bank-own-cash-card" class="bank-v2-card" onclick="window.openBankOwnCardDetailModal()">
                     <div class="bank-v2-card-title">Black Card</div>
                     <div class="bank-v2-chip"></div>
                     <div class="bank-v2-card-info">
                         <div class="bank-v2-card-num">**** 4921</div>
-                        <i class="fas fa-credit-card"></i>
-                    </div>
-                </div>
-                <div class="bank-v2-card light">
-                    <div class="bank-v2-card-title">Platinum</div>
-                    <div class="bank-v2-chip"></div>
-                    <div class="bank-v2-card-info">
-                        <div class="bank-v2-card-num">**** 8302</div>
                         <i class="fas fa-credit-card"></i>
                     </div>
                 </div>
@@ -5267,10 +5306,10 @@
             </div>
         </div>
         <div class="bank-v2-bottom-nav">
+            <div id="bank-nav-indicator" class="bank-v2-nav-indicator"></div>
             <div id="bank-nav-home" class="bank-v2-nav-item active"><i class="fas fa-house"></i></div>
             <div id="bank-nav-savings" class="bank-v2-nav-item"><i class="fas fa-chart-pie"></i></div>
             <div id="bank-nav-history" class="bank-v2-nav-item"><i class="fas fa-clock-rotate-left"></i></div>
-            <div class="bank-v2-nav-item"><i class="far fa-user"></i></div>
         </div>
 
         <div id="family-card-type-modal" class="modal hidden bank-family-modal">
@@ -5336,6 +5375,24 @@
                         <span id="bank-family-detail-remaining" class="bank-family-detail-val">-</span>
                     </div>
                     <button id="bank-family-unbind-btn" class="ios-btn-block secondary" style="margin-top:16px;color:#ff3b30;">解绑亲属卡</button>
+                </div>
+            </div>
+        </div>
+        <div id="bank-own-card-detail-modal" class="modal hidden bank-family-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>银行卡余额</h3>
+                    <button class="close-btn" onclick="window.closeBankOwnCardDetailModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="bank-family-detail-kv">
+                        <span class="bank-family-detail-key">本人银行卡余额</span>
+                        <span id="bank-own-card-cash" class="bank-family-detail-val">¥0.00</span>
+                    </div>
+                    <div class="bank-family-detail-kv">
+                        <span class="bank-family-detail-key">说明</span>
+                        <span class="bank-family-detail-val">不包含亲属卡额度</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -5449,6 +5506,37 @@
                 <div class="family-detail-kv">
                     <span class="family-detail-key">备注</span>
                     <span class="family-detail-val" id="family-detail-note">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="savings-invite-detail-modal" class="modal hidden" style="z-index: 320; align-items: center;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>共同存钱详情</h3>
+                <button class="close-btn" onclick="window.closeSavingsInviteDetail()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding-top: 6px;">
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">标题</span>
+                    <span class="family-detail-val" id="savings-invite-detail-title">共同存钱邀请</span>
+                </div>
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">计划</span>
+                    <span class="family-detail-val" id="savings-invite-detail-plan">共同存钱计划</span>
+                </div>
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">目标</span>
+                    <span class="family-detail-val" id="savings-invite-detail-target">¥0.00</span>
+                </div>
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">基础年化</span>
+                    <span class="family-detail-val" id="savings-invite-detail-apr">0.00%</span>
+                </div>
+                <div class="family-detail-kv">
+                    <span class="family-detail-key">提示</span>
+                    <span class="family-detail-val" id="savings-invite-detail-text">已邀请你一起存钱</span>
                 </div>
             </div>
         </div>

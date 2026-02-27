@@ -2484,6 +2484,49 @@ window.closeFamilyCardDetail = function() {
     if (modal) modal.classList.add('hidden');
 };
 
+window.openSavingsInviteDetail = function(payload) {
+    let inviteData = payload;
+    if (typeof payload === 'string') {
+        try {
+            inviteData = JSON.parse(decodeURIComponent(payload));
+        } catch (e) {
+            inviteData = {};
+        }
+    }
+    if (!inviteData || typeof inviteData !== 'object') inviteData = {};
+
+    const title = inviteData.title || '共同存钱计划';
+    const targetAmount = Number(inviteData.targetAmount || 0).toFixed(2);
+    const apr = Number(inviteData.aprBase || 0).toFixed(2);
+    const inviteText = inviteData.inviteText || '已邀请你一起存钱';
+
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    setText('savings-invite-detail-title', '共同存钱邀请');
+    setText('savings-invite-detail-plan', title);
+    setText('savings-invite-detail-target', `¥${targetAmount}`);
+    setText('savings-invite-detail-apr', `${apr}%`);
+    setText('savings-invite-detail-text', inviteText);
+
+    const modal = document.getElementById('savings-invite-detail-modal');
+    if (modal) {
+        if (!modal.dataset.boundMaskClose) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.classList.add('hidden');
+            });
+            modal.dataset.boundMaskClose = '1';
+        }
+        modal.classList.remove('hidden');
+    }
+};
+
+window.closeSavingsInviteDetail = function() {
+    const modal = document.getElementById('savings-invite-detail-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
 let bankFamilyCardEntries = [];
 let currentBankFamilyCardKey = null;
 let bankFundingResolve = null;
@@ -3496,6 +3539,28 @@ window.closeBankFamilyDetailModal = function() {
     currentBankFamilyCardKey = null;
 };
 
+window.openBankOwnCardDetailModal = function() {
+    const bank = ensureBankAppState();
+    const cash = Number(bank.cashBalance || 0);
+    const cashEl = document.getElementById('bank-own-card-cash');
+    if (cashEl) cashEl.textContent = `¥${cash.toFixed(2)}`;
+
+    const modal = document.getElementById('bank-own-card-detail-modal');
+    if (!modal) return;
+    if (!modal.dataset.boundMaskClose) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.classList.add('hidden');
+        });
+        modal.dataset.boundMaskClose = '1';
+    }
+    modal.classList.remove('hidden');
+};
+
+window.closeBankOwnCardDetailModal = function() {
+    const modal = document.getElementById('bank-own-card-detail-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
 window.unbindBankFamilyCard = function() {
     if (!currentBankFamilyCardKey) return;
     const bankState = ensureBankAppState();
@@ -3546,20 +3611,69 @@ window.renderBankStatementView = function() {
 };
 
 function setBankNavTab(tab) {
+    const tabOrder = { home: 0, savings: 1, history: 2 };
+    const moveBankNavIndicator = (targetTab, immediate = false) => {
+        const nav = document.querySelector('#bank-app .bank-v2-bottom-nav');
+        const indicator = document.getElementById('bank-nav-indicator');
+        const target = document.getElementById(`bank-nav-${targetTab}`);
+        if (!nav || !indicator || !target) return;
+
+        const navRect = nav.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        if (!navRect.width || !targetRect.width) {
+            setTimeout(() => moveBankNavIndicator(targetTab, true), 0);
+            return;
+        }
+        const x = targetRect.left - navRect.left;
+        if (immediate) {
+            const prevTransition = indicator.style.transition;
+            indicator.style.transition = 'none';
+            indicator.style.transform = `translate(${x}px, -50%)`;
+            indicator.style.opacity = '1';
+            indicator.offsetHeight;
+            indicator.style.transition = prevTransition || 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)';
+            return;
+        }
+        indicator.style.transform = `translate(${x}px, -50%)`;
+        indicator.style.opacity = '1';
+    };
+    const playBankViewEnter = (view, direction) => {
+        if (!view) return;
+        const cls = direction === 'left' ? 'bank-view-enter-left' : 'bank-view-enter-right';
+        view.classList.remove('bank-view-enter-left', 'bank-view-enter-right');
+        view.offsetHeight;
+        view.classList.add(cls);
+        setTimeout(() => view.classList.remove('bank-view-enter-left', 'bank-view-enter-right'), 240);
+    };
+
     const homeBtn = document.getElementById('bank-nav-home');
     const savingsBtn = document.getElementById('bank-nav-savings');
     const historyBtn = document.getElementById('bank-nav-history');
     const mainView = document.querySelector('#bank-app > .bank-v2-scroll');
     const savingsView = document.getElementById('bank-savings-view');
     const statementView = document.getElementById('bank-statement-view');
+    const prevTab = window.__bankCurrentNavTab || 'home';
+    const views = { home: mainView, savings: savingsView, history: statementView };
+
     if (homeBtn) homeBtn.classList.toggle('active', tab === 'home');
     if (savingsBtn) savingsBtn.classList.toggle('active', tab === 'savings');
     if (historyBtn) historyBtn.classList.toggle('active', tab === 'history');
-    if (mainView) mainView.classList.toggle('hidden', tab !== 'home');
-    if (savingsView) savingsView.classList.toggle('hidden', tab !== 'savings');
-    if (statementView) statementView.classList.toggle('hidden', tab !== 'history');
+    moveBankNavIndicator(tab, !window.__bankCurrentNavTab);
+
+    Object.keys(views).forEach((key) => {
+        const view = views[key];
+        if (!view) return;
+        view.classList.toggle('hidden', key !== tab);
+    });
+
+    if (tab !== prevTab && views[tab]) {
+        const direction = (tabOrder[tab] || 0) >= (tabOrder[prevTab] || 0) ? 'right' : 'left';
+        playBankViewEnter(views[tab], direction);
+    }
+
     if (tab === 'savings') renderBankSavingsView();
     if (tab === 'history' && window.renderBankStatementView) window.renderBankStatementView();
+    window.__bankCurrentNavTab = tab;
 }
 
 window.initBankAppView = function() {
@@ -3581,6 +3695,12 @@ window.initBankAppView = function() {
     renderBankFamilyCards();
     if (window.renderBankStatementView) window.renderBankStatementView();
     setBankNavTab('home');
+    if (!window.__bankNavIndicatorResizeBound) {
+        window.addEventListener('resize', () => {
+            setTimeout(() => setBankNavTab(window.__bankCurrentNavTab || 'home'), 0);
+        });
+        window.__bankNavIndicatorResizeBound = true;
+    }
 
     const unbindBtn = document.getElementById('bank-family-unbind-btn');
     if (unbindBtn && !unbindBtn.dataset.boundClick) {
@@ -4041,6 +4161,8 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             if (data.status === 'accepted') extraClass += ' accepted';
             if (data.status === 'returned') extraClass += ' returned';
         } catch(e) {}
+    } else if (type === 'family_card') {
+        extraClass += ' family-card-msg';
     } else if (type === 'sticker') {
         extraClass = 'sticker-msg';
         contentHtml = `<img src="${text}" onclick="showImagePreview(this.src)">`;
@@ -4133,16 +4255,23 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         try {
             inviteData = typeof text === 'string' ? JSON.parse(text) : text;
         } catch (e) {}
-        const targetAmount = Number(inviteData.targetAmount || 0).toFixed(2);
-        const apr = Number(inviteData.aprBase || 0).toFixed(2);
+        const safePayload = encodeURIComponent(JSON.stringify({
+            title: inviteData.title || '共同存钱计划',
+            targetAmount: Number(inviteData.targetAmount || 0),
+            aprBase: Number(inviteData.aprBase || 0),
+            inviteText: '已邀请你一起存钱'
+        })).replace(/'/g, "\\'");
+        const cardTitle = '共同存钱';
         contentHtml = `
-            <div style="background:#fff;border-radius:12px;overflow:hidden;width:240px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-                <div style="background:#111;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">共同存钱邀请</div>
-                <div style="padding:10px 12px;font-size:13px;color:#333;line-height:1.45;">
-                    <div>计划：${inviteData.title || '共同存钱计划'}</div>
-                    <div>目标：¥${targetAmount}</div>
-                    <div>基础年化：${apr}%</div>
-                    <div style="margin-top:6px;color:#666;">已邀请你一起存钱</div>
+            <div class="chat-bank-v2-card chat-bank-v2-card-light" onclick="window.openSavingsInviteDetail('${safePayload}')">
+                <i class="fas fa-piggy-bank chat-bank-v2-decor"></i>
+                <div class="chat-bank-v2-title-row">
+                    <div class="chat-bank-v2-card-title">${cardTitle}</div>
+                </div>
+                <div class="chat-bank-v2-chip"></div>
+                <div class="chat-bank-v2-card-info">
+                    <div class="chat-bank-v2-card-num">SAVINGS INVITE</div>
+                    <i class="fas fa-wallet"></i>
                 </div>
             </div>
         `;
