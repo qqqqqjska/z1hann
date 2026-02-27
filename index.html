@@ -41,6 +41,8 @@
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/regular/style.css">
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/fill/style.css">
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/bold/style.css">
+    <link rel="stylesheet" href="css/remixicon.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -3935,6 +3937,11 @@
         <!-- 内容由 js/forum.js 动态生成 -->
     </div>
 
+    <!-- 音乐全屏App (内嵌还原 v2 样式，不依赖 iframe) -->
+    <div id="music-app" class="app-screen hidden" style="background-color: #e5e5ea; z-index: 210; overflow: hidden;">
+        <div id="music-app-shadow-host" style="width: 100%; height: 100%;"></div>
+    </div>
+
     <!-- 购物全屏App -->
     <div id="shopping-app" class="app-screen hidden" style="background-color: #f2f2f7; position: fixed; height: 100dvh; height: 100vh; top: 0; left: 0; width: 100%; z-index: 100;">
         <!-- 加入购物车成功反馈弹窗 -->
@@ -5560,6 +5567,7 @@
     <script src="js/apps.js"></script>
     <script src="js/icity.js"></script>
     <script src="js/home.js"></script>
+    <script src="js/music_app_screen.js"></script>
     <script src="js/check_phone.js"></script>
     <script src="js/chat/01-contact-settings.js"></script>
     <script src="js/chat/02-message-bank.js"></script>

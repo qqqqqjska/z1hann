@@ -162,7 +162,8 @@ const knownApps = {
     'phone-app': { name: 'Phone', icon: 'fas fa-mobile-alt', color: '#34C759' },
     'bank-app': { name: 'Bank', icon: 'fas fa-building-columns', color: '#1E66F5' },
     'icity-app': { name: 'iCity', icon: 'fas fa-city', color: '#000000' },
-    'lookus-app': { name: 'LookUS', icon: 'fas fa-eye', color: '#FF2D55' }
+    'lookus-app': { name: 'LookUS', icon: 'fas fa-eye', color: '#FF2D55' },
+    'music-app': { name: 'Music', icon: 'fas fa-music', color: '#FF2D55' }
 };
 
 function compressImage(file, maxWidth = 1024, quality = 0.7) {

@@ -32,6 +32,7 @@ let homeScreenData = [
     { index: 13, type: 'app', name: '银行', iconClass: 'fas fa-building-columns', color: '#1E66F5', appId: 'bank-app' },
     { index: 14, type: 'app', name: '设置', iconClass: 'fas fa-cog', color: '#8E8E93', appId: 'settings-app' },
     { index: 15, type: 'app', name: '美化', iconClass: 'fas fa-paint-brush', color: '#5856D6', appId: 'theme-app' },
+    { index: 16, type: 'app', name: '音乐', iconClass: 'fas fa-music', color: '#FF2D55', appId: 'music-app' },
 ];
 
 // 系统内置组件定义 (用于从仓库恢复)
@@ -145,6 +146,35 @@ function initGrid() {
             iconClass: 'fas fa-building-columns',
             color: '#1E66F5',
             appId: 'bank-app',
+            _internalId: generateId()
+        });
+    }
+
+    // 强制添加音乐应用 (如果不存在)
+    if (!homeScreenData.some(item => item.appId === 'music-app')) {
+        // 查找空闲位置 (优先 index 16)
+        let targetIndex = 16;
+        const isOccupied = (idx) => homeScreenData.some(item => {
+            const slots = getOccupiedSlots(item.index, item.size || '1x1');
+            return slots && slots.includes(idx);
+        });
+
+        if (isOccupied(targetIndex)) {
+            for (let i = 0; i < SLOTS_PER_PAGE * totalPages; i++) {
+                if (!isOccupied(i)) {
+                    targetIndex = i;
+                    break;
+                }
+            }
+        }
+
+        homeScreenData.push({
+            index: targetIndex,
+            type: 'app',
+            name: '音乐',
+            iconClass: 'fas fa-music',
+            color: '#FF2D55',
+            appId: 'music-app',
             _internalId: generateId()
         });
     }
