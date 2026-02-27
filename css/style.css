@@ -3492,7 +3492,8 @@ input:checked + .slider:before {
 .chat-message .message-content.pay-request-msg,
 .chat-message .message-content.product-share-msg,
 .chat-message .message-content.icity-card-msg,
-.chat-message .message-content.gift-card-msg {
+.chat-message .message-content.gift-card-msg,
+.chat-message .message-content.music-listen-invite-msg {
     width: fit-content !important;
     height: fit-content !important;
     padding: 0 !important;
@@ -3503,6 +3504,109 @@ input:checked + .slider:before {
     min-height: 0 !important;
     display: block !important;
     align-self: flex-start;
+}
+
+/* --------------------------------------------------------- */
+/* Music Listen Invite Card (Pure CSS Version)                */
+/* 调位置入口：直接改这里的变量，分别控制每个元素上下偏移 */
+/* --------------------------------------------------------- */
+.music-listen-invite-card {
+    --music-invite-card-width: 240px;
+    --music-invite-card-height: 90px;
+    --music-invite-card-shift-y: -42px;
+    --music-invite-content-shift-y: -8px;
+    --music-invite-cover-shift-y: -33px;
+    --music-invite-title-shift-y: -70px;
+    --music-invite-artist-shift-y: -108px;
+    --music-invite-platform-shift-y: -145px;
+    --music-invite-play-shift-y: -23px;
+
+    width: var(--music-invite-card-width);
+    height: var(--music-invite-card-height);
+    max-width: 78vw;
+    border-radius: 22px;
+    background: #e5e5ea;
+    padding: 14px 16px;
+    box-shadow: none;
+    cursor: pointer;
+    box-sizing: border-box;
+    user-select: none;
+    transform: translateY(var(--music-invite-card-shift-y));
+}
+
+.music-listen-invite-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    transform: translateY(var(--music-invite-content-shift-y));
+}
+
+.music-listen-invite-cover {
+    width: 65px;
+    height: 65px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: #f2f2f2;
+    flex-shrink: 0;
+    transform: translateY(var(--music-invite-cover-shift-y));
+}
+
+.music-listen-invite-meta {
+    min-width: 0;
+    flex: 1;
+}
+
+.music-listen-invite-title {
+    font-size: 13px;
+    line-height: 1.1;
+    color: #111;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transform: translateY(var(--music-invite-title-shift-y));
+}
+
+.music-listen-invite-artist {
+    font-size: 12px;
+    color: #2f2f2f;
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transform: translateY(var(--music-invite-artist-shift-y));
+}
+
+.music-listen-invite-platform {
+    font-size: 14px;
+    color: #8a8a8f;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transform: translateY(var(--music-invite-platform-shift-y));
+}
+
+.music-listen-invite-platform i {
+    font-size: 12px;
+}
+
+.music-listen-invite-play {
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    background: #000;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+    transform: translateY(var(--music-invite-play-shift-y));
+}
+
+.music-listen-invite-play i {
+    font-size: 16px;
+    margin-left: 4px;
 }
 
 /* Keep bank-like cards stable when chat font size slider changes */

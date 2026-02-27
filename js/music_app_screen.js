@@ -76,11 +76,12 @@
             background: rgba(255,255,255,0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
             border-radius: 24px; padding: 16px;
             box-shadow: 0 15px 40px rgba(0,0,0,0.15);
-            display: flex; align-items: center; gap: 12px;
+            display: none !important; align-items: center; gap: 12px;
             z-index: 300; transition: top 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
             border: 1px solid rgba(255,255,255,0.8);
+            pointer-events: none;
         }
-        .invite-popup.active { top: 50px; }
+        .invite-popup.active { top: 50px; display: none !important; }
         .ip-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }
         .ip-info { flex: 1; }
         .ip-info h4 { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
@@ -803,6 +804,8 @@
             musicV2RenderPlaylistPage();
         } else if (viewId === 'view-explore') {
             musicV2RenderSearch();
+        } else if (viewId === 'view-friends') {
+            musicV2RenderFriends();
         } else if (viewId === 'view-home') {
             musicV2RenderMiniPlayer();
         }
@@ -815,9 +818,11 @@
         const sv = root.querySelector('#song-view');
         const headerTitle = root.querySelector('.sv-header-title');
         if (!sv) return;
+        const music = musicV2EnsureModel();
+        const hasActiveSession = !!(music.listenTogether && music.listenTogether.activeSession);
 
         if (mode) {
-            if (mode === 'together') {
+            if (mode === 'together' || (mode === 'solo' && hasActiveSession)) {
                 sv.classList.add('together');
                 if (headerTitle) headerTitle.innerText = 'Listening Together';
             } else {
@@ -1018,6 +1023,12 @@
         if (typeof music.src !== 'string') music.src = '';
         if (!Array.isArray(music.lyricsData)) music.lyricsData = [];
         if (typeof music.lyricsFile !== 'string') music.lyricsFile = '';
+        if (!music.listenTogether || typeof music.listenTogether !== 'object') music.listenTogether = {};
+        if (!Array.isArray(music.listenTogether.invites)) music.listenTogether.invites = [];
+        if (!music.listenTogether.activeSession || typeof music.listenTogether.activeSession !== 'object') {
+            music.listenTogether.activeSession = null;
+        }
+        if (!music.listenTogether.updatedAt) music.listenTogether.updatedAt = Date.now();
 
         if (!music.playlists.length) {
             const defaultPlaylistId = musicV2MakeId('pl');
@@ -1089,6 +1100,58 @@
         });
         music.songs = normalizedSongs;
 
+        const contacts = Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
+            ? window.iphoneSimState.contacts
+            : [];
+        const validContactIds = new Set(contacts.map(c => String(c && c.id)));
+        const normalizedInvites = [];
+        const seenInviteIds = new Set();
+        (music.listenTogether.invites || []).forEach(raw => {
+            if (!raw || typeof raw !== 'object') return;
+            const inviteId = String(raw.inviteId || musicV2MakeId('invite'));
+            if (seenInviteIds.has(inviteId)) return;
+            seenInviteIds.add(inviteId);
+            const contactId = String(raw.contactId || '');
+            if (!contactId || !validContactIds.has(contactId)) return;
+            const statusRaw = String(raw.status || 'pending').toLowerCase();
+            const status = statusRaw === 'accepted' || statusRaw === 'rejected' ? statusRaw : 'pending';
+            normalizedInvites.push({
+                inviteId: inviteId,
+                contactId: contactId,
+                songId: raw.songId != null ? String(raw.songId) : '',
+                songTitle: String(raw.songTitle || ''),
+                songArtist: String(raw.songArtist || ''),
+                songCover: String(raw.songCover || ''),
+                status: status,
+                createdAt: Number(raw.createdAt) || Date.now(),
+                updatedAt: Number(raw.updatedAt) || Date.now()
+            });
+        });
+        music.listenTogether.invites = normalizedInvites;
+
+        const active = music.listenTogether.activeSession;
+        if (active) {
+            const contactId = String(active.contactId || '');
+            if (!contactId || !validContactIds.has(contactId)) {
+                music.listenTogether.activeSession = null;
+            } else {
+                const normalizedActive = {
+                    sessionId: String(active.sessionId || musicV2MakeId('session')),
+                    contactId: contactId,
+                    inviteId: active.inviteId != null ? String(active.inviteId) : '',
+                    songId: active.songId != null ? String(active.songId) : '',
+                    startedAt: Number(active.startedAt) || Date.now()
+                };
+                if (
+                    normalizedActive.inviteId &&
+                    !music.listenTogether.invites.some(item => String(item.inviteId) === normalizedActive.inviteId && item.status === 'accepted')
+                ) {
+                    normalizedActive.inviteId = '';
+                }
+                music.listenTogether.activeSession = normalizedActive;
+            }
+        }
+
         musicV2SyncLegacyPlaylist(music);
         return music;
     }
@@ -1128,6 +1191,217 @@
         if (!song.lyricsUpdatedAt) merged.lyricsUpdatedAt = oldSong.lyricsUpdatedAt || 0;
         music.songs[idx] = merged;
         return merged;
+    }
+
+    function musicV2GetContactById(contactId) {
+        const contacts = Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
+            ? window.iphoneSimState.contacts
+            : [];
+        return contacts.find(c => String(c && c.id) === String(contactId)) || null;
+    }
+
+    function musicV2GetContactDisplayName(contact) {
+        if (!contact) return '联系人';
+        return String(contact.remark || contact.nickname || contact.name || '联系人');
+    }
+
+    function musicV2GetActiveTogetherSession() {
+        const music = musicV2EnsureModel();
+        if (!music.listenTogether || !music.listenTogether.activeSession) return null;
+        return music.listenTogether.activeSession;
+    }
+
+    function musicV2GetPendingInviteForContactInternal(contactId) {
+        const cid = String(contactId || '');
+        if (!cid) return null;
+        const music = musicV2EnsureModel();
+        const list = Array.isArray(music.listenTogether && music.listenTogether.invites)
+            ? music.listenTogether.invites
+            : [];
+        const matches = list.filter(item => String(item.contactId) === cid && String(item.status) === 'pending');
+        if (!matches.length) return null;
+        matches.sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        return matches[0];
+    }
+
+    function musicV2GetInviteById(inviteId) {
+        const sid = String(inviteId || '');
+        if (!sid) return null;
+        const music = musicV2EnsureModel();
+        return (music.listenTogether.invites || []).find(item => String(item.inviteId) === sid) || null;
+    }
+
+    function musicV2NormalizeInviteDecision(decision) {
+        const text = String(decision || '').trim().toLowerCase();
+        if (!text) return '';
+        if (/(accept|agree|yes|同意|接受|可以|来吧|一起听)/i.test(text)) return 'accepted';
+        if (/(reject|decline|no|refuse|拒绝|不同意|改天|没空|忙|下次)/i.test(text)) return 'rejected';
+        return '';
+    }
+
+    function musicV2GetCurrentLyricLine(song) {
+        if (!song || !Array.isArray(song.lyricsData) || !song.lyricsData.length) return '';
+        const audio = document.getElementById('bg-music');
+        const currentTime = audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+        let line = '';
+        for (let i = 0; i < song.lyricsData.length; i++) {
+            const item = song.lyricsData[i];
+            if (!item || !Number.isFinite(item.time)) continue;
+            if (item.time <= currentTime) line = String(item.text || '');
+            else break;
+        }
+        return String(line || '').trim();
+    }
+
+    function musicV2PatchInviteCardInHistory(invite) {
+        if (!invite) return;
+        const cid = String(invite.contactId || '');
+        if (!cid) return;
+        const historyMap = window.iphoneSimState && window.iphoneSimState.chatHistory;
+        if (!historyMap || !Array.isArray(historyMap[cid])) return;
+        const history = historyMap[cid];
+        for (let i = history.length - 1; i >= 0; i--) {
+            const msg = history[i];
+            if (!msg || msg.type !== 'music_listen_invite') continue;
+            let payload = null;
+            try {
+                payload = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+            } catch (error) {
+                payload = null;
+            }
+            if (!payload || String(payload.inviteId || '') !== String(invite.inviteId || '')) continue;
+            payload.status = invite.status;
+            payload.updatedAt = invite.updatedAt || Date.now();
+            payload.songId = invite.songId || payload.songId || '';
+            payload.songTitle = invite.songTitle || payload.songTitle || '';
+            payload.songArtist = invite.songArtist || payload.songArtist || '';
+            payload.songCover = invite.songCover || payload.songCover || '';
+            msg.content = JSON.stringify(payload);
+        }
+
+        if (String(window.iphoneSimState.currentChatContactId || '') === cid && typeof window.renderChatHistory === 'function') {
+            window.renderChatHistory(cid, true);
+        }
+    }
+
+    function musicV2CreateInvite(contactId) {
+        const cid = String(contactId || '');
+        if (!cid) {
+            musicV2Toast('联系人不可用');
+            return null;
+        }
+        const contact = musicV2GetContactById(cid);
+        if (!contact) {
+            musicV2Toast('联系人不存在');
+            return null;
+        }
+        const song = musicV2GetCurrentSong();
+        if (!song) {
+            musicV2Toast('请先播放一首歌再邀请');
+            return null;
+        }
+        const pending = musicV2GetPendingInviteForContactInternal(cid);
+        if (pending) {
+            musicV2Toast('邀请已发送，等待回复');
+            return null;
+        }
+
+        const music = musicV2EnsureModel();
+        const invite = {
+            inviteId: musicV2MakeId('invite'),
+            contactId: cid,
+            songId: String(song.id || ''),
+            songTitle: String(song.title || ''),
+            songArtist: String(song.artist || ''),
+            songCover: String(song.cover || music.cover || MUSIC_V2_DEFAULT_COVER),
+            status: 'pending',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        };
+        music.listenTogether.invites.push(invite);
+        music.listenTogether.updatedAt = Date.now();
+
+        if (typeof window.sendMessage === 'function') {
+            window.sendMessage(JSON.stringify(invite), true, 'music_listen_invite', null, cid);
+        }
+        musicV2Persist();
+        musicV2RenderFriends();
+        musicV2Toast('已发送一起听邀请');
+        return invite;
+    }
+
+    function musicV2HandleInviteDecisionInternal(contactId, inviteId, decision) {
+        const cid = String(contactId || '');
+        const normalizedDecision = musicV2NormalizeInviteDecision(decision);
+        if (!cid || !normalizedDecision) return false;
+        const music = musicV2EnsureModel();
+        const invite = inviteId
+            ? musicV2GetInviteById(inviteId)
+            : musicV2GetPendingInviteForContactInternal(cid);
+        if (!invite || String(invite.contactId) !== cid || String(invite.status) !== 'pending') return false;
+
+        invite.status = normalizedDecision;
+        invite.updatedAt = Date.now();
+        music.listenTogether.updatedAt = Date.now();
+        musicV2PatchInviteCardInHistory(invite);
+
+        if (normalizedDecision === 'accepted') {
+            music.listenTogether.activeSession = {
+                sessionId: musicV2MakeId('session'),
+                contactId: cid,
+                inviteId: String(invite.inviteId),
+                songId: String(invite.songId || (music.currentSongId || '')),
+                startedAt: Date.now()
+            };
+        } else if (
+            music.listenTogether.activeSession &&
+            String(music.listenTogether.activeSession.inviteId || '') === String(invite.inviteId || '')
+        ) {
+            music.listenTogether.activeSession = null;
+        }
+
+        musicV2Persist();
+        musicV2RenderFriends();
+        musicV2RenderMiniPlayer();
+        musicV2RenderSongView();
+        if (normalizedDecision === 'accepted') {
+            musicV2Toast('对方同意了一起听邀请');
+        } else {
+            musicV2Toast('对方拒绝了一起听邀请');
+        }
+        return true;
+    }
+
+    function musicV2BuildChatMusicContext(contactId) {
+        const cid = String(contactId || '');
+        if (!cid) return null;
+        const music = musicV2EnsureModel();
+        const song = musicV2GetCurrentSong();
+        const active = musicV2GetActiveTogetherSession();
+        const pendingInvite = musicV2GetPendingInviteForContactInternal(cid);
+        const activeContact = active ? musicV2GetContactById(active.contactId) : null;
+        return {
+            pendingInvite: pendingInvite ? {
+                inviteId: String(pendingInvite.inviteId || ''),
+                status: String(pendingInvite.status || 'pending'),
+                songId: String(pendingInvite.songId || ''),
+                songTitle: String(pendingInvite.songTitle || ''),
+                songArtist: String(pendingInvite.songArtist || ''),
+                createdAt: Number(pendingInvite.createdAt) || 0
+            } : null,
+            together: {
+                active: !!active,
+                withCurrentContact: !!(active && String(active.contactId) === cid),
+                contactId: active ? String(active.contactId || '') : '',
+                contactName: activeContact ? musicV2GetContactDisplayName(activeContact) : ''
+            },
+            nowPlaying: song ? {
+                songId: String(song.id || ''),
+                title: String(song.title || ''),
+                artist: String(song.artist || ''),
+                lyricLine: musicV2GetCurrentLyricLine(song)
+            } : null
+        };
     }
 
     function musicV2FormatTime(sec) {
@@ -1297,63 +1571,87 @@
         slider.addEventListener('touchstart', startDrag, { passive: true });
     }
 
+    function musicV2CollectLyricPanels(root) {
+        if (!root) return [];
+        const panels = root.querySelectorAll('.music-v2-lyrics-panel');
+        const groups = [];
+        panels.forEach(panel => {
+            const stateEl = panel.querySelector('.music-v2-lyrics-state');
+            const scrollEl = panel.querySelector('.music-v2-lyrics-scroll');
+            const listEl = panel.querySelector('.music-v2-lyrics-list');
+            if (!stateEl || !scrollEl || !listEl) return;
+            groups.push({ panel, stateEl, scrollEl, listEl });
+        });
+        return groups;
+    }
+
     function musicV2ApplyLyricsMode() {
         const root = musicV2Runtime.root;
         if (!root) return;
-        const art = root.querySelector('.sv-art-container');
-        const panel = root.querySelector('#music-v2-lyrics-panel');
-        if (!art || !panel) return;
         const isLyrics = musicV2Runtime.lyricsMode === 'lyrics';
-        art.classList.toggle('fade-out', isLyrics);
-        panel.classList.toggle('active', isLyrics);
+        root.querySelectorAll('.sv-art-container, .sv-vinyl-container').forEach(container => {
+            container.classList.toggle('fade-out', isLyrics);
+        });
+        root.querySelectorAll('.music-v2-lyrics-panel').forEach(panel => {
+            panel.classList.toggle('active', isLyrics);
+        });
     }
 
     function musicV2PaintLyrics(song) {
         const root = musicV2Runtime.root;
         if (!root) return;
-        const stateEl = root.querySelector('#music-v2-lyrics-state');
-        const scrollEl = root.querySelector('#music-v2-lyrics-scroll');
-        const listEl = root.querySelector('#music-v2-lyrics-list');
-        if (!stateEl || !scrollEl || !listEl) return;
+        const groups = musicV2CollectLyricPanels(root);
+        if (!groups.length) return;
 
         const lines = song && Array.isArray(song.lyricsData) ? song.lyricsData : [];
         if (musicV2Runtime.lyricsLoading) {
-            stateEl.textContent = '歌词加载中...';
-            stateEl.style.display = 'block';
-            scrollEl.style.display = 'none';
-            listEl.innerHTML = '';
+            groups.forEach(group => {
+                group.stateEl.textContent = '歌词加载中...';
+                group.stateEl.style.display = 'block';
+                group.scrollEl.style.display = 'none';
+                group.listEl.innerHTML = '';
+            });
             return;
         }
 
         if (musicV2Runtime.lyricsError) {
-            stateEl.textContent = musicV2Runtime.lyricsError;
-            stateEl.style.display = 'block';
-            scrollEl.style.display = 'none';
-            listEl.innerHTML = '';
+            groups.forEach(group => {
+                group.stateEl.textContent = musicV2Runtime.lyricsError;
+                group.stateEl.style.display = 'block';
+                group.scrollEl.style.display = 'none';
+                group.listEl.innerHTML = '';
+            });
             return;
         }
 
         if (!song || !lines.length) {
-            stateEl.textContent = '暂无歌词';
-            stateEl.style.display = 'block';
-            scrollEl.style.display = 'none';
-            listEl.innerHTML = '';
+            groups.forEach(group => {
+                group.stateEl.textContent = '暂无歌词';
+                group.stateEl.style.display = 'block';
+                group.scrollEl.style.display = 'none';
+                group.listEl.innerHTML = '';
+            });
             return;
         }
 
         if (musicV2IsInstrumentalLyric(lines)) {
-            stateEl.textContent = '纯音乐，请欣赏';
-            stateEl.style.display = 'block';
-            scrollEl.style.display = 'none';
-            listEl.innerHTML = '';
+            groups.forEach(group => {
+                group.stateEl.textContent = '纯音乐，请欣赏';
+                group.stateEl.style.display = 'block';
+                group.scrollEl.style.display = 'none';
+                group.listEl.innerHTML = '';
+            });
             return;
         }
 
-        stateEl.style.display = 'none';
-        scrollEl.style.display = 'block';
-        listEl.innerHTML = lines.map((line, index) => (
+        const html = lines.map((line, index) => (
             '<div class="music-v2-lyric-line" data-idx="' + index + '">' + musicV2EscapeHtml(line.text || '') + '</div>'
         )).join('');
+        groups.forEach(group => {
+            group.stateEl.style.display = 'none';
+            group.scrollEl.style.display = 'block';
+            group.listEl.innerHTML = html;
+        });
     }
 
     async function musicV2RenderLyrics(song) {
@@ -1448,23 +1746,24 @@
         if (activeIndex === musicV2Runtime.activeLyricIndex) return;
         musicV2Runtime.activeLyricIndex = activeIndex;
 
-        const lyricNodes = root.querySelectorAll('.music-v2-lyric-line');
-        if (!lyricNodes.length) return;
-        lyricNodes.forEach(node => node.classList.remove('active'));
+        const groups = musicV2CollectLyricPanels(root);
+        if (!groups.length) return;
 
-        const scrollEl = root.querySelector('#music-v2-lyrics-scroll');
-        if (activeIndex < 0) {
-            if (scrollEl) scrollEl.scrollTop = 0;
-            return;
-        }
-        const activeNode = lyricNodes[activeIndex];
-        if (!activeNode) return;
-        activeNode.classList.add('active');
+        groups.forEach(group => {
+            const lyricNodes = group.listEl.querySelectorAll('.music-v2-lyric-line');
+            if (!lyricNodes.length) return;
+            lyricNodes.forEach(node => node.classList.remove('active'));
 
-        if (scrollEl) {
-            const targetTop = Math.max(0, activeNode.offsetTop - scrollEl.clientHeight * 0.45);
-            scrollEl.scrollTo({ top: targetTop, behavior: 'smooth' });
-        }
+            if (activeIndex < 0) {
+                group.scrollEl.scrollTop = 0;
+                return;
+            }
+            const activeNode = lyricNodes[activeIndex];
+            if (!activeNode) return;
+            activeNode.classList.add('active');
+            const targetTop = Math.max(0, activeNode.offsetTop - group.scrollEl.clientHeight * 0.45);
+            group.scrollEl.scrollTo({ top: targetTop, behavior: 'smooth' });
+        });
     }
 
     function musicV2IsRateLimitPayload(data) {
@@ -1650,11 +1949,15 @@
         if (!root) return;
         const song = musicV2GetCurrentSong();
         const music = musicV2EnsureModel();
+        const activeSession = musicV2GetActiveTogetherSession();
         const songId = song ? String(song.id) : null;
         const title = root.querySelector('.sv-title');
         const artist = root.querySelector('.sv-artist');
         const artImg = root.querySelector('.sv-art-container img');
         const vinylImg = root.querySelector('#vinyl-record img');
+        const songView = root.querySelector('#song-view');
+        const headerTitle = root.querySelector('.sv-header-title');
+        const togetherAvatars = root.querySelectorAll('.sv-together-avatars img');
         const cover = song && song.cover ? song.cover : (music.cover || MUSIC_V2_DEFAULT_COVER);
 
         if (songId !== musicV2Runtime.lyricsSongId) {
@@ -1670,6 +1973,16 @@
         if (artist) artist.textContent = song ? (song.artist || '未知歌手') : (music.artist || '未知歌手');
         if (artImg) artImg.src = cover;
         if (vinylImg) vinylImg.src = cover;
+        if (songView) songView.classList.toggle('together', !!activeSession);
+        if (headerTitle) headerTitle.textContent = activeSession ? 'Listening Together' : 'Now Playing';
+        if (togetherAvatars && togetherAvatars.length >= 2) {
+            const meAvatar = String((window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.avatar) || MUSIC_V2_DEFAULT_COVER);
+            const friend = activeSession ? musicV2GetContactById(activeSession.contactId) : null;
+            togetherAvatars[0].src = meAvatar;
+            togetherAvatars[1].src = String((friend && friend.avatar) || MUSIC_V2_DEFAULT_COVER);
+            togetherAvatars[0].alt = 'Me';
+            togetherAvatars[1].alt = friend ? musicV2GetContactDisplayName(friend) : 'Friend';
+        }
 
         musicV2ApplyLyricsMode();
         if (!song) musicV2PaintLyrics(null);
@@ -1678,6 +1991,7 @@
         }
         musicV2RenderProgress();
         musicV2UpdatePlayIcons(!!music.playing);
+        musicV2RenderFriends();
     }
 
     async function musicV2PlaySong(songId, playlistId) {
@@ -1768,6 +2082,30 @@
         musicV2TogglePlayback();
     };
 
+    window.musicV2GetPendingInviteForContact = function (contactId) {
+        const invite = musicV2GetPendingInviteForContactInternal(contactId);
+        if (!invite) return null;
+        return {
+            inviteId: String(invite.inviteId || ''),
+            contactId: String(invite.contactId || ''),
+            songId: String(invite.songId || ''),
+            songTitle: String(invite.songTitle || ''),
+            songArtist: String(invite.songArtist || ''),
+            songCover: String(invite.songCover || ''),
+            status: String(invite.status || 'pending'),
+            createdAt: Number(invite.createdAt) || 0,
+            updatedAt: Number(invite.updatedAt) || 0
+        };
+    };
+
+    window.musicV2HandleInviteDecision = function (contactId, inviteId, decision) {
+        return musicV2HandleInviteDecisionInternal(contactId, inviteId, decision);
+    };
+
+    window.musicV2GetChatMusicContext = function (contactId) {
+        return musicV2BuildChatMusicContext(contactId);
+    };
+
     function musicV2GetPlaylistCover(playlist) {
         if (playlist && playlist.cover) return playlist.cover;
         if (playlist && playlist.songs && playlist.songs.length > 0) {
@@ -1840,6 +2178,79 @@
             musicV2Runtime.loading = false;
             musicV2RenderSearch();
         }
+    }
+
+    function musicV2RenderFriends() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const activeWrap = root.querySelector('#music-v2-friends-active');
+        const listWrap = root.querySelector('#music-v2-friends-list');
+        if (!activeWrap || !listWrap) return;
+
+        const contacts = Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
+            ? window.iphoneSimState.contacts
+            : [];
+        const music = musicV2EnsureModel();
+        const activeSession = musicV2GetActiveTogetherSession();
+        const currentSong = musicV2GetCurrentSong();
+
+        if (activeSession) {
+            const activeContact = musicV2GetContactById(activeSession.contactId);
+            const subtitleSong = currentSong
+                ? (currentSong.title + ' - ' + (currentSong.artist || '未知歌手'))
+                : '一起听进行中';
+            const avatarA = String((window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.avatar) || MUSIC_V2_DEFAULT_COVER);
+            const avatarB = String((activeContact && activeContact.avatar) || MUSIC_V2_DEFAULT_COVER);
+            activeWrap.innerHTML =
+                '<div class="sync-active-bar clickable" data-musicv2-action="open-active-session">' +
+                    '<div style="display:flex; align-items:center; gap:12px;">' +
+                        '<i class="ri-headphone-line" style="font-size:20px;"></i>' +
+                        '<div>' +
+                            '<div style="font-size:14px; font-weight:600;">正在与 ' + musicV2EscapeHtml(musicV2GetContactDisplayName(activeContact)) + ' 一起听</div>' +
+                            '<div style="font-size:12px; opacity:.8;">' + musicV2EscapeHtml(subtitleSong) + '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="sync-avatars">' +
+                        '<img src="' + musicV2EscapeHtml(avatarA) + '">' +
+                        '<img src="' + musicV2EscapeHtml(avatarB) + '">' +
+                    '</div>' +
+                '</div>';
+        } else {
+            activeWrap.innerHTML = '';
+        }
+
+        if (!contacts.length) {
+            listWrap.innerHTML = '<div class="music-v2-empty-note">暂无微信联系人</div>';
+            return;
+        }
+
+        const rows = contacts.map(contact => {
+            const cid = String(contact && contact.id);
+            const invite = musicV2GetPendingInviteForContactInternal(cid);
+            const isActive = !!(activeSession && String(activeSession.contactId) === cid);
+            let statusText = '点击邀请一起听';
+            let actionIcon = 'ri-mail-send-line';
+            if (isActive) {
+                statusText = currentSong
+                    ? ('正在一起听：' + currentSong.title + ' - ' + (currentSong.artist || '未知歌手'))
+                    : '正在一起听';
+                actionIcon = 'ri-headphone-line';
+            } else if (invite) {
+                statusText = '邀请已发送，等待回复';
+                actionIcon = 'ri-time-line';
+            }
+            return (
+                '<div class="friend-row clickable" data-musicv2-action="invite-contact" data-contact-id="' + musicV2EscapeHtml(cid) + '">' +
+                    '<img class="fr-avatar" src="' + musicV2EscapeHtml(contact.avatar || MUSIC_V2_DEFAULT_COVER) + '">' +
+                    '<div class="fr-info">' +
+                        '<h4>' + musicV2EscapeHtml(musicV2GetContactDisplayName(contact)) + '</h4>' +
+                        '<p>' + musicV2EscapeHtml(statusText) + '</p>' +
+                    '</div>' +
+                    '<div class="fr-action"><i class="' + actionIcon + '"></i></div>' +
+                '</div>'
+            );
+        });
+        listWrap.innerHTML = rows.join('');
     }
 
     function musicV2RenderLibrary() {
@@ -2100,6 +2511,26 @@
             musicV2Search(input ? input.value : '');
             return;
         }
+        if (action === 'open-active-session') {
+            const active = musicV2GetActiveTogetherSession();
+            if (!active) {
+                musicV2Toast('当前没有一起听会话');
+                return;
+            }
+            window.musicV2ToggleSongView('together');
+            return;
+        }
+        if (action === 'invite-contact') {
+            const contactId = actionNode.getAttribute('data-contact-id');
+            if (!contactId) return;
+            const active = musicV2GetActiveTogetherSession();
+            if (active && String(active.contactId) === String(contactId)) {
+                window.musicV2ToggleSongView('together');
+                return;
+            }
+            musicV2CreateInvite(contactId);
+            return;
+        }
         if (action === 'add-song') {
             const songId = actionNode.getAttribute('data-song-id');
             const song = musicV2Runtime.results.find(item => String(item.id) === String(songId));
@@ -2177,7 +2608,8 @@
             const songId = actionNode.getAttribute('data-song-id');
             if (!songId) return;
             musicV2PlaySong(songId, musicV2Runtime.activePlaylistId);
-            window.musicV2ToggleSongView('solo');
+            const active = musicV2GetActiveTogetherSession();
+            window.musicV2ToggleSongView(active ? 'together' : 'solo');
             return;
         }
         if (action === 'play-first') {
@@ -2187,7 +2619,8 @@
                 return;
             }
             musicV2PlaySong(playlist.songs[0], playlist.id);
-            window.musicV2ToggleSongView('solo');
+            const active = musicV2GetActiveTogetherSession();
+            window.musicV2ToggleSongView(active ? 'together' : 'solo');
             return;
         }
     }
@@ -2242,8 +2675,11 @@
             }
             .music-v2-cover-row { display: flex; align-items: center; gap: 10px; }
             .music-v2-cover-row img { width: 52px; height: 52px; border-radius: 12px; object-fit: cover; background: #f0f0f0; }
+            #music-v2-friends-list { display: flex; flex-direction: column; gap: 10px; }
+            #music-v2-friends-active { margin-bottom: 10px; }
             .sv-slider { cursor: pointer; touch-action: none; }
-            .sv-art-container {
+            .sv-art-container,
+            .sv-vinyl-container {
                 position: relative;
                 overflow: hidden;
                 transition: opacity .28s ease, transform .28s ease, box-shadow .28s ease;
@@ -2251,12 +2687,50 @@
             .sv-art-container img {
                 transition: opacity .28s ease, transform .28s ease;
             }
+            .sv-vinyl-container .sv-vinyl {
+                transition: opacity .28s ease, transform .28s ease, box-shadow .28s ease;
+            }
+            .sv-vinyl {
+                box-shadow: none !important;
+                background:
+                    radial-gradient(circle at center, #121212 0%, #060606 58%, #000 100%),
+                    repeating-radial-gradient(
+                        circle at center,
+                        rgba(255,255,255,0.10) 0px,
+                        rgba(255,255,255,0.10) 1px,
+                        rgba(0,0,0,0) 2px,
+                        rgba(0,0,0,0) 8px
+                    ) !important;
+            }
+            .sv-vinyl::before {
+                border-color: rgba(255,255,255,0.10) !important;
+                box-shadow:
+                    inset 0 0 0 4px #000,
+                    inset 0 0 0 5px rgba(255,255,255,0.10),
+                    inset 0 0 0 10px #000,
+                    inset 0 0 0 11px rgba(255,255,255,0.10),
+                    inset 0 0 0 18px #000,
+                    inset 0 0 0 19px rgba(255,255,255,0.10) !important;
+            }
+            .sv-vinyl-container .sv-vinyl::before,
+            .sv-vinyl-container .sv-vinyl::after {
+                transition: opacity .28s ease;
+            }
             .sv-art-container.fade-out {
                 box-shadow: 0 14px 34px rgba(0,0,0,0);
             }
             .sv-art-container.fade-out img {
                 opacity: 0.08;
                 transform: scale(1.04);
+            }
+            .sv-vinyl-container.fade-out .sv-vinyl {
+                opacity: 0;
+                transform: scale(1.04);
+                box-shadow: 0 10px 20px rgba(0,0,0,0);
+            }
+            .sv-vinyl-container.fade-out .sv-vinyl::before,
+            .sv-vinyl-container.fade-out .sv-vinyl::after {
+                opacity: 0;
             }
             .music-v2-lyrics-panel {
                 position: absolute;
@@ -2271,10 +2745,18 @@
                 pointer-events: none;
                 transition: opacity .24s ease;
                 padding: 20px 16px;
+                z-index: 6;
             }
             .music-v2-lyrics-panel.active {
                 opacity: 1;
                 pointer-events: auto;
+            }
+            .sv-vinyl-container .music-v2-lyrics-panel {
+                border-radius: 50%;
+                padding: 22px 18px;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+                box-shadow: none;
             }
             .music-v2-lyrics-state {
                 margin: auto 0;
@@ -2319,23 +2801,26 @@
         const body = root.querySelector('.music-v2-body') || root;
         const songView = root.querySelector('#song-view');
         if (songView) {
+            const ensureLyricsPanel = function (container, panelId, stateId, scrollId, listId) {
+                if (!container) return;
+                container.classList.add('clickable');
+                container.setAttribute('data-musicv2-action', 'toggle-lyrics');
+                if (container.querySelector('.music-v2-lyrics-panel')) return;
+                const panel = document.createElement('div');
+                panel.id = panelId;
+                panel.className = 'music-v2-lyrics-panel';
+                panel.setAttribute('data-musicv2-action', 'toggle-lyrics');
+                panel.innerHTML =
+                    '<div id="' + stateId + '" class="music-v2-lyrics-state">点击封面查看歌词</div>' +
+                    '<div id="' + scrollId + '" class="music-v2-lyrics-scroll">' +
+                        '<div id="' + listId + '" class="music-v2-lyrics-list"></div>' +
+                    '</div>';
+                container.appendChild(panel);
+            };
             const artContainer = songView.querySelector('.sv-art-container');
-            if (artContainer) {
-                artContainer.classList.add('clickable');
-                artContainer.setAttribute('data-musicv2-action', 'toggle-lyrics');
-                if (!artContainer.querySelector('#music-v2-lyrics-panel')) {
-                    const panel = document.createElement('div');
-                    panel.id = 'music-v2-lyrics-panel';
-                    panel.className = 'music-v2-lyrics-panel';
-                    panel.setAttribute('data-musicv2-action', 'toggle-lyrics');
-                    panel.innerHTML =
-                        '<div id="music-v2-lyrics-state" class="music-v2-lyrics-state">点击封面查看歌词</div>' +
-                        '<div id="music-v2-lyrics-scroll" class="music-v2-lyrics-scroll">' +
-                            '<div id="music-v2-lyrics-list" class="music-v2-lyrics-list"></div>' +
-                        '</div>';
-                    artContainer.appendChild(panel);
-                }
-            }
+            const vinylContainer = songView.querySelector('.sv-vinyl-container');
+            ensureLyricsPanel(artContainer, 'music-v2-lyrics-panel', 'music-v2-lyrics-state', 'music-v2-lyrics-scroll', 'music-v2-lyrics-list');
+            ensureLyricsPanel(vinylContainer, 'music-v2-lyrics-panel-together', 'music-v2-lyrics-state-together', 'music-v2-lyrics-scroll-together', 'music-v2-lyrics-list-together');
         }
 
         const exploreView = root.querySelector('#view-explore');
@@ -2372,6 +2857,14 @@
                     exploreView.appendChild(listEl);
                 }
             }
+        }
+
+        const friendsView = root.querySelector('#view-friends');
+        if (friendsView) {
+            friendsView.innerHTML =
+                '<div class="sec-title" style="font-size:28px; font-weight:800;">Friends</div>' +
+                '<div id="music-v2-friends-active"></div>' +
+                '<div id="music-v2-friends-list"></div>';
         }
 
         const libraryView = root.querySelector('#view-library');
@@ -2454,6 +2947,7 @@
         root.addEventListener('click', musicV2HandleClick);
 
         musicV2RenderSearch();
+        musicV2RenderFriends();
         musicV2RenderLibrary();
         musicV2RenderPlaylistPage();
         musicV2RenderMiniPlayer();

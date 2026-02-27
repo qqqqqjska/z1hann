@@ -90,6 +90,86 @@
     }
 };
 
+window.closeMusicListenInviteDetail = function () {
+    const modal = document.getElementById('music-listen-invite-detail-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.openMusicListenInviteDetail = function (payload) {
+    let data = {};
+    try {
+        if (typeof payload === 'string') {
+            const parsed = decodeURIComponent(payload);
+            data = JSON.parse(parsed);
+        } else if (payload && typeof payload === 'object') {
+            data = payload;
+        }
+    } catch (e) {
+        data = {};
+    }
+
+    const statusMap = {
+        pending: '待回复',
+        accepted: '已同意',
+        rejected: '已拒绝'
+    };
+    const statusText = statusMap[String(data.status || 'pending')] || '待回复';
+    const createdAt = Number(data.createdAt || 0);
+    const updatedAt = Number(data.updatedAt || 0);
+    const createdText = createdAt ? new Date(createdAt).toLocaleString() : '-';
+    const updatedText = updatedAt ? new Date(updatedAt).toLocaleString() : '-';
+    const contact = (window.iphoneSimState.contacts || []).find(c => String(c.id) === String(data.contactId || ''));
+    const contactName = contact ? (contact.remark || contact.nickname || contact.name || '联系人') : '联系人';
+
+    let modal = document.getElementById('music-listen-invite-detail-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'music-listen-invite-detail-modal';
+        modal.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:10050',
+            'background:rgba(0,0,0,0.45)',
+            'display:none',
+            'align-items:center',
+            'justify-content:center',
+            'padding:16px'
+        ].join(';');
+        modal.innerHTML = `
+            <div id="music-listen-invite-detail-card" style="width:min(92vw,360px);background:#fff;border-radius:18px;box-shadow:0 14px 34px rgba(0,0,0,0.22);overflow:hidden;">
+                <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;">
+                    <strong style="font-size:16px;color:#111;">一起听邀请详情</strong>
+                    <button onclick="window.closeMusicListenInviteDetail()" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">×</button>
+                </div>
+                <div id="music-listen-invite-detail-body" style="padding:14px 16px 16px;font-size:13px;color:#333;line-height:1.6;"></div>
+            </div>
+        `;
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) window.closeMusicListenInviteDetail();
+        });
+        document.body.appendChild(modal);
+    }
+
+    const body = modal.querySelector('#music-listen-invite-detail-body');
+    if (body) {
+        body.innerHTML = `
+            <div style="display:flex;gap:10px;margin-bottom:12px;">
+                <img src="${data.songCover || 'https://placehold.co/80x80/e5e7eb/111827?text=Music'}" style="width:52px;height:52px;border-radius:10px;object-fit:cover;background:#f0f0f0;">
+                <div style="min-width:0;flex:1;">
+                    <div style="font-size:15px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.songTitle || '未知歌曲'}</div>
+                    <div style="font-size:13px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.songArtist || '未知歌手'}</div>
+                </div>
+            </div>
+            <div><strong style="color:#555;">联系人：</strong>${contactName}</div>
+            <div><strong style="color:#555;">状态：</strong>${statusText}</div>
+            <div><strong style="color:#555;">邀请ID：</strong>${data.inviteId || '-'}</div>
+            <div><strong style="color:#555;">创建时间：</strong>${createdText}</div>
+            <div><strong style="color:#555;">更新时间：</strong>${updatedText}</div>
+        `;
+    }
+    modal.style.display = 'flex';
+};
+
 function appendMessageToUI(text, isUser, type = 'text', description = null, replyTo = null, msgId = null, timestamp = null, isHistory = false) {
     if (type === 'text' && text && typeof text === 'string') {
         // Strip hidden image data from display
@@ -323,7 +403,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     let extraClass = '';
-    const cardTypes = ['transfer', 'family_card', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress'];
+    const cardTypes = ['transfer', 'family_card', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
     }
@@ -475,6 +555,34 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 <div style="background:#111;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">共同存钱进度</div>
                 <div style="padding:10px 12px;font-size:13px;color:#333;line-height:1.45;">
                     <div>${pData.text || '计划有新进展'}</div>
+                </div>
+            </div>
+        `;
+    } else if (type === 'music_listen_invite') {
+        extraClass += ' music-listen-invite-msg';
+        let inviteData = {};
+        try {
+            inviteData = typeof text === 'string' ? JSON.parse(text) : text;
+        } catch (e) {}
+        const safePayload = encodeURIComponent(JSON.stringify(inviteData || {})).replace(/'/g, "\\'");
+        const songTitle = inviteData.songTitle || '未知歌曲';
+        const songArtist = inviteData.songArtist || '未知歌手';
+        const songCover = inviteData.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music';
+        contentHtml = `
+            <div class="music-listen-invite-card" onclick="window.openMusicListenInviteDetail('${safePayload}')">
+                <div class="music-listen-invite-content">
+                    <img class="music-listen-invite-cover" src="${songCover}">
+                    <div class="music-listen-invite-meta">
+                        <div class="music-listen-invite-title">${songTitle}</div>
+                        <div class="music-listen-invite-artist">${songArtist}</div>
+                        <div class="music-listen-invite-platform">
+                            <i class="fab fa-apple"></i>
+                            <span>Music</span>
+                        </div>
+                    </div>
+                    <div class="music-listen-invite-play">
+                        <i class="fas fa-play"></i>
+                    </div>
                 </div>
             </div>
         `;
@@ -1130,6 +1238,7 @@ function handleQuote(msgData) {
     else if (msgData.type === 'transfer') previewText = '[转账]';
     else if (msgData.type === 'family_card') previewText = '[亲属卡]';
     else if (msgData.type === 'pay_request') previewText = '[代付请求]';
+    else if (msgData.type === 'music_listen_invite') previewText = '[一起听邀请]';
     
     document.getElementById('reply-text').textContent = previewText;
     replyBar.classList.remove('hidden');
@@ -1760,6 +1869,41 @@ async function generateAiReply(instruction = null, targetContactId = null) {
         forumLiveInstruction = '\n【论坛直播指令】\n当你希望在论坛开直播时，请在回复中输出：\nACTION: START_FORUM_LIVE: 标题\n可选扩展（按 `|` 分隔）：\nACTION: START_FORUM_LIVE: 标题 | 画面描述 | [{"username":"网名","content":"评论"}] | 图片URL\n如未提供画面描述/评论，系统会根据聊天上下文自动生成。\n';
     }
 
+    let musicTogetherContext = '';
+    if (typeof window.musicV2GetChatMusicContext === 'function') {
+        try {
+            const musicCtx = window.musicV2GetChatMusicContext(contact.id);
+            if (musicCtx) {
+                const lines = [];
+                lines.push('\n【音乐一起听状态】');
+                if (musicCtx.nowPlaying) {
+                    lines.push(`当前播放：${musicCtx.nowPlaying.title || '未知歌曲'} - ${musicCtx.nowPlaying.artist || '未知歌手'}`);
+                    if (musicCtx.nowPlaying.lyricLine) {
+                        lines.push(`当前歌词句：${musicCtx.nowPlaying.lyricLine}`);
+                    }
+                } else {
+                    lines.push('当前未播放歌曲');
+                }
+                if (musicCtx.together && musicCtx.together.active) {
+                    if (musicCtx.together.withCurrentContact) {
+                        lines.push('你当前正在和用户一起听歌。');
+                    } else {
+                        lines.push(`你当前在和 ${musicCtx.together.contactName || '其他联系人'} 一起听歌。`);
+                    }
+                } else {
+                    lines.push('当前没有激活的一起听会话。');
+                }
+                if (musicCtx.pendingInvite && musicCtx.pendingInvite.inviteId) {
+                    lines.push(`你收到了用户发来的一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}。`);
+                    lines.push('你必须在本次回复中给出动作指令：{"type":"action","command":"MUSIC_INVITE_DECISION","payload":"inviteId | 同意/拒绝"}');
+                }
+                musicTogetherContext = lines.join('\n') + '\n';
+            }
+        } catch (e) {
+            musicTogetherContext = '';
+        }
+    }
+
     let systemPrompt = `你现在扮演 ${contact.name}。
 【核心指令】
 你必须严格遵守以下人设（优先级最高，高于一切其他指令）：
@@ -1778,6 +1922,7 @@ ${icityBookContext}
 ${minesweeperContext}
 ${witchGameContext}
 ${forumLiveInstruction}
+${musicTogetherContext}
 ${timeContext}
 ${itineraryContext}
 
@@ -1857,6 +2002,7 @@ ${contact.showThought ? `
 - 共同存钱转入 -> command: "SAVINGS_DEPOSIT", payload: "金额 | 备注(可选)" (例如 "200 | 这周一起攒")
 - 送礼物给用户 -> command: "SEND_GIFT", payload: "物品名称 | 价格 | 备注" (例如 "一束鲜花 | 52.0 | 节日快乐")
 - 点外卖给用户 -> command: "SEND_DELIVERY", payload: "餐品名称 | 价格 | 备注" (例如 "炸鸡啤酒 | 35.0 | 趁热吃")
+- 一起听邀请决策 -> command: "MUSIC_INVITE_DECISION", payload: "inviteId | 同意/拒绝" (例如 "invite_123 | 同意")
 - 引用回复 -> command: "QUOTE_MESSAGE", payload: "消息内容摘要"
 - 更改资料 -> 
   - command: "UPDATE_NAME", payload: "新网名"
@@ -2383,6 +2529,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         const recordImportantStateRegex = /ACTION:\s*RECORD_IMPORTANT_STATE:\s*(.*?)(?:\n|$)/;
         const pddCashHelpRegex = /ACTION:\s*PDD_CASH_HELP(?:\s*|$)/;
         const pddBargainHelpRegex = /ACTION:\s*PDD_BARGAIN_HELP:\s*(.*?)(?:\n|$)/;
+        const musicInviteDecisionRegex = /ACTION:\s*MUSIC_INVITE_DECISION:\s*(.*?)(?:\n|$)/;
 
         let replyToObj = null;
         let hasUpdatedName = false;
@@ -2390,6 +2537,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         let hasUpdatedSignature = false;
         let hasFamilyCardDecision = false;
         let hasShownSavingsPlanMissingToast = false;
+        let hasMusicInviteDecision = false;
 
         for (let i = 0; i < actions.length; i++) {
             let segment = actions[i];
@@ -2410,6 +2558,40 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                     setTimeout(() => window.processPddHelp('bargain', prodId), 1000);
                 }
                 processedSegment = processedSegment.replace(pddBargainHelpMatch[0], '');
+            }
+
+            let musicInviteDecisionMatch;
+            while ((musicInviteDecisionMatch = processedSegment.match(musicInviteDecisionRegex)) !== null) {
+                const payloadRaw = (musicInviteDecisionMatch[1] || '').trim();
+                const pendingInvite = (typeof window.musicV2GetPendingInviteForContact === 'function')
+                    ? window.musicV2GetPendingInviteForContact(contact.id)
+                    : null;
+                let inviteId = '';
+                let decisionText = '';
+                if (payloadRaw.includes('|')) {
+                    const parts = payloadRaw.split('|').map(s => s.trim()).filter(Boolean);
+                    inviteId = parts[0] || '';
+                    decisionText = parts.slice(1).join(' ') || '';
+                } else {
+                    const parts = payloadRaw.split(/\s+/).map(s => s.trim()).filter(Boolean);
+                    if (parts.length >= 2) {
+                        inviteId = parts[0];
+                        decisionText = parts.slice(1).join(' ');
+                    } else {
+                        decisionText = payloadRaw;
+                    }
+                }
+                if (!inviteId && pendingInvite && pendingInvite.inviteId) {
+                    inviteId = pendingInvite.inviteId;
+                }
+                const normalizedDecision = /同意|接受|可以|accept|agree|yes|一起听/i.test(decisionText)
+                    ? 'accepted'
+                    : (/拒绝|不同意|改天|没空|忙|reject|decline|no/i.test(decisionText) ? 'rejected' : '');
+                if (inviteId && normalizedDecision && typeof window.musicV2HandleInviteDecision === 'function') {
+                    const handled = window.musicV2HandleInviteDecision(contact.id, inviteId, normalizedDecision);
+                    if (handled) hasMusicInviteDecision = true;
+                }
+                processedSegment = processedSegment.replace(musicInviteDecisionMatch[0], '');
             }
 
             let recordImportantStateMatch;
@@ -2943,6 +3125,26 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
             }
         }
 
+        const pendingMusicInvite = (!hasMusicInviteDecision && typeof window.musicV2GetPendingInviteForContact === 'function')
+            ? window.musicV2GetPendingInviteForContact(contact.id)
+            : null;
+        if (pendingMusicInvite && pendingMusicInvite.inviteId && typeof window.musicV2HandleInviteDecision === 'function') {
+            const textForDecision = messagesList
+                .filter(msg => msg && (msg.type === '消息' || msg.type === 'text') && typeof msg.content === 'string')
+                .map(msg => msg.content)
+                .join(' ');
+            let fallbackDecision = '';
+            if (/同意|接受|可以|好啊|来吧|一起听|accept|agree|yes|sure/i.test(textForDecision)) {
+                fallbackDecision = 'accepted';
+            } else if (/拒绝|不同意|改天|下次|没空|忙|不方便|reject|decline|no/i.test(textForDecision)) {
+                fallbackDecision = 'rejected';
+            } else {
+                fallbackDecision = 'rejected';
+            }
+            const handled = window.musicV2HandleInviteDecision(contact.id, pendingMusicInvite.inviteId, fallbackDecision);
+            if (handled) hasMusicInviteDecision = true;
+        }
+
         const pendingFamilyCard = findLatestPendingFamilyCard(contact.id);
         if (pendingFamilyCard && !hasFamilyCardDecision) {
             const fallback = deriveFamilyDecisionFromMessages(messagesList);
@@ -2989,6 +3191,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                         else if (msg.type === 'savings_invite') notifContent = '[共同存钱邀请]';
                         else if (msg.type === 'savings_withdraw_request') notifContent = '[共同存钱转出申请]';
                         else if (msg.type === 'savings_progress') notifContent = '[共同存钱进度]';
+                        else if (msg.type === 'music_listen_invite') notifContent = '[一起听邀请]';
                         else if (msg.type === 'virtual_image') notifContent = '[图片]';
                         else if (msg.type === 'sticker') notifContent = '[表情包]';
                     
@@ -3231,6 +3434,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 if (typeToSave === 'savings_invite') notificationText = '[共同存钱邀请]';
                 if (typeToSave === 'savings_withdraw_request') notificationText = '[共同存钱转出申请]';
                 if (typeToSave === 'savings_progress') notificationText = '[共同存钱进度]';
+                if (typeToSave === 'music_listen_invite') notificationText = '[一起听邀请]';
                 
                 showChatNotification(contact.id, notificationText);
                 
