@@ -235,6 +235,11 @@ html, body {
 }
 
 /* 3. 安全区域适配（iPhone X以上机型） */
+html, body {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   /* 移除 body 的 padding，让应用全屏，由内部元素处理适配 */
   /* padding-top: env(safe-area-inset-top); */
@@ -1560,6 +1565,13 @@ textarea {
     max-width: 200px;
 }
 
+.contact-name,
+.contact-time,
+.contact-msg-preview {
+    line-height: 1.2;
+    margin: 0;
+}
+
 .contact-status-icon {
     font-size: 12px;
 }
@@ -1588,7 +1600,7 @@ textarea {
 }
 
 /* Chat Settings Nav */
-.chat-settings-nav {
+#chat-settings-screen .chat-settings-nav {
     display: flex;
     background-color: #fff;
     border-radius: 30px;
@@ -1596,13 +1608,18 @@ textarea {
     margin: 10px 16px 20px;
     position: relative;
     height: 44px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    box-shadow: none;
+    overflow: hidden;
 }
 
-.chat-settings-nav > .nav-item {
+#chat-settings-screen .chat-settings-nav > .nav-item {
     flex: 1;
     text-align: center;
-    line-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    line-height: 1;
     font-size: 15px !important;
     font-weight: 500;
     color: #000;
@@ -1611,11 +1628,11 @@ textarea {
     transition: color 0.3s;
 }
 
-.chat-settings-nav > .nav-item.active {
+#chat-settings-screen .chat-settings-nav > .nav-item.active {
     color: #fff !important;
 }
 
-.chat-settings-nav > .nav-indicator {
+#chat-settings-screen .chat-settings-nav > .nav-indicator {
     position: absolute;
     top: 4px;
     left: 4px;
@@ -1625,11 +1642,30 @@ textarea {
     border-radius: 26px;
     transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
     z-index: 1;
+    box-shadow: none !important;
+    filter: none !important;
+    -webkit-filter: none !important;
+    will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    transform: translate3d(0, 0, 0);
 }
 
 #chat-settings-screen .list-item:not(.no-padding) {
     padding-top: 12px;
     padding-bottom: 12px;
+    min-height: 52px;
+}
+
+#chat-settings-screen .list-content label,
+#chat-settings-screen .list-content .ios-btn {
+    margin: 0;
+    line-height: 1.2;
+}
+
+#chat-settings-screen .list-content.column {
+    justify-content: center;
+    gap: 8px;
 }
 
 .chat-setting-tab-content {
@@ -6215,4 +6251,23 @@ html body .chat-message.user .voice-icon-box i { transform: rotate(-90deg); }
 
 .bank-v2-nav-item:active {
     transform: scale(0.85);
+}
+
+@media (max-width: 768px) {
+    #wechat-tab-contacts .contact-content-wrapper {
+        padding-top: 12px !important;
+        padding-bottom: 12px !important;
+        min-height: 80px;
+    }
+
+    #wechat-tab-addressbook .list-item {
+        padding-top: 12px !important;
+        padding-bottom: 12px !important;
+    }
+
+    #wechat-tab-addressbook .list-item .list-content > span {
+        display: block;
+        line-height: 1.2 !important;
+        margin: 0;
+    }
 }

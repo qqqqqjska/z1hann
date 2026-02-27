@@ -32,14 +32,14 @@
         const item = document.createElement('div');
         item.className = 'list-item';
         // 使用行内样式覆盖可能的外部冲突，确保显示
-        item.style.cssText = 'background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 12px 15px; display: flex; align-items: center; cursor: pointer; line-height: 1.2;';
+        item.style.cssText = 'background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 12px 15px; display: flex; align-items: center; cursor: pointer; line-height: 1; min-height: 64px;';
         
         const name = contact.remark || contact.nickname || contact.name;
         
         item.innerHTML = `
             <div class="list-content" style="display: flex; align-items: center; justify-content: flex-start; width: 100%;">
                 <img src="${contact.avatar}" style="width: 40px; height: 40px; border-radius: 4px; margin-right: 12px; object-fit: cover;">
-                <span style="font-size: 16px; color: #000;">${name}</span>
+                <span style="font-size: 16px; color: #000; line-height: 1.2; display: block; margin: 0;">${name}</span>
             </div>
         `;
         

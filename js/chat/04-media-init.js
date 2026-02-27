@@ -3652,7 +3652,7 @@ function setupChatListeners() {
             tab.classList.add('active');
             
             if (chatSettingIndicator) {
-                chatSettingIndicator.style.transform = `translateX(${index * 100}%)`;
+                chatSettingIndicator.style.transform = `translate3d(${index * 100}%, 0, 0)`;
             }
 
             if (currentContent) {
