@@ -95,6 +95,114 @@ window.closeMusicListenInviteDetail = function () {
     if (modal) modal.style.display = 'none';
 };
 
+window.closeMusicListenInvitePrompt = function () {
+    const modal = document.getElementById('music-listen-invite-prompt-modal');
+    if (modal) {
+        const inviteId = String(modal.dataset.inviteId || '');
+        if (inviteId && window._musicInvitePromptShownMap) {
+            delete window._musicInvitePromptShownMap[inviteId];
+        }
+        modal.style.display = 'none';
+    }
+};
+
+window.openMusicListenInvitePrompt = function (payload) {
+    let data = {};
+    try {
+        data = typeof payload === 'string' ? JSON.parse(payload) : (payload || {});
+    } catch (e) {
+        data = {};
+    }
+
+    const inviteId = String(data.inviteId || '');
+    const contactId = String(data.contactId || '');
+    const status = String(data.status || 'pending');
+    const direction = String(data.direction || 'incoming');
+    if (!inviteId || !contactId || status !== 'pending' || direction !== 'incoming') return;
+
+    const contact = (window.iphoneSimState.contacts || []).find(c => String(c.id) === contactId);
+    const contactName = contact ? (contact.remark || contact.nickname || contact.name || '联系人') : '联系人';
+    const songTitle = String(data.songTitle || '未知歌曲');
+    const songArtist = String(data.songArtist || '未知歌手');
+    const songCover = String(data.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music');
+
+    let modal = document.getElementById('music-listen-invite-prompt-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'music-listen-invite-prompt-modal';
+        modal.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:10060',
+            'background:rgba(0,0,0,0.42)',
+            'display:none',
+            'align-items:flex-start',
+            'justify-content:center',
+            'padding:70px 16px 16px'
+        ].join(';');
+        modal.innerHTML = `
+            <div id="music-listen-invite-prompt-card" style="width:min(92vw,360px);background:#fff;border-radius:18px;box-shadow:0 14px 34px rgba(0,0,0,0.22);overflow:hidden;">
+                <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;">
+                    <strong style="font-size:16px;color:#111;">一起听邀请</strong>
+                    <button id="music-invite-prompt-close" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">×</button>
+                </div>
+                <div id="music-invite-prompt-body" style="padding:14px 16px 16px;font-size:13px;color:#333;line-height:1.6;"></div>
+                <div style="display:flex;gap:10px;padding:0 16px 16px;">
+                    <button id="music-invite-prompt-reject" style="flex:1;border:none;background:#ececf0;color:#222;border-radius:12px;height:38px;font-size:14px;font-weight:600;cursor:pointer;">拒绝</button>
+                    <button id="music-invite-prompt-accept" style="flex:1;border:none;background:#111;color:#fff;border-radius:12px;height:38px;font-size:14px;font-weight:600;cursor:pointer;">同意</button>
+                </div>
+            </div>
+        `;
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) window.closeMusicListenInvitePrompt();
+        });
+        document.body.appendChild(modal);
+    }
+
+    if (modal.style.display === 'flex' && String(modal.dataset.inviteId || '') === inviteId) {
+        return;
+    }
+    if (!window._musicInvitePromptShownMap) window._musicInvitePromptShownMap = {};
+    window._musicInvitePromptShownMap[inviteId] = Date.now();
+
+    modal.dataset.inviteId = inviteId;
+    modal.dataset.contactId = contactId;
+    const body = modal.querySelector('#music-invite-prompt-body');
+    if (body) {
+        body.innerHTML = `
+            <div style="display:flex;gap:10px;margin-bottom:10px;">
+                <img src="${songCover}" style="width:52px;height:52px;border-radius:10px;object-fit:cover;background:#f0f0f0;">
+                <div style="min-width:0;flex:1;">
+                    <div style="font-size:15px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${songTitle}</div>
+                    <div style="font-size:13px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${songArtist}</div>
+                </div>
+            </div>
+            <div><strong style="color:#555;">${contactName}</strong> 邀请你一起听歌</div>
+        `;
+    }
+
+    const closeBtn = modal.querySelector('#music-invite-prompt-close');
+    const acceptBtn = modal.querySelector('#music-invite-prompt-accept');
+    const rejectBtn = modal.querySelector('#music-invite-prompt-reject');
+    const applyDecision = (decision) => {
+        const iid = String(modal.dataset.inviteId || '');
+        const cid = String(modal.dataset.contactId || '');
+        let handled = false;
+        if (iid && cid && typeof window.musicV2HandleInviteDecision === 'function') {
+            handled = window.musicV2HandleInviteDecision(cid, iid, decision);
+        }
+        if (!handled && typeof window.showChatToast === 'function') {
+            showChatToast('邀请处理失败，请稍后重试');
+        }
+        window.closeMusicListenInvitePrompt();
+    };
+
+    if (closeBtn) closeBtn.onclick = () => window.closeMusicListenInvitePrompt();
+    if (acceptBtn) acceptBtn.onclick = () => applyDecision('accepted');
+    if (rejectBtn) rejectBtn.onclick = () => applyDecision('rejected');
+    modal.style.display = 'flex';
+};
+
 window.openMusicListenInviteDetail = function (payload) {
     let data = {};
     try {
@@ -1876,10 +1984,13 @@ async function generateAiReply(instruction = null, targetContactId = null) {
             if (musicCtx) {
                 const lines = [];
                 lines.push('\n【音乐一起听状态】');
-                if (musicCtx.nowPlaying) {
+                if (musicCtx.nowPlaying && musicCtx.nowPlaying.songId) {
                     lines.push(`当前播放：${musicCtx.nowPlaying.title || '未知歌曲'} - ${musicCtx.nowPlaying.artist || '未知歌手'}`);
                     if (musicCtx.nowPlaying.lyricLine) {
                         lines.push(`当前歌词句：${musicCtx.nowPlaying.lyricLine}`);
+                    }
+                    if (!musicCtx.nowPlaying.isPlaying) {
+                        lines.push('当前处于暂停/未播放状态。');
                     }
                 } else {
                     lines.push('当前未播放歌曲');
@@ -1887,6 +1998,13 @@ async function generateAiReply(instruction = null, targetContactId = null) {
                 if (musicCtx.together && musicCtx.together.active) {
                     if (musicCtx.together.withCurrentContact) {
                         lines.push('你当前正在和用户一起听歌。');
+                        lines.push('你可以使用以下动作指令控制一起听：');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_PAUSE","payload":""}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_RESUME","payload":""}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_NEXT","payload":""}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_PREV","payload":""}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_SEARCH_PLAY","payload":"歌曲关键词"}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_QUIT","payload":""}');
                     } else {
                         lines.push(`你当前在和 ${musicCtx.together.contactName || '其他联系人'} 一起听歌。`);
                     }
@@ -1894,8 +2012,18 @@ async function generateAiReply(instruction = null, targetContactId = null) {
                     lines.push('当前没有激活的一起听会话。');
                 }
                 if (musicCtx.pendingInvite && musicCtx.pendingInvite.inviteId) {
-                    lines.push(`你收到了用户发来的一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}。`);
-                    lines.push('你必须在本次回复中给出动作指令：{"type":"action","command":"MUSIC_INVITE_DECISION","payload":"inviteId | 同意/拒绝"}');
+                    if (String(musicCtx.pendingInvite.direction || 'outgoing') === 'incoming') {
+                        lines.push(`你已向用户发出一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}，等待用户选择。`);
+                    } else {
+                        lines.push(`你收到了用户发来的一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}。`);
+                        lines.push('你必须在本次回复中给出动作指令：{"type":"action","command":"MUSIC_INVITE_DECISION","payload":"inviteId | 同意/拒绝"}');
+                    }
+                } else if (!(musicCtx.together && musicCtx.together.active)) {
+                    if (musicCtx.nowPlaying && musicCtx.nowPlaying.isPlaying) {
+                        lines.push('如需向用户发起一起听邀请，可输出：{"type":"action","command":"MUSIC_SEND_INVITE","payload":""}（留空表示使用当前播放歌曲）。');
+                    } else {
+                        lines.push('如需向用户发起一起听邀请，必须先指定歌曲关键词：{"type":"action","command":"MUSIC_SEND_INVITE","payload":"歌曲关键词"}。');
+                    }
                 }
                 musicTogetherContext = lines.join('\n') + '\n';
             }
@@ -2002,6 +2130,7 @@ ${contact.showThought ? `
 - 共同存钱转入 -> command: "SAVINGS_DEPOSIT", payload: "金额 | 备注(可选)" (例如 "200 | 这周一起攒")
 - 送礼物给用户 -> command: "SEND_GIFT", payload: "物品名称 | 价格 | 备注" (例如 "一束鲜花 | 52.0 | 节日快乐")
 - 点外卖给用户 -> command: "SEND_DELIVERY", payload: "餐品名称 | 价格 | 备注" (例如 "炸鸡啤酒 | 35.0 | 趁热吃")
+- 发起一起听邀请 -> command: "MUSIC_SEND_INVITE", payload: "歌曲关键词(可选；当用户当前正在听歌时可留空)"
 - 一起听邀请决策 -> command: "MUSIC_INVITE_DECISION", payload: "inviteId | 同意/拒绝" (例如 "invite_123 | 同意")
 - 引用回复 -> command: "QUOTE_MESSAGE", payload: "消息内容摘要"
 - 更改资料 -> 
@@ -2529,7 +2658,14 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         const recordImportantStateRegex = /ACTION:\s*RECORD_IMPORTANT_STATE:\s*(.*?)(?:\n|$)/;
         const pddCashHelpRegex = /ACTION:\s*PDD_CASH_HELP(?:\s*|$)/;
         const pddBargainHelpRegex = /ACTION:\s*PDD_BARGAIN_HELP:\s*(.*?)(?:\n|$)/;
+        const musicSendInviteRegex = /ACTION:\s*MUSIC_SEND_INVITE(?:\s*:\s*(.*?))?(?:\n|$)/;
         const musicInviteDecisionRegex = /ACTION:\s*MUSIC_INVITE_DECISION:\s*(.*?)(?:\n|$)/;
+        const musicTogetherPauseRegex = /ACTION:\s*MUSIC_TOGETHER_PAUSE(?:\s*:\s*(.*?))?(?:\n|$)/;
+        const musicTogetherResumeRegex = /ACTION:\s*MUSIC_TOGETHER_RESUME(?:\s*:\s*(.*?))?(?:\n|$)/;
+        const musicTogetherNextRegex = /ACTION:\s*MUSIC_TOGETHER_NEXT(?:\s*:\s*(.*?))?(?:\n|$)/;
+        const musicTogetherPrevRegex = /ACTION:\s*MUSIC_TOGETHER_PREV(?:\s*:\s*(.*?))?(?:\n|$)/;
+        const musicTogetherSearchPlayRegex = /ACTION:\s*MUSIC_TOGETHER_SEARCH_PLAY(?:\s*:\s*(.*?))?(?:\n|$)/;
+        const musicTogetherQuitRegex = /ACTION:\s*MUSIC_TOGETHER_QUIT(?:\s*:\s*(.*?))?(?:\n|$)/;
 
         let replyToObj = null;
         let hasUpdatedName = false;
@@ -2537,6 +2673,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         let hasUpdatedSignature = false;
         let hasFamilyCardDecision = false;
         let hasShownSavingsPlanMissingToast = false;
+        let hasMusicInviteSent = false;
         let hasMusicInviteDecision = false;
 
         for (let i = 0; i < actions.length; i++) {
@@ -2558,6 +2695,122 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                     setTimeout(() => window.processPddHelp('bargain', prodId), 1000);
                 }
                 processedSegment = processedSegment.replace(pddBargainHelpMatch[0], '');
+            }
+
+            const handleMusicTogetherAction = async (actionName, actionPayload) => {
+                if (typeof window.musicV2HandleTogetherRemoteAction !== 'function') {
+                    setTimeout(() => {
+                        sendMessage('[系统消息]: 音乐模块暂不可用，无法执行一起听控制', false, 'text', null, contact.id);
+                    }, 220);
+                    return;
+                }
+                try {
+                    const result = await window.musicV2HandleTogetherRemoteAction(contact.id, actionName, actionPayload || '');
+                    if (!result || !result.ok) {
+                        const failText = result && result.message ? String(result.message) : '一起听控制执行失败';
+                        setTimeout(() => {
+                            sendMessage('[系统消息]: ' + failText, false, 'text', null, contact.id);
+                        }, 220);
+                        return;
+                    }
+                    // Success path should also be visible as system tip in chat.
+                    let successText = result && result.message ? String(result.message) : '一起听操作已执行';
+                    if (actionName === 'MUSIC_TOGETHER_NEXT' || actionName === 'MUSIC_TOGETHER_PREV') {
+                        if (result && result.songTitle) successText = successText + '：' + String(result.songTitle);
+                    } else if (actionName === 'MUSIC_TOGETHER_SEARCH_PLAY') {
+                        if (result && result.songTitle) successText = '已搜索并播放：' + String(result.songTitle);
+                    } else if (actionName === 'MUSIC_TOGETHER_PAUSE') {
+                        successText = '对方已暂停播放';
+                    } else if (actionName === 'MUSIC_TOGETHER_RESUME') {
+                        successText = '对方已继续播放';
+                    }
+                    // Quit already sends a dedicated system message from music module; avoid duplicate tips.
+                    if (actionName !== 'MUSIC_TOGETHER_QUIT') {
+                        setTimeout(() => {
+                            sendMessage('[系统消息]: ' + successText, false, 'text', null, contact.id);
+                        }, 220);
+                    }
+                } catch (error) {
+                    setTimeout(() => {
+                        sendMessage('[系统消息]: 一起听控制执行失败，请稍后重试', false, 'text', null, contact.id);
+                    }, 220);
+                }
+            };
+
+            let musicTogetherPauseMatch;
+            while ((musicTogetherPauseMatch = processedSegment.match(musicTogetherPauseRegex)) !== null) {
+                await handleMusicTogetherAction('MUSIC_TOGETHER_PAUSE', (musicTogetherPauseMatch[1] || '').trim());
+                processedSegment = processedSegment.replace(musicTogetherPauseMatch[0], '');
+            }
+
+            let musicTogetherResumeMatch;
+            while ((musicTogetherResumeMatch = processedSegment.match(musicTogetherResumeRegex)) !== null) {
+                await handleMusicTogetherAction('MUSIC_TOGETHER_RESUME', (musicTogetherResumeMatch[1] || '').trim());
+                processedSegment = processedSegment.replace(musicTogetherResumeMatch[0], '');
+            }
+
+            let musicTogetherNextMatch;
+            while ((musicTogetherNextMatch = processedSegment.match(musicTogetherNextRegex)) !== null) {
+                await handleMusicTogetherAction('MUSIC_TOGETHER_NEXT', (musicTogetherNextMatch[1] || '').trim());
+                processedSegment = processedSegment.replace(musicTogetherNextMatch[0], '');
+            }
+
+            let musicTogetherPrevMatch;
+            while ((musicTogetherPrevMatch = processedSegment.match(musicTogetherPrevRegex)) !== null) {
+                await handleMusicTogetherAction('MUSIC_TOGETHER_PREV', (musicTogetherPrevMatch[1] || '').trim());
+                processedSegment = processedSegment.replace(musicTogetherPrevMatch[0], '');
+            }
+
+            let musicTogetherSearchPlayMatch;
+            while ((musicTogetherSearchPlayMatch = processedSegment.match(musicTogetherSearchPlayRegex)) !== null) {
+                await handleMusicTogetherAction('MUSIC_TOGETHER_SEARCH_PLAY', (musicTogetherSearchPlayMatch[1] || '').trim());
+                processedSegment = processedSegment.replace(musicTogetherSearchPlayMatch[0], '');
+            }
+
+            let musicTogetherQuitMatch;
+            while ((musicTogetherQuitMatch = processedSegment.match(musicTogetherQuitRegex)) !== null) {
+                await handleMusicTogetherAction('MUSIC_TOGETHER_QUIT', (musicTogetherQuitMatch[1] || '').trim());
+                processedSegment = processedSegment.replace(musicTogetherQuitMatch[0], '');
+            }
+
+            let musicSendInviteMatch;
+            while ((musicSendInviteMatch = processedSegment.match(musicSendInviteRegex)) !== null) {
+                const payloadRaw = (musicSendInviteMatch[1] || '').trim();
+                console.log('[music-v2][invite-debug][ai]', 'command:MUSIC_SEND_INVITE', {
+                    contactId: contact.id,
+                    payload: payloadRaw
+                });
+                if (typeof window.musicV2HandleChatSendInviteAction === 'function') {
+                    try {
+                        const result = await window.musicV2HandleChatSendInviteAction(contact.id, payloadRaw);
+                        if (result && result.ok) {
+                            hasMusicInviteSent = true;
+                            console.log('[music-v2][invite-debug][ai]', 'command:MUSIC_SEND_INVITE:ok', result);
+                        } else {
+                            const message = (result && result.message)
+                                ? String(result.message)
+                                : '一起听邀请发送失败，请稍后重试';
+                            console.warn('[music-v2][invite-debug][ai]', 'command:MUSIC_SEND_INVITE:fail', {
+                                result: result,
+                                message: message
+                            });
+                            setTimeout(() => {
+                                sendMessage('[系统消息]: ' + message, false, 'text', null, contact.id);
+                            }, 280);
+                        }
+                    } catch (error) {
+                        console.error('[music-v2][invite-debug][ai]', 'command:MUSIC_SEND_INVITE:error', error);
+                        setTimeout(() => {
+                            sendMessage('[系统消息]: 一起听邀请发送失败，请稍后重试', false, 'text', null, contact.id);
+                        }, 280);
+                    }
+                } else {
+                    console.warn('[music-v2][invite-debug][ai]', 'command:MUSIC_SEND_INVITE:missing-handler');
+                    setTimeout(() => {
+                        sendMessage('[系统消息]: 音乐模块暂不可用，无法发起一起听邀请', false, 'text', null, contact.id);
+                    }, 280);
+                }
+                processedSegment = processedSegment.replace(musicSendInviteMatch[0], '');
             }
 
             let musicInviteDecisionMatch;
@@ -3128,7 +3381,13 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
         const pendingMusicInvite = (!hasMusicInviteDecision && typeof window.musicV2GetPendingInviteForContact === 'function')
             ? window.musicV2GetPendingInviteForContact(contact.id)
             : null;
-        if (pendingMusicInvite && pendingMusicInvite.inviteId && typeof window.musicV2HandleInviteDecision === 'function') {
+        const shouldAutoResolvePendingMusicInvite = !!(
+            pendingMusicInvite &&
+            pendingMusicInvite.inviteId &&
+            String(pendingMusicInvite.direction || 'outgoing') !== 'incoming' &&
+            !hasMusicInviteSent
+        );
+        if (shouldAutoResolvePendingMusicInvite && typeof window.musicV2HandleInviteDecision === 'function') {
             const textForDecision = messagesList
                 .filter(msg => msg && (msg.type === '消息' || msg.type === 'text') && typeof msg.content === 'string')
                 .map(msg => msg.content)

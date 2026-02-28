@@ -905,6 +905,11 @@
     const MUSIC_V2_METING_API = 'https://api.qijieya.cn/meting/';
     const MUSIC_V2_BUGPK_API = 'https://api.bugpk.com/api/163_music';
     const MUSIC_V2_LYRIC_API = 'https://163api.qijieya.cn/lyric';
+    const MUSIC_V2_PLAYLIST_DETAIL_API = 'https://163api.qijieya.cn/playlist/detail';
+    const MUSIC_V2_PLAYLIST_TRACK_ALL_API = 'https://163api.qijieya.cn/playlist/track/all';
+    const MUSIC_V2_IMPORT_PAGE_LIMIT = 100;
+    const MUSIC_V2_IMPORT_MAX_PAGES = 60;
+    const MUSIC_V2_PLAY_COMPLETE_RATIO_THRESHOLD = 0.9;
 
     const musicV2Runtime = {
         initialized: false,
@@ -929,7 +934,23 @@
         lyricsFetchToken: 0,
         lyricsSongId: null,
         lyricsRenderedSongId: null,
-        togetherSummary: null
+        togetherSummary: null,
+        importLoading: false,
+        importDetailFallback: false,
+        importDraft: '',
+        playQueue: {
+            mode: 'playlist_loop',
+            playlistId: '',
+            orderedSongIds: [],
+            currentIndex: -1,
+            signature: ''
+        },
+        playCycleTracker: {
+            songId: '',
+            counted: false,
+            maxRatio: 0
+        },
+        lastInviteError: null
     };
 
     const MUSIC_V2_PLAYBACK_MODE_PLAYLIST_LOOP = 'playlist_loop';
@@ -1010,6 +1031,211 @@
             if (String(a[i]) !== String(b[i])) return false;
         }
         return true;
+    }
+
+    function musicV2NeedProfileCountForNextLevel(level) {
+        const lv = Math.max(1, Math.floor(Number(level) || 1));
+        return 8 + (lv - 1) * 4;
+    }
+
+    function musicV2NeedBondSecForNextLevel(level) {
+        const lv = Math.max(1, Math.floor(Number(level) || 1));
+        return (10 + (lv - 1) * 5) * 60;
+    }
+
+    function musicV2ComputeProfileLevel(playCompleteCount) {
+        let remain = Math.max(0, Math.floor(Number(playCompleteCount) || 0));
+        let level = 1;
+        let guard = 0;
+        while (guard < 10000) {
+            const need = musicV2NeedProfileCountForNextLevel(level);
+            if (remain < need) break;
+            remain -= need;
+            level += 1;
+            guard += 1;
+        }
+        return {
+            level: level,
+            progressInLevel: remain,
+            nextNeed: musicV2NeedProfileCountForNextLevel(level)
+        };
+    }
+
+    function musicV2ComputeBondLevel(totalTogetherSec) {
+        let remain = Math.max(0, Math.floor(Number(totalTogetherSec) || 0));
+        let level = 1;
+        let guard = 0;
+        while (guard < 10000) {
+            const need = musicV2NeedBondSecForNextLevel(level);
+            if (remain < need) break;
+            remain -= need;
+            level += 1;
+            guard += 1;
+        }
+        return {
+            level: level,
+            progressInLevel: remain,
+            nextNeed: musicV2NeedBondSecForNextLevel(level)
+        };
+    }
+
+    function musicV2EnsureGamificationModel(music) {
+        if (!music || typeof music !== 'object') return;
+        if (!music.gamification || typeof music.gamification !== 'object' || Array.isArray(music.gamification)) {
+            music.gamification = {};
+        }
+        const gm = music.gamification;
+        if (!gm.profile || typeof gm.profile !== 'object' || Array.isArray(gm.profile)) gm.profile = {};
+        const profile = gm.profile;
+
+        let playCompleteCount = Number(profile.playCompleteCount);
+        if (!Number.isFinite(playCompleteCount) || playCompleteCount < 0) playCompleteCount = 0;
+        profile.playCompleteCount = Math.floor(playCompleteCount);
+        const profileMeta = musicV2ComputeProfileLevel(profile.playCompleteCount);
+        profile.level = profileMeta.level;
+        const profileUpdatedAt = Number(profile.updatedAt);
+        profile.updatedAt = Number.isFinite(profileUpdatedAt) && profileUpdatedAt > 0
+            ? Math.floor(profileUpdatedAt)
+            : 0;
+
+        const contacts = Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
+            ? window.iphoneSimState.contacts
+            : [];
+        const validContactIds = new Set(contacts.map(c => String(c && c.id)).filter(Boolean));
+        const rawBonds = gm.bonds && typeof gm.bonds === 'object' && !Array.isArray(gm.bonds)
+            ? gm.bonds
+            : {};
+        const normalizedBonds = {};
+        Object.keys(rawBonds).forEach((key) => {
+            const cid = String(key || '');
+            if (!cid || !validContactIds.has(cid)) return;
+            const rawBond = rawBonds[key];
+            const bond = rawBond && typeof rawBond === 'object' && !Array.isArray(rawBond)
+                ? rawBond
+                : {};
+            let totalTogetherSec = Number(bond.totalTogetherSec);
+            if (!Number.isFinite(totalTogetherSec) || totalTogetherSec < 0) totalTogetherSec = 0;
+            totalTogetherSec = Math.floor(totalTogetherSec);
+
+            let sessions = Number(bond.sessions);
+            if (!Number.isFinite(sessions) || sessions < 0) sessions = 0;
+            sessions = Math.floor(sessions);
+
+            const bondMeta = musicV2ComputeBondLevel(totalTogetherSec);
+            const updatedAt = Number(bond.updatedAt);
+            normalizedBonds[cid] = {
+                totalTogetherSec: totalTogetherSec,
+                sessions: sessions,
+                level: bondMeta.level,
+                updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? Math.floor(updatedAt) : 0
+            };
+        });
+        gm.bonds = normalizedBonds;
+
+        const gmUpdatedAt = Number(gm.updatedAt);
+        gm.updatedAt = Number.isFinite(gmUpdatedAt) && gmUpdatedAt > 0
+            ? Math.floor(gmUpdatedAt)
+            : 0;
+    }
+
+    function musicV2FormatDurationSecShort(sec) {
+        const safe = Math.max(0, Math.floor(Number(sec) || 0));
+        const hours = Math.floor(safe / 3600);
+        const minutes = Math.floor((safe % 3600) / 60);
+        const seconds = safe % 60;
+        if (hours > 0) return hours + '小时' + minutes + '分';
+        if (minutes > 0) return minutes + '分';
+        return seconds + '秒';
+    }
+
+    function musicV2GetBondSnapshot(contactId) {
+        const cid = String(contactId || '');
+        if (!cid) return { level: 1, totalTogetherSec: 0, sessions: 0 };
+        const music = musicV2EnsureModel();
+        const bonds = music.gamification && music.gamification.bonds && typeof music.gamification.bonds === 'object'
+            ? music.gamification.bonds
+            : {};
+        const bond = bonds[cid];
+        if (!bond || typeof bond !== 'object') return { level: 1, totalTogetherSec: 0, sessions: 0 };
+        const totalTogetherSec = Math.max(0, Math.floor(Number(bond.totalTogetherSec) || 0));
+        const sessions = Math.max(0, Math.floor(Number(bond.sessions) || 0));
+        const levelMeta = musicV2ComputeBondLevel(totalTogetherSec);
+        return {
+            level: levelMeta.level,
+            totalTogetherSec: totalTogetherSec,
+            sessions: sessions
+        };
+    }
+
+    function musicV2ApplyBondProgress(contactId, durationSec) {
+        const cid = String(contactId || '');
+        if (!cid) return null;
+        const addSec = Math.max(0, Math.floor(Number(durationSec) || 0));
+        const music = musicV2EnsureModel();
+        musicV2EnsureGamificationModel(music);
+        if (!music.gamification.bonds[cid]) {
+            music.gamification.bonds[cid] = {
+                totalTogetherSec: 0,
+                sessions: 0,
+                level: 1,
+                updatedAt: 0
+            };
+        }
+        const bond = music.gamification.bonds[cid];
+        const beforeLevel = Math.max(1, Math.floor(Number(bond.level) || 1));
+        bond.totalTogetherSec = Math.max(0, Math.floor(Number(bond.totalTogetherSec) || 0)) + addSec;
+        bond.sessions = Math.max(0, Math.floor(Number(bond.sessions) || 0)) + 1;
+        const bondMeta = musicV2ComputeBondLevel(bond.totalTogetherSec);
+        bond.level = bondMeta.level;
+        bond.updatedAt = Date.now();
+        music.gamification.updatedAt = Date.now();
+        return {
+            beforeLevel: beforeLevel,
+            afterLevel: bond.level,
+            totalTogetherSec: bond.totalTogetherSec,
+            sessions: bond.sessions
+        };
+    }
+
+    function musicV2ResetPlayCycleTracker(songId, currentTime) {
+        const sid = String(songId || '');
+        musicV2Runtime.playCycleTracker.songId = sid;
+        musicV2Runtime.playCycleTracker.counted = false;
+        const current = Number(currentTime);
+        musicV2Runtime.playCycleTracker.maxRatio = Number.isFinite(current) && current > 0 ? current : 0;
+    }
+
+    function musicV2GrantProfilePlayComplete(reason) {
+        const tracker = musicV2Runtime.playCycleTracker;
+        if (!tracker || !tracker.songId || tracker.counted) return false;
+
+        const music = musicV2EnsureModel();
+        musicV2EnsureGamificationModel(music);
+        const profile = music.gamification.profile;
+        const beforeLevel = Math.max(1, Math.floor(Number(profile.level) || 1));
+        profile.playCompleteCount = Math.max(0, Math.floor(Number(profile.playCompleteCount) || 0)) + 1;
+        const next = musicV2ComputeProfileLevel(profile.playCompleteCount);
+        profile.level = next.level;
+        profile.updatedAt = Date.now();
+        music.gamification.updatedAt = Date.now();
+        tracker.counted = true;
+
+        musicV2Persist();
+        musicV2RenderSongView();
+        if (next.level > beforeLevel) {
+            musicV2Toast('等级提升到 Lv.' + next.level);
+        }
+        return true;
+    }
+
+    function musicV2TryCountPlayCompletion(ratio, reason) {
+        const tracker = musicV2Runtime.playCycleTracker;
+        if (!tracker || !tracker.songId || tracker.counted) return false;
+        const safeRatio = musicV2Clamp01(Number(ratio));
+        if (safeRatio > tracker.maxRatio) tracker.maxRatio = safeRatio;
+        const triggerByEnded = String(reason || '') === 'ended';
+        if (!triggerByEnded && tracker.maxRatio < MUSIC_V2_PLAY_COMPLETE_RATIO_THRESHOLD) return false;
+        return musicV2GrantProfilePlayComplete(reason);
     }
 
     function musicV2EnsureSystemPlaylists(music) {
@@ -1300,6 +1526,7 @@
                 ? MUSIC_V2_SYSTEM_PLAYLIST_ID_ALL
                 : (music.playlists[0] ? music.playlists[0].id : null);
         }
+        musicV2EnsureGamificationModel(music);
 
         const contacts = Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
             ? window.iphoneSimState.contacts
@@ -1316,6 +1543,8 @@
             if (!contactId || !validContactIds.has(contactId)) return;
             const statusRaw = String(raw.status || 'pending').toLowerCase();
             const status = statusRaw === 'accepted' || statusRaw === 'rejected' ? statusRaw : 'pending';
+            const directionRaw = String(raw.direction || 'outgoing').toLowerCase();
+            const direction = directionRaw === 'incoming' ? 'incoming' : 'outgoing';
             normalizedInvites.push({
                 inviteId: inviteId,
                 contactId: contactId,
@@ -1323,6 +1552,7 @@
                 songTitle: String(raw.songTitle || ''),
                 songArtist: String(raw.songArtist || ''),
                 songCover: String(raw.songCover || ''),
+                direction: direction,
                 status: status,
                 createdAt: Number(raw.createdAt) || Date.now(),
                 updatedAt: Number(raw.updatedAt) || Date.now()
@@ -1369,6 +1599,7 @@
     function musicV2Persist() {
         const music = musicV2EnsureModel();
         musicV2EnsureSystemPlaylists(music);
+        musicV2EnsureGamificationModel(music);
         musicV2SyncLegacyPlaylist(music);
         if (typeof saveConfig === 'function') saveConfig();
     }
@@ -1422,6 +1653,28 @@
         const music = musicV2EnsureModel();
         if (!music.listenTogether || !music.listenTogether.activeSession) return null;
         return music.listenTogether.activeSession;
+    }
+
+    function musicV2DebugInvite(stage, detail) {
+        if (typeof console === 'undefined') return;
+        if (typeof detail === 'undefined') {
+            console.log('[music-v2][invite-debug]', stage);
+            return;
+        }
+        console.log('[music-v2][invite-debug]', stage, detail);
+    }
+
+    function musicV2SetLastInviteError(code, message, meta) {
+        musicV2Runtime.lastInviteError = {
+            code: String(code || 'unknown'),
+            message: String(message || '邀请发送失败，请稍后重试'),
+            meta: meta || null,
+            at: Date.now()
+        };
+    }
+
+    function musicV2ClearLastInviteError() {
+        musicV2Runtime.lastInviteError = null;
     }
 
     function musicV2GetPendingInviteForContactInternal(contactId) {
@@ -1489,6 +1742,7 @@
             payload.songTitle = invite.songTitle || payload.songTitle || '';
             payload.songArtist = invite.songArtist || payload.songArtist || '';
             payload.songCover = invite.songCover || payload.songCover || '';
+            payload.direction = invite.direction || payload.direction || 'outgoing';
             msg.content = JSON.stringify(payload);
         }
 
@@ -1497,49 +1751,167 @@
         }
     }
 
-    function musicV2CreateInvite(contactId) {
+    function musicV2NormalizeInviteSong(inputSong) {
+        if (!inputSong || typeof inputSong !== 'object') return null;
+        const songId = String(inputSong.songId || inputSong.id || '');
+        if (!songId) return null;
+        return {
+            songId: songId,
+            songTitle: String(inputSong.songTitle || inputSong.title || '未知歌曲'),
+            songArtist: String(inputSong.songArtist || inputSong.artist || '未知歌手'),
+            songCover: String(inputSong.songCover || inputSong.cover || MUSIC_V2_DEFAULT_COVER)
+        };
+    }
+
+    function musicV2GetInviteAutoplayPlaylistId(songId) {
+        const sid = String(songId || '');
+        if (!sid) return '';
+        const music = musicV2EnsureModel();
+        const candidateIds = [
+            musicV2Runtime.activePlaylistId,
+            music.activePlaylistId,
+            MUSIC_V2_SYSTEM_PLAYLIST_ID_ALL
+        ].map(item => String(item || '')).filter(Boolean);
+        const seen = new Set();
+        for (let i = 0; i < candidateIds.length; i++) {
+            const pid = candidateIds[i];
+            if (!pid || seen.has(pid)) continue;
+            seen.add(pid);
+            const playlist = musicV2GetPlaylist(pid);
+            if (!playlist || !Array.isArray(playlist.songs)) continue;
+            if (playlist.songs.some(rawId => String(rawId) === sid)) return pid;
+        }
+        const fallback = musicV2GetPlaylist(MUSIC_V2_SYSTEM_PLAYLIST_ID_ALL);
+        if (fallback && String(fallback.id || '')) return String(fallback.id || '');
+        const any = (music.playlists || []).find(pl => pl && Array.isArray(pl.songs) && pl.songs.some(rawId => String(rawId) === sid));
+        if (any && any.id) return String(any.id);
+        return String(music.activePlaylistId || '');
+    }
+
+    function musicV2CreateInvite(contactId, opts) {
         const cid = String(contactId || '');
+        const options = opts && typeof opts === 'object' ? opts : {};
+        musicV2ClearLastInviteError();
+        musicV2DebugInvite('create:start', {
+            contactId: cid,
+            hasOptionsSong: !!(options && options.song),
+            senderIsUser: options.senderIsUser !== false
+        });
         if (!cid) {
+            musicV2SetLastInviteError('invalid_contact', '联系人不可用', { contactId: contactId });
+            musicV2DebugInvite('create:fail:invalid-contact-id', { contactId: contactId });
             musicV2Toast('联系人不可用');
             return null;
         }
         const contact = musicV2GetContactById(cid);
         if (!contact) {
+            musicV2SetLastInviteError('contact_not_found', '联系人不存在', { contactId: cid });
+            musicV2DebugInvite('create:fail:contact-not-found', { contactId: cid });
             musicV2Toast('联系人不存在');
-            return null;
-        }
-        const song = musicV2GetCurrentSong();
-        if (!song) {
-            musicV2Toast('请先播放一首歌再邀请');
             return null;
         }
         const pending = musicV2GetPendingInviteForContactInternal(cid);
         if (pending) {
+            musicV2SetLastInviteError('pending_exists', '邀请已发送，等待回复', {
+                contactId: cid,
+                inviteId: String(pending.inviteId || '')
+            });
+            musicV2DebugInvite('create:fail:pending-exists', {
+                contactId: cid,
+                inviteId: String(pending.inviteId || '')
+            });
             musicV2Toast('邀请已发送，等待回复');
             return null;
         }
 
+        const explicitSong = musicV2NormalizeInviteSong(options.song);
+        const currentSong = musicV2GetCurrentSong();
+        const fallbackSong = currentSong
+            ? {
+                songId: String(currentSong.id || ''),
+                songTitle: String(currentSong.title || '未知歌曲'),
+                songArtist: String(currentSong.artist || '未知歌手'),
+                songCover: String(currentSong.cover || MUSIC_V2_DEFAULT_COVER)
+            }
+            : null;
+        const inviteSong = explicitSong || fallbackSong;
+        if (!inviteSong || !inviteSong.songId) {
+            musicV2SetLastInviteError('no_invite_song', '请先播放一首歌再邀请', {
+                contactId: cid,
+                hasExplicitSong: !!explicitSong,
+                hasCurrentSong: !!currentSong
+            });
+            musicV2DebugInvite('create:fail:no-invite-song', {
+                contactId: cid,
+                hasExplicitSong: !!explicitSong,
+                hasCurrentSong: !!currentSong
+            });
+            musicV2Toast('请先播放一首歌再邀请');
+            return null;
+        }
+
         const music = musicV2EnsureModel();
+        const senderIsUser = options.senderIsUser !== false;
         const invite = {
             inviteId: musicV2MakeId('invite'),
             contactId: cid,
-            songId: String(song.id || ''),
-            songTitle: String(song.title || ''),
-            songArtist: String(song.artist || ''),
-            songCover: String(song.cover || music.cover || MUSIC_V2_DEFAULT_COVER),
+            songId: inviteSong.songId,
+            songTitle: inviteSong.songTitle,
+            songArtist: inviteSong.songArtist,
+            songCover: inviteSong.songCover || String(music.cover || MUSIC_V2_DEFAULT_COVER),
+            direction: senderIsUser ? 'outgoing' : 'incoming',
             status: 'pending',
             createdAt: Date.now(),
             updatedAt: Date.now()
         };
         music.listenTogether.invites.push(invite);
         music.listenTogether.updatedAt = Date.now();
+        musicV2DebugInvite('create:invite-built', {
+            inviteId: String(invite.inviteId || ''),
+            contactId: cid,
+            songId: String(invite.songId || ''),
+            direction: String(invite.direction || '')
+        });
 
         if (typeof window.sendMessage === 'function') {
-            window.sendMessage(JSON.stringify(invite), true, 'music_listen_invite', null, cid);
+            try {
+                window.sendMessage(JSON.stringify(invite), senderIsUser, 'music_listen_invite', null, cid);
+                musicV2DebugInvite('create:send-message:ok', {
+                    inviteId: String(invite.inviteId || ''),
+                    contactId: cid
+                });
+            } catch (error) {
+                musicV2SetLastInviteError('send_message_failed', '邀请发送失败，请稍后重试', {
+                    contactId: cid,
+                    inviteId: String(invite.inviteId || ''),
+                    error: String(error && error.message ? error.message : error)
+                });
+                musicV2DebugInvite('create:send-message:fail', {
+                    inviteId: String(invite.inviteId || ''),
+                    contactId: cid,
+                    error: String(error && error.message ? error.message : error)
+                });
+                return null;
+            }
+        } else {
+            musicV2SetLastInviteError('send_message_api_missing', '音乐模块暂不可用，无法发起一起听邀请', {
+                contactId: cid,
+                inviteId: String(invite.inviteId || '')
+            });
+            musicV2DebugInvite('create:send-message:missing-api', {
+                inviteId: String(invite.inviteId || ''),
+                contactId: cid
+            });
+            return null;
         }
         musicV2Persist();
         musicV2RenderFriends();
         musicV2Toast('已发送一起听邀请');
+        musicV2ClearLastInviteError();
+        musicV2DebugInvite('create:done', {
+            inviteId: String(invite.inviteId || ''),
+            contactId: cid
+        });
         return invite;
     }
 
@@ -1557,9 +1929,13 @@
         invite.updatedAt = Date.now();
         music.listenTogether.updatedAt = Date.now();
         musicV2PatchInviteCardInHistory(invite);
+        let acceptedSongId = '';
+        let acceptedPlaylistId = '';
 
         if (normalizedDecision === 'accepted') {
             const initialSongId = String(invite.songId || (music.currentSongId || ''));
+            acceptedSongId = initialSongId;
+            acceptedPlaylistId = musicV2GetInviteAutoplayPlaylistId(initialSongId);
             music.listenTogether.activeSession = {
                 sessionId: musicV2MakeId('session'),
                 contactId: cid,
@@ -1581,7 +1957,26 @@
         musicV2RenderMiniPlayer();
         musicV2RenderSongView();
         if (normalizedDecision === 'accepted') {
-            musicV2Toast('对方同意了一起听邀请');
+            const acceptedSong = acceptedSongId ? musicV2GetSong(acceptedSongId) : null;
+            if (acceptedSong) {
+                // Keep UI in sync immediately, then try to start playback.
+                musicV2SyncNowPlaying(acceptedSong, false);
+                musicV2Persist();
+                musicV2RenderMiniPlayer();
+                musicV2RenderSongView();
+                musicV2PlaySong(acceptedSongId, acceptedPlaylistId).catch((playError) => {
+                    musicV2DebugInvite('decision:autoplay-fail', {
+                        contactId: cid,
+                        inviteId: String(invite && invite.inviteId ? invite.inviteId : ''),
+                        songId: acceptedSongId,
+                        error: String(playError && playError.message ? playError.message : playError)
+                    });
+                    musicV2Toast('邀请歌曲不可用，请重新选歌');
+                });
+                musicV2Toast('对方同意了一起听邀请');
+            } else {
+                musicV2Toast('邀请歌曲不可用，请重新选歌');
+            }
         } else {
             musicV2Toast('对方拒绝了一起听邀请');
         }
@@ -1599,6 +1994,7 @@
         return {
             pendingInvite: pendingInvite ? {
                 inviteId: String(pendingInvite.inviteId || ''),
+                direction: String(pendingInvite.direction || 'outgoing'),
                 status: String(pendingInvite.status || 'pending'),
                 songId: String(pendingInvite.songId || ''),
                 songTitle: String(pendingInvite.songTitle || ''),
@@ -1612,6 +2008,7 @@
                 contactName: activeContact ? musicV2GetContactDisplayName(activeContact) : ''
             },
             nowPlaying: song ? {
+                isPlaying: !!music.playing,
                 songId: String(song.id || ''),
                 title: String(song.title || ''),
                 artist: String(song.artist || ''),
@@ -1750,6 +2147,8 @@
         const contactName = contact ? musicV2GetContactDisplayName(contact) : '联系人';
         const startedAt = Number(active.startedAt) || Date.now();
         const durationMs = Math.max(0, Date.now() - startedAt);
+        const durationSec = Math.max(0, Math.floor(durationMs / 1000));
+        const bondProgress = musicV2ApplyBondProgress(active.contactId, durationSec);
         let songCount = Number(active.songCount);
         if (!Number.isFinite(songCount) || songCount < 0) songCount = 0;
         songCount = Math.floor(songCount);
@@ -1767,6 +2166,11 @@
             durationText: musicV2FormatDurationMs(durationMs),
             songCount: songCount
         });
+        if (bondProgress && bondProgress.afterLevel > bondProgress.beforeLevel) {
+            setTimeout(() => {
+                musicV2Toast('你与' + contactName + '的羁绊提升到 Lv.' + bondProgress.afterLevel);
+            }, 220);
+        }
         return true;
     }
 
@@ -1781,6 +2185,225 @@
         const response = await fetch(url, { method: 'GET', cache: 'no-store' });
         if (!response.ok) throw new Error('HTTP_' + response.status);
         return response.json();
+    }
+
+    function musicV2ParseNeteasePlaylistId(input) {
+        const raw = String(input || '').trim();
+        if (!raw) return '';
+        const directMatch = raw.match(/^(\d{3,})$/);
+        if (directMatch) return directMatch[1];
+
+        let decoded = raw;
+        try {
+            decoded = decodeURIComponent(raw);
+        } catch (error) {
+            decoded = raw;
+        }
+
+        const queryMatch = decoded.match(/[?&#]id=(\d{3,})/i);
+        if (queryMatch) return queryMatch[1];
+
+        const pathMatch = decoded.match(/\/playlist\/(\d{3,})/i);
+        if (pathMatch) return pathMatch[1];
+
+        return '';
+    }
+
+    async function musicV2FetchNeteasePlaylistDetail(playlistId) {
+        const pid = String(playlistId || '');
+        if (!pid) throw new Error('invalid_playlist_id');
+        const url = MUSIC_V2_PLAYLIST_DETAIL_API + '?id=' + encodeURIComponent(pid) + '&_t=' + Date.now();
+        const data = await musicV2FetchJson(url);
+        const playlist = data && data.playlist && typeof data.playlist === 'object'
+            ? data.playlist
+            : null;
+        if (!playlist) throw new Error('playlist_detail_invalid');
+        return {
+            name: String(playlist.name || ''),
+            coverImgUrl: String(playlist.coverImgUrl || '')
+        };
+    }
+
+    async function musicV2FetchNeteasePlaylistSongsAll(playlistId) {
+        const pid = String(playlistId || '');
+        if (!pid) throw new Error('invalid_playlist_id');
+
+        const allSongs = [];
+        const seenSongIds = new Set();
+        let offset = 0;
+        const limit = MUSIC_V2_IMPORT_PAGE_LIMIT;
+
+        for (let page = 0; page < MUSIC_V2_IMPORT_MAX_PAGES; page++) {
+            const url = MUSIC_V2_PLAYLIST_TRACK_ALL_API
+                + '?id=' + encodeURIComponent(pid)
+                + '&limit=' + encodeURIComponent(String(limit))
+                + '&offset=' + encodeURIComponent(String(offset))
+                + '&_t=' + Date.now();
+            const data = await musicV2FetchJson(url);
+            const songs = Array.isArray(data && data.songs)
+                ? data.songs
+                : (data && data.playlist && Array.isArray(data.playlist.tracks) ? data.playlist.tracks : []);
+            if (!songs.length) break;
+
+            let pageNewCount = 0;
+            for (let i = 0; i < songs.length; i++) {
+                const item = songs[i];
+                const sid = String(item && item.id ? item.id : '');
+                if (!sid || seenSongIds.has(sid)) continue;
+                seenSongIds.add(sid);
+                allSongs.push(item);
+                pageNewCount += 1;
+            }
+
+            if (songs.length < limit) break;
+            if (pageNewCount <= 0) break;
+            offset += limit;
+        }
+
+        return allSongs;
+    }
+
+    function musicV2BuildImportedPlaylistTitle(baseTitle) {
+        const base = String(baseTitle || '').trim() || '导入歌单';
+        const music = musicV2EnsureModel();
+        const existing = new Set((music.playlists || []).map(pl => musicV2NormalizeTitleForCompare(pl && pl.title)));
+        if (!existing.has(base)) return base;
+
+        for (let i = 1; i <= 999; i++) {
+            const candidate = i === 1 ? (base + ' (导入)') : (base + ' (导入 ' + i + ')');
+            if (!existing.has(candidate)) return candidate;
+        }
+
+        return base + ' (导入 ' + Date.now() + ')';
+    }
+
+    function musicV2MapImportedTrack(track) {
+        if (!track || typeof track !== 'object') return null;
+        const sid = String(track.id || '');
+        if (!sid) return null;
+
+        const artistNames = Array.isArray(track.ar)
+            ? track.ar.map(item => String(item && item.name ? item.name : '').trim()).filter(Boolean)
+            : [];
+        const title = String(track.name || '未命名歌曲');
+        const artist = artistNames.length ? artistNames.join('/') : '未知歌手';
+        const cover = String(
+            (track.al && track.al.picUrl)
+            || (track.album && track.album.picUrl)
+            || ''
+        );
+
+        return {
+            id: sid,
+            title: title,
+            artist: artist,
+            cover: cover,
+            src: '',
+            provider: 'netease-import'
+        };
+    }
+
+    function musicV2BuildImportErrorMessage(error) {
+        if (error && typeof error.userMessage === 'string' && error.userMessage) {
+            return error.userMessage;
+        }
+        const raw = String(error && error.message ? error.message : '');
+        if (/^HTTP_\d+$/i.test(raw)) {
+            return '导入失败，请稍后重试（接口异常）';
+        }
+        return '导入失败，请稍后重试';
+    }
+
+    async function musicV2ImportPlaylistByInput(rawInput) {
+        const playlistId = musicV2ParseNeteasePlaylistId(rawInput);
+        if (!playlistId) {
+            const error = new Error('invalid_playlist_id');
+            error.userMessage = '无法识别歌单ID';
+            throw error;
+        }
+
+        const detailPromise = musicV2FetchNeteasePlaylistDetail(playlistId);
+        const tracksPromise = musicV2FetchNeteasePlaylistSongsAll(playlistId);
+        let detail = null;
+        let detailFallback = false;
+
+        try {
+            detail = await detailPromise;
+        } catch (error) {
+            detailFallback = true;
+            detail = null;
+        }
+
+        const tracks = await tracksPromise;
+        if (!Array.isArray(tracks) || !tracks.length) {
+            const error = new Error('empty_playlist');
+            error.userMessage = '歌单为空或未获取到歌曲';
+            throw error;
+        }
+
+        const importedSongIds = [];
+        const importedSongIdSet = new Set();
+        for (let i = 0; i < tracks.length; i++) {
+            const mapped = musicV2MapImportedTrack(tracks[i]);
+            if (!mapped) continue;
+            const saved = musicV2UpsertSong(mapped);
+            const sid = String(saved && saved.id ? saved.id : '');
+            if (!sid || importedSongIdSet.has(sid)) continue;
+            importedSongIdSet.add(sid);
+            importedSongIds.push(sid);
+        }
+
+        if (!importedSongIds.length) {
+            const error = new Error('empty_playlist');
+            error.userMessage = '歌单为空或未获取到歌曲';
+            throw error;
+        }
+
+        const baseTitle = detail && detail.name
+            ? String(detail.name)
+            : ('导入歌单 ' + playlistId);
+        const title = musicV2BuildImportedPlaylistTitle(baseTitle);
+
+        let cover = detail && detail.coverImgUrl ? String(detail.coverImgUrl) : '';
+        if (!cover) {
+            const firstSong = musicV2GetSong(importedSongIds[0]);
+            cover = firstSong && firstSong.cover ? String(firstSong.cover) : '';
+        }
+        if (!cover) cover = MUSIC_V2_DEFAULT_COVER;
+
+        const music = musicV2EnsureModel();
+        const now = Date.now();
+        const newPlaylist = {
+            id: musicV2MakeId('pl'),
+            title: title,
+            cover: cover,
+            songs: importedSongIds.slice(),
+            createdAt: now,
+            updatedAt: now
+        };
+
+        const systems = [];
+        const others = [];
+        (music.playlists || []).forEach(pl => {
+            if (!pl || typeof pl !== 'object') return;
+            if (musicV2IsSystemPlaylistId(pl.id)) systems.push(pl);
+            else others.push(pl);
+        });
+        music.playlists = systems.concat([newPlaylist], others);
+        music.activePlaylistId = String(newPlaylist.id);
+        musicV2Runtime.activePlaylistId = String(newPlaylist.id);
+        musicV2Runtime.importDetailFallback = detailFallback;
+
+        musicV2Persist();
+        musicV2RenderLibrary();
+        musicV2RenderPlaylistPage();
+
+        return {
+            playlistId: String(newPlaylist.id),
+            title: title,
+            songCount: importedSongIds.length,
+            detailFallback: detailFallback
+        };
     }
 
     function musicV2ExtractLyricPayload(data) {
@@ -2158,6 +2781,81 @@
         throw lastError || new Error('SEARCH_FAILED');
     }
 
+    async function musicV2BuildInviteSongFromKeyword(keyword) {
+        const kw = String(keyword || '').trim();
+        musicV2DebugInvite('build-song:start', { keyword: kw });
+        if (!kw) {
+            const error = new Error('invite_keyword_required');
+            error.userMessage = '当前未在听歌，请先指定邀请歌曲关键词';
+            musicV2DebugInvite('build-song:fail:empty-keyword');
+            throw error;
+        }
+
+        let results = [];
+        try {
+            results = await musicV2SearchWithRetry(MUSIC_V2_SEARCH_PRIMARY, kw, 5);
+            musicV2DebugInvite('build-song:search-primary:ok', { count: Array.isArray(results) ? results.length : 0 });
+        } catch (primaryError) {
+            musicV2DebugInvite('build-song:search-primary:fail', {
+                error: String(primaryError && primaryError.message ? primaryError.message : primaryError)
+            });
+            results = await musicV2SearchWithRetry(MUSIC_V2_SEARCH_FALLBACK, kw, 5);
+            musicV2DebugInvite('build-song:search-fallback:ok', { count: Array.isArray(results) ? results.length : 0 });
+        }
+
+        if (!Array.isArray(results) || !results.length) {
+            const error = new Error('invite_song_not_found');
+            error.userMessage = '未找到可邀请的歌曲，请换个关键词';
+            musicV2DebugInvite('build-song:fail:no-results', { keyword: kw });
+            throw error;
+        }
+
+        const top = results[0] || {};
+        const mapped = {
+            id: String(top.id || ''),
+            title: String(top.title || '未命名歌曲'),
+            artist: String(top.artist || '未知歌手'),
+            cover: String(top.cover || ''),
+            src: '',
+            provider: 'netease-search'
+        };
+        if (!mapped.id) {
+            const error = new Error('invite_song_invalid');
+            error.userMessage = '未找到可邀请的歌曲，请换个关键词';
+            musicV2DebugInvite('build-song:fail:invalid-top-result', { top: top });
+            throw error;
+        }
+        const saved = musicV2UpsertSong(mapped);
+        const sid = String((saved && saved.id) || mapped.id);
+        if (!sid) {
+            const error = new Error('invite_song_invalid');
+            error.userMessage = '未找到可邀请的歌曲，请换个关键词';
+            musicV2DebugInvite('build-song:fail:upsert-invalid', { mapped: mapped, saved: saved });
+            throw error;
+        }
+        try {
+            await musicV2ResolveSongSource(sid, false);
+            musicV2DebugInvite('build-song:resolve-src:ok', { songId: sid });
+        } catch (resolveError) {
+            musicV2DebugInvite('build-song:resolve-src:fail', {
+                songId: sid,
+                error: String(resolveError && resolveError.message ? resolveError.message : resolveError)
+            });
+        }
+        const latestSong = musicV2GetSong(sid) || saved || mapped;
+        musicV2DebugInvite('build-song:done', {
+            songId: sid,
+            title: String((latestSong && latestSong.title) || mapped.title || ''),
+            artist: String((latestSong && latestSong.artist) || mapped.artist || '')
+        });
+        return {
+            songId: sid,
+            songTitle: String((latestSong && latestSong.title) || mapped.title || '未命名歌曲'),
+            songArtist: String((latestSong && latestSong.artist) || mapped.artist || '未知歌手'),
+            songCover: String((latestSong && latestSong.cover) || mapped.cover || MUSIC_V2_DEFAULT_COVER)
+        };
+    }
+
     function musicV2ParseMeting(data) {
         const target = Array.isArray(data) ? data[0] : data;
         if (!target || typeof target !== 'object') return null;
@@ -2303,6 +3001,22 @@
         musicV2UpdatePlayIcons(!!music.playing);
     }
 
+    function musicV2RenderLevelPill() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const levelPill = root.querySelector('#music-v2-level-pill');
+        if (!levelPill) return;
+        const music = musicV2EnsureModel();
+        const profile = music.gamification && music.gamification.profile
+            ? music.gamification.profile
+            : { playCompleteCount: 0, level: 1 };
+        const meta = musicV2ComputeProfileLevel(profile.playCompleteCount);
+        const remain = Math.max(0, meta.nextNeed - meta.progressInLevel);
+        levelPill.textContent = 'Lv.' + meta.level;
+        levelPill.setAttribute('title', '距下级还差 ' + remain + ' 首');
+        levelPill.setAttribute('aria-label', '当前等级 Lv.' + meta.level + '，距下级还差 ' + remain + ' 首');
+    }
+
     function musicV2RenderSongView() {
         const root = musicV2Runtime.root;
         if (!root) return;
@@ -2319,6 +3033,7 @@
         const togetherAvatars = root.querySelectorAll('.sv-together-avatars img');
         const modeBtn = root.querySelector('.music-v2-playback-mode-btn');
         const likeBtn = root.querySelector('.music-v2-like-btn');
+        const currentPlaylistBtn = root.querySelector('.music-v2-current-playlist-btn, #song-view .sv-controls > i:last-child');
         const cover = song && song.cover ? song.cover : (music.cover || MUSIC_V2_DEFAULT_COVER);
         const playbackMode = musicV2GetPlaybackMode();
         const isLiked = song ? musicV2IsSongLiked(song.id) : false;
@@ -2338,6 +3053,7 @@
         if (vinylImg) vinylImg.src = cover;
         if (songView) songView.classList.toggle('together', !!activeSession);
         if (headerTitle) headerTitle.textContent = activeSession ? 'Listening Together' : 'Now Playing';
+        musicV2RenderLevelPill();
         if (togetherAvatars && togetherAvatars.length >= 2) {
             const meAvatar = String((window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.avatar) || MUSIC_V2_DEFAULT_COVER);
             const friend = activeSession ? musicV2GetContactById(activeSession.contactId) : null;
@@ -2364,6 +3080,12 @@
             likeBtn.setAttribute('title', isLiked ? '取消喜欢' : '加入喜欢的歌曲');
             likeBtn.setAttribute('aria-label', isLiked ? '取消喜欢' : '加入喜欢的歌曲');
         }
+        if (currentPlaylistBtn) {
+            currentPlaylistBtn.className = 'ri-play-list-2-line clickable music-v2-current-playlist-btn';
+            currentPlaylistBtn.setAttribute('data-musicv2-action', 'open-current-playlist-panel');
+            currentPlaylistBtn.setAttribute('title', '当前播放列表');
+            currentPlaylistBtn.setAttribute('aria-label', '打开当前播放列表');
+        }
 
         musicV2ApplyLyricsMode();
         if (!song) musicV2PaintLyrics(null);
@@ -2372,6 +3094,10 @@
         }
         musicV2RenderProgress();
         musicV2UpdatePlayIcons(!!music.playing);
+        const currentPlaylistMask = root.querySelector('#music-v2-current-playlist-mask');
+        if (currentPlaylistMask && currentPlaylistMask.classList.contains('active')) {
+            musicV2RenderCurrentPlaylistPanel();
+        }
         musicV2RenderFriends();
     }
 
@@ -2386,6 +3112,7 @@
         if (playlistId) musicV2Runtime.activePlaylistId = String(playlistId);
         const currentMusic = musicV2EnsureModel();
         const isSongChanged = String(currentMusic.currentSongId || '') !== String(song.id);
+        let didRestartFromBeginning = false;
 
         const run = async function (forceResolve) {
             if (!song.src || forceResolve) await musicV2ResolveSongSource(song.id, !!forceResolve);
@@ -2395,6 +3122,7 @@
             } else if (Number.isFinite(audio.duration) && audio.currentTime >= Math.max(0, audio.duration - 0.25)) {
                 // Restart from beginning when replaying the same track after it has ended.
                 audio.currentTime = 0;
+                didRestartFromBeginning = true;
             }
             await audio.play();
         };
@@ -2412,6 +3140,13 @@
 
         musicV2SyncNowPlaying(song, true);
         musicV2TrackTogetherSongProgress(song.id);
+        musicV2EnsurePlayQueue({ currentSongId: String(song.id), reason: 'play-song' });
+        const shouldResetPlayCycle = isSongChanged
+            || didRestartFromBeginning
+            || (!isSongChanged && Number.isFinite(audio.currentTime) && audio.currentTime <= 0.35);
+        if (shouldResetPlayCycle) {
+            musicV2ResetPlayCycleTracker(song.id, 0);
+        }
         if (isSongChanged) {
             musicV2Runtime.lastProgressSec = -1;
             musicV2Runtime.lyricsMode = 'cover';
@@ -2480,6 +3215,7 @@
             : 0;
         const nextMode = MUSIC_V2_PLAYBACK_MODE_ORDER[nextIndex];
         music.playbackMode = nextMode;
+        musicV2EnsurePlayQueue({ forceRebuild: true, reason: 'mode-switch' });
         musicV2SyncAudioLoopByMode();
         musicV2Persist();
         musicV2RenderSongView();
@@ -2494,29 +3230,15 @@
         if (audio.loop !== shouldLoop) audio.loop = shouldLoop;
     }
 
-    function musicV2PickRandomSongIndex(songIds, currentIndex) {
-        if (!Array.isArray(songIds) || songIds.length <= 1) return 0;
-        let targetIndex = currentIndex;
-        for (let attempt = 0; attempt < 8; attempt++) {
-            targetIndex = Math.floor(Math.random() * songIds.length);
-            if (targetIndex !== currentIndex) break;
-        }
-        if (targetIndex === currentIndex) {
-            targetIndex = (currentIndex + 1) % songIds.length;
-        }
-        return targetIndex;
-    }
-
     async function musicV2SkipByOffset(offset, options) {
         const opts = options || {};
         const silent = !!opts.silent;
         const reason = String(opts.reason || 'manual');
         const music = musicV2EnsureModel();
         const playbackMode = musicV2GetPlaybackMode();
-        const playlistId = musicV2Runtime.activePlaylistId || music.activePlaylistId;
-        const playlist = musicV2GetPlaylist(playlistId);
-        const songIds = playlist && Array.isArray(playlist.songs)
-            ? playlist.songs.map(id => String(id))
+        const queue = musicV2EnsurePlayQueue({ reason: 'skip' });
+        const songIds = queue && Array.isArray(queue.orderedSongIds)
+            ? queue.orderedSongIds.slice()
             : [];
         if (!songIds.length) {
             if (!silent) musicV2Toast('歌单暂无歌曲');
@@ -2531,24 +3253,43 @@
         }
         const step = Number(offset) < 0 ? -1 : 1;
         const currentSongId = music.currentSongId != null ? String(music.currentSongId) : '';
+        if (playbackMode === MUSIC_V2_PLAYBACK_MODE_SINGLE_LOOP) {
+            if (reason === 'auto-ended') {
+                let staySongId = currentSongId;
+                if (!staySongId) {
+                    staySongId = songIds[0];
+                }
+                if (staySongId) {
+                    await musicV2PlaySong(staySongId, queue ? queue.playlistId : '');
+                }
+                return;
+            }
+            const playlistCtx = musicV2GetQueuePlaylistContext();
+            const baseIds = playlistCtx.songIds;
+            if (!baseIds.length) {
+                if (!silent) musicV2Toast('歌单暂无歌曲');
+                return;
+            }
+            const anchorIndex = currentSongId ? baseIds.indexOf(currentSongId) : -1;
+            const currentIndexForManual = anchorIndex >= 0 ? anchorIndex : 0;
+            const nextIndexForManual = (currentIndexForManual + step + baseIds.length) % baseIds.length;
+            await musicV2PlaySong(baseIds[nextIndexForManual], playlistCtx.playlistId);
+            return;
+        }
+
+        let currentIndex = Number.isFinite(queue.currentIndex) ? Math.floor(queue.currentIndex) : -1;
+        if (currentIndex < 0 || currentIndex >= songIds.length) {
+            currentIndex = currentSongId ? songIds.indexOf(currentSongId) : -1;
+        }
+        if (currentIndex < 0) currentIndex = 0;
         if (!currentSongId) {
-            await musicV2PlaySong(songIds[0], playlist.id);
+            queue.currentIndex = currentIndex;
+            await musicV2PlaySong(songIds[currentIndex], queue.playlistId || '');
             return;
         }
-        const currentIndex = songIds.findIndex(id => id === currentSongId);
-        if (currentIndex < 0) {
-            await musicV2PlaySong(songIds[0], playlist.id);
-            return;
-        }
-        let nextIndex = currentIndex;
-        if (reason === 'auto-ended' && playbackMode === MUSIC_V2_PLAYBACK_MODE_SINGLE_LOOP) {
-            nextIndex = currentIndex;
-        } else if (playbackMode === MUSIC_V2_PLAYBACK_MODE_SHUFFLE) {
-            nextIndex = musicV2PickRandomSongIndex(songIds, currentIndex);
-        } else {
-            nextIndex = (currentIndex + step + songIds.length) % songIds.length;
-        }
-        await musicV2PlaySong(songIds[nextIndex], playlist.id);
+        const nextIndex = (currentIndex + step + songIds.length) % songIds.length;
+        queue.currentIndex = nextIndex;
+        await musicV2PlaySong(songIds[nextIndex], queue.playlistId || '');
     }
 
     window.musicV2FeatureTogglePlay = function () {
@@ -2561,6 +3302,7 @@
         return {
             inviteId: String(invite.inviteId || ''),
             contactId: String(invite.contactId || ''),
+            direction: String(invite.direction || 'outgoing'),
             songId: String(invite.songId || ''),
             songTitle: String(invite.songTitle || ''),
             songArtist: String(invite.songArtist || ''),
@@ -2577,6 +3319,222 @@
 
     window.musicV2GetChatMusicContext = function (contactId) {
         return musicV2BuildChatMusicContext(contactId);
+    };
+
+    window.musicV2HandleChatSendInviteAction = async function (contactId, payload) {
+        const cid = String(contactId || '');
+        const payloadText = String(payload || '').trim();
+        musicV2DebugInvite('chat-action:start', {
+            contactId: cid,
+            payload: payloadText
+        });
+        if (!cid) {
+            musicV2DebugInvite('chat-action:fail:invalid-contact-id', { contactId: contactId });
+            return { ok: false, message: '联系人不可用' };
+        }
+        const contact = musicV2GetContactById(cid);
+        if (!contact) {
+            musicV2DebugInvite('chat-action:fail:contact-not-found', { contactId: cid });
+            return { ok: false, message: '联系人不存在' };
+        }
+
+        const music = musicV2EnsureModel();
+        const currentSong = musicV2GetCurrentSong();
+        const isNowPlaying = !!(music.playing && currentSong);
+        const shouldUseKeywordSong = !!payloadText;
+        musicV2DebugInvite('chat-action:state', {
+            isNowPlaying: isNowPlaying,
+            currentSongId: String((currentSong && currentSong.id) || ''),
+            shouldUseKeywordSong: shouldUseKeywordSong
+        });
+
+        let inviteSong = null;
+        if (shouldUseKeywordSong) {
+            const keyword = payloadText;
+            try {
+                inviteSong = await musicV2BuildInviteSongFromKeyword(keyword);
+            } catch (error) {
+                musicV2DebugInvite('chat-action:fail:build-song', {
+                    keyword: keyword,
+                    error: String(error && error.message ? error.message : error),
+                    userMessage: String(error && error.userMessage ? error.userMessage : '')
+                });
+                return { ok: false, message: String(error && error.userMessage ? error.userMessage : '未找到可邀请的歌曲，请换个关键词') };
+            }
+        } else if (!isNowPlaying) {
+            musicV2DebugInvite('chat-action:fail:keyword-required');
+            return { ok: false, message: '当前未在听歌，请先指定邀请歌曲关键词' };
+        }
+
+        const invite = musicV2CreateInvite(cid, {
+            senderIsUser: false,
+            song: inviteSong || null
+        });
+        if (!invite) {
+            const lastError = musicV2Runtime.lastInviteError && typeof musicV2Runtime.lastInviteError === 'object'
+                ? musicV2Runtime.lastInviteError
+                : null;
+            const failMessage = lastError && lastError.message
+                ? String(lastError.message)
+                : '邀请发送失败，请稍后重试';
+            if (lastError && String(lastError.code || '') === 'pending_exists') {
+                const pendingInvite = musicV2GetPendingInviteForContactInternal(cid);
+                if (
+                    pendingInvite &&
+                    String(pendingInvite.status || 'pending') === 'pending' &&
+                    String(pendingInvite.direction || 'incoming') === 'incoming' &&
+                    typeof window.openMusicListenInvitePrompt === 'function'
+                ) {
+                    setTimeout(() => {
+                        try {
+                            window.openMusicListenInvitePrompt(pendingInvite);
+                        } catch (popupError) {
+                            musicV2DebugInvite('chat-action:pending-popup-open-failed', {
+                                contactId: cid,
+                                inviteId: String(pendingInvite.inviteId || ''),
+                                error: String(popupError && popupError.message ? popupError.message : popupError)
+                            });
+                        }
+                    }, 20);
+                }
+            }
+            musicV2DebugInvite('chat-action:fail:create-invite-null', {
+                contactId: cid,
+                usedSongId: String((inviteSong && inviteSong.songId) || ''),
+                lastError: lastError
+            });
+            return { ok: false, message: failMessage };
+        }
+        musicV2DebugInvite('chat-action:done', {
+            inviteId: String(invite.inviteId || ''),
+            contactId: cid,
+            songId: String(invite.songId || '')
+        });
+        return {
+            ok: true,
+            inviteId: String(invite.inviteId || ''),
+            songId: String(invite.songId || ''),
+            songTitle: String(invite.songTitle || '')
+        };
+    };
+
+    window.musicV2HandleTogetherRemoteAction = async function (contactId, command, payload) {
+        const cid = String(contactId || '');
+        const cmd = String(command || '').trim().toUpperCase();
+        const payloadText = String(payload || '').trim();
+        if (!cid) return { ok: false, message: '联系人不可用' };
+        if (!cmd) return { ok: false, message: '指令无效' };
+
+        const active = musicV2GetActiveTogetherSession();
+        if (!active || String(active.contactId || '') !== cid) {
+            return { ok: false, message: '当前未与该联系人一起听' };
+        }
+
+        const song = musicV2GetCurrentSong();
+        const audio = document.getElementById('bg-music');
+        const safeRefresh = function () {
+            musicV2Persist();
+            musicV2RenderMiniPlayer();
+            musicV2RenderSongView();
+            musicV2RenderFriends();
+        };
+
+        if (cmd === 'MUSIC_TOGETHER_PAUSE') {
+            if (audio && !audio.paused) audio.pause();
+            if (song) musicV2SyncNowPlaying(song, false);
+            safeRefresh();
+            return { ok: true, message: '已暂停播放' };
+        }
+
+        if (cmd === 'MUSIC_TOGETHER_RESUME') {
+            const targetSongId = String((song && song.id) || active.songId || '');
+            if (!targetSongId || !musicV2GetSong(targetSongId)) {
+                return { ok: false, message: '当前没有可恢复播放的歌曲' };
+            }
+            const playlistId = musicV2GetInviteAutoplayPlaylistId(targetSongId);
+            await musicV2PlaySong(targetSongId, playlistId);
+            return { ok: true, message: '已继续播放', songId: targetSongId };
+        }
+
+        if (cmd === 'MUSIC_TOGETHER_NEXT') {
+            await musicV2SkipByOffset(1, { reason: 'remote-action-next', silent: true });
+            const nextSong = musicV2GetCurrentSong();
+            return {
+                ok: true,
+                message: '已切换下一首',
+                songId: String(nextSong && nextSong.id ? nextSong.id : ''),
+                songTitle: String(nextSong && nextSong.title ? nextSong.title : '')
+            };
+        }
+
+        if (cmd === 'MUSIC_TOGETHER_PREV') {
+            await musicV2SkipByOffset(-1, { reason: 'remote-action-prev', silent: true });
+            const prevSong = musicV2GetCurrentSong();
+            return {
+                ok: true,
+                message: '已切换上一首',
+                songId: String(prevSong && prevSong.id ? prevSong.id : ''),
+                songTitle: String(prevSong && prevSong.title ? prevSong.title : '')
+            };
+        }
+
+        if (cmd === 'MUSIC_TOGETHER_SEARCH_PLAY') {
+            if (!payloadText) return { ok: false, message: '请先提供要播放的歌曲关键词' };
+            const inviteSong = await musicV2BuildInviteSongFromKeyword(payloadText);
+            const playlistId = musicV2GetInviteAutoplayPlaylistId(inviteSong.songId);
+            await musicV2PlaySong(inviteSong.songId, playlistId);
+            return {
+                ok: true,
+                message: '已搜索并播放',
+                songId: String(inviteSong.songId || ''),
+                songTitle: String(inviteSong.songTitle || '')
+            };
+        }
+
+        if (cmd === 'MUSIC_TOGETHER_QUIT') {
+            const music = musicV2EnsureModel();
+            const currentActive = musicV2GetActiveTogetherSession();
+            if (!currentActive || String(currentActive.contactId || '') !== cid) {
+                return { ok: false, message: '当前未与该联系人一起听' };
+            }
+            const contact = musicV2GetContactById(currentActive.contactId);
+            const contactName = contact ? musicV2GetContactDisplayName(contact) : '联系人';
+            const startedAt = Number(currentActive.startedAt) || Date.now();
+            const durationMs = Math.max(0, Date.now() - startedAt);
+            const durationSec = Math.max(0, Math.floor(durationMs / 1000));
+            const bondProgress = musicV2ApplyBondProgress(currentActive.contactId, durationSec);
+            let songCount = Number(currentActive.songCount);
+            if (!Number.isFinite(songCount) || songCount < 0) songCount = 0;
+            songCount = Math.floor(songCount);
+            if (songCount <= 0 && String(currentActive.lastSongId || currentActive.songId || '')) songCount = 1;
+
+            music.listenTogether.activeSession = null;
+            music.listenTogether.updatedAt = Date.now();
+            musicV2Persist();
+            musicV2RenderSongView();
+            musicV2RenderFriends();
+            musicV2RenderMiniPlayer();
+            musicV2ShowTogetherSummaryModal({
+                contactName: contactName,
+                durationText: musicV2FormatDurationMs(durationMs),
+                songCount: songCount
+            });
+            if (typeof window.sendMessage === 'function') {
+                try {
+                    window.sendMessage('[系统消息]: 对方结束了一起听', false, 'text', null, cid);
+                } catch (error) {
+                    // ignore messaging failure
+                }
+            }
+            if (bondProgress && bondProgress.afterLevel > bondProgress.beforeLevel) {
+                setTimeout(() => {
+                    musicV2Toast('你与' + contactName + '的羁绊提升到 Lv.' + bondProgress.afterLevel);
+                }, 220);
+            }
+            return { ok: true, message: '已结束一起听' };
+        }
+
+        return { ok: false, message: '暂不支持该一起听指令' };
     };
 
     function musicV2GetPlaylistCover(playlist) {
@@ -2699,6 +3657,9 @@
         const music = musicV2EnsureModel();
         const activeSession = musicV2GetActiveTogetherSession();
         const currentSong = musicV2GetCurrentSong();
+        const bondMap = music.gamification && music.gamification.bonds && typeof music.gamification.bonds === 'object'
+            ? music.gamification.bonds
+            : {};
 
         if (activeSession) {
             const activeContact = musicV2GetContactById(activeSession.contactId);
@@ -2734,6 +3695,10 @@
             const cid = String(contact && contact.id);
             const invite = musicV2GetPendingInviteForContactInternal(cid);
             const isActive = !!(activeSession && String(activeSession.contactId) === cid);
+            const rawBond = bondMap[cid];
+            const totalTogetherSec = Math.max(0, Math.floor(Number(rawBond && rawBond.totalTogetherSec) || 0));
+            const bondMeta = musicV2ComputeBondLevel(totalTogetherSec);
+            const bondLevelText = 'Lv.' + bondMeta.level;
             let statusText = '点击邀请一起听';
             let actionIcon = 'ri-mail-send-line';
             if (isActive) {
@@ -2749,7 +3714,10 @@
                 '<div class="friend-row clickable" data-musicv2-action="invite-contact" data-contact-id="' + musicV2EscapeHtml(cid) + '">' +
                     '<img class="fr-avatar" src="' + musicV2EscapeHtml(contact.avatar || MUSIC_V2_DEFAULT_COVER) + '">' +
                     '<div class="fr-info">' +
-                        '<h4>' + musicV2EscapeHtml(musicV2GetContactDisplayName(contact)) + '</h4>' +
+                        '<div class="music-v2-friend-head">' +
+                            '<h4>' + musicV2EscapeHtml(musicV2GetContactDisplayName(contact)) + '</h4>' +
+                            '<span class="music-v2-bond-badge' + (isActive ? ' active' : '') + '">' + musicV2EscapeHtml(bondLevelText) + '</span>' +
+                        '</div>' +
                         '<p>' + musicV2EscapeHtml(statusText) + '</p>' +
                     '</div>' +
                     '<div class="fr-action"><i class="' + actionIcon + '"></i></div>' +
@@ -2804,6 +3772,249 @@
                 '</div>' +
             '</div>' +
             (songs.length ? listHtml : '<div class="music-v2-empty-note">歌单暂无歌曲</div>');
+    }
+
+    function musicV2GetQueuePlaylistContext() {
+        const music = musicV2EnsureModel();
+        let playlist = null;
+        if (musicV2Runtime.activePlaylistId) {
+            playlist = musicV2GetPlaylist(musicV2Runtime.activePlaylistId);
+        }
+        if (!playlist && music.activePlaylistId) {
+            playlist = musicV2GetPlaylist(music.activePlaylistId);
+        }
+        if (!playlist && Array.isArray(music.playlists) && music.playlists.length > 0) {
+            playlist = music.playlists[0];
+        }
+        const rawSongIds = playlist && Array.isArray(playlist.songs) ? playlist.songs : [];
+        const seen = new Set();
+        const validSongIds = [];
+        rawSongIds.forEach((rawId) => {
+            const sid = String(rawId || '');
+            if (!sid || seen.has(sid)) return;
+            if (!musicV2GetSong(sid)) return;
+            seen.add(sid);
+            validSongIds.push(sid);
+        });
+        return {
+            playlist: playlist || null,
+            playlistId: playlist ? String(playlist.id || '') : '',
+            songIds: validSongIds,
+            signature: validSongIds.join('|')
+        };
+    }
+
+    function musicV2GetCurrentPlaylistForPanel() {
+        const ctx = musicV2GetQueuePlaylistContext();
+        return ctx.playlist || null;
+    }
+
+    function musicV2ShuffleSongIdsKeepCurrentFirst(songIds, currentSongId) {
+        const list = Array.isArray(songIds) ? songIds.map(id => String(id || '')).filter(Boolean) : [];
+        if (!list.length) return [];
+        const currentId = String(currentSongId || '');
+        const rest = [];
+        let currentFound = '';
+        list.forEach((sid) => {
+            if (!currentFound && sid === currentId) {
+                currentFound = sid;
+                return;
+            }
+            rest.push(sid);
+        });
+        for (let i = rest.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const temp = rest[i];
+            rest[i] = rest[j];
+            rest[j] = temp;
+        }
+        if (currentFound) return [currentFound].concat(rest);
+        return rest;
+    }
+
+    function musicV2BuildPlayQueue(mode, playlist, currentSongId, songIds, signature) {
+        const normalizedMode = musicV2NormalizePlaybackMode(mode);
+        const ids = Array.isArray(songIds) ? songIds.slice() : [];
+        const currentId = String(currentSongId || '');
+        const result = {
+            mode: normalizedMode,
+            playlistId: playlist ? String(playlist.id || '') : '',
+            orderedSongIds: [],
+            currentIndex: -1,
+            signature: String(signature || '')
+        };
+        if (normalizedMode === MUSIC_V2_PLAYBACK_MODE_SINGLE_LOOP) {
+            const singleId = currentId || '';
+            if (singleId && musicV2GetSong(singleId)) {
+                result.orderedSongIds = [singleId];
+                result.currentIndex = 0;
+            }
+            return result;
+        }
+
+        if (!ids.length) return result;
+
+        if (normalizedMode === MUSIC_V2_PLAYBACK_MODE_SHUFFLE) {
+            const shuffled = musicV2ShuffleSongIdsKeepCurrentFirst(ids, currentId);
+            result.orderedSongIds = shuffled;
+            if (!shuffled.length) return result;
+            const idx = currentId ? shuffled.indexOf(currentId) : -1;
+            result.currentIndex = idx >= 0 ? idx : 0;
+            return result;
+        }
+
+        result.orderedSongIds = ids;
+        if (!ids.length) return result;
+        const idx = currentId ? ids.indexOf(currentId) : -1;
+        result.currentIndex = idx >= 0 ? idx : 0;
+        return result;
+    }
+
+    function musicV2EnsurePlayQueue(options) {
+        const opts = options || {};
+        const forceRebuild = !!opts.forceRebuild;
+        const music = musicV2EnsureModel();
+        const mode = musicV2GetPlaybackMode();
+        const ctx = musicV2GetQueuePlaylistContext();
+        const desiredSongId = String(opts.currentSongId != null ? opts.currentSongId : (music.currentSongId || ''));
+        const existing = musicV2Runtime.playQueue && typeof musicV2Runtime.playQueue === 'object'
+            ? musicV2Runtime.playQueue
+            : null;
+        const canReuse =
+            !forceRebuild &&
+            existing &&
+            String(existing.mode || '') === mode &&
+            String(existing.playlistId || '') === String(ctx.playlistId || '') &&
+            String(existing.signature || '') === String(ctx.signature || '') &&
+            Array.isArray(existing.orderedSongIds);
+
+        if (canReuse) {
+            const ids = existing.orderedSongIds.slice();
+            if (!ids.length) {
+                existing.currentIndex = -1;
+                musicV2Runtime.playQueue = existing;
+                return existing;
+            }
+            if (mode === MUSIC_V2_PLAYBACK_MODE_SINGLE_LOOP) {
+                if (!desiredSongId) {
+                    const rebuiltEmptySingle = musicV2BuildPlayQueue(mode, ctx.playlist, '', ctx.songIds, ctx.signature);
+                    musicV2Runtime.playQueue = rebuiltEmptySingle;
+                    return rebuiltEmptySingle;
+                }
+                const targetSingleId = desiredSongId && musicV2GetSong(desiredSongId) ? desiredSongId : '';
+                if (targetSingleId && ids[0] !== targetSingleId) {
+                    const rebuiltSingle = musicV2BuildPlayQueue(mode, ctx.playlist, targetSingleId, ctx.songIds, ctx.signature);
+                    musicV2Runtime.playQueue = rebuiltSingle;
+                    return rebuiltSingle;
+                }
+            }
+            let currentIndex = desiredSongId ? ids.indexOf(desiredSongId) : -1;
+            if (currentIndex < 0) {
+                const oldIdx = Number(existing.currentIndex);
+                currentIndex = Number.isFinite(oldIdx) && oldIdx >= 0 && oldIdx < ids.length ? Math.floor(oldIdx) : 0;
+            }
+            existing.currentIndex = currentIndex;
+            existing.orderedSongIds = ids;
+            musicV2Runtime.playQueue = existing;
+            return existing;
+        }
+
+        const rebuilt = musicV2BuildPlayQueue(mode, ctx.playlist, desiredSongId, ctx.songIds, ctx.signature);
+        musicV2Runtime.playQueue = rebuilt;
+        return rebuilt;
+    }
+
+    function musicV2GetQueueDisplayItems(queue) {
+        const q = queue || musicV2EnsurePlayQueue({ reason: 'display' });
+        if (!q || !Array.isArray(q.orderedSongIds) || !q.orderedSongIds.length) return [];
+        const ids = q.orderedSongIds;
+        const mode = musicV2NormalizePlaybackMode(q.mode);
+        const total = ids.length;
+        if (mode === MUSIC_V2_PLAYBACK_MODE_SINGLE_LOOP) {
+            const sid = ids[0];
+            if (!sid || !musicV2GetSong(sid)) return [];
+            return [{
+                songId: sid,
+                queueIndex: 0,
+                isCurrent: true
+            }];
+        }
+        let startIndex = Number.isFinite(q.currentIndex) ? Math.floor(q.currentIndex) : -1;
+        if (startIndex < 0 || startIndex >= total) startIndex = 0;
+        const items = [];
+        for (let step = 0; step < total; step++) {
+            const idx = (startIndex + step) % total;
+            const sid = ids[idx];
+            if (!sid || !musicV2GetSong(sid)) continue;
+            items.push({
+                songId: sid,
+                queueIndex: idx,
+                isCurrent: step === 0
+            });
+        }
+        return items;
+    }
+
+    function musicV2GetQueueModeTitle(mode) {
+        const normalized = musicV2NormalizePlaybackMode(mode);
+        if (normalized === MUSIC_V2_PLAYBACK_MODE_SINGLE_LOOP) return '单曲循环队列';
+        if (normalized === MUSIC_V2_PLAYBACK_MODE_SHUFFLE) return '随机队列';
+        return '歌单循环队列';
+    }
+
+    function musicV2RenderCurrentPlaylistPanel() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const mask = root.querySelector('#music-v2-current-playlist-mask');
+        if (!mask) return;
+        const titleEl = mask.querySelector('#music-v2-current-playlist-title');
+        const countEl = mask.querySelector('#music-v2-current-playlist-count');
+        const listEl = mask.querySelector('#music-v2-current-playlist-list');
+        if (!listEl) return;
+
+        const queue = musicV2EnsurePlayQueue({ reason: 'render-panel' });
+        const items = musicV2GetQueueDisplayItems(queue);
+        if (titleEl) titleEl.textContent = musicV2GetQueueModeTitle(queue && queue.mode);
+        if (countEl) countEl.textContent = '共 ' + items.length + ' 首';
+
+        if (!items.length) {
+            listEl.innerHTML = '<div class="music-v2-current-playlist-empty">当前没有可展示的播放队列</div>';
+            return;
+        }
+
+        const playlistId = queue && queue.playlistId ? String(queue.playlistId) : '';
+        listEl.innerHTML = items.map((item, index) => {
+            const song = musicV2GetSong(item.songId);
+            if (!song) return '';
+            return (
+                '<button class="music-v2-current-playlist-item' + (item.isCurrent ? ' active' : '') + '" data-musicv2-action="play-current-playlist-song" data-song-id="' + musicV2EscapeHtml(item.songId) + '" data-playlist-id="' + musicV2EscapeHtml(playlistId) + '">' +
+                    '<span class="music-v2-current-playlist-index">' + (index + 1) + '</span>' +
+                    '<span class="music-v2-current-playlist-meta">' +
+                        '<strong>' + musicV2EscapeHtml(song.title || '未命名歌曲') + '</strong>' +
+                        '<small>' + musicV2EscapeHtml(song.artist || '未知歌手') + '</small>' +
+                    '</span>' +
+                    '<i class="ri-play-circle-line"></i>' +
+                '</button>'
+            );
+        }).join('');
+    }
+
+    function musicV2ShowCurrentPlaylistPanel() {
+        const root = musicV2Runtime.root;
+        if (!root) return false;
+        const mask = root.querySelector('#music-v2-current-playlist-mask');
+        if (!mask) return false;
+        musicV2EnsurePlayQueue({ reason: 'open-panel' });
+        musicV2RenderCurrentPlaylistPanel();
+        mask.classList.add('active');
+        return true;
+    }
+
+    function musicV2HideCurrentPlaylistPanel() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const mask = root.querySelector('#music-v2-current-playlist-mask');
+        if (mask) mask.classList.remove('active');
     }
 
     function musicV2RenderPicker() {
@@ -2868,6 +4079,58 @@
         if (!root) return;
         const mask = root.querySelector('#music-v2-create-mask');
         if (mask) mask.classList.remove('active');
+    }
+
+    function musicV2SetImportLoading(loading) {
+        const isLoading = !!loading;
+        musicV2Runtime.importLoading = isLoading;
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const input = root.querySelector('#music-v2-import-url');
+        const submitBtn = root.querySelector('[data-musicv2-action="submit-import-playlist"]');
+        if (input) input.disabled = isLoading;
+        if (submitBtn) {
+            submitBtn.disabled = isLoading;
+            submitBtn.textContent = isLoading ? '导入中...' : '导入';
+        }
+    }
+
+    function musicV2ShowImportModal() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        musicV2Runtime.importDraft = '';
+        musicV2Runtime.importDetailFallback = false;
+        musicV2SetImportLoading(false);
+        const input = root.querySelector('#music-v2-import-url');
+        if (input) input.value = '';
+        const mask = root.querySelector('#music-v2-import-mask');
+        if (mask) mask.classList.add('active');
+        if (input) {
+            setTimeout(() => {
+                try {
+                    input.focus();
+                    input.select();
+                } catch (error) {
+                    // ignore focus errors on hidden/readonly contexts
+                }
+            }, 0);
+        }
+    }
+
+    function musicV2HideImportModal() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        if (musicV2Runtime.importLoading) {
+            musicV2Toast('正在导入，请稍候');
+            return;
+        }
+        const mask = root.querySelector('#music-v2-import-mask');
+        if (mask) mask.classList.remove('active');
+        const input = root.querySelector('#music-v2-import-url');
+        if (input) input.value = '';
+        musicV2Runtime.importDraft = '';
+        musicV2Runtime.importDetailFallback = false;
+        musicV2SetImportLoading(false);
     }
 
     async function musicV2ReadDataUrl(file) {
@@ -2963,6 +4226,9 @@
 
         audio.addEventListener('seeked', () => {
             musicV2RenderProgress(audio);
+            const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+            const ratio = duration > 0 ? musicV2Clamp01((audio.currentTime || 0) / duration) : 0;
+            musicV2TryCountPlayCompletion(ratio, 'seeked');
             musicV2SyncLyrics(audio.currentTime || 0);
         });
 
@@ -2972,12 +4238,18 @@
                 musicV2Runtime.lastProgressSec = progressTick;
                 musicV2RenderProgress(audio);
             }
+            const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+            const ratio = duration > 0 ? musicV2Clamp01((audio.currentTime || 0) / duration) : 0;
+            musicV2TryCountPlayCompletion(ratio, 'timeupdate');
             musicV2SyncLyrics(audio.currentTime || 0);
         });
 
         audio.addEventListener('play', () => {
             const song = musicV2GetCurrentSong();
             if (!song) return;
+            if (String(musicV2Runtime.playCycleTracker.songId || '') !== String(song.id || '')) {
+                musicV2ResetPlayCycleTracker(song.id, 0);
+            }
             musicV2SyncNowPlaying(song, true);
             musicV2RenderProgress(audio);
             musicV2RenderMiniPlayer();
@@ -2994,6 +4266,7 @@
         });
 
         audio.addEventListener('ended', () => {
+            musicV2TryCountPlayCompletion(1, 'ended');
             musicV2RenderProgress(audio);
             musicV2SkipByOffset(1, { silent: true, reason: 'auto-ended' });
         });
@@ -3060,6 +4333,33 @@
         }
         if (action === 'toggle-playback-mode') {
             musicV2TogglePlaybackMode();
+            return;
+        }
+        if (action === 'open-current-playlist-panel') {
+            const queue = musicV2EnsurePlayQueue({ reason: 'open-panel-action' });
+            const queueItems = musicV2GetQueueDisplayItems(queue);
+            if (!queueItems.length) {
+                musicV2Toast('当前没有可展示的播放队列');
+                return;
+            }
+            musicV2ShowCurrentPlaylistPanel();
+            return;
+        }
+        if (action === 'close-current-playlist-panel') {
+            musicV2HideCurrentPlaylistPanel();
+            return;
+        }
+        if (action === 'play-current-playlist-song') {
+            const songId = actionNode.getAttribute('data-song-id');
+            const playlistId = actionNode.getAttribute('data-playlist-id');
+            if (!songId) return;
+            const queue = musicV2EnsurePlayQueue({ reason: 'panel-click' });
+            const targetPlaylistId = playlistId || (queue && queue.playlistId) || '';
+            musicV2PlaySong(songId, targetPlaylistId).then(() => {
+                musicV2RenderCurrentPlaylistPanel();
+            }).catch(() => {
+                // Playback errors are already handled in musicV2PlaySong.
+            });
             return;
         }
         if (action === 'open-song-menu') {
@@ -3188,6 +4488,37 @@
                 musicV2Toast(musicV2BuildBatchAddToast(summary));
             }).catch(() => {
                 musicV2Toast('添加失败，请稍后重试');
+            });
+            return;
+        }
+        if (action === 'open-import') {
+            musicV2ShowImportModal();
+            return;
+        }
+        if (action === 'close-import') {
+            musicV2HideImportModal();
+            return;
+        }
+        if (action === 'submit-import-playlist') {
+            if (musicV2Runtime.importLoading) return;
+            const input = root.querySelector('#music-v2-import-url');
+            const rawInput = input ? String(input.value || '').trim() : '';
+            if (!rawInput) {
+                musicV2Toast('请输入网易云歌单链接或ID');
+                return;
+            }
+            musicV2Runtime.importDraft = rawInput;
+            musicV2SetImportLoading(true);
+            musicV2ImportPlaylistByInput(rawInput).then((summary) => {
+                musicV2SetImportLoading(false);
+                musicV2HideImportModal();
+                musicV2Toast('已导入「' + summary.title + '」(' + summary.songCount + '首)');
+                if (summary.detailFallback) {
+                    setTimeout(() => musicV2Toast('歌单详情获取失败，已使用默认信息导入'), 260);
+                }
+            }).catch((error) => {
+                musicV2SetImportLoading(false);
+                musicV2Toast(musicV2BuildImportErrorMessage(error));
             });
             return;
         }
@@ -3397,12 +4728,86 @@
                 border: none; background: #1c1c1e; color: #fff; border-radius: 14px; padding: 8px 12px;
                 font-size: 12px; font-weight: 600; white-space: nowrap;
             }
+            .music-v2-library-actions {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .music-v2-import-btn {
+                background: #2a2a2c;
+            }
             .music-v2-batch-add-btn[disabled] {
                 opacity: 0.45;
                 pointer-events: none;
             }
+            .music-v2-import-submit-btn[disabled] {
+                opacity: 0.6;
+                pointer-events: none;
+            }
             .music-v2-playback-mode-btn {
                 transition: color .2s ease, transform .2s ease;
+            }
+            .music-v2-song-footer-row {
+                display: none !important;
+            }
+            .music-v2-current-playlist-btn {
+                color: var(--text-gray) !important;
+                font-size: 24px !important;
+                transition: opacity .2s ease, transform .2s ease;
+            }
+            .music-v2-current-playlist-btn:active {
+                opacity: 0.72;
+                transform: scale(0.96);
+            }
+            #song-view .sv-header {
+                position: relative;
+            }
+            .music-v2-level-pill {
+                position: absolute;
+                left: 32px;
+                top: 50%;
+                transform: translateY(-50%);
+                font-size: 11px;
+                font-weight: 700;
+                color: #111;
+                background: rgba(255,255,255,0.88);
+                border: 1px solid rgba(17,17,17,0.08);
+                border-radius: 999px;
+                min-height: 20px;
+                padding: 1px 8px 0;
+                line-height: 18px;
+                pointer-events: none;
+                z-index: 2;
+            }
+            .music-v2-friend-head {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 4px;
+                min-width: 0;
+            }
+            .music-v2-friend-head h4 {
+                margin: 0 !important;
+            }
+            .music-v2-bond-badge {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 20px;
+                padding: 1px 8px 0;
+                border-radius: 999px;
+                font-size: 11px;
+                font-weight: 700;
+                color: #5f6368;
+                background: rgba(142, 142, 147, 0.16);
+                border: 1px solid rgba(142, 142, 147, 0.26);
+                line-height: 1;
+                white-space: nowrap;
+            }
+            .music-v2-bond-badge.active {
+                color: #111;
+                background: rgba(17, 17, 17, 0.12);
+                border-color: rgba(17, 17, 17, 0.2);
             }
             .music-v2-empty-note { text-align: center; color: var(--text-gray); font-size: 13px; padding: 30px 10px; }
             .music-v2-toast {
@@ -3459,6 +4864,102 @@
                 width: 100%; max-width: 500px; max-height: 72%; overflow: auto;
                 background: rgba(255,255,255,0.96); border-radius: 22px; padding: 12px;
                 box-shadow: 0 14px 32px rgba(0,0,0,0.18);
+            }
+            .music-v2-current-playlist-card {
+                padding: 12px;
+            }
+            .music-v2-current-playlist-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 10px;
+            }
+            .music-v2-current-playlist-title-wrap {
+                min-width: 0;
+            }
+            .music-v2-current-playlist-title {
+                font-size: 16px;
+                font-weight: 800;
+                color: #111;
+                line-height: 1.2;
+                margin-bottom: 2px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .music-v2-current-playlist-count {
+                font-size: 12px;
+                color: var(--text-gray);
+            }
+            .music-v2-current-playlist-list {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+            .music-v2-current-playlist-item {
+                width: 100%;
+                border: 1px solid #ececef;
+                background: #fff;
+                border-radius: 12px;
+                padding: 10px 12px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                text-align: left;
+                color: #111;
+            }
+            .music-v2-current-playlist-item i {
+                color: #7f7f84;
+                font-size: 18px;
+                margin-left: auto;
+                flex-shrink: 0;
+            }
+            .music-v2-current-playlist-index {
+                width: 22px;
+                flex-shrink: 0;
+                font-size: 12px;
+                color: #7f7f84;
+                text-align: center;
+            }
+            .music-v2-current-playlist-meta {
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                overflow: hidden;
+            }
+            .music-v2-current-playlist-meta strong {
+                font-size: 14px;
+                line-height: 1.2;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .music-v2-current-playlist-meta small {
+                font-size: 12px;
+                line-height: 1.2;
+                color: #7f7f84;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .music-v2-current-playlist-item.active {
+                border-color: rgba(17,17,17,0.22);
+                background: rgba(17,17,17,0.06);
+            }
+            .music-v2-current-playlist-item.active .music-v2-current-playlist-index,
+            .music-v2-current-playlist-item.active .music-v2-current-playlist-meta small,
+            .music-v2-current-playlist-item.active i {
+                color: #111;
+            }
+            .music-v2-current-playlist-empty {
+                border-radius: 12px;
+                background: #f6f6f7;
+                color: var(--text-gray);
+                font-size: 13px;
+                text-align: center;
+                padding: 20px 12px;
             }
             .music-v2-together-summary-card {
                 width: min(92%, 360px);
@@ -3665,7 +5166,21 @@
             const likeBtn = songView.querySelector('i.music-v2-like-btn, i.ri-heart-3-fill.clickable[style*="font-size: 28px"], i.ri-heart-3-line.clickable[style*="font-size: 28px"]');
             const prevBtn = songView.querySelector('.ri-skip-back-fill');
             const nextBtn = songView.querySelector('.ri-skip-forward-fill');
+            const currentPlaylistBtn = songView.querySelector('.sv-controls > i:last-child');
             const moreBtn = songView.querySelector('.sv-header > i:last-child');
+            const headerRow = songView.querySelector('.sv-header');
+            const footerSpeakerIcon = songView.querySelector('.ri-speaker-2-line');
+            const footerRow = footerSpeakerIcon && footerSpeakerIcon.parentElement
+                ? footerSpeakerIcon.parentElement
+                : null;
+            if (footerRow) footerRow.classList.add('music-v2-song-footer-row');
+            if (headerRow && !songView.querySelector('#music-v2-level-pill')) {
+                const levelPill = document.createElement('span');
+                levelPill.id = 'music-v2-level-pill';
+                levelPill.className = 'music-v2-level-pill';
+                levelPill.textContent = 'Lv.1';
+                headerRow.appendChild(levelPill);
+            }
             if (!songView.querySelector('#music-v2-song-menu-panel')) {
                 const menuPanel = document.createElement('div');
                 menuPanel.id = 'music-v2-song-menu-panel';
@@ -3681,6 +5196,12 @@
             if (likeBtn) {
                 likeBtn.classList.add('music-v2-like-btn');
                 likeBtn.setAttribute('data-musicv2-action', 'toggle-like-current-song');
+            }
+            if (currentPlaylistBtn) {
+                currentPlaylistBtn.className = 'ri-play-list-2-line clickable music-v2-current-playlist-btn';
+                currentPlaylistBtn.setAttribute('data-musicv2-action', 'open-current-playlist-panel');
+                currentPlaylistBtn.setAttribute('title', '当前播放列表');
+                currentPlaylistBtn.setAttribute('aria-label', '打开当前播放列表');
             }
             if (moreBtn) {
                 moreBtn.classList.add('clickable');
@@ -3739,7 +5260,10 @@
             libraryView.innerHTML =
                 '<div class="sec-title" style="font-size: 28px; font-weight: 800; display:flex; justify-content:space-between; align-items:center;">' +
                     'Library' +
-                    '<button class="music-v2-action-btn" data-musicv2-action="open-create">新建歌单</button>' +
+                    '<div class="music-v2-library-actions">' +
+                        '<button class="music-v2-action-btn music-v2-import-btn" data-musicv2-action="open-import">导入歌单</button>' +
+                        '<button class="music-v2-action-btn" data-musicv2-action="open-create">新建歌单</button>' +
+                    '</div>' +
                 '</div>' +
                 '<div id="music-v2-library-list"></div>';
         }
@@ -3778,6 +5302,19 @@
             body.appendChild(create);
         }
 
+        if (!root.querySelector('#music-v2-import-mask')) {
+            const importMask = document.createElement('div');
+            importMask.id = 'music-v2-import-mask';
+            importMask.className = 'music-v2-modal-mask';
+            importMask.innerHTML =
+                '<div class="music-v2-modal-card">' +
+                    '<div class="music-v2-modal-head"><span>导入网易云歌单</span><button class="music-v2-modal-btn" data-musicv2-action="close-import">关闭</button></div>' +
+                    '<div class="music-v2-create-row"><label>歌单链接或ID</label><input id="music-v2-import-url" type="text" placeholder="粘贴网易云歌单链接或ID"></div>' +
+                    '<button class="music-v2-action-btn music-v2-import-submit-btn" data-musicv2-action="submit-import-playlist" style="width:100%;">导入</button>' +
+                '</div>';
+            body.appendChild(importMask);
+        }
+
         if (!root.querySelector('#music-v2-together-summary-mask')) {
             const summary = document.createElement('div');
             summary.id = 'music-v2-together-summary-mask';
@@ -3791,6 +5328,26 @@
                     '<button class="music-v2-action-btn" data-musicv2-action="close-together-summary" style="width:100%; margin-top:6px;">知道了</button>' +
                 '</div>';
             body.appendChild(summary);
+        }
+
+        if (!root.querySelector('#music-v2-current-playlist-mask')) {
+            const playlistMask = document.createElement('div');
+            playlistMask.id = 'music-v2-current-playlist-mask';
+            playlistMask.className = 'music-v2-modal-mask';
+            playlistMask.innerHTML =
+                '<div class="music-v2-modal-card music-v2-current-playlist-card">' +
+                    '<div class="music-v2-current-playlist-head">' +
+                        '<div class="music-v2-current-playlist-title-wrap">' +
+                            '<div id="music-v2-current-playlist-title" class="music-v2-current-playlist-title">当前播放列表</div>' +
+                            '<div id="music-v2-current-playlist-count" class="music-v2-current-playlist-count">0 首</div>' +
+                        '</div>' +
+                        '<button class="music-v2-modal-btn" data-musicv2-action="close-current-playlist-panel">关闭</button>' +
+                    '</div>' +
+                    '<div id="music-v2-current-playlist-list" class="music-v2-current-playlist-list">' +
+                        '<div class="music-v2-current-playlist-empty">当前歌单暂无歌曲</div>' +
+                    '</div>' +
+                '</div>';
+            body.appendChild(playlistMask);
         }
 
         if (!root.querySelector('#music-v2-playlist-cover-file')) {
@@ -3819,6 +5376,17 @@
                     musicV2Runtime.coverDraft = '';
                     musicV2Toast('封面读取失败');
                 }
+            });
+        }
+
+        const importInput = root.querySelector('#music-v2-import-url');
+        if (importInput && !importInput.dataset.musicV2Bound) {
+            importInput.dataset.musicV2Bound = '1';
+            importInput.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                if (e.cancelable) e.preventDefault();
+                const submitBtn = root.querySelector('[data-musicv2-action="submit-import-playlist"]');
+                if (submitBtn && !submitBtn.disabled) submitBtn.click();
             });
         }
 
@@ -3855,12 +5423,32 @@
             });
         }
 
+        const importMask = root.querySelector('#music-v2-import-mask');
+        if (importMask && !importMask.dataset.musicV2Bound) {
+            importMask.dataset.musicV2Bound = '1';
+            importMask.addEventListener('click', (e) => {
+                if (e.target === importMask) {
+                    musicV2HideImportModal();
+                }
+            });
+        }
+
         const summaryMask = root.querySelector('#music-v2-together-summary-mask');
         if (summaryMask && !summaryMask.dataset.musicV2Bound) {
             summaryMask.dataset.musicV2Bound = '1';
             summaryMask.addEventListener('click', (e) => {
                 if (e.target === summaryMask) {
                     musicV2HideTogetherSummaryModal();
+                }
+            });
+        }
+
+        const currentPlaylistMask = root.querySelector('#music-v2-current-playlist-mask');
+        if (currentPlaylistMask && !currentPlaylistMask.dataset.musicV2Bound) {
+            currentPlaylistMask.dataset.musicV2Bound = '1';
+            currentPlaylistMask.addEventListener('click', (e) => {
+                if (e.target === currentPlaylistMask) {
+                    musicV2HideCurrentPlaylistPanel();
                 }
             });
         }

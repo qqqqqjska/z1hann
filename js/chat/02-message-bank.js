@@ -199,6 +199,25 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     }
     
     window.iphoneSimState.chatHistory[contactId].push(msg);
+
+    if (!isUser && type === 'music_listen_invite' && typeof window.openMusicListenInvitePrompt === 'function') {
+        try {
+            const inviteData = typeof text === 'string' ? JSON.parse(text) : (text || {});
+            const status = String(inviteData.status || 'pending');
+            const direction = String(inviteData.direction || 'incoming');
+            if (status === 'pending' && direction === 'incoming') {
+                setTimeout(() => {
+                    try {
+                        window.openMusicListenInvitePrompt(inviteData);
+                    } catch (popupError) {
+                        console.warn('[music-v2][invite-debug][chat]', 'prompt-open-failed', popupError);
+                    }
+                }, 40);
+            }
+        } catch (inviteParseError) {
+            console.warn('[music-v2][invite-debug][chat]', 'invite-parse-failed', inviteParseError);
+        }
+    }
     
     // process manual ACTION commands embedded in user message
     if (isUser && text && text.includes('ACTION:')) {
