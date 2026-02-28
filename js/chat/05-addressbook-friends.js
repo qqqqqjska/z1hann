@@ -30,18 +30,31 @@
 
     contacts.forEach(contact => {
         const item = document.createElement('div');
-        item.className = 'list-item';
-        // 使用行内样式覆盖可能的外部冲突，确保显示
-        item.style.cssText = 'background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 12px 15px; display: flex; align-items: center; cursor: pointer; line-height: 1; min-height: 64px;';
+        item.className = 'list-item addressbook-contact-item';
+        item.style.paddingTop = '12px';
+        item.style.paddingBottom = '12px';
+        item.style.minHeight = '64px';
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.boxSizing = 'border-box';
         
         const name = contact.remark || contact.nickname || contact.name;
         
         item.innerHTML = `
-            <div class="list-content" style="display: flex; align-items: center; justify-content: flex-start; width: 100%;">
-                <img src="${contact.avatar}" style="width: 40px; height: 40px; border-radius: 4px; margin-right: 12px; object-fit: cover;">
-                <span style="font-size: 16px; color: #000; line-height: 1.2; display: block; margin: 0;">${name}</span>
+            <div class="list-content addressbook-contact-content">
+                <img src="${contact.avatar}" class="addressbook-contact-avatar">
+                <span class="addressbook-contact-name">${name}</span>
             </div>
         `;
+
+        const avatarEl = item.querySelector('.addressbook-contact-avatar');
+        const nameEl = item.querySelector('.addressbook-contact-name');
+        if (avatarEl) avatarEl.style.display = 'block';
+        if (nameEl) {
+            nameEl.style.marginTop = '0';
+            nameEl.style.marginBottom = '0';
+            nameEl.style.lineHeight = '1.2';
+        }
         
         item.onclick = () => {
             window.iphoneSimState.currentChatContactId = contact.id;

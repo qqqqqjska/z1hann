@@ -2676,6 +2676,12 @@ function renderMusicPlaylist() {
     window.iphoneSimState.music.playlist.forEach(song => {
         const item = document.createElement('div');
         item.className = 'list-item';
+        item.style.setProperty('display', 'flex', 'important');
+        item.style.setProperty('align-items', 'center', 'important');
+        item.style.setProperty('padding-top', '12px', 'important');
+        item.style.setProperty('padding-bottom', '12px', 'important');
+        item.style.setProperty('min-height', '64px', 'important');
+        item.style.setProperty('box-sizing', 'border-box', 'important');
         const isPlaying = window.iphoneSimState.music.currentSongId === song.id;
         
         item.innerHTML = `
@@ -2688,6 +2694,11 @@ function renderMusicPlaylist() {
                 <button class="ios-btn-small danger" onclick="window.deleteSong(${song.id})">删除</button>
             </div>
         `;
+        const textBlocks = item.querySelectorAll('.list-content.column > div');
+        textBlocks.forEach(el => {
+            el.style.setProperty('margin', '0', 'important');
+            el.style.setProperty('line-height', '1.2', 'important');
+        });
         list.appendChild(item);
     });
 }

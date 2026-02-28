@@ -1652,15 +1652,25 @@ textarea {
 }
 
 #chat-settings-screen .list-item:not(.no-padding) {
-    padding-top: 12px;
-    padding-bottom: 12px;
+    padding: 12px 16px;
     min-height: 52px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
 }
 
-#chat-settings-screen .list-content label,
+#chat-settings-screen .list-content label:not(.toggle-switch),
 #chat-settings-screen .list-content .ios-btn {
     margin: 0;
     line-height: 1.2;
+}
+
+#chat-settings-screen .list-content label.toggle-switch {
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+    flex-shrink: 0;
 }
 
 #chat-settings-screen .list-content.column {
@@ -6357,19 +6367,85 @@ html body .chat-message.user .voice-icon-box i { transform: rotate(-90deg); }
     transform: scale(0.85);
 }
 
+#wechat-tab-addressbook .addressbook-contact-item {
+    background-color: #fff;
+    border-bottom: 1px solid #f0f0f0;
+    padding: var(--wechat-row-pad-block, 12px) 15px;
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    cursor: pointer;
+}
+
+#wechat-tab-addressbook .addressbook-contact-content {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+}
+
+#wechat-tab-addressbook .addressbook-contact-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 4px;
+    margin-right: 12px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+#wechat-tab-addressbook .addressbook-contact-name {
+    display: block;
+    margin: 0;
+    font-size: 16px;
+    color: #000;
+    line-height: 1.2;
+}
+
+/* WeChat list row vertical rhythm fix: keeps top/bottom spacing visually balanced */
+#wechat-tab-contacts,
+#wechat-tab-addressbook,
+#chat-settings-screen {
+    --wechat-row-pad-block: 12px;
+}
+
+#wechat-tab-contacts .contact-content-wrapper,
+#wechat-tab-addressbook .addressbook-contact-item,
+#chat-settings-screen .list-item:not(.no-padding) {
+    padding-top: var(--wechat-row-pad-block, 12px) !important;
+    padding-bottom: var(--wechat-row-pad-block, 12px) !important;
+}
+
+#wechat-tab-contacts .contact-avatar,
+#wechat-tab-addressbook .addressbook-contact-avatar {
+    display: block;
+}
+
+#wechat-tab-contacts .contact-name,
+#wechat-tab-contacts .contact-time,
+#wechat-tab-contacts .contact-msg-preview,
+#wechat-tab-addressbook .addressbook-contact-name,
+#chat-settings-screen .list-item .list-content > span,
+#chat-settings-screen .list-item .list-content > label:not(.toggle-switch),
+#chat-settings-screen .list-item .ios-btn {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    line-height: 1.2 !important;
+}
+
+#chat-settings-screen .list-item .list-content > input,
+#chat-settings-screen .list-item .list-content > select,
+#chat-settings-screen .list-item .list-content > textarea {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
 @media (max-width: 768px) {
     #wechat-tab-contacts .contact-content-wrapper {
-        padding-top: 12px !important;
-        padding-bottom: 12px !important;
         min-height: 80px;
     }
 
-    #wechat-tab-addressbook .list-item {
-        padding-top: 12px !important;
-        padding-bottom: 12px !important;
-    }
-
-    #wechat-tab-addressbook .list-item .list-content > span {
+    #wechat-tab-addressbook .addressbook-contact-name {
         display: block;
         line-height: 1.2 !important;
         margin: 0;

@@ -543,6 +543,34 @@ function shouldExcludeFromAiContext(msg) {
     return false;
 }
 
+function normalizeChatSettingsListRows() {
+    const screen = document.getElementById('chat-settings-screen');
+    if (!screen) return;
+
+    const rows = screen.querySelectorAll('.list-item:not(.no-padding)');
+    rows.forEach(row => {
+        row.style.paddingTop = '12px';
+        row.style.paddingBottom = '12px';
+        row.style.boxSizing = 'border-box';
+        row.style.alignItems = 'center';
+    });
+
+    const textNodes = screen.querySelectorAll(
+        '.list-item .list-content > span, .list-item .list-content > label:not(.toggle-switch), .list-item .ios-btn'
+    );
+    textNodes.forEach(node => {
+        node.style.marginTop = '0';
+        node.style.marginBottom = '0';
+        node.style.lineHeight = '1.2';
+    });
+
+    const controls = screen.querySelectorAll('.list-item .list-content > input, .list-item .list-content > select, .list-item .list-content > textarea');
+    controls.forEach(node => {
+        node.style.marginTop = '0';
+        node.style.marginBottom = '0';
+    });
+}
+
 function renderContactList(filterGroup = 'all') {
     const isSwitchingGroup = window.iphoneSimState.currentContactGroup !== filterGroup;
     window.iphoneSimState.currentContactGroup = filterGroup;
@@ -684,6 +712,25 @@ function renderContactList(filterGroup = 'all') {
 
             // Touch events for swipe
             const contentWrapper = item.querySelector('.contact-content-wrapper');
+            const avatarEl = item.querySelector('.contact-avatar');
+            const nameEl = item.querySelector('.contact-name');
+            const timeEl = item.querySelector('.contact-time');
+            const previewEl = item.querySelector('.contact-msg-preview');
+
+            if (contentWrapper) {
+                contentWrapper.style.paddingTop = '12px';
+                contentWrapper.style.paddingBottom = '12px';
+                contentWrapper.style.boxSizing = 'border-box';
+                contentWrapper.style.minHeight = '80px';
+            }
+            if (avatarEl) avatarEl.style.display = 'block';
+            [nameEl, timeEl, previewEl].forEach(el => {
+                if (!el) return;
+                el.style.marginTop = '0';
+                el.style.marginBottom = '0';
+                el.style.lineHeight = '1.2';
+            });
+
             let startX = 0;
             let startY = 0;
             let currentTranslate = 0;
@@ -1406,6 +1453,7 @@ function openChatSettings() {
     renderUserPerception(contact);
     if (window.renderChatCssPresets) window.renderChatCssPresets();
 
+    normalizeChatSettingsListRows();
     document.getElementById('chat-settings-screen').classList.remove('hidden');
 }
 
@@ -1886,4 +1934,3 @@ function handleSaveChatSettings() {
 }
 
 // --- 聊天界面功能 ---
-
