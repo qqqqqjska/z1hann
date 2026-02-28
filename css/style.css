@@ -3516,20 +3516,26 @@ input:checked + .slider:before {
     align-self: flex-start;
 }
 
+/* Keep music invite card layout fixed when chat font-size setting changes */
+.chat-message .message-content.music-listen-invite-msg {
+    font-size: 14px !important;
+    line-height: 0 !important;
+}
+
 /* --------------------------------------------------------- */
 /* Music Listen Invite Card (Pure CSS Version)                */
 /* 调位置入口：直接改这里的变量，分别控制每个元素上下偏移 */
 /* --------------------------------------------------------- */
 .music-listen-invite-card {
-    --music-invite-card-width: 240px;
+    --music-invite-card-width: 260px;
     --music-invite-card-height: 90px;
-    --music-invite-card-shift-y: -42px;
+    --music-invite-card-shift-y: 0px;
     --music-invite-content-shift-y: -8px;
-    --music-invite-cover-shift-y: -33px;
-    --music-invite-title-shift-y: -70px;
-    --music-invite-artist-shift-y: -108px;
-    --music-invite-platform-shift-y: -145px;
-    --music-invite-play-shift-y: -23px;
+    --music-invite-cover-shift-y: 6px;
+    --music-invite-title-shift-y: 10px;
+    --music-invite-artist-shift-y: 10px;
+    --music-invite-platform-shift-y: 18px;
+    --music-invite-play-shift-y: 19px;
 
     width: var(--music-invite-card-width);
     height: var(--music-invite-card-height);
@@ -3564,10 +3570,11 @@ input:checked + .slider:before {
 .music-listen-invite-meta {
     min-width: 0;
     flex: 1;
+    overflow: visible;
 }
 
 .music-listen-invite-title {
-    font-size: 13px;
+    font-size: 13px !important;
     line-height: 1.1;
     color: #111;
     font-weight: 700;
@@ -3578,7 +3585,10 @@ input:checked + .slider:before {
 }
 
 .music-listen-invite-artist {
-    font-size: 12px;
+    font-size: 12px !important;
+    line-height: 1.2 !important;
+    min-height: 14px;
+    display: block;
     color: #2f2f2f;
     margin-top: 4px;
     white-space: nowrap;
@@ -3588,7 +3598,9 @@ input:checked + .slider:before {
 }
 
 .music-listen-invite-platform {
-    font-size: 14px;
+    font-size: 12px !important;
+    line-height: 1.2 !important;
+    min-height: 14px;
     color: #8a8a8f;
     margin-top: 4px;
     display: flex;
@@ -3598,7 +3610,7 @@ input:checked + .slider:before {
 }
 
 .music-listen-invite-platform i {
-    font-size: 12px;
+    font-size: 12px !important;
 }
 
 .music-listen-invite-play {
@@ -3615,8 +3627,103 @@ input:checked + .slider:before {
 }
 
 .music-listen-invite-play i {
-    font-size: 16px;
+    font-size: 16px !important;
     margin-left: 4px;
+}
+
+/* Music invite prompt popup (matches music_app_v2 invite-popup look) */
+.music-invite-prompt-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10060;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 0 12px;
+    background: transparent;
+}
+
+.music-invite-prompt-overlay.active {
+    display: flex;
+}
+
+.music-invite-prompt-popup {
+    margin-top: 50px;
+    width: min(92vw, 380px);
+    background: rgba(255, 255, 255, 0.95);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    border-radius: 24px;
+    padding: 16px;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-sizing: border-box;
+}
+
+.music-invite-prompt-popup .ip-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: #e5e5ea;
+}
+
+.music-invite-prompt-popup .ip-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.music-invite-prompt-popup .ip-info h4 {
+    margin: 0 0 2px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #111;
+    line-height: 1.2;
+}
+
+.music-invite-prompt-popup .ip-info p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.3;
+    color: var(--text-gray, #8e8e93);
+}
+
+.music-invite-prompt-popup .music-invite-prompt-song {
+    margin-top: 3px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #6b7280 !important;
+}
+
+.music-invite-prompt-popup .ip-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.music-invite-prompt-popup .ip-btn {
+    padding: 8px 16px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.music-invite-prompt-popup .ip-btn.accept {
+    background: var(--text-dark, #111);
+    color: #fff;
+}
+
+.music-invite-prompt-popup .ip-btn.reject {
+    background: #e5e5ea;
+    color: var(--text-dark, #111);
 }
 
 /* Keep bank-like cards stable when chat font size slider changes */

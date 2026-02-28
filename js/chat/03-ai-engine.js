@@ -102,6 +102,7 @@ window.closeMusicListenInvitePrompt = function () {
         if (inviteId && window._musicInvitePromptShownMap) {
             delete window._musicInvitePromptShownMap[inviteId];
         }
+        modal.classList.remove('active');
         modal.style.display = 'none';
     }
 };
@@ -125,31 +126,24 @@ window.openMusicListenInvitePrompt = function (payload) {
     const songTitle = String(data.songTitle || '未知歌曲');
     const songArtist = String(data.songArtist || '未知歌手');
     const songCover = String(data.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music');
+    const contactAvatar = String((contact && contact.avatar) || songCover || 'https://placehold.co/96x96/e5e7eb/111827?text=U');
 
     let modal = document.getElementById('music-listen-invite-prompt-modal');
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'music-listen-invite-prompt-modal';
-        modal.style.cssText = [
-            'position:fixed',
-            'inset:0',
-            'z-index:10060',
-            'background:rgba(0,0,0,0.42)',
-            'display:none',
-            'align-items:flex-start',
-            'justify-content:center',
-            'padding:70px 16px 16px'
-        ].join(';');
+        modal.className = 'music-invite-prompt-overlay';
         modal.innerHTML = `
-            <div id="music-listen-invite-prompt-card" style="width:min(92vw,360px);background:#fff;border-radius:18px;box-shadow:0 14px 34px rgba(0,0,0,0.22);overflow:hidden;">
-                <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;">
-                    <strong style="font-size:16px;color:#111;">一起听邀请</strong>
-                    <button id="music-invite-prompt-close" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">×</button>
+            <div id="music-listen-invite-prompt-card" class="music-invite-prompt-popup">
+                <img id="music-invite-prompt-avatar" class="ip-avatar" src="" alt="">
+                <div class="ip-info">
+                    <h4 id="music-invite-prompt-name"></h4>
+                    <p id="music-invite-prompt-text"></p>
+                    <p id="music-invite-prompt-song" class="music-invite-prompt-song"></p>
                 </div>
-                <div id="music-invite-prompt-body" style="padding:14px 16px 16px;font-size:13px;color:#333;line-height:1.6;"></div>
-                <div style="display:flex;gap:10px;padding:0 16px 16px;">
-                    <button id="music-invite-prompt-reject" style="flex:1;border:none;background:#ececf0;color:#222;border-radius:12px;height:38px;font-size:14px;font-weight:600;cursor:pointer;">拒绝</button>
-                    <button id="music-invite-prompt-accept" style="flex:1;border:none;background:#111;color:#fff;border-radius:12px;height:38px;font-size:14px;font-weight:600;cursor:pointer;">同意</button>
+                <div class="ip-actions">
+                    <button id="music-invite-prompt-reject" class="ip-btn reject" type="button">拒绝</button>
+                    <button id="music-invite-prompt-accept" class="ip-btn accept" type="button">同意</button>
                 </div>
             </div>
         `;
@@ -167,21 +161,15 @@ window.openMusicListenInvitePrompt = function (payload) {
 
     modal.dataset.inviteId = inviteId;
     modal.dataset.contactId = contactId;
-    const body = modal.querySelector('#music-invite-prompt-body');
-    if (body) {
-        body.innerHTML = `
-            <div style="display:flex;gap:10px;margin-bottom:10px;">
-                <img src="${songCover}" style="width:52px;height:52px;border-radius:10px;object-fit:cover;background:#f0f0f0;">
-                <div style="min-width:0;flex:1;">
-                    <div style="font-size:15px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${songTitle}</div>
-                    <div style="font-size:13px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${songArtist}</div>
-                </div>
-            </div>
-            <div><strong style="color:#555;">${contactName}</strong> 邀请你一起听歌</div>
-        `;
-    }
+    const avatarEl = modal.querySelector('#music-invite-prompt-avatar');
+    const nameEl = modal.querySelector('#music-invite-prompt-name');
+    const textEl = modal.querySelector('#music-invite-prompt-text');
+    const songEl = modal.querySelector('#music-invite-prompt-song');
+    if (avatarEl) avatarEl.src = contactAvatar;
+    if (nameEl) nameEl.textContent = contactName;
+    if (textEl) textEl.textContent = '邀请你一起听歌';
+    if (songEl) songEl.textContent = `${songTitle} · ${songArtist}`;
 
-    const closeBtn = modal.querySelector('#music-invite-prompt-close');
     const acceptBtn = modal.querySelector('#music-invite-prompt-accept');
     const rejectBtn = modal.querySelector('#music-invite-prompt-reject');
     const applyDecision = (decision) => {
@@ -197,10 +185,10 @@ window.openMusicListenInvitePrompt = function (payload) {
         window.closeMusicListenInvitePrompt();
     };
 
-    if (closeBtn) closeBtn.onclick = () => window.closeMusicListenInvitePrompt();
     if (acceptBtn) acceptBtn.onclick = () => applyDecision('accepted');
     if (rejectBtn) rejectBtn.onclick = () => applyDecision('rejected');
     modal.style.display = 'flex';
+    modal.classList.add('active');
 };
 
 window.openMusicListenInviteDetail = function (payload) {
