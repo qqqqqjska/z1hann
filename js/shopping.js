@@ -1355,6 +1355,71 @@ function buildShoppingItemSummary(items, prefixText) {
     return prefixText ? `${prefixText}: ${summary}` : summary;
 }
 
+function ensureShoppingOrderList() {
+    if (!Array.isArray(window.iphoneSimState.shoppingOrders)) {
+        window.iphoneSimState.shoppingOrders = [];
+    }
+    return window.iphoneSimState.shoppingOrders;
+}
+
+function buildShoppingOrderItems(items, multiplier = 1) {
+    const safeMultiplier = Number.isFinite(Number(multiplier)) && Number(multiplier) > 0 ? Number(multiplier) : 1;
+    return (items || []).map(item => ({
+        title: item.title,
+        price: item.price,
+        image: item.image || item.aiImage,
+        count: (Number(item.count || 1) * safeMultiplier),
+        isDelivery: item.isDelivery,
+        selectedSpec: item.selectedSpec,
+        shop_name: item.shop_name
+    }));
+}
+
+function createShoppingOrderFromPayment(items, options = {}) {
+    const relatedId = options.relatedId || (Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5));
+    const recipientMultiplier = Number.isFinite(Number(options.recipientMultiplier)) && Number(options.recipientMultiplier) > 0
+        ? Number(options.recipientMultiplier)
+        : 1;
+    const orderItems = buildShoppingOrderItems(items, recipientMultiplier);
+    const computedTotal = orderItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.count || 0)), 0);
+    const totalAmount = Number(options.totalAmount);
+    const totalStr = (Number.isFinite(totalAmount) ? totalAmount : computedTotal).toFixed(2);
+
+    const newOrder = {
+        id: relatedId,
+        items: orderItems,
+        total: totalStr,
+        time: Date.now(),
+        status: '待发货'
+    };
+
+    const recipientNames = Array.isArray(options.recipientNames)
+        ? options.recipientNames.map(name => String(name || '').trim()).filter(Boolean)
+        : [];
+    if (recipientNames.length > 0) {
+        newOrder.isGift = true;
+        newOrder.giftRecipients = recipientNames;
+    }
+
+    const hasDelivery = orderItems.some(item => item.isDelivery);
+    const hour = 3600000;
+    if (hasDelivery) {
+        newOrder.shipDelay = Math.floor(5 * 60000 + Math.random() * (5 * 60000));
+        newOrder.deliverDelay = Math.floor(30 * 60000 + Math.random() * (10 * 60000));
+    } else {
+        newOrder.shipDelay = Math.floor(2 * hour + Math.random() * (22 * hour));
+        newOrder.deliverDelay = Math.floor(48 * hour + Math.random() * (24 * hour));
+    }
+
+    ensureShoppingOrderList().unshift(newOrder);
+    return newOrder;
+}
+
+function clearShoppingCartAfterCheckout() {
+    window.iphoneSimState.shoppingCart = [];
+    renderShoppingCart();
+}
+
 function mapUnifiedPaymentError(reason) {
     if (reason === 'wallet_insufficient') return '微信余额不足';
     if (reason === 'bank_cash_insufficient') return '银行卡余额不足';
@@ -1430,8 +1495,9 @@ function openPaymentChoice(amount, items, isCart = false) {
 }
 
 async function processSelfPayment() {
+    const checkoutItems = pendingPaymentItems.map(item => ({ ...item }));
+    const isCartOrder = !!pendingPaymentItems.isCart;
     const totalAmount = pendingPaymentAmount;
-    const totalStr = totalAmount.toFixed(2);
 
     if (!window.resolvePurchasePayment) {
         alert('支付能力不可用');
@@ -1451,39 +1517,17 @@ async function processSelfPayment() {
         return;
     }
 
-    if (!window.iphoneSimState.shoppingOrders) {
-        window.iphoneSimState.shoppingOrders = [];
+    createShoppingOrderFromPayment(checkoutItems, {
+        relatedId,
+        totalAmount
+    });
+
+    if (isCartOrder) {
+        clearShoppingCartAfterCheckout();
     }
 
-    const orderItems = pendingPaymentItems.map(item => ({
-        title: item.title,
-        price: item.price,
-        image: item.image,
-        count: item.count,
-        isDelivery: item.isDelivery,
-        selectedSpec: item.selectedSpec,
-        shop_name: item.shop_name
-    }));
-
-    const newOrder = {
-        id: relatedId,
-        items: orderItems,
-        total: totalStr,
-        time: Date.now(),
-        status: '待发货'
-    };
-
-    const hour = 3600000;
-    newOrder.shipDelay = Math.floor(2 * hour + Math.random() * (22 * hour));
-    newOrder.deliverDelay = Math.floor(48 * hour + Math.random() * (24 * hour));
-    window.iphoneSimState.shoppingOrders.unshift(newOrder);
-
-    if (pendingPaymentItems.isCart) {
-        if (window.iphoneSimState.shoppingCart) {
-            window.iphoneSimState.shoppingCart = [];
-            renderShoppingCart();
-        }
-    }
+    pendingPaymentItems = [];
+    pendingPaymentAmount = 0;
 
     saveConfig();
 
@@ -1536,7 +1580,10 @@ function openShoppingGiftContactPicker(items) {
             const ids = Array.from(selectedContact).map(cb => parseInt(cb.value)).filter(id => id !== 0);
             
             if (ids.length > 0) {
-                const totalAmount = pendingPaymentAmount * ids.length;
+                const checkoutItems = Array.isArray(items) ? items.map(item => ({ ...item })) : [];
+                const isCartOrder = !!items.isCart;
+                const unitAmount = Number(pendingPaymentAmount || 0);
+                const totalAmount = unitAmount * ids.length;
                 if (ids.length > 1 && !confirm(`你选择了 ${ids.length} 位好友，将购买 ${ids.length} 份商品，总计 ¥${(totalAmount).toFixed(2)}。确定吗？`)) {
                     return;
                 }
@@ -1546,13 +1593,16 @@ function openShoppingGiftContactPicker(items) {
                     return;
                 }
 
-                const firstRecipientName = (() => {
-                    const first = window.iphoneSimState.contacts.find(c => c.id === ids[0]);
-                    return first ? (first.remark || first.name || `联系人${ids[0]}`) : `联系人${ids[0]}`;
-                })();
+                const recipientNames = ids.map(contactId => {
+                    const target = window.iphoneSimState.contacts.find(c => c.id === contactId);
+                    return target ? (target.remark || target.name || `联系人${contactId}`) : `联系人${contactId}`;
+                });
+                const firstRecipientName = recipientNames[0] || `联系人${ids[0]}`;
+                const relatedId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
                 const payResult = await window.resolvePurchasePayment({
                     amount: totalAmount,
                     scene: 'shopping_gift',
+                    relatedId,
                     itemSummary: buildShoppingItemSummary(items, `购物送礼(收货人: ${firstRecipientName})`)
                 });
                 if (!payResult || !payResult.ok) {
@@ -1561,21 +1611,33 @@ function openShoppingGiftContactPicker(items) {
                     return;
                 }
 
-                ids.forEach(contactId => {
-                    const target = window.iphoneSimState.contacts.find(c => c.id === contactId);
-                    const recipientName = target ? (target.remark || target.name || `联系人${contactId}`) : `联系人${contactId}`;
+                createShoppingOrderFromPayment(checkoutItems, {
+                    relatedId,
+                    totalAmount,
+                    recipientMultiplier: ids.length,
+                    recipientNames
+                });
+
+                if (isCartOrder) {
+                    clearShoppingCartAfterCheckout();
+                }
+
+                ids.forEach((contactId, idx) => {
+                    const recipientName = recipientNames[idx] || `联系人${contactId}`;
                     // Send message logic (simplified)
                     const msgData = {
-                        items: items.map(i => ({ title: i.title, price: i.price, image: i.image })),
-                        total: pendingPaymentAmount.toFixed(2),
+                        items: checkoutItems.map(i => ({ title: i.title, price: i.price, image: i.image })),
+                        total: unitAmount.toFixed(2),
                         recipientName,
                         recipientText: recipientName,
-                        paymentAmount: pendingPaymentAmount.toFixed(2),
+                        paymentAmount: unitAmount.toFixed(2),
                         paymentMethodLabel: payResult.sourceLabel || (payResult.method === 'wallet' ? '微信余额' : (payResult.method === 'bank_cash' ? '银行卡余额' : '亲属卡'))
                     };
                     if (typeof sendMessage !== 'undefined') sendMessage(JSON.stringify(msgData), true, 'shopping_gift', null, contactId);
                 });
                 
+                pendingPaymentItems = [];
+                pendingPaymentAmount = 0;
                 saveConfig();
                 modal.classList.add('hidden');
                 document.getElementById('product-detail').classList.remove('active');
