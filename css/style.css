@@ -6558,3 +6558,13 @@ html body .chat-message.user .voice-icon-box i { transform: rotate(-90deg); }
         margin: 0;
     }
 }
+
+#chat-screen.hide-chat-avatar .chat-avatar {
+    display: none;
+}
+
+#chat-screen.hide-chat-timestamp .msg-time,
+#chat-screen.hide-chat-timestamp .chat-time-stamp {
+    display: none;
+}
+

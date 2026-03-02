@@ -1,7 +1,10 @@
 ﻿function renderChatHistory(contactId, preserveScroll = false) {
     const messages = window.iphoneSimState.chatHistory[contactId] || [];
     const container = document.getElementById('chat-messages');
-    
+    if (typeof window.applyChatDisplayPreferences === 'function') {
+        window.applyChatDisplayPreferences(contactId);
+    }
+
     // Check if limit changed or contact changed
     const settingLimit = window.iphoneSimState.chatLoadingLimit !== undefined ? window.iphoneSimState.chatLoadingLimit : 20;
     

@@ -350,11 +350,14 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     if (type === 'image' || type === 'sticker') {
         contentHtml = `<img src="${text}" style="max-width: 200px; border-radius: 4px;">`;
     } else if (type === 'voice') {
-        let duration = '1"';
+        let duration = '0:01';
         let transText = '[语音]';
         try {
             let data = typeof text === 'string' ? JSON.parse(text) : text;
-            duration = (data.duration || 1) + '"';
+            const durSec = Math.max(1, parseInt(data.duration || 1, 10));
+            const mins = Math.floor(durSec / 60);
+            const secs = durSec % 60;
+            duration = `${mins}:${secs.toString().padStart(2, '0')}`;
             transText = data.text || '';
         } catch (e) {
             transText = text;
@@ -362,13 +365,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
 
         const uid = 'v-' + Math.random().toString(36).substr(2, 9);
         
-        contentHtml = `
-            <div class="voice-bar-top" onclick="window.playVoiceMsg('${msgId}', '${uid}', event)">
-                <div class="voice-icon-box"><i class="fas fa-rss"></i></div>
-                <span class="voice-dur-text">${duration}</span>
-            </div>
-            <div id="${uid}" class="voice-text-bottom hidden" onclick="this.classList.add('hidden'); event.stopPropagation();">${transText}</div>
-        `;
+        contentHtml = `<div class="voice-bar-top" onclick="window.playVoiceMsg('${msgId}', '${uid}', event)"><div class="voice-icon-box"><i class="ri-play-fill" data-idle-class="ri-play-fill" data-playing-class="ri-play-fill voice-playing-anim"></i></div><div class="voice-bars" aria-hidden="true"><div class="voice-bar" style="height: 30%;"></div><div class="voice-bar" style="height: 60%;"></div><div class="voice-bar" style="height: 100%;"></div><div class="voice-bar" style="height: 80%;"></div><div class="voice-bar" style="height: 40%;"></div><div class="voice-bar" style="height: 60%;"></div><div class="voice-bar" style="height: 90%;"></div><div class="voice-bar" style="height: 50%;"></div><div class="voice-bar" style="height: 30%;"></div></div><span class="voice-dur-text voice-time">${duration}</span></div><div id="${uid}" class="voice-text-bottom transcription hidden" onclick="this.classList.add('hidden'); event.stopPropagation();">${transText}</div>`;
     } else if (type === 'transfer') {
         let transferData = { amount: '0.00', remark: '转账', status: 'pending' };
         try {
@@ -387,47 +384,46 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const status = transferData.status || 'pending';
         
         let statusText = '';
+        let statusTag = isUser ? 'Sent' : 'Transfer';
         let iconClass = 'fas fa-exchange-alt';
         let cardClass = '';
         
         if (status === 'accepted') {
             statusText = '已收款';
+            statusTag = 'Received';
             iconClass = 'fas fa-check';
             cardClass = 'accepted';
         } else if (status === 'returned') {
             statusText = '已退还';
+            statusTag = 'Returned';
             iconClass = 'fas fa-undo';
             cardClass = 'returned';
         }
-        
+
+        const subtitle = `${remark}${statusText ? ` · ${statusText}` : ''}`;
+
         if (!transferData.id) {
             contentHtml = `
-                <div class="transfer-card" onclick="alert('该转账消息已失效（旧数据），请发送新转账测试')">
-                    <div class="transfer-top">
-                        <div class="transfer-icon"><i class="${iconClass}"></i></div>
-                        <div class="transfer-info">
-                            <div class="transfer-amount">¥${amount}</div>
-                            <div class="transfer-remark">${remark}</div>
-                        </div>
+                <div class="transfer-card glass-card ${cardClass}" onclick="alert('该转账消息已失效（旧数据），请发送新转账测试')">
+                    <div class="card-watermark">TRX</div>
+                    <div class="card-top">
+                        <div class="card-icon-box"><i class="${iconClass}"></i></div>
+                        <div class="card-tag">${statusTag}</div>
                     </div>
-                    <div class="transfer-bottom">
-                        <span>${statusText} (已失效)</span>
-                    </div>
+                    <div class="card-value">¥${amount}</div>
+                    <div class="card-label">${subtitle}</div>
                 </div>
             `;
         } else {
             contentHtml = `
-                <div class="transfer-card" onclick="window.handleTransferClick(${transferData.id}, '${isUser ? 'user' : 'other'}')">
-                    <div class="transfer-top">
-                        <div class="transfer-icon"><i class="${iconClass}"></i></div>
-                        <div class="transfer-info">
-                            <div class="transfer-amount">¥${amount}</div>
-                            <div class="transfer-remark">${remark}</div>
-                        </div>
+                <div class="transfer-card glass-card ${cardClass}" onclick="window.handleTransferClick(${transferData.id}, '${isUser ? 'user' : 'other'}')">
+                    <div class="card-watermark">TRX</div>
+                    <div class="card-top">
+                        <div class="card-icon-box"><i class="${iconClass}"></i></div>
+                        <div class="card-tag">${statusTag}</div>
                     </div>
-                    <div class="transfer-bottom">
-                        <span>${statusText}</span>
-                    </div>
+                    <div class="card-value">¥${amount}</div>
+                    <div class="card-label">${subtitle}</div>
                 </div>
             `;
         }
@@ -530,26 +526,19 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const paymentAmount = giftData.paymentAmount || giftData.price || '0.00';
         const recipientName = giftData.recipientName || '';
         const paymentMethodLabel = giftData.paymentMethodLabel || '';
+        const title = giftData.title || '礼物';
+        const subtitleParts = [`¥${paymentAmount}`];
+        if (recipientName) subtitleParts.push(`给 ${recipientName}`);
+        if (paymentMethodLabel) subtitleParts.push(paymentMethodLabel);
         contentHtml = `
-            <div class="gift-card" style="background: #fff; border-radius: 8px; padding: 12px 12px 10px 12px; width: 230px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-top: -45px; display: flex; flex-direction: column; justify-content: space-between;">
-                <div style="display: flex; gap: 10px;">
-                    <div style="width: 50px; height: 50px; border-radius: 4px; background: #FFDA44; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                        <i class="fas fa-gift" style="font-size: 24px; color: #333;"></i>
-                    </div>
-                    <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start;">
-                        <div style="font-size: 14px; font-weight: bold; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4;">${giftData.title}</div>
-                        <div style="font-size: 14px; color: #000000; font-weight: bold; margin-top: 4px;">¥${paymentAmount}</div>
-                    </div>
+            <div class="gift-card glass-card">
+                <div class="card-watermark">GIFT</div>
+                <div class="card-top">
+                    <div class="card-icon-box"><i class="fas fa-gift"></i></div>
+                    <div class="card-tag">Unbox</div>
                 </div>
-                <div style="margin-top: 6px; font-size: 12px; color: #666; line-height: 1.45;">
-                    <div>金额：¥${paymentAmount}</div>
-                    ${recipientName ? `<div>收货人：${recipientName}</div>` : ''}
-                    ${paymentMethodLabel ? `<div>支付方式：${paymentMethodLabel}</div>` : ''}
-                </div>
-                <div style="border-top: 1px solid #f0f0f0; padding-top: 8px; font-size: 12px; color: #666; display: flex; align-items: center;">
-                    <i class="fas fa-heart" style="color: #FF3B30; margin-right: 5px;"></i> 
-                    <span>闲鱼收藏礼物</span>
-                </div>
+                <div class="card-value">${title}</div>
+                <div class="card-label">${subtitleParts.join(' · ')}</div>
             </div>
         `;
     } else if (type === 'shopping_gift') {
@@ -563,40 +552,20 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const firstItem = itemCount > 0 ? giftData.items[0] : { title: '礼物', image: '' };
         const total = giftData.total || giftData.paymentAmount || '0.00';
         const recipientText = giftData.recipientName || giftData.recipientText || '';
-        const paymentMethodLabel = giftData.paymentMethodLabel || '';
-        const itemNames = (giftData.items || []).map(i => {
-            const count = Number(i.count || 1);
-            return `${i.title}${count > 1 ? ` x${count}` : ''}`;
-        });
-        const itemNamesText = itemNames.length ? itemNames.join('、') : (firstItem.title || '礼物');
-        const remarkHtml = giftData.remark ? `<div style="padding: 6px 12px; font-size: 13px; color: #333; background: #fff; border-top: 1px solid #f5f5f5; font-style: italic;">"${giftData.remark}"</div>` : '';
+        const mainTitle = itemCount > 1 ? `${firstItem.title} 等${itemCount}件` : (firstItem.title || '礼物');
+        const subtitleParts = [`¥${total}`];
+        if (recipientText) subtitleParts.push(`给 ${recipientText}`);
+        if (giftData.remark) subtitleParts.push(giftData.remark);
         
         contentHtml = `
-            <div class="shopping-gift-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                <div style="background: #333333; padding: 8px 12px; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
-                    <span><i class="fas fa-gift" style="margin-right: 6px;"></i>送你的礼物</span>
-                    <span style="font-size: 16px;">¥${total}</span>
+            <div class="shopping-gift-card glass-card">
+                <div class="card-watermark">GIFT</div>
+                <div class="card-top">
+                    <div class="card-icon-box"><i class="fas fa-gift"></i></div>
+                    <div class="card-tag">Sent</div>
                 </div>
-                <div style="padding: 5px 10px 2px 10px; display: flex; gap: 10px;">
-                    <div style="width: 60px; height: 60px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background-color: #f0f0f0;">
-                        <img src="${firstItem.image || ''}" style="width: 100%; height: 100%; object-fit: cover;">
-                    </div>
-                    <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center;">
-                        <div style="font-size: 13px; color: #333; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${firstItem.title}</div>
-                        ${firstItem.selectedSpec ? `<div style="font-size: 11px; color: #999; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${firstItem.selectedSpec}</div>` : ''}
-                        ${itemCount > 1 ? `<div style="font-size: 12px; color: #999; margin-top: 4px;">等 ${itemCount} 件商品</div>` : ''}
-                    </div>
-                </div>
-                <div style="padding: 8px 12px 0; font-size: 12px; color: #666; line-height: 1.4;">
-                    <div>商品：${itemNamesText}</div>
-                    <div>金额：¥${total}</div>
-                    ${recipientText ? `<div>收货人：${recipientText}</div>` : ''}
-                    ${paymentMethodLabel ? `<div>支付方式：${paymentMethodLabel}</div>` : ''}
-                </div>
-                ${remarkHtml}
-                <div style="padding: 2px 12px; border-top: 1px solid #f5f5f5; text-align: right; line-height: 1;">
-                     <span style="font-size: 12px; color: #999;">已发送</span>
-                </div>
+                <div class="card-value">${mainTitle}</div>
+                <div class="card-label">${subtitleParts.join(' · ')}</div>
             </div>
         `;
     } else if (type === 'savings_invite') {
@@ -692,28 +661,20 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const itemCount = deliveryData.items ? deliveryData.items.length : 0;
         const firstItem = itemCount > 0 ? deliveryData.items[0] : { title: '美食', image: '' };
         const total = deliveryData.total || '0.00';
-        const remarkHtml = deliveryData.remark ? `<div style="padding: 6px 12px; font-size: 13px; color: #333; background: #fff; border-top: 1px solid #f5f5f5; font-style: italic;">"${deliveryData.remark}"</div>` : '';
+        const subtitleParts = [`¥${total}`];
+        if (itemCount > 0) subtitleParts.push(`${itemCount}件`);
+        subtitleParts.push('配送中');
+        if (deliveryData.remark) subtitleParts.push(deliveryData.remark);
         
         contentHtml = `
-            <div class="delivery-share-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                <div style="background: #333333; padding: 8px 12px; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
-                    <span><i class="fas fa-utensils" style="margin-right: 6px;"></i>请你吃外卖</span>
-                    <span style="font-size: 16px;">¥${total}</span>
+            <div class="delivery-share-card glass-card">
+                <div class="card-watermark">FOOD</div>
+                <div class="card-top">
+                    <div class="card-icon-box"><i class="fas fa-utensils"></i></div>
+                    <div class="card-tag">On the way</div>
                 </div>
-                <div style="padding: 5px 10px 2px 10px; display: flex; gap: 10px;">
-                    <div style="width: 60px; height: 60px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background-color: #f0f0f0;">
-                        <img src="${firstItem.image || ''}" style="width: 100%; height: 100%; object-fit: cover;">
-                    </div>
-                    <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center;">
-                        <div style="font-size: 13px; color: #333; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${firstItem.title}</div>
-                        ${firstItem.selectedSpec ? `<div style="font-size: 11px; color: #999; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${firstItem.selectedSpec}</div>` : ''}
-                        ${itemCount > 1 ? `<div style="font-size: 12px; color: #999; margin-top: 4px;">等 ${itemCount} 件美食</div>` : ''}
-                    </div>
-                </div>
-                ${remarkHtml}
-                <div style="padding: 2px 12px; border-top: 1px solid #f5f5f5; text-align: right; line-height: 1;">
-                     <span style="font-size: 12px; color: #999;">正在配送中</span>
-                </div>
+                <div class="card-value">${firstItem.title || '美食外卖'}</div>
+                <div class="card-label">${subtitleParts.join(' · ')}</div>
             </div>
         `;
     } else if (type === 'order_progress' || type === 'order_share') {
@@ -722,38 +683,314 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         try {
             progressData = typeof text === 'string' ? JSON.parse(text) : text;
         } catch(e) {}
-        
-        const title = progressData.title || '商品订单';
-        const status = progressData.status || '待发货';
-        const eta = progressData.eta || '计算中';
-        const items = progressData.items || '商品';
-        const orderId = progressData.orderId;
-        
-        // Determine progress state
-        let step = 1;
-        if (status === '已发货' || status === 'On Delivery') step = 2;
-        if (status === '已完成' || status === 'Delivered') step = 3;
-        
-        contentHtml = `
-            <div class="order-share-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 240px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);" onclick="document.getElementById('shopping-app').classList.remove('hidden'); if(window.switchShoppingTab) window.switchShoppingTab('orders'); if(window.openShoppingOrderProgress && '${orderId}') window.openShoppingOrderProgress('${orderId}');">
-                <div style="background: #000; padding: 10px 12px; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
-                    <span><i class="fas fa-box" style="margin-right: 6px;"></i>订单分享</span>
-                    <span style="font-size: 12px; opacity: 0.8;">Møde.</span>
-                </div>
-                <div style="padding: 15px;">
-                    <div style="font-size: 16px; font-weight: bold; margin-bottom: 4px; color: #333;">${status}</div>
-                    <div style="font-size: 12px; color: #666; margin-bottom: 12px;">${eta}</div>
-                    
-                    <div style="position: relative; height: 4px; background: #f0f0f0; border-radius: 2px; margin-bottom: 12px;">
-                        <div style="position: absolute; top: 0; left: 0; height: 100%; background: #000; border-radius: 2px; width: ${step === 1 ? '33%' : (step === 2 ? '66%' : '100%')};"></div>
-                    </div>
 
-                    <div style="font-size: 13px; color: #333; border-top: 1px solid #f0f0f0; padding-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                        ${items}
-                    </div>
+        const status = String(progressData.status || '待发货');
+        const eta = progressData.eta || '';
+        const orderId = progressData.orderId;
+        const normalizedStatus = status.toLowerCase();
+
+        const pickTimelineValue = (...values) => {
+            for (const value of values) {
+                if (value === undefined || value === null || value === '') continue;
+                if (typeof value === 'string') {
+                    const str = value.trim();
+                    if (
+                        !str ||
+                        str === '--' ||
+                        str === '--:--' ||
+                        str.toLowerCase() === 'null' ||
+                        str.toLowerCase() === 'undefined'
+                    ) {
+                        continue;
+                    }
+                }
+                return value;
+            }
+            return null;
+        };
+
+        const parseTimelineTs = (value) => {
+            if (value === undefined || value === null || value === '') return null;
+            if (typeof value === 'number' && Number.isFinite(value)) return value;
+            const str = String(value).trim();
+            if (!str) return null;
+            if (/^\d+$/.test(str)) {
+                const n = Number(str);
+                if (Number.isFinite(n)) return n;
+            }
+            const ts = Date.parse(str);
+            if (!Number.isNaN(ts)) return ts;
+            return null;
+        };
+
+        const formatTimelineTime = (value, fallback = '--:--') => {
+            if (value === undefined || value === null || value === '') return fallback;
+
+            const ts = parseTimelineTs(value);
+            if (ts !== null) {
+                const d = new Date(ts);
+                if (Number.isNaN(d.getTime())) return fallback;
+                const hh = String(d.getHours()).padStart(2, '0');
+                const mm = String(d.getMinutes()).padStart(2, '0');
+
+                const now = new Date();
+                const sameDay =
+                    d.getFullYear() === now.getFullYear() &&
+                    d.getMonth() === now.getMonth() &&
+                    d.getDate() === now.getDate();
+
+                if (sameDay) return `${hh}:${mm}`;
+
+                const mon = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${mon}/${day} ${hh}:${mm}`;
+            }
+
+            const str = String(value).trim();
+            const hm = str.match(/(\d{1,2}:\d{2})/);
+            if (hm) return hm[1];
+            return fallback;
+        };
+
+        const getLinkedOrderMilestones = (linkedOrder) => {
+            if (!linkedOrder) return null;
+
+            if (typeof window.getShoppingOrderMilestones === 'function') {
+                try {
+                    const milestone = window.getShoppingOrderMilestones(linkedOrder);
+                    const orderTs = Number(milestone && milestone.orderTs);
+                    const shipTs = Number(milestone && milestone.shipTs);
+                    const deliverTs = Number(milestone && milestone.deliverTs);
+                    if (
+                        Number.isFinite(orderTs) &&
+                        Number.isFinite(shipTs) &&
+                        Number.isFinite(deliverTs) &&
+                        deliverTs > shipTs
+                    ) {
+                        return { orderTs, shipTs, deliverTs };
+                    }
+                } catch (err) {
+                    // Fallback to local derive logic below if shopping module helper is unavailable.
+                }
+            }
+
+            const orderTs = Number(linkedOrder.time) || Date.now();
+            const isDelivery = Array.isArray(linkedOrder.items) && linkedOrder.items.some(i => i && i.isDelivery);
+
+            const computeFallback = () => {
+                if (isDelivery) {
+                    return {
+                        orderTs,
+                        shipTs: orderTs + 15 * 60 * 1000,
+                        deliverTs: orderTs + 40 * 60 * 1000
+                    };
+                }
+                const d = new Date(orderTs);
+                const targetShipTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 0, 0, 0).getTime();
+                const endOfDayTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0).getTime();
+                const minShipTs = orderTs + 30 * 60 * 1000;
+                let shipTs = Math.max(targetShipTs, minShipTs);
+                if (shipTs > endOfDayTs) {
+                    shipTs = Math.max(orderTs + 5 * 60 * 1000, endOfDayTs);
+                }
+                return {
+                    orderTs,
+                    shipTs,
+                    deliverTs: shipTs + 2 * 24 * 60 * 60 * 1000
+                };
+            };
+
+            const fallback = computeFallback();
+            const shipTs = Number(linkedOrder.shipAt);
+            const deliverTs = Number(linkedOrder.deliverAt);
+            if (Number.isFinite(shipTs) && Number.isFinite(deliverTs) && deliverTs > shipTs) {
+                return { orderTs, shipTs, deliverTs };
+            }
+            return fallback;
+        };
+
+        const linkedOrder = (() => {
+            const list = window.iphoneSimState && Array.isArray(window.iphoneSimState.shoppingOrders)
+                ? window.iphoneSimState.shoppingOrders
+                : [];
+            const targetId = String(orderId || '');
+            if (!targetId) return null;
+            return list.find(o => String(o.id) === targetId) || null;
+        })();
+
+        const linkedMilestones = getLinkedOrderMilestones(linkedOrder);
+
+        const inferStepFromStatus = () => {
+            let result = 1;
+            if (
+                status.includes('已发货') ||
+                status.includes('配送中') ||
+                normalizedStatus.includes('picked up') ||
+                normalizedStatus.includes('shipped')
+            ) {
+                result = 2;
+            }
+            if (
+                status.includes('运输中') ||
+                status.includes('派送中') ||
+                status.includes('已送达') ||
+                status.includes('已完成') ||
+                normalizedStatus.includes('on delivery') ||
+                normalizedStatus.includes('out for delivery') ||
+                normalizedStatus.includes('delivered') ||
+                normalizedStatus.includes('completed')
+            ) {
+                result = 3;
+            }
+            return result;
+        };
+
+        const deriveStepFromMilestones = (shipTs, deliverTs, nowTs = Date.now()) => {
+            if (Number.isFinite(deliverTs) && nowTs >= deliverTs) return 3;
+            if (Number.isFinite(shipTs) && nowTs >= shipTs) return 2;
+            return 1;
+        };
+
+        const inferRegularShipTs = (orderTs) => {
+            const d = new Date(orderTs);
+            const targetShipTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 0, 0, 0).getTime();
+            const endOfDayTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0).getTime();
+            const minShipTs = orderTs + 30 * 60 * 1000;
+            let shipTs = Math.max(targetShipTs, minShipTs);
+            if (shipTs > endOfDayTs) {
+                shipTs = Math.max(orderTs + 5 * 60 * 1000, endOfDayTs);
+            }
+            return shipTs;
+        };
+
+        const inferDeliveryHint = (() => {
+            const raw = `${status} ${eta} ${progressData.items || ''}`;
+            const lower = raw.toLowerCase();
+            return (
+                /外卖|配送|骑手|送达/.test(raw) ||
+                lower.includes('delivery') ||
+                lower.includes('picked up') ||
+                lower.includes('on the way') ||
+                lower.includes('out for delivery')
+            );
+        })();
+
+        const inferMilestonesFromStatus = (statusStep) => {
+            const nowTs = Date.now();
+            if (inferDeliveryHint) {
+                if (statusStep >= 3) {
+                    const deliverTs = nowTs;
+                    const orderTs = deliverTs - 40 * 60 * 1000;
+                    return { orderTs, shipTs: orderTs + 15 * 60 * 1000, deliverTs };
+                }
+                if (statusStep === 2) {
+                    const shipTs = nowTs - 5 * 60 * 1000;
+                    const orderTs = shipTs - 15 * 60 * 1000;
+                    return { orderTs, shipTs, deliverTs: orderTs + 40 * 60 * 1000 };
+                }
+                const orderTs = nowTs;
+                return { orderTs, shipTs: orderTs + 15 * 60 * 1000, deliverTs: orderTs + 40 * 60 * 1000 };
+            }
+
+            if (statusStep >= 3) {
+                const deliverTs = nowTs;
+                const shipTs = deliverTs - 2 * 24 * 60 * 60 * 1000;
+                const orderTs = shipTs - 4 * 60 * 60 * 1000;
+                return { orderTs, shipTs, deliverTs };
+            }
+            if (statusStep === 2) {
+                const shipTs = nowTs - 2 * 60 * 60 * 1000;
+                const orderTs = shipTs - 4 * 60 * 60 * 1000;
+                return { orderTs, shipTs, deliverTs: shipTs + 2 * 24 * 60 * 60 * 1000 };
+            }
+            const orderTs = nowTs;
+            const shipTs = inferRegularShipTs(orderTs);
+            return { orderTs, shipTs, deliverTs: shipTs + 2 * 24 * 60 * 60 * 1000 };
+        };
+
+        const stepFromStatus = inferStepFromStatus();
+
+        const orderTsFromPayload = parseTimelineTs(
+            pickTimelineValue(progressData.orderTs, progressData.createdAt, linkedMilestones ? linkedMilestones.orderTs : null)
+        );
+        const shipTsFromPayload = parseTimelineTs(
+            pickTimelineValue(progressData.shipTs, progressData.shippedAt, linkedMilestones ? linkedMilestones.shipTs : null)
+        );
+        const deliverTsFromPayload = parseTimelineTs(
+            pickTimelineValue(progressData.deliverTs, progressData.deliveredAt, linkedMilestones ? linkedMilestones.deliverTs : null)
+        );
+
+        const orderTextFromPayload = pickTimelineValue(progressData.orderTime, progressData.timeOrdered);
+        const shipTextFromPayload = pickTimelineValue(progressData.shipTime, progressData.timeShipped);
+        const deliverTextFromPayload = pickTimelineValue(progressData.deliverTime, progressData.timeDelivered);
+
+        const hasAnyTimelineData =
+            orderTsFromPayload !== null ||
+            shipTsFromPayload !== null ||
+            deliverTsFromPayload !== null ||
+            !!orderTextFromPayload ||
+            !!shipTextFromPayload ||
+            !!deliverTextFromPayload;
+
+        const inferredMilestones = hasAnyTimelineData ? null : inferMilestonesFromStatus(stepFromStatus);
+
+        const finalOrderValue =
+            orderTsFromPayload !== null
+                ? orderTsFromPayload
+                : (inferredMilestones ? inferredMilestones.orderTs : null) || orderTextFromPayload;
+        const finalShipValue =
+            shipTsFromPayload !== null
+                ? shipTsFromPayload
+                : (inferredMilestones ? inferredMilestones.shipTs : null) || shipTextFromPayload;
+        const finalDeliverValue =
+            deliverTsFromPayload !== null
+                ? deliverTsFromPayload
+                : (inferredMilestones ? inferredMilestones.deliverTs : null) || deliverTextFromPayload;
+
+        let step = stepFromStatus;
+        const shipTsForStep = parseTimelineTs(finalShipValue);
+        const deliverTsForStep = parseTimelineTs(finalDeliverValue);
+        if (
+            Number.isFinite(shipTsForStep) &&
+            Number.isFinite(deliverTsForStep) &&
+            deliverTsForStep > shipTsForStep
+        ) {
+            step = deriveStepFromMilestones(shipTsForStep, deliverTsForStep);
+        }
+
+        const safeOrderId = String(orderId || '').replace(/'/g, "\\'");
+        const openOrderAction = safeOrderId
+            ? `if(window.openShoppingOrderProgress) window.openShoppingOrderProgress('${safeOrderId}');`
+            : '';
+
+        const orderTimeText = formatTimelineTime(finalOrderValue, '--:--');
+        const etaText = formatTimelineTime(eta, '--:--');
+        const shipTimeText = formatTimelineTime(finalShipValue, step >= 2 ? etaText : '--:--');
+        const deliverTimeText = formatTimelineTime(finalDeliverValue, step >= 3 ? etaText : '--:--');
+
+        contentHtml = `
+            <div class="order-share-card glass-card" onclick="document.getElementById('shopping-app').classList.remove('hidden'); if(window.switchShoppingTab) window.switchShoppingTab('orders'); ${openOrderAction}">
+                <div class="card-watermark">SYNC</div>
+                <div class="card-top" style="margin-bottom: 10px;">
+                    <div class="card-icon-box"><i class="fas fa-route"></i></div>
+                    <div class="card-tag">Track</div>
                 </div>
-                <div style="padding: 6px 12px; background: #f9f9f9; font-size: 11px; color: #999; text-align: right;">
-                    点击查看详情 <i class="fas fa-chevron-right" style="font-size: 10px;"></i>
+                <div class="steps">
+                    <div class="step ${step > 1 ? 'done' : ''} ${step === 1 ? 'active' : ''}">
+                        <div class="step-icon">${step > 1 ? '<i class="fas fa-check"></i>' : '1'}</div>
+                        <div class="step-text">下单</div>
+                        <div class="step-time">${orderTimeText}</div>
+                    </div>
+                    <div class="step ${step > 2 ? 'done' : ''} ${step === 2 ? 'active' : ''}">
+                        <div class="step-icon">${step > 2 ? '<i class="fas fa-check"></i>' : '2'}</div>
+                        <div class="step-text">发货</div>
+                        <div class="step-time">${shipTimeText}</div>
+                    </div>
+                    <div class="step ${step === 3 ? 'active' : ''}">
+                        <div class="step-icon">${step === 3 ? '<i class="fas fa-check"></i>' : '3'}</div>
+                        <div class="step-text">送达</div>
+                        <div class="step-time">${deliverTimeText}</div>
+                    </div>
                 </div>
             </div>
         `;
@@ -942,7 +1179,31 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             ${timeHtml}
         `;
     }
-    
+
+    // Robust fallback: some historical order cards may miss the progress steps block.
+    const orderCardInMsg = msgDiv.querySelector('.order-share-card');
+    if (orderCardInMsg && !orderCardInMsg.querySelector('.steps')) {
+        orderCardInMsg.insertAdjacentHTML('beforeend', `
+            <div class="steps">
+                <div class="step active">
+                    <div class="step-icon">1</div>
+                    <div class="step-text">下单</div>
+                    <div class="step-time">--:--</div>
+                </div>
+                <div class="step">
+                    <div class="step-icon">2</div>
+                    <div class="step-text">发货</div>
+                    <div class="step-time">--:--</div>
+                </div>
+                <div class="step">
+                    <div class="step-icon">3</div>
+                    <div class="step-text">送达</div>
+                    <div class="step-time">--:--</div>
+                </div>
+            </div>
+        `);
+    }
+
     // 在 msgDiv 构建完成后，检查并添加刷新按钮
     if (type === 'image' && !isUser && msgId) {
         const contentEl = msgDiv.querySelector('.message-content');

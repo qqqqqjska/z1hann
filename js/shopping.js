@@ -1362,6 +1362,132 @@ function ensureShoppingOrderList() {
     return window.iphoneSimState.shoppingOrders;
 }
 
+function isDeliveryShoppingOrder(order) {
+    return !!(order && Array.isArray(order.items) && order.items.some(i => i && i.isDelivery));
+}
+
+function computeShoppingOrderMilestones(orderTime, isDelivery) {
+    const orderTs = Number(orderTime) || Date.now();
+
+    if (isDelivery) {
+        // Real-world-ish takeaway: picked up in ~15min, delivered in ~40min.
+        return {
+            orderTs,
+            shipTs: orderTs + 15 * 60 * 1000,
+            deliverTs: orderTs + 40 * 60 * 1000
+        };
+    }
+
+    // Regular shopping: shipped the same day, delivered 2 days later.
+    const d = new Date(orderTs);
+    const targetShipTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 0, 0, 0).getTime();
+    const endOfDayTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0).getTime();
+    const minShipTs = orderTs + 30 * 60 * 1000;
+    let shipTs = Math.max(targetShipTs, minShipTs);
+    if (shipTs > endOfDayTs) {
+        shipTs = Math.max(orderTs + 5 * 60 * 1000, endOfDayTs);
+    }
+
+    return {
+        orderTs,
+        shipTs,
+        deliverTs: shipTs + 2 * 24 * 60 * 60 * 1000
+    };
+}
+
+function normalizeShoppingOrderTimeline(order) {
+    if (!order) return false;
+    const isDelivery = isDeliveryShoppingOrder(order);
+    const fallback = computeShoppingOrderMilestones(order.time, isDelivery);
+    let changed = false;
+
+    const hasValidMilestones =
+        Number.isFinite(Number(order.shipAt)) &&
+        Number.isFinite(Number(order.deliverAt)) &&
+        Number(order.deliverAt) > Number(order.shipAt);
+
+    // v2 timeline: deterministic real-time milestones
+    if (!hasValidMilestones || !order.timelineVersion || Number(order.timelineVersion) < 2) {
+        order.shipAt = fallback.shipTs;
+        order.deliverAt = fallback.deliverTs;
+        order.timelineVersion = 2;
+        changed = true;
+    }
+
+    const baseOrderTs = Number(order.time) || fallback.orderTs;
+    const expectedShipDelay = Math.max(0, Number(order.shipAt) - baseOrderTs);
+    const expectedDeliverDelay = Math.max(0, Number(order.deliverAt) - baseOrderTs);
+
+    if (Number(order.shipDelay) !== expectedShipDelay) {
+        order.shipDelay = expectedShipDelay;
+        changed = true;
+    }
+    if (Number(order.deliverDelay) !== expectedDeliverDelay) {
+        order.deliverDelay = expectedDeliverDelay;
+        changed = true;
+    }
+
+    return changed;
+}
+
+function getShoppingOrderMilestones(order) {
+    if (!order) {
+        const now = Date.now();
+        return { orderTs: now, shipTs: now, deliverTs: now, isDelivery: false };
+    }
+    normalizeShoppingOrderTimeline(order);
+    return {
+        orderTs: Number(order.time) || Date.now(),
+        shipTs: Number(order.shipAt),
+        deliverTs: Number(order.deliverAt),
+        isDelivery: isDeliveryShoppingOrder(order)
+    };
+}
+
+function deriveShoppingOrderStatus(order, nowTs = Date.now()) {
+    const { shipTs, deliverTs } = getShoppingOrderMilestones(order);
+    if (nowTs < shipTs) return '待发货';
+    if (nowTs < deliverTs) return '已发货';
+    return '已完成';
+}
+
+function formatShoppingHm(ts) {
+    const d = new Date(Number(ts) || Date.now());
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatShoppingTimelineLabel(ts, anchorTs) {
+    const d = new Date(Number(ts) || Date.now());
+    if (Number.isNaN(d.getTime())) return '--:--';
+
+    const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    if (!Number.isFinite(Number(anchorTs))) return hhmm;
+
+    const anchor = new Date(Number(anchorTs));
+    if (Number.isNaN(anchor.getTime())) return hhmm;
+
+    const sameDay =
+        d.getFullYear() === anchor.getFullYear() &&
+        d.getMonth() === anchor.getMonth() &&
+        d.getDate() === anchor.getDate();
+
+    if (sameDay) return hhmm;
+
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${m}/${day} ${hhmm}`;
+}
+
+function formatShoppingDateTime(ts) {
+    const d = new Date(Number(ts) || Date.now());
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day} ${hh}:${mm}`;
+}
+
 function buildShoppingOrderItems(items, multiplier = 1) {
     const safeMultiplier = Number.isFinite(Number(multiplier)) && Number(multiplier) > 0 ? Number(multiplier) : 1;
     return (items || []).map(item => ({
@@ -1374,6 +1500,10 @@ function buildShoppingOrderItems(items, multiplier = 1) {
         shop_name: item.shop_name
     }));
 }
+
+window.computeShoppingOrderMilestones = computeShoppingOrderMilestones;
+window.getShoppingOrderMilestones = getShoppingOrderMilestones;
+window.deriveShoppingOrderStatus = deriveShoppingOrderStatus;
 
 function createShoppingOrderFromPayment(items, options = {}) {
     const relatedId = options.relatedId || (Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5));
@@ -1390,7 +1520,8 @@ function createShoppingOrderFromPayment(items, options = {}) {
         items: orderItems,
         total: totalStr,
         time: Date.now(),
-        status: '待发货'
+        status: '待发货',
+        timelineVersion: 2
     };
 
     const recipientNames = Array.isArray(options.recipientNames)
@@ -1401,15 +1532,11 @@ function createShoppingOrderFromPayment(items, options = {}) {
         newOrder.giftRecipients = recipientNames;
     }
 
-    const hasDelivery = orderItems.some(item => item.isDelivery);
-    const hour = 3600000;
-    if (hasDelivery) {
-        newOrder.shipDelay = Math.floor(5 * 60000 + Math.random() * (5 * 60000));
-        newOrder.deliverDelay = Math.floor(30 * 60000 + Math.random() * (10 * 60000));
-    } else {
-        newOrder.shipDelay = Math.floor(2 * hour + Math.random() * (22 * hour));
-        newOrder.deliverDelay = Math.floor(48 * hour + Math.random() * (24 * hour));
-    }
+    const milestones = computeShoppingOrderMilestones(newOrder.time, orderItems.some(item => item.isDelivery));
+    newOrder.shipAt = milestones.shipTs;
+    newOrder.deliverAt = milestones.deliverTs;
+    newOrder.shipDelay = milestones.shipTs - milestones.orderTs;
+    newOrder.deliverDelay = milestones.deliverTs - milestones.orderTs;
 
     ensureShoppingOrderList().unshift(newOrder);
     return newOrder;
@@ -1882,47 +2009,25 @@ function updateShoppingOrderStatuses() {
 
     let hasChanges = false;
     const now = Date.now();
-    const hour = 3600000;
 
     window.iphoneSimState.shoppingOrders.forEach(order => {
-        let isDeliveryOrder = order.items && order.items.some(i => i.isDelivery);
-
-        if (isDeliveryOrder) {
-             if (!order.shipDelay || order.shipDelay > 2 * 3600000) {
-                 order.shipDelay = Math.floor(5 * 60000 + Math.random() * (5 * 60000));
-                 hasChanges = true;
-             }
-             if (!order.deliverDelay || order.deliverDelay > 3 * 3600000) {
-                 order.deliverDelay = Math.floor(30 * 60000 + Math.random() * (10 * 60000));
-                 hasChanges = true;
-             }
-        } else {
-             if (!order.shipDelay) {
-                 order.shipDelay = Math.floor(2 * hour + Math.random() * (22 * hour)); 
-                 hasChanges = true; 
-             }
-             if (!order.deliverDelay) {
-                order.deliverDelay = Math.floor(48 * hour + Math.random() * (24 * hour));
-                hasChanges = true;
-             }
-        }
-
-        const elapsed = now - order.time;
-        
-        if (order.status === '待发货' && elapsed > order.shipDelay) {
-            order.status = '已发货';
+        if (normalizeShoppingOrderTimeline(order)) {
             hasChanges = true;
         }
-        
-        if (order.status === '已发货' && elapsed > order.deliverDelay) {
-            order.status = '已完成';
+
+        const prevStatus = String(order.status || '');
+        const nextStatus = deriveShoppingOrderStatus(order, now);
+        if (prevStatus !== nextStatus) {
+            order.status = nextStatus;
             hasChanges = true;
-            
-            const isDelivery = order.items && order.items.some(i => i.isDelivery);
-            if (isDelivery) {
-                showOrderNotification('外卖已送达', '您的外卖已准时送达，祝您用餐愉快');
-            } else {
-                showOrderNotification('商品已送达', '您的快递已送达，请及时查收');
+
+            if (prevStatus !== '已完成' && nextStatus === '已完成') {
+                const isDelivery = isDeliveryShoppingOrder(order);
+                if (isDelivery) {
+                    showOrderNotification('外卖已送达', '您的外卖已准时送达，祝您用餐愉快');
+                } else {
+                    showOrderNotification('商品已送达', '您的快递已送达，请及时查收');
+                }
             }
         }
     });
@@ -1932,6 +2037,16 @@ function updateShoppingOrderStatuses() {
         const currentTab = document.querySelector('#shopping-app .nav-item.active');
         if (currentTab && currentTab.dataset.tab === 'orders') {
             renderShoppingOrders();
+        }
+        const chatScreen = document.getElementById('chat-screen');
+        if (
+            chatScreen &&
+            !chatScreen.classList.contains('hidden') &&
+            window.iphoneSimState &&
+            window.iphoneSimState.currentChatContactId &&
+            typeof window.renderChatHistory === 'function'
+        ) {
+            window.renderChatHistory(window.iphoneSimState.currentChatContactId);
         }
     }
 }
@@ -2012,49 +2127,33 @@ function renderShoppingOrders() {
         return;
     }
 
-    const formatTime = (ts) => {
-        const d = new Date(ts);
-        return `${d.getHours()}:${d.getMinutes().toString().padStart(2,'0')}`;
-    };
-
     orders.forEach(order => {
-        const isDelivery = order.items && order.items.some(i => i.isDelivery);
+        const { orderTs, shipTs, deliverTs, isDelivery } = getShoppingOrderMilestones(order);
+        const currentStatus = deriveShoppingOrderStatus(order, Date.now());
         const icon = isDelivery ? '🍔' : '📦';
         const storeName = isDelivery ? (order.items[0].shop_name || '外卖商家') : (order.items[0].shop_name || '购物商家');
         const itemsText = order.items.map(i => i.title).join(', ');
         
         let badgeClass = 'shopping-status-done';
         let statusText = 'DELIVERED';
+        const step2Label = isDelivery ? 'Pickup' : 'Shipped';
         
-        if (order.status === '待发货') {
+        if (currentStatus === '待发货') {
             badgeClass = 'shopping-status-active';
             statusText = 'PREPARING';
-        } else if (order.status === '已发货') {
+        } else if (currentStatus === '已发货') {
             badgeClass = 'shopping-status-active';
-            statusText = 'ON DELIVERY';
-        } else if (order.status === '已完成') {
+            statusText = isDelivery ? 'ON THE WAY' : 'SHIPPED';
+        } else if (currentStatus === '已完成') {
             statusText = 'DELIVERED';
-        } else {
-            statusText = order.status;
         }
 
-        // Calculate approximate times for display
-        const timeOrdered = formatTime(order.time);
-        
-        // Prep time ~ 20-30 mins after order
-        const prepTimeTs = order.time + (25 * 60 * 1000);
-        const timePrepared = formatTime(prepTimeTs);
-        
-        // Ship time
-        const shipTimeTs = order.time + (order.shipDelay || 3600000);
-        const timeShipped = formatTime(shipTimeTs);
-        
-        // Deliver time
-        const deliverTimeTs = order.time + (order.deliverDelay || 7200000);
-        const timeDelivered = formatTime(deliverTimeTs);
+        const timeOrdered = formatShoppingTimelineLabel(orderTs, orderTs);
+        const timeShipped = formatShoppingTimelineLabel(shipTs, orderTs);
+        const timeDelivered = formatShoppingTimelineLabel(deliverTs, orderTs);
         
         let tlHtml = '';
-        if (order.status === '待发货') {
+        if (currentStatus === '待发货') {
             tlHtml = `
                 <div class="shopping-timeline-item">
                     <div class="shopping-tl-dot active"></div>
@@ -2062,17 +2161,17 @@ function renderShoppingOrders() {
                     <span class="shopping-tl-time">${timeOrdered}</span>
                 </div>
                 <div class="shopping-timeline-item">
-                    <div class="shopping-tl-dot active pulse"></div>
-                    <span class="shopping-tl-label">Preparing</span>
-                    <span class="shopping-tl-time">~ ${timePrepared}</span>
+                    <div class="shopping-tl-dot pulse"></div>
+                    <span class="shopping-tl-label">${step2Label}</span>
+                    <span class="shopping-tl-time">~ ${timeShipped}</span>
                 </div>
                 <div class="shopping-timeline-item">
                     <div class="shopping-tl-dot"></div>
-                    <span class="shopping-tl-label">Shipped</span>
-                    <span class="shopping-tl-time" style="opacity:0.5">~ ${timeShipped}</span>
+                    <span class="shopping-tl-label">Delivered</span>
+                    <span class="shopping-tl-time" style="opacity:0.5">~ ${timeDelivered}</span>
                 </div>
             `;
-        } else if (order.status === '已发货') {
+        } else if (currentStatus === '已发货') {
              tlHtml = `
                 <div class="shopping-timeline-item">
                     <div class="shopping-tl-dot active"></div>
@@ -2081,7 +2180,7 @@ function renderShoppingOrders() {
                 </div>
                 <div class="shopping-timeline-item">
                     <div class="shopping-tl-dot active"></div>
-                    <span class="shopping-tl-label">Shipped</span>
+                    <span class="shopping-tl-label">${step2Label}</span>
                     <span class="shopping-tl-time">${timeShipped}</span>
                 </div>
                 <div class="shopping-timeline-item">
@@ -2099,7 +2198,7 @@ function renderShoppingOrders() {
                 </div>
                 <div class="shopping-timeline-item">
                     <div class="shopping-tl-dot active"></div>
-                    <span class="shopping-tl-label">Shipped</span>
+                    <span class="shopping-tl-label">${step2Label}</span>
                     <span class="shopping-tl-time">${timeShipped}</span>
                 </div>
                 <div class="shopping-timeline-item">
@@ -2163,17 +2262,26 @@ window.openShoppingOrderProgress = function(orderId) {
     const shareBtn = document.getElementById('shopping-progress-share-btn');
     
     // Generate card HTML reuse
-    const isDelivery = order.items && order.items.some(i => i.isDelivery);
+    const { orderTs, shipTs, deliverTs, isDelivery } = getShoppingOrderMilestones(order);
+    const currentStatus = deriveShoppingOrderStatus(order, Date.now());
     const icon = isDelivery ? '🍔' : '📦';
     const storeName = isDelivery ? (order.items[0].shop_name || '外卖商家') : (order.items[0].shop_name || '购物商家');
     const itemsText = order.items.map(i => `${i.title} x${i.count}`).join('<br>');
     
-    // Timeline reuse (simplified for modal)
-    let statusText = order.status;
+    // Timeline reuse (real-time milestones)
+    let statusText = currentStatus;
     let eta = '未知';
-    if (order.status === '待发货') eta = '预计明天发货';
-    if (order.status === '已发货') eta = '预计2天内送达';
-    if (order.status === '已完成') eta = '已送达';
+    if (currentStatus === '待发货') {
+        eta = isDelivery
+            ? `预计 ${formatShoppingHm(deliverTs)} 送达`
+            : `预计 ${formatShoppingDateTime(shipTs)} 发货`;
+    } else if (currentStatus === '已发货') {
+        eta = isDelivery
+            ? `预计 ${formatShoppingHm(deliverTs)} 送达`
+            : `预计 ${formatShoppingDateTime(deliverTs)} 送达`;
+    } else if (currentStatus === '已完成') {
+        eta = `已于 ${formatShoppingDateTime(deliverTs)} 送达`;
+    }
 
     contentEl.innerHTML = `
         <div style="background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
@@ -2181,7 +2289,7 @@ window.openShoppingOrderProgress = function(orderId) {
                 <div style="font-size: 24px;">${icon}</div>
                 <div>
                     <div style="font-weight: bold; font-size: 16px;">${storeName}</div>
-                    <div style="font-size: 12px; color: #999;">${new Date(order.time).toLocaleString()}</div>
+                    <div style="font-size: 12px; color: #999;">${formatShoppingDateTime(orderTs)}</div>
                 </div>
             </div>
             <div style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 10px; font-size: 14px; color: #333; line-height: 1.5;">
@@ -2195,6 +2303,11 @@ window.openShoppingOrderProgress = function(orderId) {
         <div style="background: #fff; border-radius: 12px; padding: 20px;">
             <div style="font-weight: bold; margin-bottom: 10px;">当前状态: ${statusText}</div>
             <div style="color: #666; font-size: 14px;">${eta}</div>
+            <div style="margin-top: 12px; font-size: 13px; color: #555; line-height: 1.6;">
+                <div>下单时间：${formatShoppingDateTime(orderTs)}</div>
+                <div>发货时间：${formatShoppingDateTime(shipTs)}</div>
+                <div>送达时间：${formatShoppingDateTime(deliverTs)}</div>
+            </div>
         </div>
     `;
 
@@ -2221,6 +2334,8 @@ function openShoppingProgressSharePicker(order, eta) {
         sendBtn.textContent = '发送';
         const newSendBtn = sendBtn.cloneNode(true);
         sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
+
+        const formatShareTime = (ts, anchorTs) => formatShoppingTimelineLabel(ts, anchorTs);
         
         newSendBtn.onclick = () => {
             const selectedContact = list.querySelectorAll('input[type="checkbox"]:checked');
@@ -2228,12 +2343,20 @@ function openShoppingProgressSharePicker(order, eta) {
             
             if (ids.length > 0) {
                 ids.forEach(id => {
+                    const { orderTs, shipTs, deliverTs } = getShoppingOrderMilestones(order);
+                    const liveStatus = deriveShoppingOrderStatus(order, Date.now());
                     const msgData = {
                         type: 'order_share',
                         orderId: order.id,
-                        status: order.status,
+                        status: liveStatus,
                         eta: eta,
-                        items: order.items.map(i => i.title).join(', ')
+                        items: order.items.map(i => i.title).join(', '),
+                        orderTime: formatShareTime(orderTs, orderTs),
+                        shipTime: formatShareTime(shipTs, orderTs),
+                        deliverTime: formatShareTime(deliverTs, orderTs),
+                        orderTs: orderTs,
+                        shipTs: shipTs,
+                        deliverTs: deliverTs
                     };
                     if (typeof sendMessage !== 'undefined') sendMessage(JSON.stringify(msgData), true, 'order_share', null, id);
                 });
@@ -2953,7 +3076,7 @@ function handleSuccess(type, productId) {
         
         // Add to orders
         if (!window.iphoneSimState.shoppingOrders) window.iphoneSimState.shoppingOrders = [];
-        window.iphoneSimState.shoppingOrders.unshift({
+        const bargainOrder = {
             id: 'bargain_' + Date.now(),
             items: [{
                 title: data.title,
@@ -2964,9 +3087,14 @@ function handleSuccess(type, productId) {
             total: '0.00',
             time: Date.now(),
             status: '待发货',
-            shipDelay: 3600000,
-            deliverDelay: 86400000
-        });
+            timelineVersion: 2
+        };
+        const milestones = computeShoppingOrderMilestones(bargainOrder.time, false);
+        bargainOrder.shipAt = milestones.shipTs;
+        bargainOrder.deliverAt = milestones.deliverTs;
+        bargainOrder.shipDelay = milestones.shipTs - milestones.orderTs;
+        bargainOrder.deliverDelay = milestones.deliverTs - milestones.orderTs;
+        window.iphoneSimState.shoppingOrders.unshift(bargainOrder);
         saveConfig();
         
         let modal = document.getElementById('pdd-bargain-modal');

@@ -307,6 +307,31 @@ function handleAppClick(appId, appName) {
     const screen = document.getElementById(appId);
     if (screen) {
         screen.classList.remove('hidden');
+        if (appId === 'wechat-app') {
+            const chatScreen = document.getElementById('chat-screen');
+            if (chatScreen) chatScreen.classList.add('hidden');
+
+            const tabItems = screen.querySelectorAll('.wechat-tab-item');
+            tabItems.forEach(item => item.classList.remove('active'));
+            const contactsTab = screen.querySelector('.wechat-tab-item[data-tab="contacts"]');
+            if (contactsTab) contactsTab.classList.add('active');
+
+            const tabContents = screen.querySelectorAll('.wechat-tab-content');
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+                content.classList.remove('fade-out');
+                content.style.opacity = '';
+            });
+            const contactsContent = document.getElementById('wechat-tab-contacts');
+            if (contactsContent) contactsContent.classList.add('active');
+
+            if (window.updateWechatHeader) {
+                window.updateWechatHeader('contacts');
+            }
+            if (window.renderContactList && window.iphoneSimState) {
+                window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
+            }
+        }
         if (appId === 'bank-app' && window.initBankAppView) {
             window.initBankAppView();
         }

@@ -2922,6 +2922,14 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
 
     const btn = event.currentTarget;
     const icon = btn.querySelector('i');
+    const getIdleIconClass = () => {
+        if (!icon) return 'ri-play-fill';
+        return icon.dataset.idleClass || 'ri-play-fill';
+    };
+    const getPlayingIconClass = () => {
+        if (!icon) return 'ri-play-fill voice-playing-anim';
+        return icon.dataset.playingClass || 'ri-play-fill voice-playing-anim';
+    };
 
     if (currentVoiceMsgId === msgId && currentVoiceAudio && !currentVoiceAudio.paused) {
         return;
@@ -2936,7 +2944,8 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
         currentVoiceAudio = null;
         currentVoiceMsgId = null;
         if (currentVoiceIcon) {
-            currentVoiceIcon.className = 'fas fa-rss';
+            const idleCls = currentVoiceIcon.dataset.idleClass || 'ri-play-fill';
+            currentVoiceIcon.className = idleCls;
             currentVoiceIcon = null;
         }
     }
@@ -2981,13 +2990,13 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
                 saveConfig();
             } else {
                 alert('语音生成失败，请检查API配置');
-                if (icon) icon.className = 'fas fa-rss';
+                if (icon) icon.className = getIdleIconClass();
                 return;
             }
         } catch (e) {
             console.error('TTS generation error:', e);
             alert('语音生成出错');
-            if (icon) icon.className = 'fas fa-rss';
+            if (icon) icon.className = getIdleIconClass();
             return;
         }
     }
@@ -2996,7 +3005,7 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
         // 验证音频数据格式
         if (!msgData.audio.startsWith('data:audio/')) {
             console.error('Invalid audio data format');
-            if (icon) icon.className = 'fas fa-rss';
+            if (icon) icon.className = getIdleIconClass();
             alert('音频格式错误，请重新录制');
             return;
         }
@@ -3007,13 +3016,13 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
             currentVoiceMsgId = msgId;
             
             if (icon) {
-                icon.className = 'fas fa-rss voice-playing-anim';
+                icon.className = getPlayingIconClass();
                 currentVoiceIcon = icon;
             }
             
             audio.onended = () => {
                 if (icon) {
-                    icon.className = 'fas fa-rss';
+                    icon.className = getIdleIconClass();
                 }
                 if (currentVoiceMsgId === msgId) {
                     currentVoiceAudio = null;
@@ -3024,7 +3033,7 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
             
             audio.onerror = (e) => {
                 console.error('Audio play error', e, 'Audio src length:', msgData.audio ? msgData.audio.length : 0);
-                if (icon) icon.className = 'fas fa-rss';
+                if (icon) icon.className = getIdleIconClass();
                 
                 // 更友好的错误提示
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -3052,7 +3061,7 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
             
             audio.play().catch(err => {
                 console.error('Play error:', err);
-                if (icon) icon.className = 'fas fa-rss';
+                if (icon) icon.className = getIdleIconClass();
                 
                 // 更详细的错误信息
                 let errorMsg = '播放失败';
@@ -3078,11 +3087,11 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
             });
         } catch (err) {
             console.error('Audio creation error:', err);
-            if (icon) icon.className = 'fas fa-rss';
+            if (icon) icon.className = getIdleIconClass();
             alert('音频初始化失败');
         }
     } else {
-        if (icon) icon.className = 'fas fa-rss';
+        if (icon) icon.className = getIdleIconClass();
         alert('该消息没有音频数据。');
     }
 };
@@ -3460,7 +3469,7 @@ function handleSaveEditedChatMessage() {
 
 // 初始化监听器
 function openAiMoments() {
-    const momentsTab = document.querySelector('.wechat-tab-item[data-tab="moments"]');
+    const momentsTab = document.querySelector('#wechat-app .wechat-tab-item[data-tab="moments"]');
     if (momentsTab) {
         momentsTab.click();
         return;
@@ -3476,13 +3485,13 @@ function setupChatListeners() {
     
     wechatTabs.forEach(tab => {
         tab.addEventListener('click', () => {
-            const currentActiveTab = document.querySelector('.wechat-tab-item.active');
+            const currentActiveTab = document.querySelector('#wechat-app .wechat-tab-item.active');
             if (currentActiveTab === tab) return;
 
-            const currentContent = document.querySelector('.wechat-tab-content.active');
+            const currentContent = document.querySelector('#wechat-app .wechat-tab-content.active');
             const tabName = tab.dataset.tab;
             const nextContent = document.getElementById(`wechat-tab-${tabName}`);
-            const header = document.querySelector('.wechat-header');
+            const header = document.querySelector('#wechat-app .wechat-header');
 
             wechatTabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
@@ -4211,7 +4220,7 @@ function setupChatListeners() {
 }
 
 function updateWechatHeader(tab) {
-    const header = document.querySelector('.wechat-header');
+    const header = document.querySelector('#wechat-app .wechat-header');
     if (!header) return;
 
     const title = header.querySelector('.wechat-title');
@@ -4293,7 +4302,7 @@ function updateWechatHeader(tab) {
             backBtn.className = 'wechat-icon-btn';
             backBtn.innerHTML = '<i class="fas fa-chevron-left"></i>';
             const goBack = () => {
-                const contactsTab = document.querySelector('.wechat-tab-item[data-tab="contacts"]');
+                const contactsTab = document.querySelector('#wechat-app .wechat-tab-item[data-tab="contacts"]');
                 if (contactsTab) contactsTab.click();
             };
             backBtn.onclick = goBack;

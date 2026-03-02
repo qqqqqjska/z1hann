@@ -833,6 +833,29 @@ function renderContactList(filterGroup = 'all') {
     }
 }
 
+function applyChatDisplayPreferences(contactOrId = null) {
+    const chatScreen = document.getElementById('chat-screen');
+    if (!chatScreen) return;
+
+    let contact = null;
+    if (contactOrId && typeof contactOrId === 'object') {
+        contact = contactOrId;
+    } else {
+        const targetId = contactOrId || window.iphoneSimState.currentChatContactId;
+        if (targetId !== undefined && targetId !== null) {
+            contact = (window.iphoneSimState.contacts || []).find(c => c.id === targetId);
+        }
+    }
+
+    const showAvatar = contact ? (contact.showAvatar !== false) : true;
+    const showTimestamp = contact ? (contact.showTimestamp !== false) : true;
+
+    chatScreen.classList.toggle('hide-chat-avatar', !showAvatar);
+    chatScreen.classList.toggle('hide-chat-timestamp', !showTimestamp);
+}
+
+window.applyChatDisplayPreferences = applyChatDisplayPreferences;
+
 function openChat(contactId) {
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return;
@@ -869,6 +892,8 @@ function openChat(contactId) {
     if (chatBody) {
         chatBody.style.fontSize = (contact.chatFontSize || 16) + 'px';
     }
+
+    applyChatDisplayPreferences(contact);
     
     chatScreen.classList.remove('hidden');
     
@@ -1272,6 +1297,16 @@ function openChatSettings() {
                 chatBody.style.fontSize = `${size}px`;
             }
         };
+    }
+
+    const showAvatarToggle = document.getElementById('chat-setting-show-avatar');
+    if (showAvatarToggle) {
+        showAvatarToggle.checked = contact.showAvatar !== false;
+    }
+
+    const showTimestampToggle = document.getElementById('chat-setting-show-timestamp');
+    if (showTimestampToggle) {
+        showTimestampToggle.checked = contact.showTimestamp !== false;
     }
 
     const userPersonaSelect = document.getElementById('chat-setting-user-persona');
@@ -1785,6 +1820,8 @@ function handleSaveChatSettings() {
     const myAvatarInput = document.getElementById('chat-setting-my-avatar');
     const customCss = document.getElementById('chat-setting-custom-css').value;
     const fontSize = document.getElementById('chat-font-size-slider') ? parseInt(document.getElementById('chat-font-size-slider').value) : 16;
+    const showAvatar = document.getElementById('chat-setting-show-avatar') ? document.getElementById('chat-setting-show-avatar').checked : true;
+    const showTimestamp = document.getElementById('chat-setting-show-timestamp') ? document.getElementById('chat-setting-show-timestamp').checked : true;
     const intervalMin = document.getElementById('chat-setting-interval-min').value;
     const intervalMax = document.getElementById('chat-setting-interval-max').value;
     const activeReplyEnabled = document.getElementById('chat-setting-active-reply').checked;
@@ -1825,6 +1862,8 @@ function handleSaveChatSettings() {
     }
     contact.customCss = customCss;
     contact.chatFontSize = fontSize;
+    contact.showAvatar = showAvatar;
+    contact.showTimestamp = showTimestamp;
     contact.replyIntervalMin = intervalMin ? parseInt(intervalMin) : null;
     contact.replyIntervalMax = intervalMax ? parseInt(intervalMax) : null;
     contact.activeReplyEnabled = activeReplyEnabled;
@@ -1928,6 +1967,8 @@ function handleSaveChatSettings() {
         if (chatBody) {
             chatBody.style.fontSize = (contact.chatFontSize || 16) + 'px';
         }
+
+        applyChatDisplayPreferences(contact);
 
         document.getElementById('chat-settings-screen').classList.add('hidden');
     });

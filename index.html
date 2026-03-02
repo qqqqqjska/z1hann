@@ -42,6 +42,7 @@
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/bold/style.css">
     <link rel="stylesheet" href="css/remixicon.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
+    <link rel="stylesheet" href="css/chat_ui_v1_overrides.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -958,6 +959,24 @@
                                         <span id="chat-font-size-value">16px</span>
                                     </div>
                                     <input type="range" id="chat-font-size-slider" min="12" max="30" step="1" value="16" style="width: 100%;">
+                                </div>
+                            </div>
+                            <div class="list-item">
+                                <div class="list-content">
+                                    <label>头像显示</label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="chat-setting-show-avatar" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="list-item">
+                                <div class="list-content">
+                                    <label>时间戳显示</label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="chat-setting-show-timestamp" checked>
+                                        <span class="slider"></span>
+                                    </label>
                                 </div>
                             </div>
                             <div class="list-item">
