@@ -50,7 +50,7 @@
 #chat-screen #chat-messages.chat-body {
     position: absolute;
     inset: 0;
-    padding: 100px 15px calc(102px + env(safe-area-inset-bottom, 0px)) 15px !important;
+    padding: 100px 15px calc(80px + env(safe-area-inset-bottom, 0px)) 15px !important;
     overflow-y: auto;
     scroll-behavior: smooth;
 }
@@ -84,16 +84,16 @@
 }
 
 #chat-screen .chat-message.other .message-content:not(.no-bubble):not(.voice-msg):not(.sticker-msg):not(.image-msg):not(.virtual-image-msg):not(.description-msg):not(.transfer-msg):not(.gift-card-msg):not(.shopping-gift-msg):not(.delivery-share-msg):not(.order-progress-msg) {
-    background: var(--v1-bubble-received) !important;
-    color: var(--v1-text-primary) !important;
-    border-bottom-left-radius: 4px !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    background: var(--v1-bubble-received);
+    color: var(--v1-text-primary);
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 #chat-screen .chat-message.user .message-content:not(.no-bubble):not(.voice-msg):not(.sticker-msg):not(.image-msg):not(.virtual-image-msg):not(.description-msg):not(.transfer-msg):not(.gift-card-msg):not(.shopping-gift-msg):not(.delivery-share-msg):not(.order-progress-msg) {
-    background: var(--v1-bubble-sent) !important;
-    color: var(--v1-text-sent) !important;
-    border-bottom-right-radius: 4px !important;
+    background: var(--v1-bubble-sent);
+    color: var(--v1-text-sent);
+    border-bottom-right-radius: 4px;
 }
 
 #chat-screen .chat-message .message-content.no-bubble,

@@ -883,7 +883,7 @@ function openChat(contactId) {
         const style = document.createElement('style');
         style.id = 'chat-custom-css';
         // Scope CSS to chat screen to prevent affecting settings page
-        style.textContent = `#chat-screen { ${contact.customCss} }`;
+        style.textContent = `#chat-screen#chat-screen#chat-screen { ${contact.customCss} }`;
         document.head.appendChild(style);
     }
 
@@ -1958,7 +1958,7 @@ function handleSaveChatSettings() {
             const style = document.createElement('style');
             style.id = 'chat-custom-css';
             // Scope CSS to chat screen to prevent affecting settings page
-            style.textContent = `#chat-screen { ${contact.customCss} }`;
+            style.textContent = `#chat-screen#chat-screen#chat-screen { ${contact.customCss} }`;
             document.head.appendChild(style);
         }
 
