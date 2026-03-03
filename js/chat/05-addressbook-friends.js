@@ -332,6 +332,10 @@ async function handleAcceptFriend(req, remark) {
         activeReplyEnabled: false,
         autoItineraryEnabled: false,
         userPerception: [],
+        thoughtDisplayMode: 'title',
+        thoughtPetImage: '',
+        thoughtPetSize: 88,
+        thoughtPetPosition: { xRatio: 0.86, yRatio: 0.72 },
         group: 'iCity', // Automatically group
         source: 'icity'
     };

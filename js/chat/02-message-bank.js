@@ -1,4 +1,271 @@
-﻿function renderChatHistory(contactId, preserveScroll = false) {
+﻿const DEFAULT_THOUGHT_PET_SIZE = 88;
+const MIN_THOUGHT_PET_SIZE = 52;
+const MAX_THOUGHT_PET_SIZE = 140;
+const DEFAULT_THOUGHT_PET_POSITION = { xRatio: 0.86, yRatio: 0.72 };
+const THOUGHT_PET_DRAG_THRESHOLD = 6;
+const DEFAULT_THOUGHT_PET_IMAGE = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none">
+  <ellipse cx="82" cy="142" rx="36" ry="10" fill="rgba(0,0,0,0.15)"/>
+  <path d="M32 56c0-18 14-32 32-32h34c18 0 32 14 32 32v44c0 22-18 40-40 40H70c-22 0-40-18-40-40V56z" fill="#fff5df" stroke="#2a2a2a" stroke-width="4"/>
+  <path d="M54 28l12 18-20 2 8-20zM108 28l-8 20-20-2 12-18z" fill="#fff5df" stroke="#2a2a2a" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="65" cy="76" r="6" fill="#2a2a2a"/>
+  <circle cx="95" cy="76" r="6" fill="#2a2a2a"/>
+  <path d="M73 92c3 4 11 4 14 0" stroke="#2a2a2a" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="54" cy="92" r="6" fill="#ffb7b7" fill-opacity="0.65"/>
+  <circle cx="106" cy="92" r="6" fill="#ffb7b7" fill-opacity="0.65"/>
+</svg>
+`)}`;
+
+window.DEFAULT_THOUGHT_PET_IMAGE = window.DEFAULT_THOUGHT_PET_IMAGE || DEFAULT_THOUGHT_PET_IMAGE;
+window.DEFAULT_THOUGHT_PET_SIZE = DEFAULT_THOUGHT_PET_SIZE;
+window.MIN_THOUGHT_PET_SIZE = MIN_THOUGHT_PET_SIZE;
+window.MAX_THOUGHT_PET_SIZE = MAX_THOUGHT_PET_SIZE;
+
+const thoughtPetPointerState = {
+    active: false,
+    moved: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    startLeft: 0,
+    startTop: 0
+};
+
+function clamp01(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Math.max(0, Math.min(1, number));
+}
+
+function clampThoughtPetSize(rawSize) {
+    const size = Number(rawSize);
+    if (!Number.isFinite(size)) return DEFAULT_THOUGHT_PET_SIZE;
+    return Math.max(MIN_THOUGHT_PET_SIZE, Math.min(MAX_THOUGHT_PET_SIZE, Math.round(size)));
+}
+
+function normalizeThoughtPetPosition(position) {
+    if (!position || typeof position !== 'object') {
+        return { ...DEFAULT_THOUGHT_PET_POSITION };
+    }
+    const x = Number(position.xRatio);
+    const y = Number(position.yRatio);
+    return {
+        xRatio: Number.isFinite(x) ? clamp01(x) : DEFAULT_THOUGHT_PET_POSITION.xRatio,
+        yRatio: Number.isFinite(y) ? clamp01(y) : DEFAULT_THOUGHT_PET_POSITION.yRatio
+    };
+}
+
+function getThoughtDisplayMode(contact) {
+    if (!contact) return 'title';
+    return contact.thoughtDisplayMode === 'desktop-pet' ? 'desktop-pet' : 'title';
+}
+
+function getThoughtContact(contactId = window.iphoneSimState.currentChatContactId) {
+    if (!contactId) return null;
+    return (window.iphoneSimState.contacts || []).find(c => c.id === contactId) || null;
+}
+
+function hideThoughtOverlays() {
+    const titleBubble = document.getElementById('thought-bubble');
+    const petBubble = document.getElementById('thought-pet-bubble');
+    if (titleBubble) titleBubble.classList.add('hidden');
+    if (petBubble) petBubble.classList.add('hidden');
+}
+
+window.hideThoughtOverlays = hideThoughtOverlays;
+
+function getThoughtPetBounds(chatScreen, petSize) {
+    const safePadding = 10;
+    const headerHeight = chatScreen.querySelector('.chat-header')?.offsetHeight || 0;
+    const inputHeight = chatScreen.querySelector('.chat-input-area')?.offsetHeight || 0;
+
+    const minLeft = safePadding;
+    const maxLeft = Math.max(minLeft, chatScreen.clientWidth - petSize - safePadding);
+    const minTop = headerHeight + safePadding;
+    const maxTop = Math.max(minTop, chatScreen.clientHeight - inputHeight - petSize - safePadding);
+
+    return { minLeft, maxLeft, minTop, maxTop };
+}
+
+function getThoughtPetRatioFromPixels(left, top, bounds) {
+    const xDenom = Math.max(1, bounds.maxLeft - bounds.minLeft);
+    const yDenom = Math.max(1, bounds.maxTop - bounds.minTop);
+    return {
+        xRatio: clamp01((left - bounds.minLeft) / xDenom),
+        yRatio: clamp01((top - bounds.minTop) / yDenom)
+    };
+}
+
+function updateThoughtPetBubblePosition() {
+    const chatScreen = document.getElementById('chat-screen');
+    const pet = document.getElementById('thought-pet');
+    const bubble = document.getElementById('thought-pet-bubble');
+    if (!chatScreen || !pet || !bubble || pet.classList.contains('hidden') || bubble.classList.contains('hidden')) return;
+
+    const chatRect = chatScreen.getBoundingClientRect();
+    const petRect = pet.getBoundingClientRect();
+    const anchorX = petRect.left - chatRect.left + petRect.width / 2;
+
+    const bubbleWidth = bubble.offsetWidth || 200;
+    const maxArrowOffset = Math.max(0, bubbleWidth / 2 - 18);
+    const minCenter = bubbleWidth / 2 + 8;
+    const maxCenter = chatScreen.clientWidth - bubbleWidth / 2 - 8;
+    const clampedCenter = Math.max(minCenter, Math.min(maxCenter, anchorX));
+    const bubbleLeftRelativeToPet = clampedCenter - (petRect.left - chatRect.left);
+    const arrowOffset = Math.max(-maxArrowOffset, Math.min(maxArrowOffset, anchorX - clampedCenter));
+
+    bubble.style.left = `${bubbleLeftRelativeToPet}px`;
+    bubble.style.setProperty('--pet-bubble-arrow-offset', `${arrowOffset}px`);
+}
+
+function onThoughtPetPointerMove(e) {
+    if (!thoughtPetPointerState.active) return;
+    if (thoughtPetPointerState.pointerId !== null && e.pointerId !== undefined && e.pointerId !== thoughtPetPointerState.pointerId) return;
+
+    const chatScreen = document.getElementById('chat-screen');
+    const pet = document.getElementById('thought-pet');
+    const contact = getThoughtContact();
+    if (!chatScreen || !pet || !contact) return;
+
+    const dx = e.clientX - thoughtPetPointerState.startX;
+    const dy = e.clientY - thoughtPetPointerState.startY;
+    const movedDistance = Math.max(Math.abs(dx), Math.abs(dy));
+
+    if (!thoughtPetPointerState.moved && movedDistance > THOUGHT_PET_DRAG_THRESHOLD) {
+        thoughtPetPointerState.moved = true;
+        pet.classList.add('dragging');
+    }
+
+    if (!thoughtPetPointerState.moved) return;
+
+    const petSize = clampThoughtPetSize(contact.thoughtPetSize || pet.offsetWidth || DEFAULT_THOUGHT_PET_SIZE);
+    const bounds = getThoughtPetBounds(chatScreen, petSize);
+    const left = Math.max(bounds.minLeft, Math.min(bounds.maxLeft, thoughtPetPointerState.startLeft + dx));
+    const top = Math.max(bounds.minTop, Math.min(bounds.maxTop, thoughtPetPointerState.startTop + dy));
+
+    pet.style.left = `${left}px`;
+    pet.style.top = `${top}px`;
+    contact.thoughtPetPosition = getThoughtPetRatioFromPixels(left, top, bounds);
+    updateThoughtPetBubblePosition();
+}
+
+function onThoughtPetPointerUp(e) {
+    if (!thoughtPetPointerState.active) return;
+    if (thoughtPetPointerState.pointerId !== null && e.pointerId !== undefined && e.pointerId !== thoughtPetPointerState.pointerId) return;
+
+    document.removeEventListener('pointermove', onThoughtPetPointerMove);
+    document.removeEventListener('pointerup', onThoughtPetPointerUp);
+    document.removeEventListener('pointercancel', onThoughtPetPointerUp);
+
+    const pet = document.getElementById('thought-pet');
+    if (pet) pet.classList.remove('dragging');
+
+    const wasMoved = thoughtPetPointerState.moved;
+    thoughtPetPointerState.active = false;
+    thoughtPetPointerState.moved = false;
+    thoughtPetPointerState.pointerId = null;
+
+    if (wasMoved) {
+        const chatScreen = document.getElementById('chat-screen');
+        const contact = getThoughtContact();
+        if (chatScreen && pet && contact) {
+            const petSize = clampThoughtPetSize(contact.thoughtPetSize || pet.offsetWidth || DEFAULT_THOUGHT_PET_SIZE);
+            const bounds = getThoughtPetBounds(chatScreen, petSize);
+            const left = parseFloat(pet.style.left || '0');
+            const top = parseFloat(pet.style.top || '0');
+            contact.thoughtPetPosition = getThoughtPetRatioFromPixels(left, top, bounds);
+            saveConfig();
+        }
+        return;
+    }
+
+    toggleThoughtBubble();
+}
+
+function ensureThoughtPetInteractionBound() {
+    const pet = document.getElementById('thought-pet');
+    if (!pet || pet.dataset.boundThoughtPet === '1') return;
+
+    pet.dataset.boundThoughtPet = '1';
+    pet.addEventListener('pointerdown', (e) => {
+        if (pet.classList.contains('hidden')) return;
+        if (e.button !== undefined && e.button !== 0) return;
+
+        e.preventDefault();
+        const left = parseFloat(pet.style.left || `${pet.offsetLeft || 0}`);
+        const top = parseFloat(pet.style.top || `${pet.offsetTop || 0}`);
+
+        thoughtPetPointerState.active = true;
+        thoughtPetPointerState.moved = false;
+        thoughtPetPointerState.pointerId = e.pointerId ?? null;
+        thoughtPetPointerState.startX = e.clientX;
+        thoughtPetPointerState.startY = e.clientY;
+        thoughtPetPointerState.startLeft = Number.isFinite(left) ? left : 0;
+        thoughtPetPointerState.startTop = Number.isFinite(top) ? top : 0;
+
+        if (pet.setPointerCapture && e.pointerId !== undefined) {
+            try { pet.setPointerCapture(e.pointerId); } catch (err) {}
+        }
+
+        document.addEventListener('pointermove', onThoughtPetPointerMove);
+        document.addEventListener('pointerup', onThoughtPetPointerUp);
+        document.addEventListener('pointercancel', onThoughtPetPointerUp);
+    });
+}
+
+function renderThoughtEntryUI(contactId = window.iphoneSimState.currentChatContactId) {
+    const chatScreen = document.getElementById('chat-screen');
+    const pet = document.getElementById('thought-pet');
+    const petImage = document.getElementById('thought-pet-image');
+    const petBubble = document.getElementById('thought-pet-bubble');
+    const titleBubble = document.getElementById('thought-bubble');
+    if (!chatScreen || !pet || !petImage || !petBubble) return;
+
+    ensureThoughtPetInteractionBound();
+
+    const contact = getThoughtContact(contactId);
+    const chatVisible = !chatScreen.classList.contains('hidden');
+    const enablePet = !!(
+        contact &&
+        contact.showThought &&
+        getThoughtDisplayMode(contact) === 'desktop-pet' &&
+        chatVisible &&
+        window.iphoneSimState.currentChatContactId === contact.id
+    );
+
+    if (!enablePet) {
+        pet.classList.add('hidden');
+        petBubble.classList.add('hidden');
+        return;
+    }
+
+    if (titleBubble) titleBubble.classList.add('hidden');
+
+    const petSize = clampThoughtPetSize(contact.thoughtPetSize);
+    const petPosition = normalizeThoughtPetPosition(contact.thoughtPetPosition);
+    contact.thoughtPetSize = petSize;
+    contact.thoughtPetPosition = petPosition;
+
+    pet.style.width = `${petSize}px`;
+    pet.style.height = `${petSize}px`;
+    petImage.src = contact.thoughtPetImage || window.DEFAULT_THOUGHT_PET_IMAGE || DEFAULT_THOUGHT_PET_IMAGE;
+
+    const bounds = getThoughtPetBounds(chatScreen, petSize);
+    const xSpace = Math.max(0, bounds.maxLeft - bounds.minLeft);
+    const ySpace = Math.max(0, bounds.maxTop - bounds.minTop);
+    const left = bounds.minLeft + xSpace * petPosition.xRatio;
+    const top = bounds.minTop + ySpace * petPosition.yRatio;
+
+    pet.style.left = `${Math.round(left)}px`;
+    pet.style.top = `${Math.round(top)}px`;
+    pet.classList.remove('hidden');
+
+    updateThoughtPetBubblePosition();
+}
+
+window.renderThoughtEntryUI = renderThoughtEntryUI;
+
+function renderChatHistory(contactId, preserveScroll = false) {
     const messages = window.iphoneSimState.chatHistory[contactId] || [];
     const container = document.getElementById('chat-messages');
     if (typeof window.applyChatDisplayPreferences === 'function') {
@@ -83,16 +350,17 @@
     });
     
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+    let latestThought = null;
     if (contact && contact.showThought) {
         for (let i = messages.length - 1; i >= 0; i--) {
             if (messages[i].role === 'assistant' && messages[i].thought) {
-                updateThoughtBubble(messages[i].thought);
+                latestThought = messages[i].thought;
                 break;
             }
         }
-    } else {
-        updateThoughtBubble(null);
     }
+    updateThoughtBubble(latestThought);
+    renderThoughtEntryUI(contactId);
     
     if (preserveScroll) {
         container.scrollTop = container.scrollHeight - oldScrollHeight;
@@ -104,25 +372,42 @@
 }
 
 function toggleThoughtBubble() {
-    const bubble = document.getElementById('thought-bubble');
-    const content = document.getElementById('thought-content-text');
-    
-    if (!bubble || !content.textContent.trim()) return;
-    
-    bubble.classList.toggle('hidden');
+    const contact = getThoughtContact();
+    if (!contact || !contact.showThought) return;
+
+    const mode = getThoughtDisplayMode(contact);
+    const titleBubble = document.getElementById('thought-bubble');
+    const titleContent = document.getElementById('thought-content-text');
+    const petBubble = document.getElementById('thought-pet-bubble');
+    const petContent = document.getElementById('thought-pet-content-text');
+
+    if (mode === 'desktop-pet') {
+        if (!petBubble || !petContent || !petContent.textContent.trim()) return;
+        if (titleBubble) titleBubble.classList.add('hidden');
+        petBubble.classList.toggle('hidden');
+        if (!petBubble.classList.contains('hidden')) {
+            updateThoughtPetBubblePosition();
+        }
+        return;
+    }
+
+    if (!titleBubble || !titleContent || !titleContent.textContent.trim()) return;
+    if (petBubble) petBubble.classList.add('hidden');
+    titleBubble.classList.toggle('hidden');
 }
 
 function updateThoughtBubble(text) {
-    const bubble = document.getElementById('thought-bubble');
-    const content = document.getElementById('thought-content-text');
-    
-    if (!bubble || !content) return;
-    
+    const titleContent = document.getElementById('thought-content-text');
+    const petContent = document.getElementById('thought-pet-content-text');
+
     if (text) {
-        content.textContent = text;
+        if (titleContent) titleContent.textContent = text;
+        if (petContent) petContent.textContent = text;
+        updateThoughtPetBubblePosition();
     } else {
-        content.textContent = '';
-        bubble.classList.add('hidden');
+        if (titleContent) titleContent.textContent = '';
+        if (petContent) petContent.textContent = '';
+        hideThoughtOverlays();
     }
 }
 
@@ -1956,4 +2241,5 @@ window.handleFamilyCardDecisionAction = function(payload, contactId, options = {
 window.createFamilyCardPayload = createFamilyCardPayload;
 window.findFamilyCardById = findFamilyCardById;
 window.updateFamilyCardStatus = updateFamilyCardStatus;
+
 

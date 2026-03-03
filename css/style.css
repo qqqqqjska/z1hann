@@ -198,6 +198,88 @@
     font-style: italic;
 }
 
+/* Thought Pet */
+.thought-pet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 88px;
+    height: 88px;
+    z-index: 22;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+}
+
+.thought-pet:active,
+.thought-pet.dragging {
+    transform: scale(0.97);
+}
+
+.thought-pet img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
+    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.18));
+}
+
+.thought-pet-bubble {
+    --pet-bubble-arrow-offset: 0px;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    max-width: min(250px, 74vw);
+    min-width: 120px;
+    padding: 10px 12px;
+    border: 2px solid #1f1f1f;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+    text-align: center;
+    z-index: 23;
+    pointer-events: auto;
+}
+
+.thought-pet-bubble::after,
+.thought-pet-bubble::before {
+    content: '';
+    position: absolute;
+    left: calc(50% + var(--pet-bubble-arrow-offset));
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+}
+
+.thought-pet-bubble::after {
+    top: calc(100% + 2px);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid #1f1f1f;
+}
+
+.thought-pet-bubble::before {
+    top: 100%;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 8px solid rgba(255, 255, 255, 0.97);
+    z-index: 1;
+}
+
+.thought-pet-content {
+    font-size: 14px;
+    line-height: 1.4;
+    color: #2f2f2f;
+    font-style: italic;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 /* ====================
    iOS PWA全屏适配
    ==================== */

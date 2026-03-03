@@ -3557,6 +3557,11 @@ function setupChatListeners() {
     const backToContactsBtn = document.getElementById('back-to-contacts');
     if (backToContactsBtn) backToContactsBtn.addEventListener('click', () => {
         document.getElementById('chat-screen').classList.add('hidden');
+        if (typeof window.hideThoughtOverlays === 'function') {
+            window.hideThoughtOverlays();
+        }
+        const pet = document.getElementById('thought-pet');
+        if (pet) pet.classList.add('hidden');
         window.iphoneSimState.currentChatContactId = null;
     });
 
@@ -3622,6 +3627,64 @@ function setupChatListeners() {
                 reader.readAsDataURL(file);
             }
         });
+    }
+
+    const thoughtStyleSelect = document.getElementById('chat-setting-thought-style');
+    const thoughtPetPanel = document.getElementById('chat-setting-thought-pet-panel');
+    const thoughtPetImageInput = document.getElementById('chat-setting-thought-pet-image');
+    const thoughtPetPreview = document.getElementById('chat-setting-thought-pet-preview');
+    const thoughtPetSizeSlider = document.getElementById('chat-setting-thought-pet-size');
+    const thoughtPetSizeValue = document.getElementById('chat-setting-thought-pet-size-value');
+
+    const syncThoughtPetPreviewSize = () => {
+        const rawSize = thoughtPetSizeSlider ? parseInt(thoughtPetSizeSlider.value, 10) : 88;
+        const size = Number.isFinite(rawSize) ? Math.max(52, Math.min(140, rawSize)) : 88;
+        if (thoughtPetSizeValue) thoughtPetSizeValue.textContent = `${size}px`;
+        if (thoughtPetPreview) {
+            const previewSize = Math.max(44, Math.min(76, Math.round(size * 0.64)));
+            thoughtPetPreview.style.width = `${previewSize}px`;
+            thoughtPetPreview.style.height = `${previewSize}px`;
+        }
+    };
+
+    const syncThoughtPetPanelVisibility = () => {
+        if (!thoughtPetPanel || !thoughtStyleSelect) return;
+        thoughtPetPanel.style.display = thoughtStyleSelect.value === 'desktop-pet' ? '' : 'none';
+    };
+
+    if (thoughtStyleSelect) {
+        thoughtStyleSelect.addEventListener('change', () => {
+            syncThoughtPetPanelVisibility();
+        });
+    }
+
+    if (thoughtPetSizeSlider) {
+        thoughtPetSizeSlider.addEventListener('input', () => {
+            syncThoughtPetPreviewSize();
+        });
+    }
+
+    if (thoughtPetImageInput) {
+        thoughtPetImageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) {
+                if (thoughtPetPreview && !thoughtPetPreview.src) {
+                    thoughtPetPreview.src = window.DEFAULT_THOUGHT_PET_IMAGE || '';
+                }
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                if (thoughtPetPreview) thoughtPetPreview.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    syncThoughtPetPanelVisibility();
+    syncThoughtPetPreviewSize();
+    if (thoughtPetPreview && !thoughtPetPreview.src) {
+        thoughtPetPreview.src = window.DEFAULT_THOUGHT_PET_IMAGE || '';
     }
 
     const chatSettingVideoBgInput = document.getElementById('chat-setting-video-bg');
@@ -3692,16 +3755,41 @@ function setupChatListeners() {
     if (chatTitle) {
         chatTitle.addEventListener('click', (e) => {
             e.stopPropagation();
-            toggleThoughtBubble();
+            const contactId = window.iphoneSimState.currentChatContactId;
+            const contact = (window.iphoneSimState.contacts || []).find(c => c.id === contactId);
+            const mode = contact && contact.thoughtDisplayMode === 'desktop-pet' ? 'desktop-pet' : 'title';
+            if (mode === 'title') {
+                toggleThoughtBubble();
+            }
         });
     }
     
     document.addEventListener('click', (e) => {
-        const bubble = document.getElementById('thought-bubble');
-        if (bubble && !bubble.classList.contains('hidden') && !bubble.contains(e.target) && e.target !== chatTitle) {
-            bubble.classList.add('hidden');
+        const titleBubble = document.getElementById('thought-bubble');
+        const pet = document.getElementById('thought-pet');
+        const petBubble = document.getElementById('thought-pet-bubble');
+        const inTitle = chatTitle && (e.target === chatTitle || chatTitle.contains(e.target));
+        const inTitleBubble = titleBubble && titleBubble.contains(e.target);
+        const inPet = pet && pet.contains(e.target);
+        const inPetBubble = petBubble && petBubble.contains(e.target);
+
+        if (!inTitle && !inTitleBubble && !inPet && !inPetBubble) {
+            if (typeof window.hideThoughtOverlays === 'function') {
+                window.hideThoughtOverlays();
+            } else if (titleBubble) {
+                titleBubble.classList.add('hidden');
+            }
         }
     });
+
+    if (!window.__thoughtPetResizeBound) {
+        window.__thoughtPetResizeBound = true;
+        window.addEventListener('resize', () => {
+            if (typeof window.renderThoughtEntryUI === 'function') {
+                window.renderThoughtEntryUI(window.iphoneSimState.currentChatContactId);
+            }
+        });
+    }
 
     const aiProfileScreen = document.getElementById('ai-profile-screen');
     const closeAiProfileBtn = document.getElementById('close-ai-profile');

@@ -417,6 +417,76 @@ window.handleNotificationClick = function(e) {
 
 // --- 联系人功能 ---
 
+function clampThoughtPetSizeSetting(rawSize) {
+    const size = Number(rawSize);
+    if (!Number.isFinite(size)) return 88;
+    return Math.max(52, Math.min(140, Math.round(size)));
+}
+
+function normalizeThoughtPetPositionSetting(pos) {
+    const fallback = { xRatio: 0.86, yRatio: 0.72 };
+    if (!pos || typeof pos !== 'object') return { ...fallback };
+    const x = Number(pos.xRatio);
+    const y = Number(pos.yRatio);
+    return {
+        xRatio: Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : fallback.xRatio,
+        yRatio: Number.isFinite(y) ? Math.max(0, Math.min(1, y)) : fallback.yRatio
+    };
+}
+
+function getDefaultThoughtPetImageData() {
+    if (window.DEFAULT_THOUGHT_PET_IMAGE) return window.DEFAULT_THOUGHT_PET_IMAGE;
+    const fallbackSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none">
+  <ellipse cx="82" cy="142" rx="36" ry="10" fill="rgba(0,0,0,0.15)"/>
+  <path d="M32 56c0-18 14-32 32-32h34c18 0 32 14 32 32v44c0 22-18 40-40 40H70c-22 0-40-18-40-40V56z" fill="#fff5df" stroke="#2a2a2a" stroke-width="4"/>
+  <path d="M54 28l12 18-20 2 8-20zM108 28l-8 20-20-2 12-18z" fill="#fff5df" stroke="#2a2a2a" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="65" cy="76" r="6" fill="#2a2a2a"/>
+  <circle cx="95" cy="76" r="6" fill="#2a2a2a"/>
+  <path d="M73 92c3 4 11 4 14 0" stroke="#2a2a2a" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="54" cy="92" r="6" fill="#ffb7b7" fill-opacity="0.65"/>
+  <circle cx="106" cy="92" r="6" fill="#ffb7b7" fill-opacity="0.65"/>
+</svg>`;
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(fallbackSvg)}`;
+}
+
+function compressImagePreserveAlpha(file, maxEdge = 512, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const ratio = Math.min(1, maxEdge / Math.max(img.width, img.height));
+                    const width = Math.max(1, Math.round(img.width * ratio));
+                    const height = Math.max(1, Math.round(img.height * ratio));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        reject(new Error('Canvas context unavailable'));
+                        return;
+                    }
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.drawImage(img, 0, 0, width, height);
+                    let output = canvas.toDataURL('image/webp', quality);
+                    if (!output || typeof output !== 'string' || !output.startsWith('data:image')) {
+                        output = canvas.toDataURL('image/png');
+                    }
+                    resolve(output);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            img.onerror = (err) => reject(err);
+            img.src = event.target.result;
+        };
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+    });
+}
+
 function handleSaveContact() {
     const name = document.getElementById('contact-name').value;
     const remark = document.getElementById('contact-remark').value;
@@ -443,6 +513,10 @@ function handleSaveContact() {
         messagesSinceLastItinerary: 0,
         lastItineraryIndex: 0,
         userPerception: [],
+        thoughtDisplayMode: 'title',
+        thoughtPetImage: '',
+        thoughtPetSize: 88,
+        thoughtPetPosition: { xRatio: 0.86, yRatio: 0.72 },
         linkedWbCategories: [],
         linkedStickerCategories: []
     };
@@ -878,6 +952,12 @@ function openChat(contactId) {
         exitMultiSelectMode();
     }
 
+    if (typeof window.hideThoughtOverlays === 'function') {
+        window.hideThoughtOverlays();
+    }
+    const thoughtPetEl = document.getElementById('thought-pet');
+    if (thoughtPetEl) thoughtPetEl.classList.add('hidden');
+
     window.iphoneSimState.currentChatContactId = contactId;
     document.getElementById('chat-title').textContent = contact.remark || contact.nickname || contact.name;
     
@@ -1277,6 +1357,29 @@ function openChatSettings() {
     document.getElementById('chat-setting-show-thought').checked = contact.showThought || false;
     document.getElementById('chat-setting-thought-visible').checked = contact.thoughtVisible || false;
     document.getElementById('chat-setting-real-time-visible').checked = contact.realTimeVisible || false;
+
+    const thoughtStyleSelect = document.getElementById('chat-setting-thought-style');
+    const thoughtPetPanel = document.getElementById('chat-setting-thought-pet-panel');
+    const thoughtPetImageInput = document.getElementById('chat-setting-thought-pet-image');
+    const thoughtPetPreview = document.getElementById('chat-setting-thought-pet-preview');
+    const thoughtPetSizeSlider = document.getElementById('chat-setting-thought-pet-size');
+    const thoughtPetSizeValue = document.getElementById('chat-setting-thought-pet-size-value');
+    const thoughtDisplayMode = contact.thoughtDisplayMode === 'desktop-pet' ? 'desktop-pet' : 'title';
+    const thoughtPetSize = clampThoughtPetSizeSetting(contact.thoughtPetSize);
+
+    contact.thoughtPetPosition = normalizeThoughtPetPositionSetting(contact.thoughtPetPosition);
+
+    if (thoughtStyleSelect) thoughtStyleSelect.value = thoughtDisplayMode;
+    if (thoughtPetPanel) thoughtPetPanel.style.display = thoughtDisplayMode === 'desktop-pet' ? '' : 'none';
+    if (thoughtPetImageInput) thoughtPetImageInput.value = '';
+    if (thoughtPetSizeSlider) thoughtPetSizeSlider.value = thoughtPetSize;
+    if (thoughtPetSizeValue) thoughtPetSizeValue.textContent = `${thoughtPetSize}px`;
+    if (thoughtPetPreview) {
+        thoughtPetPreview.src = contact.thoughtPetImage || getDefaultThoughtPetImageData();
+        const previewSize = Math.max(44, Math.min(76, Math.round(thoughtPetSize * 0.64)));
+        thoughtPetPreview.style.width = `${previewSize}px`;
+        thoughtPetPreview.style.height = `${previewSize}px`;
+    }
     
     document.getElementById('chat-setting-tts-enabled').checked = contact.ttsEnabled || false;
     document.getElementById('chat-setting-tts-voice-id').value = contact.ttsVoiceId || 'male-qn-qingse';
@@ -1825,6 +1928,16 @@ function handleSaveChatSettings() {
     const showThought = document.getElementById('chat-setting-show-thought').checked;
     const thoughtVisible = document.getElementById('chat-setting-thought-visible').checked;
     const realTimeVisible = document.getElementById('chat-setting-real-time-visible').checked;
+    const thoughtDisplayModeRaw = document.getElementById('chat-setting-thought-style')
+        ? document.getElementById('chat-setting-thought-style').value
+        : 'title';
+    const thoughtDisplayMode = thoughtDisplayModeRaw === 'desktop-pet' ? 'desktop-pet' : 'title';
+    const thoughtPetSize = clampThoughtPetSizeSetting(
+        document.getElementById('chat-setting-thought-pet-size')
+            ? document.getElementById('chat-setting-thought-pet-size').value
+            : contact.thoughtPetSize
+    );
+    const thoughtPetImageInput = document.getElementById('chat-setting-thought-pet-image');
     const ttsEnabled = document.getElementById('chat-setting-tts-enabled').checked;
     const ttsVoiceId = document.getElementById('chat-setting-tts-voice-id').value;
     const userPersonaId = document.getElementById('chat-setting-user-persona').value;
@@ -1871,6 +1984,9 @@ function handleSaveChatSettings() {
     contact.showThought = showThought;
     contact.thoughtVisible = thoughtVisible;
     contact.realTimeVisible = realTimeVisible;
+    contact.thoughtDisplayMode = thoughtDisplayMode;
+    contact.thoughtPetSize = thoughtPetSize;
+    contact.thoughtPetPosition = normalizeThoughtPetPositionSetting(contact.thoughtPetPosition);
     contact.ttsEnabled = ttsEnabled;
     contact.ttsVoiceId = ttsVoiceId;
     contact.userPersonaId = userPersonaId ? parseInt(userPersonaId) : null;
@@ -1956,10 +2072,25 @@ function handleSaveChatSettings() {
         }));
     }
 
+    if (thoughtPetImageInput && thoughtPetImageInput.files && thoughtPetImageInput.files[0]) {
+        promises.push(new Promise(resolve => {
+            compressImagePreserveAlpha(thoughtPetImageInput.files[0], 512, 0.85).then(base64 => {
+                contact.thoughtPetImage = base64;
+                resolve();
+            }).catch(err => {
+                console.error('桌宠图片压缩失败', err);
+                resolve();
+            });
+        }));
+    }
+
     Promise.all(promises).then(() => {
         saveConfig();
         if (window.renderContactList) window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
         renderChatHistory(contact.id);
+        if (typeof window.renderThoughtEntryUI === 'function') {
+            window.renderThoughtEntryUI(contact.id);
+        }
         
         const chatScreen = document.getElementById('chat-screen');
         if (contact.chatBg) {

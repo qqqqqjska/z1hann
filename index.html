@@ -812,6 +812,31 @@
                             </div>
                             <div class="list-item">
                                 <div class="list-content">
+                                    <label>心声显示样式</label>
+                                    <select id="chat-setting-thought-style">
+                                        <option value="title">点击备注名</option>
+                                        <option value="desktop-pet">桌宠悬浮</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="list-item" id="chat-setting-thought-pet-panel" style="display: none;">
+                                <div class="list-content column">
+                                    <label>桌宠设置</label>
+                                    <div style="display: flex; align-items: center; gap: 12px; width: 100%;">
+                                        <img id="chat-setting-thought-pet-preview" src="" alt="桌宠预览" style="width: 56px; height: 56px; object-fit: contain; border-radius: 10px; background: #f2f2f7; border: 1px solid #e5e5ea; padding: 4px; flex-shrink: 0;">
+                                        <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
+                                            <input type="file" id="chat-setting-thought-pet-image" accept="image/*" class="file-input-hidden">
+                                            <label for="chat-setting-thought-pet-image" class="ios-btn">上传桌宠图片</label>
+                                            <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+                                                <label style="font-size: 14px; color: #6d6d72; white-space: nowrap;">大小 <span id="chat-setting-thought-pet-size-value">88px</span></label>
+                                                <input type="range" id="chat-setting-thought-pet-size" min="52" max="140" step="1" value="88" style="width: 100%;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="list-item">
+                                <div class="list-content">
                                     <label>AI可知晓心声</label>
                                     <label class="toggle-switch">
                                         <input type="checkbox" id="chat-setting-thought-visible">
@@ -1289,6 +1314,12 @@
                 <div class="chat-body" id="chat-messages">
                     <!-- 消息列表 -->
                 </div>
+                <div id="thought-pet" class="thought-pet hidden">
+                    <img id="thought-pet-image" src="" alt="桌宠">
+                    <div id="thought-pet-bubble" class="thought-pet-bubble hidden">
+                        <div class="thought-pet-content" id="thought-pet-content-text"></div>
+                    </div>
+                </div>
                 <!-- 引用回复条 -->
                 <div id="reply-bar" class="reply-bar hidden">
                     <div class="reply-content">
@@ -1306,13 +1337,13 @@
                     </button>
                     <div class="chat-input-shell">
                         <input type="text" id="chat-input" placeholder="iMessage">
-                        <button id="sticker-btn" class="chat-input-emoji-btn" aria-label="表情">
-                            <i class="ri-emotion-line"></i>
+                        <button id="sticker-btn" class="chat-input-inline-btn" aria-label="贴纸">
+                            <i class="ri-sticker-line ri-emoji-sticker-line"></i>
+                        </button>
+                        <button id="trigger-ai-reply-btn" class="chat-input-inline-btn" aria-label="语音">
+                            <i class="ri-mic-line"></i>
                         </button>
                     </div>
-                    <button id="trigger-ai-reply-btn" aria-label="语音">
-                        <i class="ri-mic-line"></i>
-                    </button>
                 </div>
                 <!-- 表情包面板 -->
                 <div id="sticker-panel" class="sticker-panel hidden">
