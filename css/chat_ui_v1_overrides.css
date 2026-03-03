@@ -50,7 +50,7 @@
 #chat-screen #chat-messages.chat-body {
     position: absolute;
     inset: 0;
-    padding: 100px 15px calc(80px + env(safe-area-inset-bottom, 0px)) 15px !important;
+    padding: 100px 15px 95px 15px !important;
     overflow-y: auto;
     scroll-behavior: smooth;
 }
