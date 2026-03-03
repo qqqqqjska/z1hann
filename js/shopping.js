@@ -13,6 +13,159 @@ let selectedShoppingProducts = new Set();
 let currentShoppingProduct = null;
 let currentShoppingCategory = 'All';
 let currentOrderTab = 'all';
+let pendingDeliveryCheckoutShopKey = '';
+
+function ensureDeliveryDraftByShop() {
+    if (!window.iphoneSimState) window.iphoneSimState = {};
+    if (
+        !window.iphoneSimState.deliveryDraftByShop ||
+        typeof window.iphoneSimState.deliveryDraftByShop !== 'object' ||
+        Array.isArray(window.iphoneSimState.deliveryDraftByShop)
+    ) {
+        window.iphoneSimState.deliveryDraftByShop = {};
+    }
+    return window.iphoneSimState.deliveryDraftByShop;
+}
+
+function getDeliveryShopKey(shopOrItem) {
+    let shopName = '';
+    if (typeof shopOrItem === 'string') {
+        shopName = shopOrItem;
+    } else if (shopOrItem && typeof shopOrItem === 'object') {
+        shopName = shopOrItem.shop_name || shopOrItem.shopName || shopOrItem.title || '';
+    }
+
+    const normalizedName = String(shopName || '外卖商家').trim() || '外卖商家';
+    return `delivery_shop_${encodeURIComponent(normalizedName)}`;
+}
+
+function getDeliveryDraft(shopKey) {
+    if (!shopKey) return null;
+    const drafts = ensureDeliveryDraftByShop();
+    const draft = drafts[shopKey];
+    if (!draft || !Array.isArray(draft.items)) return null;
+    return draft;
+}
+
+function upsertDeliveryDraftItem(shopKey, item, options = {}) {
+    if (!shopKey || !item) return null;
+
+    const drafts = ensureDeliveryDraftByShop();
+    const safeShopName = String(options.shopName || item.shop_name || '外卖商家').trim() || '外卖商家';
+    const safeTitle = String(item.title || '菜品').trim() || '菜品';
+    const safePrice = Number(item.price || 0);
+    const itemKey = item.itemKey || `${safeTitle}__${safePrice.toFixed(2)}`;
+    const now = Date.now();
+
+    let draft = drafts[shopKey];
+    if (!draft || !Array.isArray(draft.items)) {
+        draft = {
+            shopKey,
+            shopName: safeShopName,
+            items: [],
+            updatedAt: now
+        };
+    }
+
+    const existing = draft.items.find((draftItem) => draftItem.itemKey === itemKey);
+    if (existing) {
+        existing.count = Number(existing.count || 1) + 1;
+        existing.updatedAt = now;
+        if (!existing.image && item.image) existing.image = item.image;
+    } else {
+        draft.items.push({
+            itemKey,
+            title: safeTitle,
+            price: safePrice,
+            count: Math.max(1, Number(item.count || 1)),
+            isDelivery: true,
+            shop_name: safeShopName,
+            image: item.image || item.aiImage || ''
+        });
+    }
+
+    draft.shopName = safeShopName;
+    draft.updatedAt = now;
+    drafts[shopKey] = draft;
+    saveConfig();
+    return draft;
+}
+
+function clearDeliveryDraft(shopKey) {
+    if (!shopKey) return;
+    const drafts = ensureDeliveryDraftByShop();
+    if (!drafts[shopKey]) return;
+    delete drafts[shopKey];
+    saveConfig();
+}
+
+function getDeliveryDraftStats(shopKey) {
+    const draft = getDeliveryDraft(shopKey);
+    if (!draft) {
+        return {
+            shopName: '外卖商家',
+            count: 0,
+            total: 0,
+            items: []
+        };
+    }
+
+    const normalizedItems = (draft.items || [])
+        .filter(Boolean)
+        .map((item) => {
+            const safeTitle = String(item.title || '菜品').trim() || '菜品';
+            const safePrice = Number(item.price || 0);
+            const safeCount = Math.max(1, Number(item.count || 1));
+            const itemKey = item.itemKey || `${safeTitle}__${safePrice.toFixed(2)}`;
+            return {
+                ...item,
+                itemKey,
+                title: safeTitle,
+                price: safePrice,
+                count: safeCount,
+                isDelivery: true,
+                shop_name: item.shop_name || draft.shopName || '外卖商家',
+                image: item.image || ''
+            };
+        });
+
+    const count = normalizedItems.reduce((sum, item) => sum + Number(item.count || 0), 0);
+    const total = normalizedItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.count || 0)), 0);
+
+    return {
+        shopName: draft.shopName || '外卖商家',
+        count,
+        total,
+        items: normalizedItems
+    };
+}
+
+function buildDeliveryCheckoutItems(shopKey) {
+    const stats = getDeliveryDraftStats(shopKey);
+    return stats.items.map((item) => {
+        let image = item.image || item.aiImage || '';
+        if (!image && typeof generatePlaceholderImage === 'function') {
+            image = generatePlaceholderImage(300, 300, item.title || '外卖', '#007AFF');
+        }
+        return {
+            title: item.title,
+            price: Number(item.price || 0),
+            count: Number(item.count || 1),
+            isDelivery: true,
+            shop_name: item.shop_name || stats.shopName || '外卖商家',
+            image
+        };
+    });
+}
+
+function updateDeliveryDetailActionButton(shopKey) {
+    if (!shopKey) return;
+    const actionBtn = document.getElementById('food-detail-action-btn');
+    if (!actionBtn) return;
+    const stats = getDeliveryDraftStats(shopKey);
+    actionBtn.textContent = stats.count > 0 ? `查看订单(${stats.count})` : '查看订单';
+    actionBtn.dataset.shopKey = shopKey;
+}
 
 // 日志调试功能
 let shoppingDebugLogs = [];
@@ -1590,9 +1743,13 @@ function openPaymentChoice(amount, items, isCart = false) {
     const totalEl = document.getElementById('payment-choice-total');
     if (totalEl) totalEl.textContent = '¥' + amount.toFixed(2);
 
+    const headerEl = modal.querySelector('.modal-header h3');
     const selfBtn = document.getElementById('payment-choice-self');
     const giftBtn = document.getElementById('payment-choice-gift');
     const closeBtn = document.getElementById('close-payment-choice');
+    if (headerEl) headerEl.textContent = '选择购买方式';
+    if (selfBtn) selfBtn.textContent = '给自己买';
+    if (giftBtn) giftBtn.textContent = '送给朋友';
 
     if (selfBtn) {
         const newSelf = selfBtn.cloneNode(true);
@@ -1618,6 +1775,351 @@ function openPaymentChoice(amount, items, isCart = false) {
         newClose.onclick = () => modal.classList.add('hidden');
     }
 
+    modal.classList.remove('hidden');
+}
+
+function closeDeliveryOrderModal() {
+    const modal = document.getElementById('shopping-delivery-order-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function renderDeliveryOrderModal(shopKey, fallbackShopName = '外卖商家') {
+    const modal = document.getElementById('shopping-delivery-order-modal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('delivery-order-modal-title');
+    const listEl = document.getElementById('delivery-order-modal-list');
+    const totalEl = document.getElementById('delivery-order-modal-total');
+    const checkoutBtn = document.getElementById('delivery-order-checkout-btn');
+    if (!listEl) return;
+
+    const stats = getDeliveryDraftStats(shopKey);
+    const displayShopName = stats.shopName || fallbackShopName || '外卖商家';
+    if (titleEl) titleEl.textContent = `${displayShopName} · 订单`;
+    if (totalEl) totalEl.textContent = `¥${stats.total.toFixed(2)}`;
+
+    if (!stats.items.length || stats.count <= 0) {
+        listEl.innerHTML = `
+            <div class="shopping-delivery-order-empty">
+                还没有选择餐品
+            </div>
+        `;
+        if (checkoutBtn) checkoutBtn.disabled = true;
+        return;
+    }
+
+    if (checkoutBtn) checkoutBtn.disabled = false;
+    listEl.innerHTML = stats.items.map((item) => {
+        const subtotal = Number(item.price || 0) * Number(item.count || 0);
+        return `
+            <div class="shopping-delivery-order-item">
+                <div class="shopping-delivery-order-item-main">
+                    <div class="shopping-delivery-order-item-title">${item.title}</div>
+                    <div class="shopping-delivery-order-item-meta">¥${Number(item.price || 0).toFixed(2)} × ${Number(item.count || 0)}</div>
+                </div>
+                <div class="shopping-delivery-order-item-subtotal">¥${subtotal.toFixed(2)}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function openDeliveryOrderModal(shopKey, fallbackShopName = '外卖商家') {
+    if (!shopKey) return;
+    const modal = document.getElementById('shopping-delivery-order-modal');
+    if (!modal) return;
+
+    modal.dataset.shopKey = shopKey;
+    modal.dataset.shopName = fallbackShopName;
+
+    const closeBtn = document.getElementById('close-delivery-order-modal');
+    const continueBtn = document.getElementById('delivery-order-continue-btn');
+    const checkoutBtn = document.getElementById('delivery-order-checkout-btn');
+
+    if (closeBtn) {
+        const newClose = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newClose, closeBtn);
+        newClose.onclick = () => closeDeliveryOrderModal();
+    }
+
+    if (continueBtn) {
+        const newContinue = continueBtn.cloneNode(true);
+        continueBtn.parentNode.replaceChild(newContinue, continueBtn);
+        newContinue.onclick = () => closeDeliveryOrderModal();
+    }
+
+    if (checkoutBtn) {
+        const newCheckout = checkoutBtn.cloneNode(true);
+        checkoutBtn.parentNode.replaceChild(newCheckout, checkoutBtn);
+        newCheckout.onclick = () => {
+            const liveStats = getDeliveryDraftStats(shopKey);
+            if (!liveStats.items.length || liveStats.count <= 0) {
+                alert('请先选择餐品');
+                return;
+            }
+            closeDeliveryOrderModal();
+            openDeliverySettlementChoice(shopKey);
+        };
+    }
+
+    addShoppingLog('打开外卖订单弹窗', {
+        shopKey,
+        stats: getDeliveryDraftStats(shopKey)
+    });
+    renderDeliveryOrderModal(shopKey, fallbackShopName);
+    modal.classList.remove('hidden');
+}
+
+function openDeliverySettlementChoice(shopKey) {
+    const stats = getDeliveryDraftStats(shopKey);
+    if (!stats.items.length || stats.count <= 0) {
+        alert('请先选择餐品');
+        return;
+    }
+
+    pendingDeliveryCheckoutShopKey = shopKey;
+    pendingPaymentItems = buildDeliveryCheckoutItems(shopKey);
+    pendingPaymentAmount = stats.total;
+
+    const modal = document.getElementById('shopping-payment-choice-modal');
+    if (!modal) return;
+
+    const headerEl = modal.querySelector('.modal-header h3');
+    const totalEl = document.getElementById('payment-choice-total');
+    const selfBtn = document.getElementById('payment-choice-self');
+    const giftBtn = document.getElementById('payment-choice-gift');
+    const closeBtn = document.getElementById('close-payment-choice');
+
+    if (headerEl) headerEl.textContent = '选择结算对象';
+    if (totalEl) totalEl.textContent = `¥${Number(stats.total || 0).toFixed(2)}`;
+    if (selfBtn) selfBtn.textContent = '给自己';
+    if (giftBtn) giftBtn.textContent = '给联系人';
+
+    if (selfBtn) {
+        const newSelf = selfBtn.cloneNode(true);
+        selfBtn.parentNode.replaceChild(newSelf, selfBtn);
+        newSelf.onclick = () => {
+            modal.classList.add('hidden');
+            processDeliveryCheckoutSelf(shopKey);
+        };
+    }
+
+    if (giftBtn) {
+        const newGift = giftBtn.cloneNode(true);
+        giftBtn.parentNode.replaceChild(newGift, giftBtn);
+        newGift.onclick = () => {
+            modal.classList.add('hidden');
+            openDeliveryGiftContactPicker(shopKey);
+        };
+    }
+
+    if (closeBtn) {
+        const newClose = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newClose, closeBtn);
+        newClose.onclick = () => modal.classList.add('hidden');
+    }
+
+    modal.classList.remove('hidden');
+}
+
+async function processDeliveryCheckoutSelf(shopKey) {
+    const targetShopKey = shopKey || pendingDeliveryCheckoutShopKey;
+    const stats = getDeliveryDraftStats(targetShopKey);
+    const checkoutItems = buildDeliveryCheckoutItems(targetShopKey);
+    const totalAmount = Number(stats.total || 0);
+
+    if (!checkoutItems.length || totalAmount <= 0) {
+        alert('当前订单为空');
+        return;
+    }
+
+    if (!window.resolvePurchasePayment) {
+        alert('支付能力不可用');
+        return;
+    }
+
+    const relatedId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
+    const payResult = await window.resolvePurchasePayment({
+        amount: totalAmount,
+        scene: 'shopping_self',
+        relatedId,
+        itemSummary: buildShoppingItemSummary(checkoutItems, `外卖自购(${stats.shopName || '外卖商家'})`)
+    });
+    if (!payResult || !payResult.ok) {
+        addShoppingLog('外卖自购支付失败', {
+            shopKey: targetShopKey,
+            reason: payResult ? payResult.reason : 'unknown'
+        });
+        const msg = mapUnifiedPaymentError(payResult && payResult.reason);
+        if (msg) alert(msg);
+        return;
+    }
+
+    createShoppingOrderFromPayment(checkoutItems, {
+        relatedId,
+        totalAmount
+    });
+    clearDeliveryDraft(targetShopKey);
+    pendingDeliveryCheckoutShopKey = '';
+    pendingPaymentItems = [];
+    pendingPaymentAmount = 0;
+    updateDeliveryDetailActionButton(targetShopKey);
+    saveConfig();
+
+    addShoppingLog('外卖自购支付成功', {
+        shopKey: targetShopKey,
+        totalAmount,
+        relatedId
+    });
+
+    closeDeliveryOrderModal();
+    document.getElementById('food-detail').classList.remove('active');
+    window.switchShoppingTab('orders');
+    alert('支付成功！外卖订单已创建');
+}
+
+function openDeliveryGiftContactPicker(shopKey) {
+    const targetShopKey = shopKey || pendingDeliveryCheckoutShopKey;
+    const stats = getDeliveryDraftStats(targetShopKey);
+    if (!stats.items.length || stats.count <= 0) {
+        alert('请先选择餐品');
+        return;
+    }
+
+    const modal = document.getElementById('contact-picker-modal');
+    const list = document.getElementById('contact-picker-list');
+    const sendBtn = document.getElementById('contact-picker-send-btn');
+    const closeBtn = document.getElementById('close-contact-picker');
+    if (!modal || !list) return;
+
+    const header = modal.querySelector('.modal-header h3');
+    if (header) header.textContent = '选择联系人';
+
+    if (sendBtn) {
+        sendBtn.textContent = '支付并发送外卖';
+        const newSendBtn = sendBtn.cloneNode(true);
+        sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
+
+        newSendBtn.onclick = async () => {
+            const selected = list.querySelector('input[name="delivery-gift-contact"]:checked');
+            const contactId = selected ? parseInt(selected.value, 10) : NaN;
+            if (!Number.isFinite(contactId)) {
+                alert('请选择联系人');
+                return;
+            }
+
+            const contact = (window.iphoneSimState.contacts || []).find((c) => c.id === contactId);
+            const recipientName = contact ? (contact.remark || contact.name || `联系人${contactId}`) : `联系人${contactId}`;
+            const liveStats = getDeliveryDraftStats(targetShopKey);
+            const checkoutItems = buildDeliveryCheckoutItems(targetShopKey);
+            const totalAmount = Number(liveStats.total || 0);
+
+            if (!checkoutItems.length || totalAmount <= 0) {
+                alert('当前订单为空');
+                modal.classList.add('hidden');
+                return;
+            }
+
+            if (!window.resolvePurchasePayment) {
+                alert('支付能力不可用');
+                return;
+            }
+
+            const relatedId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
+            const payResult = await window.resolvePurchasePayment({
+                amount: totalAmount,
+                scene: 'shopping_gift',
+                relatedId,
+                itemSummary: buildShoppingItemSummary(checkoutItems, `外卖送礼(收货人: ${recipientName})`)
+            });
+            if (!payResult || !payResult.ok) {
+                addShoppingLog('外卖送联系人支付失败', {
+                    shopKey: targetShopKey,
+                    contactId,
+                    reason: payResult ? payResult.reason : 'unknown'
+                });
+                const msg = mapUnifiedPaymentError(payResult && payResult.reason);
+                if (msg) alert(msg);
+                return;
+            }
+
+            createShoppingOrderFromPayment(checkoutItems, {
+                relatedId,
+                totalAmount,
+                recipientNames: [recipientName]
+            });
+
+            const msgData = {
+                items: checkoutItems.map((i) => ({
+                    title: i.title,
+                    price: i.price,
+                    image: i.image,
+                    count: i.count,
+                    isDelivery: true
+                })),
+                total: totalAmount.toFixed(2),
+                recipientName,
+                recipientText: recipientName,
+                remark: `${liveStats.shopName || '外卖商家'} 外卖`
+            };
+            if (typeof sendMessage !== 'undefined') {
+                sendMessage(JSON.stringify(msgData), true, 'delivery_share', null, contactId);
+            }
+
+            clearDeliveryDraft(targetShopKey);
+            pendingDeliveryCheckoutShopKey = '';
+            pendingPaymentItems = [];
+            pendingPaymentAmount = 0;
+            updateDeliveryDetailActionButton(targetShopKey);
+            saveConfig();
+            modal.classList.add('hidden');
+
+            addShoppingLog('外卖送联系人支付成功', {
+                shopKey: targetShopKey,
+                contactId,
+                totalAmount,
+                relatedId
+            });
+
+            closeDeliveryOrderModal();
+            document.getElementById('food-detail').classList.remove('active');
+            window.switchShoppingTab('orders');
+            alert('支付成功！外卖已发送给联系人');
+        };
+    }
+
+    if (closeBtn) {
+        const newCloseBtn = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+        newCloseBtn.onclick = () => modal.classList.add('hidden');
+    }
+
+    list.innerHTML = '';
+    const contacts = Array.isArray(window.iphoneSimState.contacts) ? window.iphoneSimState.contacts : [];
+    if (contacts.length === 0) {
+        list.innerHTML = '<div style="padding:20px;text-align:center;color:#999;">暂无联系人</div>';
+    } else {
+        contacts.forEach((c) => {
+            const item = document.createElement('div');
+            item.className = 'list-item';
+            item.innerHTML = `
+                <span style="font-size: 16px;">${c.remark || c.name}</span>
+                <input type="radio" name="delivery-gift-contact" value="${c.id}" style="width: 20px; height: 20px;">
+            `;
+            item.onclick = (e) => {
+                if (e.target.type !== 'radio') {
+                    const radio = item.querySelector('input[name="delivery-gift-contact"]');
+                    if (radio) radio.checked = true;
+                }
+            };
+            list.appendChild(item);
+        });
+    }
+
+    addShoppingLog('打开外卖联系人选择', {
+        shopKey: targetShopKey,
+        count: stats.count,
+        total: stats.total
+    });
     modal.classList.remove('hidden');
 }
 
@@ -2591,8 +3093,11 @@ function openShoppingDeliveryDetail(item) {
     const detailView = document.getElementById('food-detail');
     if (!detailView) return;
 
+    const shopName = item.shop_name || '外卖商家';
+    const shopKey = getDeliveryShopKey(shopName);
+
     const titleEl = document.getElementById('food-detail-title');
-    if (titleEl) titleEl.textContent = item.shop_name;
+    if (titleEl) titleEl.textContent = shopName;
 
     const listEl = document.getElementById('food-detail-menu-list');
     if (listEl) {
@@ -2618,24 +3123,45 @@ function openShoppingDeliveryDetail(item) {
             const addBtn = div.querySelector('.shopping-menu-add');
             addBtn.onclick = (e) => {
                 e.stopPropagation();
-                // Add to cart/order logic simulation
+
+                const menuPrice = Number(m.price || 0);
+                let menuImage = item.aiImage || '';
+                if (!menuImage && typeof generatePlaceholderImage === 'function') {
+                    menuImage = generatePlaceholderImage(300, 300, m.name || '外卖', '#007AFF');
+                }
+
+                upsertDeliveryDraftItem(shopKey, {
+                    title: m.name,
+                    price: menuPrice,
+                    shop_name: shopName,
+                    isDelivery: true,
+                    image: menuImage
+                }, { shopName });
+
+                addShoppingLog('外卖加菜', {
+                    shopKey,
+                    shopName,
+                    title: m.name,
+                    price: menuPrice
+                });
+
                 const toast = document.getElementById('shopping-success-toast');
                 if (toast) {
-                    toast.querySelector('span').textContent = `已添加 ${m.name}`;
+                    toast.querySelector('span').textContent = `已加入当前订单：${m.name}`;
                     toast.classList.remove('hidden');
                     setTimeout(() => toast.classList.add('hidden'), 1500);
                 }
-                
-                // Add to global cart
-                addToCart({
-                    id: 'food_' + Date.now(),
-                    title: m.name,
-                    price: parseFloat(m.price),
-                    shop_name: item.shop_name,
-                    isDelivery: true,
-                    image_desc: 'Food',
-                    bgColor: window.getRandomPaleColor()
-                });
+
+                updateDeliveryDetailActionButton(shopKey);
+
+                const orderModal = document.getElementById('shopping-delivery-order-modal');
+                if (
+                    orderModal &&
+                    !orderModal.classList.contains('hidden') &&
+                    orderModal.dataset.shopKey === shopKey
+                ) {
+                    renderDeliveryOrderModal(shopKey, orderModal.dataset.shopName || shopName);
+                }
             };
             
             listEl.appendChild(div);
@@ -2647,10 +3173,11 @@ function openShoppingDeliveryDetail(item) {
         // Clone to remove old listeners
         const newBtn = actionBtn.cloneNode(true);
         actionBtn.parentNode.replaceChild(newBtn, actionBtn);
+        newBtn.dataset.shopKey = shopKey;
         newBtn.onclick = () => {
-            detailView.classList.remove('active');
-            window.switchShoppingTab('cart'); // Go to cart to checkout food
+            openDeliveryOrderModal(shopKey, shopName);
         };
+        updateDeliveryDetailActionButton(shopKey);
     }
 
     detailView.classList.add('active');

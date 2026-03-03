@@ -3200,6 +3200,28 @@
         </div>
     </div>
 
+    <!-- 外卖订单弹窗 -->
+    <div id="shopping-delivery-order-modal" class="modal hidden" style="z-index: 260;">
+        <div class="modal-content shopping-delivery-order-sheet">
+            <div class="modal-header">
+                <h3 id="delivery-order-modal-title">外卖订单</h3>
+                <button class="close-btn" id="close-delivery-order-modal">&times;</button>
+            </div>
+            <div class="modal-body shopping-delivery-order-body">
+                <div id="delivery-order-modal-list" class="shopping-delivery-order-list"></div>
+            </div>
+            <div class="shopping-delivery-order-footer">
+                <div class="shopping-delivery-order-total">
+                    合计: <span id="delivery-order-modal-total">¥0.00</span>
+                </div>
+                <div class="shopping-delivery-order-actions">
+                    <button id="delivery-order-continue-btn" class="ios-btn-block secondary">继续点餐</button>
+                    <button id="delivery-order-checkout-btn" class="ios-btn-block">结算</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 购物规格选择弹窗 -->
     <div id="shopping-spec-modal" class="modal hidden" style="z-index: 230;">
         <div class="modal-content">

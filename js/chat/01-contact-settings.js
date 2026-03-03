@@ -741,6 +741,8 @@ function renderContactList(filterGroup = 'all') {
                     lastMsgText = '[礼物]';
                 } else if (lastMsg && lastMsg.type === 'pay_request') {
                     lastMsgText = '[代付请求]';
+                } else if (lastMsg && lastMsg.type === 'delivery_share') {
+                    lastMsgText = '[外卖]';
                 } else if (lastMsg && lastMsg.type === 'savings_invite') {
                     lastMsgText = '[共同存钱邀请]';
                 } else if (lastMsg && lastMsg.type === 'savings_withdraw_request') {
