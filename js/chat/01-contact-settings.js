@@ -847,10 +847,24 @@ function applyChatDisplayPreferences(contactOrId = null) {
         }
     }
 
-    const showAvatar = contact ? (contact.showAvatar !== false) : true;
+    // New per-side avatar visibility with backward compatibility for legacy showAvatar.
+    let avatarVisibility = 'show-both';
+    if (contact) {
+        if (typeof contact.avatarVisibility === 'string' && contact.avatarVisibility) {
+            avatarVisibility = contact.avatarVisibility;
+        } else if (contact.showAvatar === false) {
+            avatarVisibility = 'hide-both';
+        }
+    }
     const showTimestamp = contact ? (contact.showTimestamp !== false) : true;
 
-    chatScreen.classList.toggle('hide-chat-avatar', !showAvatar);
+    const hideOtherAvatar = avatarVisibility === 'hide-other' || avatarVisibility === 'hide-both';
+    const hideSelfAvatar = avatarVisibility === 'hide-self' || avatarVisibility === 'hide-both';
+
+    // Keep legacy class for compatibility with any existing custom CSS rules.
+    chatScreen.classList.toggle('hide-chat-avatar', hideOtherAvatar && hideSelfAvatar);
+    chatScreen.classList.toggle('hide-chat-avatar-other', hideOtherAvatar);
+    chatScreen.classList.toggle('hide-chat-avatar-self', hideSelfAvatar);
     chatScreen.classList.toggle('hide-chat-timestamp', !showTimestamp);
 }
 
@@ -1299,9 +1313,10 @@ function openChatSettings() {
         };
     }
 
-    const showAvatarToggle = document.getElementById('chat-setting-show-avatar');
-    if (showAvatarToggle) {
-        showAvatarToggle.checked = contact.showAvatar !== false;
+    const avatarVisibilitySelect = document.getElementById('chat-setting-avatar-visibility');
+    if (avatarVisibilitySelect) {
+        const legacyAvatarVisibility = contact.showAvatar === false ? 'hide-both' : 'show-both';
+        avatarVisibilitySelect.value = contact.avatarVisibility || legacyAvatarVisibility;
     }
 
     const showTimestampToggle = document.getElementById('chat-setting-show-timestamp');
@@ -1820,7 +1835,9 @@ function handleSaveChatSettings() {
     const myAvatarInput = document.getElementById('chat-setting-my-avatar');
     const customCss = document.getElementById('chat-setting-custom-css').value;
     const fontSize = document.getElementById('chat-font-size-slider') ? parseInt(document.getElementById('chat-font-size-slider').value) : 16;
-    const showAvatar = document.getElementById('chat-setting-show-avatar') ? document.getElementById('chat-setting-show-avatar').checked : true;
+    const avatarVisibility = document.getElementById('chat-setting-avatar-visibility')
+        ? document.getElementById('chat-setting-avatar-visibility').value
+        : 'show-both';
     const showTimestamp = document.getElementById('chat-setting-show-timestamp') ? document.getElementById('chat-setting-show-timestamp').checked : true;
     const intervalMin = document.getElementById('chat-setting-interval-min').value;
     const intervalMax = document.getElementById('chat-setting-interval-max').value;
@@ -1862,7 +1879,9 @@ function handleSaveChatSettings() {
     }
     contact.customCss = customCss;
     contact.chatFontSize = fontSize;
-    contact.showAvatar = showAvatar;
+    contact.avatarVisibility = avatarVisibility;
+    // Backward-compat for any old logic relying on showAvatar.
+    contact.showAvatar = avatarVisibility !== 'hide-both';
     contact.showTimestamp = showTimestamp;
     contact.replyIntervalMin = intervalMin ? parseInt(intervalMin) : null;
     contact.replyIntervalMax = intervalMax ? parseInt(intervalMax) : null;

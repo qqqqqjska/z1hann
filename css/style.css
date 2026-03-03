@@ -6563,6 +6563,14 @@ html body .chat-message.user .voice-icon-box i { transform: rotate(-90deg); }
     display: none;
 }
 
+#chat-screen.hide-chat-avatar-other .chat-message.other .chat-avatar {
+    display: none;
+}
+
+#chat-screen.hide-chat-avatar-self .chat-message.user .chat-avatar {
+    display: none;
+}
+
 #chat-screen.hide-chat-timestamp .msg-time,
 #chat-screen.hide-chat-timestamp .chat-time-stamp {
     display: none;

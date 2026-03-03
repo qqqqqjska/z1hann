@@ -963,11 +963,13 @@
                             </div>
                             <div class="list-item">
                                 <div class="list-content">
-                                    <label>头像显示</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-show-avatar" checked>
-                                        <span class="slider"></span>
-                                    </label>
+                                    <label>头像显示范围</label>
+                                    <select id="chat-setting-avatar-visibility">
+                                        <option value="show-both">都显示</option>
+                                        <option value="hide-other">隐藏对方</option>
+                                        <option value="hide-self">隐藏自己</option>
+                                        <option value="hide-both">隐藏双方</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="list-item">
@@ -1299,10 +1301,18 @@
                     <span id="chat-toast-text"></span>
                 </div>
                 <div class="chat-input-area">
-                    <button id="chat-more-btn" class="chat-icon-btn"><i class="fas fa-plus-circle"></i></button>
-                    <input type="text" id="chat-input">
-                    <button id="sticker-btn" class="chat-icon-btn" style="margin-right: 5px;"><i class="far fa-smile"></i></button>
-                    <button id="trigger-ai-reply-btn"><i class="fas fa-arrow-up"></i></button>
+                    <button id="chat-more-btn" class="chat-icon-btn" aria-label="更多功能">
+                        <i class="ri-add-line"></i>
+                    </button>
+                    <div class="chat-input-shell">
+                        <input type="text" id="chat-input" placeholder="iMessage">
+                        <button id="sticker-btn" class="chat-input-emoji-btn" aria-label="表情">
+                            <i class="ri-emotion-line"></i>
+                        </button>
+                    </div>
+                    <button id="trigger-ai-reply-btn" aria-label="语音">
+                        <i class="ri-mic-line"></i>
+                    </button>
                 </div>
                 <!-- 表情包面板 -->
                 <div id="sticker-panel" class="sticker-panel hidden">

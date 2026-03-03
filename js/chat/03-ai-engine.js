@@ -1130,6 +1130,13 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         `;
     }
 
+    // no-bubble card templates are often multiline strings. Trimming avoids
+    // leading/trailing text nodes from creating extra vertical blank space.
+    const shouldForceNoBubble = extraClass.includes('no-bubble');
+    if (shouldForceNoBubble) {
+        contentHtml = String(contentHtml).trim();
+    }
+
     let replyHtml = '';
     if (replyTo) {
         replyHtml = `
@@ -1178,6 +1185,35 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
             ${timeHtml}
         `;
+    }
+
+    // Hard-lock no-bubble shells so user custom CSS cannot bring the bubble
+    // background/padding/border/shadow back for card-style messages.
+    if (shouldForceNoBubble) {
+        const noBubbleShell = msgDiv.querySelector('.message-content');
+        if (noBubbleShell) {
+            const lockedStyles = {
+                'padding': '0',
+                'padding-left': '0',
+                'padding-right': '0',
+                'background': 'transparent',
+                'background-color': 'transparent',
+                'background-image': 'none',
+                'border': 'none',
+                'box-shadow': 'none',
+                'border-radius': '0',
+                'line-height': 'normal',
+                'white-space': 'normal',
+                'min-height': '0',
+                'height': 'auto',
+                'display': 'block',
+                'width': 'fit-content',
+                'max-width': '100%'
+            };
+            Object.entries(lockedStyles).forEach(([prop, value]) => {
+                noBubbleShell.style.setProperty(prop, value, 'important');
+            });
+        }
     }
 
     // Robust fallback: some historical order cards may miss the progress steps block.
