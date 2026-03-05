@@ -1650,6 +1650,9 @@ function scrollToBottom() {
     container.scrollTop = container.scrollHeight;
 }
 
+// Strict protocol toggle for AI reply parsing.
+const STRICT_JSON_ARRAY_REPLY = true;
+
 // New Robust Parser for AI Responses
 function parseMixedAiResponse(content) {
     const results = [];
@@ -1818,6 +1821,216 @@ function parseMixedAiResponse(content) {
     return results;
 }
 
+function extractFirstJsonArray(raw) {
+    if (typeof raw !== 'string') return null;
+    let inString = false;
+    let escape = false;
+    let bracketCount = 0;
+    let start = -1;
+
+    for (let i = 0; i < raw.length; i++) {
+        const ch = raw[i];
+
+        if (inString) {
+            if (escape) {
+                escape = false;
+            } else if (ch === '\\') {
+                escape = true;
+            } else if (ch === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (ch === '"') {
+            inString = true;
+            continue;
+        }
+
+        if (ch === '[') {
+            if (bracketCount === 0) start = i;
+            bracketCount++;
+            continue;
+        }
+
+        if (ch === ']') {
+            if (bracketCount > 0) {
+                bracketCount--;
+                if (bracketCount === 0 && start !== -1) {
+                    return raw.slice(start, i + 1);
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+function parseStrictAiArray(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw !== 'string') {
+        throw new Error('AI返回内容不是字符串，无法解析JSON数组。');
+    }
+
+    const trimmed = raw.trim();
+    if (!trimmed) {
+        throw new Error('AI返回为空，未找到JSON数组。');
+    }
+
+    let arrayText = null;
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        arrayText = trimmed;
+    } else {
+        arrayText = extractFirstJsonArray(trimmed);
+    }
+
+    if (!arrayText) {
+        throw new Error('AI返回中未找到有效的JSON数组。');
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(arrayText);
+    } catch (e) {
+        throw new Error(`AI返回的JSON数组解析失败: ${e.message}`);
+    }
+
+    if (!Array.isArray(parsed)) {
+        throw new Error('AI返回必须是JSON数组。');
+    }
+
+    return parsed;
+}
+
+function normalizeStrictAiItems(items) {
+    const messagesList = [];
+    const actions = [];
+    let thoughtContent = null;
+
+    const normalizeType = (value) => {
+        const raw = String(value || '').trim();
+        const lower = raw.toLowerCase();
+        const typeMap = {
+            'message': 'text',
+            'msg': 'text',
+            '消息': 'text',
+            '文本': 'text',
+            'voice_message': 'voice',
+            '语音消息': 'voice',
+            '语音': 'voice',
+            '表情包': 'sticker',
+            '图片': 'image',
+            '心声': 'thought',
+            '思考': 'thought',
+            '动作': 'action'
+        };
+        return typeMap[lower] || typeMap[raw] || lower;
+    };
+
+    const appendThought = (value) => {
+        const text = String(value || '').trim();
+        if (!text) return;
+        thoughtContent = thoughtContent ? `${thoughtContent} ${text}` : text;
+    };
+
+    const pushText = (value, indexHint) => {
+        if (typeof value !== 'string') {
+            throw new Error(`第${indexHint}项 text.content 必须是字符串或字符串数组。`);
+        }
+        const text = value.trim();
+        if (!text) return;
+        messagesList.push({ type: 'text', content: text });
+    };
+
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const indexHint = i + 1;
+
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            throw new Error(`第${indexHint}项必须是JSON对象。`);
+        }
+        if (!item.type) {
+            throw new Error(`第${indexHint}项缺少 type 字段。`);
+        }
+
+        const type = normalizeType(item.type);
+        switch (type) {
+            case 'thought': {
+                appendThought(item.content);
+                break;
+            }
+            case 'text': {
+                if (Array.isArray(item.content)) {
+                    item.content.forEach((chunk) => pushText(chunk, indexHint));
+                } else {
+                    pushText(item.content, indexHint);
+                }
+                break;
+            }
+            case 'sticker': {
+                const content = String(item.content || '').trim();
+                if (!content) {
+                    throw new Error(`第${indexHint}项 sticker.content 不能为空。`);
+                }
+                messagesList.push({ type: 'sticker', content });
+                break;
+            }
+            case 'image': {
+                const content = String(item.content || '').trim();
+                if (!content) {
+                    throw new Error(`第${indexHint}项 image.content 不能为空。`);
+                }
+                const imageItem = { type: 'image', content };
+                if (typeof item.prompt === 'string' && item.prompt.trim()) {
+                    imageItem.prompt = item.prompt.trim();
+                }
+                messagesList.push(imageItem);
+                break;
+            }
+            case 'voice': {
+                const text = String(item.content || '').trim();
+                if (!text) {
+                    throw new Error(`第${indexHint}项 voice.content 不能为空。`);
+                }
+                let duration = Number(item.duration);
+                if (!Number.isFinite(duration) || duration <= 0) duration = 3;
+                messagesList.push({
+                    type: 'voice',
+                    duration: Math.round(duration),
+                    content: text
+                });
+                break;
+            }
+            case 'action': {
+                const command = String(item.command || '').trim();
+                if (!command) {
+                    throw new Error(`第${indexHint}项 action.command 不能为空。`);
+                }
+                let actionStr = `ACTION: ${command}`;
+                if (item.payload !== undefined && item.payload !== null) {
+                    const payload = typeof item.payload === 'string'
+                        ? item.payload.trim()
+                        : (typeof item.payload === 'number' || typeof item.payload === 'boolean')
+                            ? String(item.payload)
+                            : JSON.stringify(item.payload);
+                    if (payload) actionStr += `: ${payload}`;
+                }
+                actions.push(actionStr);
+                break;
+            }
+            default: {
+                throw new Error(`第${indexHint}项 type="${item.type}" 不被严格模式支持。`);
+            }
+        }
+    }
+
+    if (!messagesList.length && !actions.length && !thoughtContent) {
+        throw new Error('AI返回JSON数组为空或无有效消息。');
+    }
+
+    return { messagesList, actions, thoughtContent };
+}
+
 // Helper to force split text containing stickers/images
 function forceSplitMixedContent(content) {
     const results = [];
@@ -1874,6 +2087,73 @@ function forceSplitMixedContent(content) {
     }
 
     return results.length > 0 ? results : [{ type: '消息', content: content }];
+}
+
+function parseLegacyAiResponseItems(replyContent) {
+    const actions = [];
+    let thoughtContent = null;
+    let messagesList = [];
+
+    const parsedItems = parseMixedAiResponse(replyContent);
+    for (const item of parsedItems) {
+        if (item.type === 'thought') {
+            const t = item.content || '';
+            thoughtContent = thoughtContent ? (thoughtContent + ' ' + t) : t;
+        } else if (item.type === 'action') {
+            const cmd = item.content.command;
+            const pl = item.content.payload;
+            let actionStr = `ACTION: ${cmd}`;
+            if (pl) {
+                actionStr += `: ${pl}`;
+            }
+            actions.push(actionStr);
+        } else {
+            if (item.type === '消息' || item.type === 'text') {
+                const subItems = forceSplitMixedContent(item.content);
+                messagesList.push(...subItems);
+            } else {
+                messagesList.push(item);
+            }
+        }
+    }
+
+    const finalMessages = [];
+    const actionRegex = /^[\s\*\-\>]*ACTION\s*[:：]\s*(.*)$/i;
+    const thoughtRegex = /\[心声\s*[:：]\s*(.*?)\]/i;
+
+    for (const msg of messagesList) {
+        if (msg.type === '消息') {
+            let lines = msg.content.split('\n');
+            let cleanContent = '';
+
+            for (let line of lines) {
+                let trimmedLine = line.trim();
+                let actionMatch = trimmedLine.match(actionRegex);
+                let thoughtMatch = trimmedLine.match(thoughtRegex);
+
+                if (actionMatch) {
+                    actions.push('ACTION: ' + actionMatch[1].trim());
+                } else if (thoughtMatch) {
+                    const content = thoughtMatch[1].trim();
+                    thoughtContent = thoughtContent ? (thoughtContent + ' ' + content) : content;
+                } else {
+                    cleanContent += (cleanContent ? '\n' : '') + line;
+                }
+            }
+
+            if (cleanContent) {
+                finalMessages.push({ type: '消息', content: cleanContent });
+            }
+        } else {
+            finalMessages.push(msg);
+        }
+    }
+
+    return {
+        actions,
+        thoughtContent,
+        messagesList: finalMessages
+    };
 }
 
 // Fallback legacy parser (kept for compatibility)
@@ -2354,6 +2634,7 @@ ${contact.showThought ? `
 为了确保回复格式正确，你**必须且只能**返回一个标准的 JSON 数组。
 **严禁**包含任何 Markdown 代码块标记（如 \`\`\`json 或 \`\`\`）。
 **严禁**在 JSON 数组之外输出任何文本。
+**严禁**输出任何非数组JSON（例如单个对象）。
 **严禁**输出类似 "[发送了一个表情包：xxx]" 的纯文本格式。
 **严禁**输出 "BAKA"、"baka" 等词汇，除非人设明确要求。
 
@@ -2366,6 +2647,7 @@ ${contact.showThought ? `
 2. 💬 **文本消息**：
    \`{"type": "text", "content": "消息内容"}\`
    *注意*：请务必将长回复拆分为多条短消息，模拟真实聊天节奏。**不要把多句话合并在一条消息里**。每条消息尽量简短（1-2句话）。如果内容包含多个句子（用句号、问号、感叹号等分隔），请强制拆分成多个 type="text" 的对象。
+   *强制*：不要用换行把多句塞进同一个 \`text.content\`，每一句都必须是数组里的独立 text 对象。
    *禁止*：content 中绝对不能包含 "[发送了一个表情包...]" 或 "[图片]" 这样的描述文本。表情包必须通过独立的 type="sticker" 对象发送。
 
 3. 😂 **表情包**（如果有）：
@@ -2830,82 +3112,24 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         let actions = [];
         let thoughtContent = null;
         let messagesList = [];
-        
-        // 使用新的混合解析器
-        const parsedItems = parseMixedAiResponse(replyContent);
-        
-        // 处理解析结果
-        for (const item of parsedItems) {
-            if (item.type === 'thought') {
-                const t = item.content || '';
-                thoughtContent = thoughtContent ? (thoughtContent + ' ' + t) : t;
-            } else if (item.type === 'action') {
-                // 转换 action 为旧的字符串格式以复用逻辑
-                const cmd = item.content.command;
-                const pl = item.content.payload;
-                let actionStr = `ACTION: ${cmd}`;
-                if (pl) {
-                    actionStr += `: ${pl}`;
-                }
-                actions.push(actionStr);
-            } else {
-                // 消息, 表情包, 图片, 语音 等
-                if (item.type === '消息' || item.type === 'text') {
-                    // 二次解析文本中的混合内容（防止 AI 输出纯文本的表情包标签）
-                    const subItems = forceSplitMixedContent(item.content);
-                    messagesList.push(...subItems);
-                } else {
-                    messagesList.push(item);
-                }
+
+        if (STRICT_JSON_ARRAY_REPLY) {
+            try {
+                const strictItems = parseStrictAiArray(replyContent);
+                const normalized = normalizeStrictAiItems(strictItems);
+                actions = normalized.actions;
+                thoughtContent = normalized.thoughtContent;
+                messagesList = normalized.messagesList;
+            } catch (parseError) {
+                console.error('[AI Strict Parse] 原始回复内容:', replyContent);
+                throw new Error(`${parseError.message} 本轮回复已被严格模式拦截。`);
             }
+        } else {
+            const legacyParsed = parseLegacyAiResponseItems(replyContent);
+            actions = legacyParsed.actions;
+            thoughtContent = legacyParsed.thoughtContent;
+            messagesList = legacyParsed.messagesList;
         }
-
-        // 兼容旧的 ACTION 和 心声 格式（如果解析器没处理）
-        // parseMixedAiResponse 应该已经处理了大部分 JSON，但对于纯文本中的 ACTION 标记可能需要补充
-        // 这里我们假设 AI 严格遵循 JSON 输出，但为了保险，扫描一下 text 类型的内容
-        // 如果 text 内容包含 "ACTION:", 我们将其提取出来
-        
-        // Re-scan text messages for embedded actions (legacy fallback)
-        const finalMessages = [];
-        const actionRegex = /^[\s\*\-\>]*ACTION\s*[:：]\s*(.*)$/i;
-        const thoughtRegex = /\[心声\s*[:：]\s*(.*?)\]/i;
-
-        for (const msg of messagesList) {
-            if (msg.type === '消息') {
-                let lines = msg.content.split('\n');
-                let cleanContent = '';
-                
-                for (let line of lines) {
-                    let trimmedLine = line.trim();
-                    
-                    // Optimization: Do not skip empty lines to preserve formatting (paragraph breaks)
-                    // if (!trimmedLine) continue; 
-
-                    let actionMatch = trimmedLine.match(actionRegex);
-                    let thoughtMatch = trimmedLine.match(thoughtRegex);
-
-                    if (actionMatch) {
-                        actions.push('ACTION: ' + actionMatch[1].trim());
-                    } else if (thoughtMatch) {
-                        const content = thoughtMatch[1].trim();
-                        thoughtContent = thoughtContent ? (thoughtContent + ' ' + content) : content;
-                    } else {
-                        cleanContent += (cleanContent ? '\n' : '') + line;
-                    }
-                }
-                
-                if (cleanContent) {
-                    // 如果清理后还有内容，保留消息
-                    // 还要再次检查是否是 [类型:内容] 格式（如果 fallback 到 parseMixedContent）
-                    // 但 parseMixedAiResponse 已经不做这个了。
-                    // 保持简单，直接作为文本
-                    finalMessages.push({ type: '消息', content: cleanContent });
-                }
-            } else {
-                finalMessages.push(msg);
-            }
-        }
-        messagesList = finalMessages;
 
         // 处理指令
         let imageToSend = null;
