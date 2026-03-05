@@ -267,7 +267,8 @@ window.openMusicListenInviteDetail = function (payload) {
 };
 
 function appendMessageToUI(text, isUser, type = 'text', description = null, replyTo = null, msgId = null, timestamp = null, isHistory = false) {
-    if (type === 'text' && text && typeof text === 'string') {
+    const isTextPayload = (type === 'text' || type === 'html');
+    if (isTextPayload && text && typeof text === 'string') {
         // Strip hidden image data from display
         text = text.replace(/<hidden_img>.*?<\/hidden_img>/g, '');
 
@@ -275,7 +276,8 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             return;
         }
         
-        if (!isUser && text.includes('ACTION:')) {
+        // Keep ACTION-like strings inside full HTML payloads untouched.
+        if (!isUser && text.includes('ACTION:') && !isLikelyHtmlSegment(text)) {
             text = text.split('\n').filter(line => !line.trim().startsWith('ACTION:')).join('\n').trim();
             if (!text) return;
         }
@@ -495,6 +497,14 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     let extraClass = '';
+    const shouldRenderAsHtmlNoBubble =
+        type === 'html' ||
+        (type === 'text' && typeof text === 'string' && isLikelyHtmlSegment(text));
+
+    if (shouldRenderAsHtmlNoBubble) {
+        extraClass += ' html-msg no-bubble';
+    }
+
     const cardTypes = ['transfer', 'family_card', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
@@ -517,9 +527,9 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     } else if (type === 'description') {
         extraClass = 'description-msg';
     } else if (type === 'virtual_image') {
-        extraClass = 'virtual-image-msg';
+        extraClass = 'virtual-image-msg no-bubble';
     } else if (type === 'image') {
-        extraClass = 'image-msg';
+        extraClass = 'image-msg no-bubble';
     } else if (type === 'gift_card') {
         extraClass += ' gift-card-msg';
         let giftData = typeof text === 'string' ? JSON.parse(text) : text;
@@ -1915,6 +1925,10 @@ function normalizeStrictAiItems(items) {
             'msg': 'text',
             '消息': 'text',
             '文本': 'text',
+            'html': 'html',
+            '网页': 'html',
+            '网页代码': 'html',
+            'html代码': 'html',
             'voice_message': 'voice',
             '语音消息': 'voice',
             '语音': 'voice',
@@ -1937,9 +1951,22 @@ function normalizeStrictAiItems(items) {
         if (typeof value !== 'string') {
             throw new Error(`第${indexHint}项 text.content 必须是字符串或字符串数组。`);
         }
-        const text = value.trim();
-        if (!text) return;
-        messagesList.push({ type: 'text', content: text });
+        const rawText = String(value);
+        if (!rawText.trim()) return;
+        if (isLikelyHtmlSegment(rawText)) {
+            messagesList.push({ type: 'text', content: rawText });
+            return;
+        }
+        messagesList.push({ type: 'text', content: rawText.trim() });
+    };
+
+    const pushHtml = (value, indexHint) => {
+        if (typeof value !== 'string') {
+            throw new Error(`第${indexHint}项 html.content 必须是字符串或字符串数组。`);
+        }
+        const htmlRaw = String(value);
+        if (!htmlRaw.trim()) return;
+        messagesList.push({ type: 'html', content: htmlRaw });
     };
 
     for (let i = 0; i < items.length; i++) {
@@ -1964,6 +1991,14 @@ function normalizeStrictAiItems(items) {
                     item.content.forEach((chunk) => pushText(chunk, indexHint));
                 } else {
                     pushText(item.content, indexHint);
+                }
+                break;
+            }
+            case 'html': {
+                if (Array.isArray(item.content)) {
+                    item.content.forEach((chunk) => pushHtml(chunk, indexHint));
+                } else {
+                    pushHtml(item.content, indexHint);
                 }
                 break;
             }
@@ -2029,6 +2064,145 @@ function normalizeStrictAiItems(items) {
     }
 
     return { messagesList, actions, thoughtContent };
+}
+
+function isLikelyHtmlSegment(text) {
+    if (typeof text !== 'string') return false;
+    const source = text.trim();
+    if (!source) return false;
+
+    // Raw HTML markers
+    if (/(<!doctype\s+html|<html\b|<\/html>|<head\b|<\/head>|<body\b|<\/body>|<style\b|<\/style>|<div\b|<section\b|<article\b|<main\b|<meta\b|<title\b|<link\b|<script\b)/i.test(source)) {
+        return true;
+    }
+
+    // Escaped HTML markers (some prompts include escaped templates)
+    if (/(&lt;!doctype\s+html|&lt;html\b|&lt;head\b|&lt;body\b|&lt;style\b|&lt;div\b|&lt;section\b|&lt;article\b|&lt;main\b)/i.test(source)) {
+        return true;
+    }
+
+    return false;
+}
+
+function mergeAdjacentHtmlSegments(messagesList) {
+    if (!Array.isArray(messagesList) || messagesList.length === 0) return messagesList;
+
+    const isTextLikeMsg = (msg) => {
+        const msgType = String(msg && msg.type ? msg.type : '').toLowerCase();
+        return msgType === 'text' || msgType === '消息' || msgType === 'html' || msgType === '';
+    };
+
+    const hasHtmlClose = (value) => typeof value === 'string' && /<\/html\s*>/i.test(value);
+    const merged = [];
+
+    for (let i = 0; i < messagesList.length; i++) {
+        const msg = messagesList[i];
+        const baseText = msg && typeof msg.content === 'string' ? msg.content : '';
+        if (!isTextLikeMsg(msg) || !baseText || !isLikelyHtmlSegment(baseText)) {
+            merged.push(msg);
+            continue;
+        }
+
+        console.info('[AI HTML MERGE] merge-start', { index: i });
+        let mergedContent = baseText;
+        let endFound = hasHtmlClose(baseText);
+        let endIndex = i;
+
+        for (let j = i + 1; j < messagesList.length; j++) {
+            const next = messagesList[j];
+            const nextText = next && typeof next.content === 'string' ? next.content : '';
+            if (!isTextLikeMsg(next) || !nextText) break;
+
+            const nextLooksHtml = isLikelyHtmlSegment(nextText);
+            if (!nextLooksHtml && endFound) break;
+
+            if (!nextLooksHtml && !endFound) {
+                const compact = nextText.trim();
+                // Avoid accidentally swallowing normal conversation after broken HTML.
+                if (!compact || compact.length > 240 || /ACTION:\s*/i.test(compact)) break;
+            }
+
+            mergedContent += nextText;
+            endIndex = j;
+            if (hasHtmlClose(nextText)) {
+                endFound = true;
+                break;
+            }
+        }
+
+        merged.push({
+            ...msg,
+            type: 'html',
+            content: mergedContent
+        });
+        console.info('[AI HTML MERGE] merge-end', {
+            from: i,
+            to: endIndex,
+            closed: endFound,
+            length: mergedContent.length
+        });
+
+        i = endIndex;
+    }
+
+    return merged;
+}
+
+function summarizeHtmlForContext(content) {
+    if (typeof content !== 'string') return '';
+    const raw = content.trim();
+    if (!raw) return '';
+    if (!isLikelyHtmlSegment(raw)) return raw;
+    return `[HTML内容已省略：约${raw.length}字符，包含结构化页面代码]`;
+}
+
+function compactStringForRequest(text, maxChars = 2000) {
+    if (typeof text !== 'string') return text;
+    if (isLikelyHtmlSegment(text)) {
+        return summarizeHtmlForContext(text);
+    }
+    if (text.length <= maxChars) return text;
+    const head = Math.max(200, Math.floor(maxChars * 0.8));
+    const tail = Math.max(80, Math.floor(maxChars * 0.15));
+    const omitted = Math.max(0, text.length - head - tail);
+    return `${text.slice(0, head)}\n...[已截断 ${omitted} 字符]...\n${text.slice(-tail)}`;
+}
+
+function compactContentForRequest(content, maxChars = 2000) {
+    if (typeof content === 'string') {
+        return compactStringForRequest(content, maxChars);
+    }
+    return content;
+}
+
+function compactMessagesForRequest(messages, targetChars = 120000, aggressive = false) {
+    const perMsgLimit = aggressive ? 900 : 1800;
+    const systemLimit = aggressive ? 9000 : 18000;
+    let compacted = (Array.isArray(messages) ? messages : []).map((m, idx) => {
+        const msg = { ...m };
+        const maxLen = idx === 0 && m && m.role === 'system' ? systemLimit : perMsgLimit;
+        msg.content = compactContentForRequest(m ? m.content : '', maxLen);
+        return msg;
+    });
+
+    let payloadLen = JSON.stringify({ messages: compacted }).length;
+    while (payloadLen > targetChars && compacted.length > 8) {
+        // Remove oldest non-system context first.
+        compacted.splice(1, 1);
+        payloadLen = JSON.stringify({ messages: compacted }).length;
+    }
+
+    if (payloadLen > targetChars && compacted[0] && typeof compacted[0].content === 'string') {
+        compacted[0].content = compactStringForRequest(compacted[0].content, aggressive ? 5000 : 9000);
+        payloadLen = JSON.stringify({ messages: compacted }).length;
+    }
+
+    while (payloadLen > targetChars && compacted.length > 3) {
+        compacted.splice(1, 1);
+        payloadLen = JSON.stringify({ messages: compacted }).length;
+    }
+
+    return compacted;
 }
 
 // Helper to force split text containing stickers/images
@@ -2648,6 +2822,7 @@ ${contact.showThought ? `
    \`{"type": "text", "content": "消息内容"}\`
    *注意*：请务必将长回复拆分为多条短消息，模拟真实聊天节奏。**不要把多句话合并在一条消息里**。每条消息尽量简短（1-2句话）。如果内容包含多个句子（用句号、问号、感叹号等分隔），请强制拆分成多个 type="text" 的对象。
    *强制*：不要用换行把多句塞进同一个 \`text.content\`，每一句都必须是数组里的独立 text 对象。
+   *HTML特例(最高优先)*：如果你要输出“小剧场/番外/测试页/组件页面”等完整HTML，**禁止拆分成多条**。你必须只输出一个完整对象：\`{"type":"html","content":"<!DOCTYPE html>..." }\`（兼容允许 \`type="text"\`）。禁止Markdown代码块，尽量单行输出完整HTML。
    *禁止*：content 中绝对不能包含 "[发送了一个表情包...]" 或 "[图片]" 这样的描述文本。表情包必须通过独立的 type="sticker" 对象发送。
 
 3. 😂 **表情包**（如果有）：
@@ -2662,7 +2837,11 @@ ${contact.showThought ? `
 5. 🎤 **语音**：
    \`{"type": "voice", "duration": 秒数, "content": "语音文本"}\`
 
-6. ⚡️ **动作指令**：
+6. 🧩 **HTML页面**（仅在确有需要时）：
+   \`{"type":"html","content":"<!DOCTYPE html>..."}\`
+   *要求*：必须完整、不要拆分、不要Markdown包裹。
+
+7. ⚡️ **动作指令**：
    \`{"type": "action", "command": "指令名", "payload": "参数"}\`
    *说明*：原本的 \`ACTION:\` 指令请封装在此结构中。例如 \`ACTION: POST_MOMENT: 内容\` 变为 \`{"type": "action", "command": "POST_MOMENT", "payload": "内容"}\`。
 
@@ -2810,7 +2989,10 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
             activeEntries.forEach(entry => {
                 let shouldAdd = false;
                 if (entry.keys && entry.keys.length > 0) {
-                    const historyText = history.map(h => h.content).join('\n');
+                    const historyText = history.map(h => {
+                        const content = typeof h.content === 'string' ? h.content : '';
+                        return compactStringForRequest(content, 360);
+                    }).join('\n');
                     const match = entry.keys.some(key => historyText.includes(key));
                     if (match) shouldAdd = true;
                 } else {
@@ -2907,6 +3089,11 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                         embeddedImages.push(match[1]);
                     }
                     content = content.replace(imgRegex, '').trim();
+                }
+
+                // Prevent giant HTML payloads from polluting request body.
+                if (isLikelyHtmlSegment(content)) {
+                    content = summarizeHtmlForContext(content);
                 }
             }
 
@@ -3073,18 +3260,59 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         }
 
         const cleanKey = settings.key ? settings.key.replace(/[^\x00-\x7F]/g, "").trim() : '';
-        const response = await fetch(fetchUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${cleanKey}`
-            },
-            body: JSON.stringify({
-                model: settings.model,
-                messages: messages,
-                temperature: settings.temperature
-            })
-        });
+        const basePayload = {
+            model: settings.model,
+            messages: messages,
+            temperature: settings.temperature
+        };
+
+        let requestMessages = basePayload.messages;
+        let requestPayload = { ...basePayload, messages: requestMessages };
+        let requestBody = JSON.stringify(requestPayload);
+        const requestHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${cleanKey}`
+        };
+
+        // Soft-compact overly large requests before first attempt.
+        if (requestBody.length > 120000) {
+            const compacted = compactMessagesForRequest(requestMessages, 100000, false);
+            requestPayload = { ...basePayload, messages: compacted };
+            requestBody = JSON.stringify(requestPayload);
+            console.warn('[AI Request] payload compacted before send', {
+                before: basePayload.messages.length,
+                after: compacted.length,
+                bodyChars: requestBody.length
+            });
+        }
+
+        let response;
+        try {
+            response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: requestHeaders,
+                body: requestBody
+            });
+        } catch (fetchError) {
+            // Some gateways reset HTTP2 streams when body is too large.
+            if (fetchError && fetchError.name === 'TypeError') {
+                const retryMessages = compactMessagesForRequest(messages, 70000, true);
+                const retryPayload = { ...basePayload, messages: retryMessages };
+                const retryBody = JSON.stringify(retryPayload);
+                console.warn('[AI Request] fetch failed, retry with aggressive compact payload', {
+                    retryMessages: retryMessages.length,
+                    retryBodyChars: retryBody.length,
+                    error: fetchError.message
+                });
+                response = await fetch(fetchUrl, {
+                    method: 'POST',
+                    headers: requestHeaders,
+                    body: retryBody
+                });
+            } else {
+                throw fetchError;
+            }
+        }
 
         if (!response.ok) {
             throw new Error(`API Error: ${response.status}`);
@@ -3130,6 +3358,7 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
             thoughtContent = legacyParsed.thoughtContent;
             messagesList = legacyParsed.messagesList;
         }
+        messagesList = mergeAdjacentHtmlSegments(messagesList);
 
         // 处理指令
         let imageToSend = null;
@@ -3955,6 +4184,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                         if (msg.type === '表情包') notifContent = '[表情包]';
                         else if (msg.type === '图片') notifContent = '[图片]';
                         else if (msg.type === '语音') notifContent = '[语音]';
+                        else if (msg.type === 'html') notifContent = '[HTML]';
                         else if (msg.type === 'family_card') notifContent = '[亲属卡]';
                         else if (msg.type === 'savings_invite') notifContent = '[共同存钱邀请]';
                         else if (msg.type === 'savings_withdraw_request') notifContent = '[共同存钱转出申请]';
@@ -3967,7 +4197,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 }
 
                 // 用户在聊天界面，使用打字机效果或直接发送
-                if (msg.type === '消息' || msg.type === 'text') {
+                if (msg.type === '消息' || msg.type === 'text' || msg.type === 'html') {
                     await typewriterEffect(msg.content, contact.avatar, currentThought, currentReplyTo, 'text', contactId);
                 } else if (msg.type === '表情包' || msg.type === 'sticker') {
                     // 尝试查找表情包 URL
@@ -4117,7 +4347,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 let contentToSave = msg.content;
                 let typeToSave = 'text';
                 
-                if (msg.type === '消息' || msg.type === 'text') {
+                if (msg.type === '消息' || msg.type === 'text' || msg.type === 'html') {
                     typeToSave = 'text';
                 } else if (msg.type === '表情包' || msg.type === 'sticker') {
                     let stickerUrl = null;
@@ -4339,10 +4569,15 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
 
     } catch (error) {
         console.error('AI生成失败:', error);
+        const msg = String(error && error.message ? error.message : error || '');
+        const isFetchLike = /Failed to fetch|ERR_HTTP2_PROTOCOL_ERROR|NetworkError/i.test(msg);
+        const userFacingMsg = isFetchLike
+            ? `AI生成失败: ${msg}\n可能是网关拒绝了较大请求体或网络抖动。系统已自动做压缩重试；若仍失败，请稍后重试或降低上下文/世界书体量。`
+            : `AI生成失败: ${msg}\n请检查配置和API状态`;
         // 显示具体的错误信息
-        alert(`AI生成失败: ${error.message}\n请检查配置和API状态`);
+        alert(userFacingMsg);
         // 同时在聊天界面显示系统消息
-        appendMessageToUI(`[系统错误]: AI生成失败 - ${error.message}`, false, 'text', null, null, null, null, false);
+        appendMessageToUI(`[系统错误]: AI生成失败 - ${msg}`, false, 'text', null, null, null, null, false);
     } finally {
         const currentContact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
         if (currentContact) {

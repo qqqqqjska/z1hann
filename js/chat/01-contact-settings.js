@@ -645,6 +645,99 @@ function normalizeChatSettingsListRows() {
     });
 }
 
+const CONTACT_PREVIEW_MAX_LENGTH = 28;
+
+function isLikelyHtmlPayload(content) {
+    if (typeof content !== 'string') return false;
+    const source = content.toLowerCase();
+    const htmlMarkers = [
+        '<!doctype html',
+        '<html',
+        '<head',
+        '<body',
+        '<style',
+        '</html>',
+        '&lt;!doctype html',
+        '&lt;html',
+        '&lt;head',
+        '&lt;body',
+        '&lt;style',
+        '&lt;/html&gt;'
+    ];
+    return htmlMarkers.some(marker => source.includes(marker));
+}
+
+function decodeHtmlEntities(content) {
+    if (typeof content !== 'string' || !content) return '';
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = content;
+    return textarea.value;
+}
+
+function extractHtmlTitle(content) {
+    if (typeof content !== 'string') return '';
+    const decoded = decodeHtmlEntities(content);
+    const match = decoded.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+    if (!match || !match[1]) return '';
+    return stripHtmlToText(match[1]);
+}
+
+function stripHtmlToText(content) {
+    if (typeof content !== 'string') return '';
+    const decoded = decodeHtmlEntities(content);
+    if (!decoded.includes('<') || !decoded.includes('>')) {
+        return decoded.replace(/\s+/g, ' ').trim();
+    }
+
+    const div = document.createElement('div');
+    div.innerHTML = decoded;
+    return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim();
+}
+
+function truncatePreview(text, maxLen = CONTACT_PREVIEW_MAX_LENGTH) {
+    if (typeof text !== 'string') return '';
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    if (normalized.length <= maxLen) return normalized;
+    if (maxLen <= 1) return '…';
+    return `${normalized.slice(0, maxLen - 1)}…`;
+}
+
+function formatLastMsgPreview(lastMsg) {
+    if (!lastMsg || typeof lastMsg !== 'object') return '[消息]';
+
+    if (lastMsg.type === 'image') return '[图片]';
+    if (lastMsg.type === 'sticker') return '[表情包]';
+    if (lastMsg.type === 'transfer') return '[转账]';
+    if (lastMsg.type === 'family_card') return '[亲属卡]';
+    if (lastMsg.type === 'voice') return '[语音]';
+    if (lastMsg.type === 'gift_card') return '[礼物]';
+    if (lastMsg.type === 'shopping_gift') return '[礼物]';
+    if (lastMsg.type === 'pay_request') return '[代付请求]';
+    if (lastMsg.type === 'delivery_share') return '[外卖]';
+    if (lastMsg.type === 'savings_invite') return '[共同存钱邀请]';
+    if (lastMsg.type === 'savings_withdraw_request') return '[共同存钱转出申请]';
+    if (lastMsg.type === 'savings_progress') return '[共同存钱进度]';
+    if (lastMsg.type === 'voice_call_text') return '[通话]';
+
+    if (lastMsg.type === 'text' || lastMsg.type === 'html') {
+        const content = typeof lastMsg.content === 'string' ? lastMsg.content : '';
+        if (!content.trim()) return '[消息]';
+
+        if (isLikelyHtmlPayload(content)) {
+            const title = extractHtmlTitle(content);
+            if (title) return truncatePreview(`[HTML] ${title}`);
+            return '[HTML消息]';
+        }
+
+        const plainText = stripHtmlToText(content);
+        return truncatePreview(plainText || '[消息]');
+    }
+
+    const fallback = stripHtmlToText(typeof lastMsg.content === 'string' ? lastMsg.content : '');
+    return truncatePreview(fallback || '[消息]');
+}
+
 function renderContactList(filterGroup = 'all') {
     const isSwitchingGroup = window.iphoneSimState.currentContactGroup !== filterGroup;
     window.iphoneSimState.currentContactGroup = filterGroup;
@@ -723,41 +816,15 @@ function renderContactList(filterGroup = 'all') {
                     lastMsg = msg;
                     break;
                 }
-                if (lastMsg && lastMsg.type === 'text') {
-                    lastMsgText = lastMsg.content;
-                } else if (lastMsg && lastMsg.type === 'image') {
-                    lastMsgText = '[图片]';
-                } else if (lastMsg && lastMsg.type === 'sticker') {
-                    lastMsgText = '[表情包]';
-                } else if (lastMsg && lastMsg.type === 'transfer') {
-                    lastMsgText = '[转账]';
-                } else if (lastMsg && lastMsg.type === 'family_card') {
-                    lastMsgText = '[亲属卡]';
-                } else if (lastMsg && lastMsg.type === 'voice') {
-                    lastMsgText = '[语音]';
-                } else if (lastMsg && lastMsg.type === 'gift_card') {
-                    lastMsgText = '[礼物]';
-                } else if (lastMsg && lastMsg.type === 'shopping_gift') {
-                    lastMsgText = '[礼物]';
-                } else if (lastMsg && lastMsg.type === 'pay_request') {
-                    lastMsgText = '[代付请求]';
-                } else if (lastMsg && lastMsg.type === 'delivery_share') {
-                    lastMsgText = '[外卖]';
-                } else if (lastMsg && lastMsg.type === 'savings_invite') {
-                    lastMsgText = '[共同存钱邀请]';
-                } else if (lastMsg && lastMsg.type === 'savings_withdraw_request') {
-                    lastMsgText = '[共同存钱转出申请]';
-                } else if (lastMsg && lastMsg.type === 'savings_progress') {
-                    lastMsgText = '[共同存钱进度]';
-                } else if (lastMsg && lastMsg.type === 'voice_call_text') {
-                    lastMsgText = '[通话]';
-                }
+                lastMsgText = formatLastMsgPreview(lastMsg);
 
                 if (lastMsg && lastMsg.time) {
                     const date = new Date(lastMsg.time);
                     lastMsgTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                 }
             }
+
+            if (!lastMsgText) lastMsgText = '[消息]';
 
             if (!lastMsgTime) {
                 const now = new Date();
@@ -779,7 +846,7 @@ function renderContactList(filterGroup = 'all') {
                             <span class="contact-time">${lastMsgTime}</span>
                         </div>
                         <div class="contact-msg-row">
-                            <span class="contact-msg-preview">${lastMsgText}</span>
+                            <span class="contact-msg-preview"></span>
                             ${unreadCount > 0 ? `<div class="unread-badge">${unreadCount}</div>` : ''}
                         </div>
                     </div>
@@ -806,6 +873,7 @@ function renderContactList(filterGroup = 'all') {
                 el.style.marginBottom = '0';
                 el.style.lineHeight = '1.2';
             });
+            if (previewEl) previewEl.textContent = lastMsgText;
 
             let startX = 0;
             let startY = 0;
