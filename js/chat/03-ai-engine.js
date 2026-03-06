@@ -267,8 +267,7 @@ window.openMusicListenInviteDetail = function (payload) {
 };
 
 function appendMessageToUI(text, isUser, type = 'text', description = null, replyTo = null, msgId = null, timestamp = null, isHistory = false) {
-    const isTextPayload = (type === 'text' || type === 'html');
-    if (isTextPayload && text && typeof text === 'string') {
+    if (type === 'text' && text && typeof text === 'string') {
         // Strip hidden image data from display
         text = text.replace(/<hidden_img>.*?<\/hidden_img>/g, '');
 
@@ -276,8 +275,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             return;
         }
         
-        // Keep ACTION-like strings inside full HTML payloads untouched.
-        if (!isUser && text.includes('ACTION:') && !isLikelyHtmlSegment(text)) {
+        if (!isUser && text.includes('ACTION:')) {
             text = text.split('\n').filter(line => !line.trim().startsWith('ACTION:')).join('\n').trim();
             if (!text) return;
         }
@@ -497,14 +495,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     let extraClass = '';
-    const shouldRenderAsHtmlNoBubble =
-        type === 'html' ||
-        (type === 'text' && typeof text === 'string' && isLikelyHtmlSegment(text));
-
-    if (shouldRenderAsHtmlNoBubble) {
-        extraClass += ' html-msg no-bubble';
-    }
-
+    const isHtmlTextMessage = type === 'text' && isHtmlPayloadForParser(text);
     const cardTypes = ['transfer', 'family_card', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
@@ -1140,6 +1131,10 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         `;
     }
 
+    if (isHtmlTextMessage) {
+        extraClass += ' html-msg no-bubble';
+    }
+
     // no-bubble card templates are often multiline strings. Trimming avoids
     // leading/trailing text nodes from creating extra vertical blank space.
     const shouldForceNoBubble = extraClass.includes('no-bubble');
@@ -1660,8 +1655,171 @@ function scrollToBottom() {
     container.scrollTop = container.scrollHeight;
 }
 
-// Strict protocol toggle for AI reply parsing.
-const STRICT_JSON_ARRAY_REPLY = true;
+const HTML_BLOCK_MARKER_PAIRS = [
+    { start: '[[HTML_START]]', end: '[[HTML_END]]' },
+    { start: '[HTML_START]', end: '[HTML_END]' },
+    { start: '<HTML_START>', end: '<HTML_END>' },
+    { start: '{{HTML_START}}', end: '{{HTML_END}}' }
+];
+
+function escapeRegexToken(token) {
+    return String(token || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isExplicitHtmlBlock(content) {
+    if (typeof content !== 'string') return false;
+    const source = content.toLowerCase();
+    return HTML_BLOCK_MARKER_PAIRS.some(pair =>
+        source.includes(pair.start.toLowerCase()) || source.includes(pair.end.toLowerCase())
+    );
+}
+
+function stripHtmlBlockMarkers(content) {
+    if (typeof content !== 'string' || !content) return '';
+    let output = content;
+    HTML_BLOCK_MARKER_PAIRS.forEach(pair => {
+        const startRegex = new RegExp(escapeRegexToken(pair.start), 'ig');
+        const endRegex = new RegExp(escapeRegexToken(pair.end), 'ig');
+        output = output.replace(startRegex, '').replace(endRegex, '');
+    });
+    return output;
+}
+
+function isHtmlPayloadFallback(content) {
+    if (typeof content !== 'string') return false;
+    const source = content.toLowerCase();
+    const htmlMarkers = [
+        '<!doctype html',
+        '<html',
+        '<head',
+        '<body',
+        '<style',
+        '</html>',
+        '&lt;!doctype html',
+        '&lt;html',
+        '&lt;head',
+        '&lt;body',
+        '&lt;style',
+        '&lt;/html&gt;'
+    ];
+    return htmlMarkers.some(marker => source.includes(marker));
+}
+
+function isHtmlPayloadForParser(content) {
+    if (typeof content !== 'string') return false;
+    if (isExplicitHtmlBlock(content)) return true;
+
+    try {
+        if (typeof isLikelyHtmlPayload === 'function' && isLikelyHtmlPayload(content)) {
+            return true;
+        }
+    } catch (e) {}
+
+    try {
+        if (typeof window !== 'undefined' && typeof window.isLikelyHtmlPayload === 'function' && window.isLikelyHtmlPayload(content)) {
+            return true;
+        }
+    } catch (e) {}
+
+    return isHtmlPayloadFallback(content);
+}
+
+function isHtmlBoundaryStart(content) {
+    if (typeof content !== 'string') return false;
+    const source = content.toLowerCase();
+
+    if (HTML_BLOCK_MARKER_PAIRS.some(pair => source.includes(pair.start.toLowerCase()))) return true;
+
+    return [
+        '<!doctype html',
+        '<html',
+        '<head',
+        '<body',
+        '<style',
+        '&lt;!doctype html',
+        '&lt;html',
+        '&lt;head',
+        '&lt;body',
+        '&lt;style'
+    ].some(marker => source.includes(marker));
+}
+
+function isHtmlBoundaryEnd(content) {
+    if (typeof content !== 'string') return false;
+    const source = content.toLowerCase();
+    if (HTML_BLOCK_MARKER_PAIRS.some(pair => source.includes(pair.end.toLowerCase()))) return true;
+    return source.includes('</html>') || source.includes('&lt;/html&gt;');
+}
+
+function isTextLikeMessageForHtmlMerge(msg) {
+    return !!(msg && (msg.type === '消息' || msg.type === 'text') && typeof msg.content === 'string');
+}
+
+function mergeSplitHtmlMessages(messagesList) {
+    if (!Array.isArray(messagesList) || messagesList.length === 0) return Array.isArray(messagesList) ? messagesList : [];
+
+    const merged = [];
+    let collecting = false;
+    let htmlChunk = [];
+
+    const flushChunk = () => {
+        if (!htmlChunk.length) {
+            collecting = false;
+            return;
+        }
+        const combinedHtml = stripHtmlBlockMarkers(
+            htmlChunk.map(item => String(item && item.content ? item.content : '')).join('\n')
+        ).trim();
+        if (combinedHtml) {
+            const first = htmlChunk[0];
+            merged.push({ ...first, type: '消息', content: combinedHtml });
+        } else {
+            merged.push(...htmlChunk);
+        }
+        htmlChunk = [];
+        collecting = false;
+    };
+
+    for (const msg of messagesList) {
+        if (!isTextLikeMessageForHtmlMerge(msg)) {
+            if (collecting) flushChunk();
+            merged.push(msg);
+            continue;
+        }
+
+        const text = msg.content || '';
+        const hasStart = isHtmlBoundaryStart(text);
+        const hasEnd = isHtmlBoundaryEnd(text);
+
+        if (!collecting) {
+            if (hasStart && !hasEnd) {
+                collecting = true;
+                htmlChunk.push(msg);
+                continue;
+            }
+            if (hasStart && hasEnd) {
+                const singleHtml = stripHtmlBlockMarkers(text).trim();
+                if (singleHtml) {
+                    merged.push({ ...msg, type: '消息', content: singleHtml });
+                } else {
+                    merged.push(msg);
+                }
+                continue;
+            }
+            merged.push(msg);
+            continue;
+        }
+
+        htmlChunk.push(msg);
+        if (hasEnd) {
+            flushChunk();
+        }
+    }
+
+    if (collecting) flushChunk();
+
+    return merged;
+}
 
 // New Robust Parser for AI Responses
 function parseMixedAiResponse(content) {
@@ -1687,12 +1845,20 @@ function parseMixedAiResponse(content) {
             else if (type === '图片') type = 'image';
             else if (type === '语音') type = 'voice';
             else if (type === '旁白') type = 'description';
+            else if (type === 'html') type = 'text';
         }
         
         if (type === 'voice') {
              content = `${item.duration || 3} ${item.content || '语音消息'}`;
              results.push({ type: '语音', content });
         } else if (type === 'text') {
+            if (isHtmlPayloadForParser(content)) {
+                const normalizedHtml = stripHtmlBlockMarkers(String(content || '')).trim();
+                if (normalizedHtml) {
+                    results.push({ type: '消息', content: normalizedHtml });
+                }
+                return;
+            }
             splitAndPushText(content);
         } else if (type === 'thought') {
             results.push({ type: 'thought', content: content });
@@ -1707,6 +1873,14 @@ function parseMixedAiResponse(content) {
 
     const splitAndPushText = (text) => {
         if (!text) return;
+
+        if (isHtmlPayloadForParser(text)) {
+            const normalizedHtml = stripHtmlBlockMarkers(String(text || '')).trim();
+            if (normalizedHtml) {
+                results.push({ type: '消息', content: normalizedHtml });
+            }
+            return;
+        }
         
         // 1. Handle Mixed Content (tags like [sticker])
         const mixedItems = forceSplitMixedContent(text);
@@ -1831,382 +2005,18 @@ function parseMixedAiResponse(content) {
     return results;
 }
 
-function extractFirstJsonArray(raw) {
-    if (typeof raw !== 'string') return null;
-    let inString = false;
-    let escape = false;
-    let bracketCount = 0;
-    let start = -1;
-
-    for (let i = 0; i < raw.length; i++) {
-        const ch = raw[i];
-
-        if (inString) {
-            if (escape) {
-                escape = false;
-            } else if (ch === '\\') {
-                escape = true;
-            } else if (ch === '"') {
-                inString = false;
-            }
-            continue;
-        }
-
-        if (ch === '"') {
-            inString = true;
-            continue;
-        }
-
-        if (ch === '[') {
-            if (bracketCount === 0) start = i;
-            bracketCount++;
-            continue;
-        }
-
-        if (ch === ']') {
-            if (bracketCount > 0) {
-                bracketCount--;
-                if (bracketCount === 0 && start !== -1) {
-                    return raw.slice(start, i + 1);
-                }
-            }
-        }
-    }
-
-    return null;
-}
-
-function parseStrictAiArray(raw) {
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw !== 'string') {
-        throw new Error('AI返回内容不是字符串，无法解析JSON数组。');
-    }
-
-    const trimmed = raw.trim();
-    if (!trimmed) {
-        throw new Error('AI返回为空，未找到JSON数组。');
-    }
-
-    let arrayText = null;
-    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        arrayText = trimmed;
-    } else {
-        arrayText = extractFirstJsonArray(trimmed);
-    }
-
-    if (!arrayText) {
-        throw new Error('AI返回中未找到有效的JSON数组。');
-    }
-
-    let parsed;
-    try {
-        parsed = JSON.parse(arrayText);
-    } catch (e) {
-        throw new Error(`AI返回的JSON数组解析失败: ${e.message}`);
-    }
-
-    if (!Array.isArray(parsed)) {
-        throw new Error('AI返回必须是JSON数组。');
-    }
-
-    return parsed;
-}
-
-function normalizeStrictAiItems(items) {
-    const messagesList = [];
-    const actions = [];
-    let thoughtContent = null;
-
-    const normalizeType = (value) => {
-        const raw = String(value || '').trim();
-        const lower = raw.toLowerCase();
-        const typeMap = {
-            'message': 'text',
-            'msg': 'text',
-            '消息': 'text',
-            '文本': 'text',
-            'html': 'html',
-            '网页': 'html',
-            '网页代码': 'html',
-            'html代码': 'html',
-            'voice_message': 'voice',
-            '语音消息': 'voice',
-            '语音': 'voice',
-            '表情包': 'sticker',
-            '图片': 'image',
-            '心声': 'thought',
-            '思考': 'thought',
-            '动作': 'action'
-        };
-        return typeMap[lower] || typeMap[raw] || lower;
-    };
-
-    const appendThought = (value) => {
-        const text = String(value || '').trim();
-        if (!text) return;
-        thoughtContent = thoughtContent ? `${thoughtContent} ${text}` : text;
-    };
-
-    const pushText = (value, indexHint) => {
-        if (typeof value !== 'string') {
-            throw new Error(`第${indexHint}项 text.content 必须是字符串或字符串数组。`);
-        }
-        const rawText = String(value);
-        if (!rawText.trim()) return;
-        if (isLikelyHtmlSegment(rawText)) {
-            messagesList.push({ type: 'text', content: rawText });
-            return;
-        }
-        messagesList.push({ type: 'text', content: rawText.trim() });
-    };
-
-    const pushHtml = (value, indexHint) => {
-        if (typeof value !== 'string') {
-            throw new Error(`第${indexHint}项 html.content 必须是字符串或字符串数组。`);
-        }
-        const htmlRaw = String(value);
-        if (!htmlRaw.trim()) return;
-        messagesList.push({ type: 'html', content: htmlRaw });
-    };
-
-    for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const indexHint = i + 1;
-
-        if (!item || typeof item !== 'object' || Array.isArray(item)) {
-            throw new Error(`第${indexHint}项必须是JSON对象。`);
-        }
-        if (!item.type) {
-            throw new Error(`第${indexHint}项缺少 type 字段。`);
-        }
-
-        const type = normalizeType(item.type);
-        switch (type) {
-            case 'thought': {
-                appendThought(item.content);
-                break;
-            }
-            case 'text': {
-                if (Array.isArray(item.content)) {
-                    item.content.forEach((chunk) => pushText(chunk, indexHint));
-                } else {
-                    pushText(item.content, indexHint);
-                }
-                break;
-            }
-            case 'html': {
-                if (Array.isArray(item.content)) {
-                    item.content.forEach((chunk) => pushHtml(chunk, indexHint));
-                } else {
-                    pushHtml(item.content, indexHint);
-                }
-                break;
-            }
-            case 'sticker': {
-                const content = String(item.content || '').trim();
-                if (!content) {
-                    throw new Error(`第${indexHint}项 sticker.content 不能为空。`);
-                }
-                messagesList.push({ type: 'sticker', content });
-                break;
-            }
-            case 'image': {
-                const content = String(item.content || '').trim();
-                if (!content) {
-                    throw new Error(`第${indexHint}项 image.content 不能为空。`);
-                }
-                const imageItem = { type: 'image', content };
-                if (typeof item.prompt === 'string' && item.prompt.trim()) {
-                    imageItem.prompt = item.prompt.trim();
-                }
-                messagesList.push(imageItem);
-                break;
-            }
-            case 'voice': {
-                const text = String(item.content || '').trim();
-                if (!text) {
-                    throw new Error(`第${indexHint}项 voice.content 不能为空。`);
-                }
-                let duration = Number(item.duration);
-                if (!Number.isFinite(duration) || duration <= 0) duration = 3;
-                messagesList.push({
-                    type: 'voice',
-                    duration: Math.round(duration),
-                    content: text
-                });
-                break;
-            }
-            case 'action': {
-                const command = String(item.command || '').trim();
-                if (!command) {
-                    throw new Error(`第${indexHint}项 action.command 不能为空。`);
-                }
-                let actionStr = `ACTION: ${command}`;
-                if (item.payload !== undefined && item.payload !== null) {
-                    const payload = typeof item.payload === 'string'
-                        ? item.payload.trim()
-                        : (typeof item.payload === 'number' || typeof item.payload === 'boolean')
-                            ? String(item.payload)
-                            : JSON.stringify(item.payload);
-                    if (payload) actionStr += `: ${payload}`;
-                }
-                actions.push(actionStr);
-                break;
-            }
-            default: {
-                throw new Error(`第${indexHint}项 type="${item.type}" 不被严格模式支持。`);
-            }
-        }
-    }
-
-    if (!messagesList.length && !actions.length && !thoughtContent) {
-        throw new Error('AI返回JSON数组为空或无有效消息。');
-    }
-
-    return { messagesList, actions, thoughtContent };
-}
-
-function isLikelyHtmlSegment(text) {
-    if (typeof text !== 'string') return false;
-    const source = text.trim();
-    if (!source) return false;
-
-    // Raw HTML markers
-    if (/(<!doctype\s+html|<html\b|<\/html>|<head\b|<\/head>|<body\b|<\/body>|<style\b|<\/style>|<div\b|<section\b|<article\b|<main\b|<meta\b|<title\b|<link\b|<script\b)/i.test(source)) {
-        return true;
-    }
-
-    // Escaped HTML markers (some prompts include escaped templates)
-    if (/(&lt;!doctype\s+html|&lt;html\b|&lt;head\b|&lt;body\b|&lt;style\b|&lt;div\b|&lt;section\b|&lt;article\b|&lt;main\b)/i.test(source)) {
-        return true;
-    }
-
-    return false;
-}
-
-function mergeAdjacentHtmlSegments(messagesList) {
-    if (!Array.isArray(messagesList) || messagesList.length === 0) return messagesList;
-
-    const isTextLikeMsg = (msg) => {
-        const msgType = String(msg && msg.type ? msg.type : '').toLowerCase();
-        return msgType === 'text' || msgType === '消息' || msgType === 'html' || msgType === '';
-    };
-
-    const hasHtmlClose = (value) => typeof value === 'string' && /<\/html\s*>/i.test(value);
-    const merged = [];
-
-    for (let i = 0; i < messagesList.length; i++) {
-        const msg = messagesList[i];
-        const baseText = msg && typeof msg.content === 'string' ? msg.content : '';
-        if (!isTextLikeMsg(msg) || !baseText || !isLikelyHtmlSegment(baseText)) {
-            merged.push(msg);
-            continue;
-        }
-
-        console.info('[AI HTML MERGE] merge-start', { index: i });
-        let mergedContent = baseText;
-        let endFound = hasHtmlClose(baseText);
-        let endIndex = i;
-
-        for (let j = i + 1; j < messagesList.length; j++) {
-            const next = messagesList[j];
-            const nextText = next && typeof next.content === 'string' ? next.content : '';
-            if (!isTextLikeMsg(next) || !nextText) break;
-
-            const nextLooksHtml = isLikelyHtmlSegment(nextText);
-            if (!nextLooksHtml && endFound) break;
-
-            if (!nextLooksHtml && !endFound) {
-                const compact = nextText.trim();
-                // Avoid accidentally swallowing normal conversation after broken HTML.
-                if (!compact || compact.length > 240 || /ACTION:\s*/i.test(compact)) break;
-            }
-
-            mergedContent += nextText;
-            endIndex = j;
-            if (hasHtmlClose(nextText)) {
-                endFound = true;
-                break;
-            }
-        }
-
-        merged.push({
-            ...msg,
-            type: 'html',
-            content: mergedContent
-        });
-        console.info('[AI HTML MERGE] merge-end', {
-            from: i,
-            to: endIndex,
-            closed: endFound,
-            length: mergedContent.length
-        });
-
-        i = endIndex;
-    }
-
-    return merged;
-}
-
-function summarizeHtmlForContext(content) {
-    if (typeof content !== 'string') return '';
-    const raw = content.trim();
-    if (!raw) return '';
-    if (!isLikelyHtmlSegment(raw)) return raw;
-    return `[HTML内容已省略：约${raw.length}字符，包含结构化页面代码]`;
-}
-
-function compactStringForRequest(text, maxChars = 2000) {
-    if (typeof text !== 'string') return text;
-    if (isLikelyHtmlSegment(text)) {
-        return summarizeHtmlForContext(text);
-    }
-    if (text.length <= maxChars) return text;
-    const head = Math.max(200, Math.floor(maxChars * 0.8));
-    const tail = Math.max(80, Math.floor(maxChars * 0.15));
-    const omitted = Math.max(0, text.length - head - tail);
-    return `${text.slice(0, head)}\n...[已截断 ${omitted} 字符]...\n${text.slice(-tail)}`;
-}
-
-function compactContentForRequest(content, maxChars = 2000) {
-    if (typeof content === 'string') {
-        return compactStringForRequest(content, maxChars);
-    }
-    return content;
-}
-
-function compactMessagesForRequest(messages, targetChars = 120000, aggressive = false) {
-    const perMsgLimit = aggressive ? 900 : 1800;
-    const systemLimit = aggressive ? 9000 : 18000;
-    let compacted = (Array.isArray(messages) ? messages : []).map((m, idx) => {
-        const msg = { ...m };
-        const maxLen = idx === 0 && m && m.role === 'system' ? systemLimit : perMsgLimit;
-        msg.content = compactContentForRequest(m ? m.content : '', maxLen);
-        return msg;
-    });
-
-    let payloadLen = JSON.stringify({ messages: compacted }).length;
-    while (payloadLen > targetChars && compacted.length > 8) {
-        // Remove oldest non-system context first.
-        compacted.splice(1, 1);
-        payloadLen = JSON.stringify({ messages: compacted }).length;
-    }
-
-    if (payloadLen > targetChars && compacted[0] && typeof compacted[0].content === 'string') {
-        compacted[0].content = compactStringForRequest(compacted[0].content, aggressive ? 5000 : 9000);
-        payloadLen = JSON.stringify({ messages: compacted }).length;
-    }
-
-    while (payloadLen > targetChars && compacted.length > 3) {
-        compacted.splice(1, 1);
-        payloadLen = JSON.stringify({ messages: compacted }).length;
-    }
-
-    return compacted;
-}
-
 // Helper to force split text containing stickers/images
 function forceSplitMixedContent(content) {
+    if (typeof content !== 'string') {
+        if (content === undefined || content === null) return [];
+        return [{ type: '消息', content: String(content) }];
+    }
+
+    if (isHtmlPayloadForParser(content)) {
+        const normalizedHtml = stripHtmlBlockMarkers(content).trim();
+        return normalizedHtml ? [{ type: '消息', content: normalizedHtml }] : [];
+    }
+
     const results = [];
     // 预处理：统一符号
     let processed = content.replace(/【/g, '[').replace(/】/g, ']').replace(/：/g, ':');
@@ -2261,73 +2071,6 @@ function forceSplitMixedContent(content) {
     }
 
     return results.length > 0 ? results : [{ type: '消息', content: content }];
-}
-
-function parseLegacyAiResponseItems(replyContent) {
-    const actions = [];
-    let thoughtContent = null;
-    let messagesList = [];
-
-    const parsedItems = parseMixedAiResponse(replyContent);
-    for (const item of parsedItems) {
-        if (item.type === 'thought') {
-            const t = item.content || '';
-            thoughtContent = thoughtContent ? (thoughtContent + ' ' + t) : t;
-        } else if (item.type === 'action') {
-            const cmd = item.content.command;
-            const pl = item.content.payload;
-            let actionStr = `ACTION: ${cmd}`;
-            if (pl) {
-                actionStr += `: ${pl}`;
-            }
-            actions.push(actionStr);
-        } else {
-            if (item.type === '消息' || item.type === 'text') {
-                const subItems = forceSplitMixedContent(item.content);
-                messagesList.push(...subItems);
-            } else {
-                messagesList.push(item);
-            }
-        }
-    }
-
-    const finalMessages = [];
-    const actionRegex = /^[\s\*\-\>]*ACTION\s*[:：]\s*(.*)$/i;
-    const thoughtRegex = /\[心声\s*[:：]\s*(.*?)\]/i;
-
-    for (const msg of messagesList) {
-        if (msg.type === '消息') {
-            let lines = msg.content.split('\n');
-            let cleanContent = '';
-
-            for (let line of lines) {
-                let trimmedLine = line.trim();
-                let actionMatch = trimmedLine.match(actionRegex);
-                let thoughtMatch = trimmedLine.match(thoughtRegex);
-
-                if (actionMatch) {
-                    actions.push('ACTION: ' + actionMatch[1].trim());
-                } else if (thoughtMatch) {
-                    const content = thoughtMatch[1].trim();
-                    thoughtContent = thoughtContent ? (thoughtContent + ' ' + content) : content;
-                } else {
-                    cleanContent += (cleanContent ? '\n' : '') + line;
-                }
-            }
-
-            if (cleanContent) {
-                finalMessages.push({ type: '消息', content: cleanContent });
-            }
-        } else {
-            finalMessages.push(msg);
-        }
-    }
-
-    return {
-        actions,
-        thoughtContent,
-        messagesList: finalMessages
-    };
 }
 
 // Fallback legacy parser (kept for compatibility)
@@ -2808,7 +2551,6 @@ ${contact.showThought ? `
 为了确保回复格式正确，你**必须且只能**返回一个标准的 JSON 数组。
 **严禁**包含任何 Markdown 代码块标记（如 \`\`\`json 或 \`\`\`）。
 **严禁**在 JSON 数组之外输出任何文本。
-**严禁**输出任何非数组JSON（例如单个对象）。
 **严禁**输出类似 "[发送了一个表情包：xxx]" 的纯文本格式。
 **严禁**输出 "BAKA"、"baka" 等词汇，除非人设明确要求。
 
@@ -2821,8 +2563,7 @@ ${contact.showThought ? `
 2. 💬 **文本消息**：
    \`{"type": "text", "content": "消息内容"}\`
    *注意*：请务必将长回复拆分为多条短消息，模拟真实聊天节奏。**不要把多句话合并在一条消息里**。每条消息尽量简短（1-2句话）。如果内容包含多个句子（用句号、问号、感叹号等分隔），请强制拆分成多个 type="text" 的对象。
-   *强制*：不要用换行把多句塞进同一个 \`text.content\`，每一句都必须是数组里的独立 text 对象。
-   *HTML特例(最高优先)*：如果你要输出“小剧场/番外/测试页/组件页面”等完整HTML，**禁止拆分成多条**。你必须只输出一个完整对象：\`{"type":"html","content":"<!DOCTYPE html>..." }\`（兼容允许 \`type="text"\`）。禁止Markdown代码块，尽量单行输出完整HTML。
+   *例外规则（必须遵守）*：当你要输出完整 HTML（例如小剧场番外页面）时，必须只输出**单条** type="text"，不得拆分。建议使用 \`[[HTML_START]]\` 和 \`[[HTML_END]]\` 包裹完整 HTML。
    *禁止*：content 中绝对不能包含 "[发送了一个表情包...]" 或 "[图片]" 这样的描述文本。表情包必须通过独立的 type="sticker" 对象发送。
 
 3. 😂 **表情包**（如果有）：
@@ -2837,11 +2578,7 @@ ${contact.showThought ? `
 5. 🎤 **语音**：
    \`{"type": "voice", "duration": 秒数, "content": "语音文本"}\`
 
-6. 🧩 **HTML页面**（仅在确有需要时）：
-   \`{"type":"html","content":"<!DOCTYPE html>..."}\`
-   *要求*：必须完整、不要拆分、不要Markdown包裹。
-
-7. ⚡️ **动作指令**：
+6. ⚡️ **动作指令**：
    \`{"type": "action", "command": "指令名", "payload": "参数"}\`
    *说明*：原本的 \`ACTION:\` 指令请封装在此结构中。例如 \`ACTION: POST_MOMENT: 内容\` 变为 \`{"type": "action", "command": "POST_MOMENT", "payload": "内容"}\`。
 
@@ -2989,10 +2726,7 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
             activeEntries.forEach(entry => {
                 let shouldAdd = false;
                 if (entry.keys && entry.keys.length > 0) {
-                    const historyText = history.map(h => {
-                        const content = typeof h.content === 'string' ? h.content : '';
-                        return compactStringForRequest(content, 360);
-                    }).join('\n');
+                    const historyText = history.map(h => h.content).join('\n');
                     const match = entry.keys.some(key => historyText.includes(key));
                     if (match) shouldAdd = true;
                 } else {
@@ -3089,11 +2823,6 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                         embeddedImages.push(match[1]);
                     }
                     content = content.replace(imgRegex, '').trim();
-                }
-
-                // Prevent giant HTML payloads from polluting request body.
-                if (isLikelyHtmlSegment(content)) {
-                    content = summarizeHtmlForContext(content);
                 }
             }
 
@@ -3260,59 +2989,18 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         }
 
         const cleanKey = settings.key ? settings.key.replace(/[^\x00-\x7F]/g, "").trim() : '';
-        const basePayload = {
-            model: settings.model,
-            messages: messages,
-            temperature: settings.temperature
-        };
-
-        let requestMessages = basePayload.messages;
-        let requestPayload = { ...basePayload, messages: requestMessages };
-        let requestBody = JSON.stringify(requestPayload);
-        const requestHeaders = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${cleanKey}`
-        };
-
-        // Soft-compact overly large requests before first attempt.
-        if (requestBody.length > 120000) {
-            const compacted = compactMessagesForRequest(requestMessages, 100000, false);
-            requestPayload = { ...basePayload, messages: compacted };
-            requestBody = JSON.stringify(requestPayload);
-            console.warn('[AI Request] payload compacted before send', {
-                before: basePayload.messages.length,
-                after: compacted.length,
-                bodyChars: requestBody.length
-            });
-        }
-
-        let response;
-        try {
-            response = await fetch(fetchUrl, {
-                method: 'POST',
-                headers: requestHeaders,
-                body: requestBody
-            });
-        } catch (fetchError) {
-            // Some gateways reset HTTP2 streams when body is too large.
-            if (fetchError && fetchError.name === 'TypeError') {
-                const retryMessages = compactMessagesForRequest(messages, 70000, true);
-                const retryPayload = { ...basePayload, messages: retryMessages };
-                const retryBody = JSON.stringify(retryPayload);
-                console.warn('[AI Request] fetch failed, retry with aggressive compact payload', {
-                    retryMessages: retryMessages.length,
-                    retryBodyChars: retryBody.length,
-                    error: fetchError.message
-                });
-                response = await fetch(fetchUrl, {
-                    method: 'POST',
-                    headers: requestHeaders,
-                    body: retryBody
-                });
-            } else {
-                throw fetchError;
-            }
-        }
+        const response = await fetch(fetchUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${cleanKey}`
+            },
+            body: JSON.stringify({
+                model: settings.model,
+                messages: messages,
+                temperature: settings.temperature
+            })
+        });
 
         if (!response.ok) {
             throw new Error(`API Error: ${response.status}`);
@@ -3340,25 +3028,93 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         let actions = [];
         let thoughtContent = null;
         let messagesList = [];
-
-        if (STRICT_JSON_ARRAY_REPLY) {
-            try {
-                const strictItems = parseStrictAiArray(replyContent);
-                const normalized = normalizeStrictAiItems(strictItems);
-                actions = normalized.actions;
-                thoughtContent = normalized.thoughtContent;
-                messagesList = normalized.messagesList;
-            } catch (parseError) {
-                console.error('[AI Strict Parse] 原始回复内容:', replyContent);
-                throw new Error(`${parseError.message} 本轮回复已被严格模式拦截。`);
+        
+        // 使用新的混合解析器
+        const parsedItems = parseMixedAiResponse(replyContent);
+        
+        // 处理解析结果
+        for (const item of parsedItems) {
+            if (item.type === 'thought') {
+                const t = item.content || '';
+                thoughtContent = thoughtContent ? (thoughtContent + ' ' + t) : t;
+            } else if (item.type === 'action') {
+                // 转换 action 为旧的字符串格式以复用逻辑
+                const cmd = item.content.command;
+                const pl = item.content.payload;
+                let actionStr = `ACTION: ${cmd}`;
+                if (pl) {
+                    actionStr += `: ${pl}`;
+                }
+                actions.push(actionStr);
+            } else {
+                // 消息, 表情包, 图片, 语音 等
+                if (item.type === '消息' || item.type === 'text') {
+                    // 二次解析文本中的混合内容（防止 AI 输出纯文本的表情包标签）
+                    const subItems = forceSplitMixedContent(item.content);
+                    messagesList.push(...subItems);
+                } else {
+                    messagesList.push(item);
+                }
             }
-        } else {
-            const legacyParsed = parseLegacyAiResponseItems(replyContent);
-            actions = legacyParsed.actions;
-            thoughtContent = legacyParsed.thoughtContent;
-            messagesList = legacyParsed.messagesList;
         }
-        messagesList = mergeAdjacentHtmlSegments(messagesList);
+
+        // Merge split HTML blocks back to a single message so rich layouts stay intact.
+        messagesList = mergeSplitHtmlMessages(messagesList);
+
+        // 兼容旧的 ACTION 和 心声 格式（如果解析器没处理）
+        // parseMixedAiResponse 应该已经处理了大部分 JSON，但对于纯文本中的 ACTION 标记可能需要补充
+        // 这里我们假设 AI 严格遵循 JSON 输出，但为了保险，扫描一下 text 类型的内容
+        // 如果 text 内容包含 "ACTION:", 我们将其提取出来
+        
+        // Re-scan text messages for embedded actions (legacy fallback)
+        const finalMessages = [];
+        const actionRegex = /^[\s\*\-\>]*ACTION\s*[:：]\s*(.*)$/i;
+        const thoughtRegex = /\[心声\s*[:：]\s*(.*?)\]/i;
+
+        for (const msg of messagesList) {
+            if (msg.type === '消息') {
+                if (isHtmlPayloadForParser(msg.content)) {
+                    const htmlContent = stripHtmlBlockMarkers(String(msg.content || '')).trim();
+                    if (htmlContent) {
+                        finalMessages.push({ ...msg, type: '消息', content: htmlContent });
+                    }
+                    continue;
+                }
+
+                let lines = msg.content.split('\n');
+                let cleanContent = '';
+                
+                for (let line of lines) {
+                    let trimmedLine = line.trim();
+                    
+                    // Optimization: Do not skip empty lines to preserve formatting (paragraph breaks)
+                    // if (!trimmedLine) continue; 
+
+                    let actionMatch = trimmedLine.match(actionRegex);
+                    let thoughtMatch = trimmedLine.match(thoughtRegex);
+
+                    if (actionMatch) {
+                        actions.push('ACTION: ' + actionMatch[1].trim());
+                    } else if (thoughtMatch) {
+                        const content = thoughtMatch[1].trim();
+                        thoughtContent = thoughtContent ? (thoughtContent + ' ' + content) : content;
+                    } else {
+                        cleanContent += (cleanContent ? '\n' : '') + line;
+                    }
+                }
+                
+                if (cleanContent) {
+                    // 如果清理后还有内容，保留消息
+                    // 还要再次检查是否是 [类型:内容] 格式（如果 fallback 到 parseMixedContent）
+                    // 但 parseMixedAiResponse 已经不做这个了。
+                    // 保持简单，直接作为文本
+                    finalMessages.push({ type: '消息', content: cleanContent });
+                }
+            } else {
+                finalMessages.push(msg);
+            }
+        }
+        messagesList = finalMessages;
 
         // 处理指令
         let imageToSend = null;
@@ -4184,7 +3940,6 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                         if (msg.type === '表情包') notifContent = '[表情包]';
                         else if (msg.type === '图片') notifContent = '[图片]';
                         else if (msg.type === '语音') notifContent = '[语音]';
-                        else if (msg.type === 'html') notifContent = '[HTML]';
                         else if (msg.type === 'family_card') notifContent = '[亲属卡]';
                         else if (msg.type === 'savings_invite') notifContent = '[共同存钱邀请]';
                         else if (msg.type === 'savings_withdraw_request') notifContent = '[共同存钱转出申请]';
@@ -4197,7 +3952,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 }
 
                 // 用户在聊天界面，使用打字机效果或直接发送
-                if (msg.type === '消息' || msg.type === 'text' || msg.type === 'html') {
+                if (msg.type === '消息' || msg.type === 'text') {
                     await typewriterEffect(msg.content, contact.avatar, currentThought, currentReplyTo, 'text', contactId);
                 } else if (msg.type === '表情包' || msg.type === 'sticker') {
                     // 尝试查找表情包 URL
@@ -4347,7 +4102,7 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 let contentToSave = msg.content;
                 let typeToSave = 'text';
                 
-                if (msg.type === '消息' || msg.type === 'text' || msg.type === 'html') {
+                if (msg.type === '消息' || msg.type === 'text') {
                     typeToSave = 'text';
                 } else if (msg.type === '表情包' || msg.type === 'sticker') {
                     let stickerUrl = null;
@@ -4569,15 +4324,10 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
 
     } catch (error) {
         console.error('AI生成失败:', error);
-        const msg = String(error && error.message ? error.message : error || '');
-        const isFetchLike = /Failed to fetch|ERR_HTTP2_PROTOCOL_ERROR|NetworkError/i.test(msg);
-        const userFacingMsg = isFetchLike
-            ? `AI生成失败: ${msg}\n可能是网关拒绝了较大请求体或网络抖动。系统已自动做压缩重试；若仍失败，请稍后重试或降低上下文/世界书体量。`
-            : `AI生成失败: ${msg}\n请检查配置和API状态`;
         // 显示具体的错误信息
-        alert(userFacingMsg);
+        alert(`AI生成失败: ${error.message}\n请检查配置和API状态`);
         // 同时在聊天界面显示系统消息
-        appendMessageToUI(`[系统错误]: AI生成失败 - ${msg}`, false, 'text', null, null, null, null, false);
+        appendMessageToUI(`[系统错误]: AI生成失败 - ${error.message}`, false, 'text', null, null, null, null, false);
     } finally {
         const currentContact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
         if (currentContact) {

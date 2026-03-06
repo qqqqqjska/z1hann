@@ -664,7 +664,18 @@ function isLikelyHtmlPayload(content) {
         '&lt;style',
         '&lt;/html&gt;'
     ];
-    return htmlMarkers.some(marker => source.includes(marker));
+    const explicitBlockMarkers = [
+        '[[html_start]]',
+        '[[html_end]]',
+        '[html_start]',
+        '[html_end]',
+        '<html_start>',
+        '<html_end>',
+        '{{html_start}}',
+        '{{html_end}}'
+    ];
+    return htmlMarkers.some(marker => source.includes(marker))
+        || explicitBlockMarkers.some(marker => source.includes(marker));
 }
 
 function decodeHtmlEntities(content) {
