@@ -1709,6 +1709,101 @@ function getStateReasonLabel(reasonType) {
     return STATE_REASON_LABELS[safeReason] || STATE_REASON_LABELS.other;
 }
 
+function normalizeInlineStateReasonType(reasonType, fallbackText = '') {
+    const normalized = String(reasonType || '').trim().toLowerCase();
+    if (['health', 'exam', 'travel', 'emotion', 'other'].includes(normalized)) return normalized;
+    const inferred = inferStateReasonType(String(fallbackText || '').trim());
+    return ['health', 'exam', 'travel', 'emotion', 'other'].includes(inferred) ? inferred : 'other';
+}
+
+function parseInlineStatePayload(payload) {
+    const raw = String(payload || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return null;
+
+    const parts = raw.split(/\s*[|｜]\s*/).map(part => String(part || '').trim()).filter(Boolean);
+    let reasonType = 'other';
+    let content = raw;
+
+    if (parts.length >= 2) {
+        reasonType = normalizeInlineStateReasonType(parts[0], parts.slice(1).join(' | '));
+        content = parts.slice(1).join(' | ').trim();
+    } else {
+        content = raw;
+        reasonType = normalizeInlineStateReasonType('', content);
+    }
+
+    if (!content) return null;
+    return {
+        reasonType,
+        content
+    };
+}
+
+function notifyInlineStateAction(message) {
+    const text = String(message || '').trim();
+    if (!text) return;
+    if (typeof window.showChatToast === 'function') {
+        window.showChatToast(text);
+        return;
+    }
+    if (typeof window.showNotification === 'function') {
+        window.showNotification(text, 1600, 'success');
+    }
+}
+
+function applyInlineStateRecord(contactId, owner, reasonType, content, options = {}) {
+    const cid = Number(contactId);
+    const normalizedContent = String(content || '').replace(/\s+/g, ' ').trim();
+    if (!Number.isFinite(cid) || !normalizedContent || typeof createMemoryCandidate !== 'function') return null;
+
+    const safeOwner = normalizeStateOwner(owner, 'user');
+    const safeReason = normalizeInlineStateReasonType(reasonType, normalizedContent);
+    const now = Date.now();
+    const created = createMemoryCandidate(cid, {
+        content: normalizedContent,
+        suggestedTags: ['state'],
+        source: 'ai_action',
+        confidence: clampFloat(options.confidence, 0.86, 0, 1),
+        reason: options.reason || 'AI单轮回复状态记录',
+        stateOwner: safeOwner,
+        stateMeta: makeStateMeta(safeReason, now, null, safeOwner)
+    });
+
+    if (created && options.silent !== true) {
+        if (created.status === 'pending') {
+            notifyInlineStateAction(`${getStateOwnerLabel(safeOwner)}待确认`);
+        } else {
+            notifyInlineStateAction(`${getStateOwnerLabel(safeOwner)}已记录`);
+        }
+    }
+    return created;
+}
+
+function applyInlineStateResolve(contactId, owner, reasonType, content, options = {}) {
+    const cid = Number(contactId);
+    const normalizedContent = String(content || '').replace(/\s+/g, ' ').trim();
+    if (!Number.isFinite(cid) || !normalizedContent || typeof window.resolveActiveStateMemory !== 'function') return null;
+
+    const safeOwner = normalizeStateOwner(owner, 'user');
+    const safeReason = normalizeInlineStateReasonType(reasonType, normalizedContent);
+    const resolved = window.resolveActiveStateMemory(cid, safeReason, normalizedContent, safeOwner);
+    if (!resolved) return null;
+
+    saveConfig();
+    const memoryApp = document.getElementById('memory-app');
+    if (memoryApp && !memoryApp.classList.contains('hidden') && typeof renderMemoryList === 'function') {
+        renderMemoryList();
+    }
+    if (options.silent !== true) {
+        notifyInlineStateAction(`${getStateOwnerLabel(safeOwner)}已更新为已结束`);
+    }
+    return resolved;
+}
+
+window.parseInlineStatePayload = parseInlineStatePayload;
+window.applyInlineStateRecord = applyInlineStateRecord;
+window.applyInlineStateResolve = applyInlineStateResolve;
+
 function getMemoryStateOwner(memory, fallback = 'user') {
     if (!memory || typeof memory !== 'object') return normalizeStateOwner(fallback, 'user');
     if (memory.stateMeta && memory.stateMeta.owner) return normalizeStateOwner(memory.stateMeta.owner, fallback);

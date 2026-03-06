@@ -527,24 +527,6 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     
     window.iphoneSimState.chatHistory[contactId].push(msg);
     tryExtractFactNamesFromMessage(contactId, msg, isUser);
-    if (typeof window.tryExtractStateMemoryFromMessage === 'function') {
-        try {
-            if (typeof window.getMemorySettingsV2 === 'function') {
-                const stSettings = window.getMemorySettingsV2();
-                const debugOn = !!(stSettings && stSettings.stateExtractV2 && stSettings.stateExtractV2.debugConsole);
-                if (debugOn) {
-                    console.log('[memory-state-v2] hook_dispatch', {
-                        contactId,
-                        msgId: msg.id,
-                        role: isUser ? 'user' : 'contact',
-                        type: msg.type,
-                        text: String(msg.content || '').slice(0, 80)
-                    });
-                }
-            }
-        } catch (e) {}
-        Promise.resolve(window.tryExtractStateMemoryFromMessage(contactId, msg, isUser)).catch(() => {});
-    }
 
     if (!isUser && type === 'music_listen_invite' && typeof window.openMusicListenInvitePrompt === 'function') {
         try {

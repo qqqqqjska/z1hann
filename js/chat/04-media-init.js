@@ -45,25 +45,6 @@
         }
 
         saveConfig();
-
-        if (type === 'text' && typeof window.tryExtractStateMemoryFromMessage === 'function') {
-            try {
-                if (typeof window.getMemorySettingsV2 === 'function') {
-                    const stSettings = window.getMemorySettingsV2();
-                    const debugOn = !!(stSettings && stSettings.stateExtractV2 && stSettings.stateExtractV2.debugConsole);
-                    if (debugOn) {
-                        console.log('[memory-state-v2] typewriter_dispatch', {
-                            contactId,
-                            msgId: msgData.id,
-                            role: 'contact',
-                            type: msgData.type,
-                            text: String(msgData.content || '').slice(0, 80)
-                        });
-                    }
-                }
-            } catch (e) {}
-            Promise.resolve(window.tryExtractStateMemoryFromMessage(contactId, msgData, false)).catch(() => {});
-        }
         
         if (window.iphoneSimState.currentChatContactId === contactId) {
             appendMessageToUI(text, false, type, null, replyTo, msgData.id, msgData.time);
