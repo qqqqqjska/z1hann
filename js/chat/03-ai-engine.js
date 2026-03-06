@@ -2285,86 +2285,23 @@ async function generateAiReply(instruction = null, targetContactId = null) {
     }
 
     let userPerceptionContext = '';
-    if (contact.userPerception && contact.userPerception.length > 0) {
-        userPerceptionContext = '\n【关于用户的认知】\n';
-        contact.userPerception.forEach(p => {
-            userPerceptionContext += `- ${p}\n`;
-        });
-    }
-
     let importantStateContext = '';
-    if (contact.importantStates && contact.importantStates.length > 0) {
-        importantStateContext = '\n【当前重要状态 (时效性信息)】\n⚠️ 请务必记住以下状态，并在回复中体现：\n';
-        contact.importantStates.forEach(s => {
-            importantStateContext += `- ${s}\n`;
-        });
-    }
-
     let memoryContext = '';
-    // 增强记忆读取逻辑：结合最近记忆和相关性记忆 (Simple RAG)
-    const contactMemories = window.iphoneSimState.memories.filter(m => m.contactId === contact.id);
-    
-    if (contactMemories.length > 0) {
-        // 1. 获取限制，默认为 5 条
-        const limit = contact.memorySendLimit && contact.memorySendLimit > 0 ? contact.memorySendLimit : 5;
-        
-        // 2. 按时间倒序排序 (最新的在前)
-        const sortedMemories = contactMemories.sort((a, b) => b.time - a.time);
-        
-        // 3. 总是保留最新的几条记忆 (保持短期连贯性)
-        const recentCount = Math.min(3, limit);
-        const recentMemories = sortedMemories.slice(0, recentCount);
-        
-        // 4. 对剩余记忆进行关键词匹配 (Contextual Retrieval)
-        // 提取当前对话上下文中的关键词 (简单的基于最近20条消息的全文检索)
-        const remainingMemories = sortedMemories.slice(recentCount);
-        const relevantMemories = [];
-        
-        if (remainingMemories.length > 0) {
-            const contextText = history.slice(-20).map(m => m.content).join(' ').toLowerCase();
-            
-            if (contextText) {
-                const scored = remainingMemories.map(mem => {
-                    let score = 0;
-                    const content = mem.content.toLowerCase();
-                    
-                    // 简单的双字匹配评分 (Bigram matching score)
-                    // 对于中文环境，这比单词匹配更鲁棒
-                    if (content.length > 1 && contextText.length > 1) {
-                        for (let i = 0; i < content.length - 1; i++) {
-                            const bigram = content.substr(i, 2);
-                            // 排除常见标点
-                            if (/[，。！？、：；\s]/.test(bigram)) continue;
-                            if (contextText.includes(bigram)) score++;
-                        }
-                    }
-                    return { mem, score };
+    if (typeof window.buildMemoryContextByPolicy === 'function') {
+        memoryContext = window.buildMemoryContextByPolicy(contact, history, 'chat-text');
+    } else {
+        const contactMemories = window.iphoneSimState.memories.filter(m => m.contactId === contact.id);
+        if (contactMemories.length > 0) {
+            const limit = contact.memorySendLimit && contact.memorySendLimit > 0 ? contact.memorySendLimit : 5;
+            const recentMemories = contactMemories.sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, limit).reverse();
+            if (recentMemories.length > 0) {
+                memoryContext += '\n【历史记忆 (已知事实)】\n⚠️ 注意：以下内容是你们过去的共同经历或已知事实，请勿重复向用户复述，除非用户主动询问或需要回忆。\n';
+                recentMemories.forEach(m => {
+                    const date = new Date(m.time || Date.now());
+                    const dateStr = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                    memoryContext += `- [${dateStr}] ${m.content}\n`;
                 });
-                
-                // 按相关性排序
-                scored.sort((a, b) => b.score - a.score);
-                
-                // 取出前 N 条相关记忆 (填补 limit 的剩余空间)
-                const relevantCount = Math.max(0, limit - recentCount);
-                // 只有分数大于0的才算相关
-                const validRelevant = scored.filter(s => s.score > 0).slice(0, relevantCount).map(s => s.mem);
-                relevantMemories.push(...validRelevant);
             }
-        }
-        
-        // 合并并去重 (理论上 slice 保证了不重复)
-        let finalMemories = [...recentMemories, ...relevantMemories];
-        
-        // 再次按时间正序排列，方便 AI 理解时间线
-        finalMemories.sort((a, b) => a.time - b.time); 
-        
-        if (finalMemories.length > 0) {
-            memoryContext += '\n【历史记忆 (已知事实)】\n⚠️ 注意：以下内容是你们过去的共同经历或已知事实，请勿重复向用户复述，除非用户主动询问或需要回忆。\n';
-            finalMemories.forEach(m => {
-                const date = new Date(m.time);
-                const dateStr = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-                memoryContext += `- [${dateStr}] ${m.content}\n`;
-            });
         }
     }
 
@@ -2538,6 +2475,8 @@ ${itineraryContext}
 
 你必须完全沉浸在角色中，绝对不能透露你是AI或语言模型。你的回复必须像一个真实的${contact.name}在使用微信聊天。
 你拥有“微信朋友圈”“微信转账”“亲属卡”功能。
+如果回复涉及【具体信息】中的名称，必须逐字使用原词。
+如果回复涉及【状态记忆】，必须严格区分“用户状态”和“联系人状态”，不要混淆主体。
 
 ${contact.showThought ? `
 【⚡️强制要求：内心独白⚡️】
@@ -3346,16 +3285,23 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                 let info = recordImportantStateMatch[1].trim();
                 info = info.replace(/^(用户|我|他|她)(:|：|,|，|\s)?/, '').trim();
                 if (info) {
-                    if (!contact.importantStates) contact.importantStates = [];
-                    // 简单查重
-                    if (!contact.importantStates.includes(info)) {
-                        contact.importantStates.push(info);
-                        // 保持数量限制，比如最新的 5 条
-                        if (contact.importantStates.length > 5) {
-                            contact.importantStates.shift();
+                    // 与文本直提状态并存：action 路径继续保留，最终统一走候选/去重管道。
+                    if (typeof window.createMemoryCandidate === 'function') {
+                        const created = window.createMemoryCandidate(contact.id, {
+                            content: info,
+                            suggestedTags: ['state'],
+                            source: 'ai_action',
+                            confidence: 0.86,
+                            reason: 'AI动作记录',
+                            stateOwner: 'user'
+                        });
+                        if (created) {
+                            if (created.status === 'pending') {
+                                showChatToast('状态记忆待确认');
+                            } else {
+                                showChatToast('重要状态已记录');
+                            }
                         }
-                        saveConfig();
-                        showChatToast('重要状态已记录');
                     }
                 }
                 processedSegment = processedSegment.replace(recordImportantStateMatch[0], '');
@@ -3381,10 +3327,21 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                             isDuplicate = true;
                         }
                     }
-                    if (!isDuplicate) {
-                        contact.userPerception.push(info);
-                        saveConfig();
-                        showChatToast('TA记住了');
+                    if (!isDuplicate && typeof window.createMemoryCandidate === 'function') {
+                        const created = window.createMemoryCandidate(contact.id, {
+                            content: info,
+                            suggestedTags: ['fact'],
+                            source: 'ai_action',
+                            confidence: 0.82,
+                            reason: 'AI动作记录'
+                        });
+                        if (created) {
+                            if (created.status === 'pending') {
+                                showChatToast('记忆待确认');
+                            } else {
+                                showChatToast('TA记住了');
+                            }
+                        }
                     }
                 }
                 processedSegment = processedSegment.replace(recordUserInfoMatch[0], '');
@@ -3831,7 +3788,19 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                     };
                     
                     setTimeout(() => {
-                        sendMessage(JSON.stringify(giftData), false, 'shopping_gift');
+                        const sentMsg = sendMessage(JSON.stringify(giftData), false, 'shopping_gift', null, contact.id);
+                        if (typeof window.extractSpecificNamesFromStructuredMessage === 'function' && typeof window.createFactMemoryCandidateFromNames === 'function') {
+                            const names = window.extractSpecificNamesFromStructuredMessage('shopping_gift', giftData, sentMsg && sentMsg.id);
+                            if (Array.isArray(names) && names.length > 0) {
+                                window.createFactMemoryCandidateFromNames(contact.id, names, 'shopping_gift', {
+                                    sourceMsgId: sentMsg && sentMsg.id ? String(sentMsg.id) : '',
+                                    reason: `结构化礼物消息中出现具体名称：${names.join(' / ')}`,
+                                    sceneText: '联系人给用户送过礼物',
+                                    actor: 'contact',
+                                    notifyOnManual: false
+                                });
+                            }
+                        }
                     }, 1000);
                 }
                 processedSegment = processedSegment.replace(sendGiftMatch[0], '');
@@ -3865,7 +3834,19 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
                     };
                     
                     setTimeout(() => {
-                        sendMessage(JSON.stringify(deliveryData), false, 'delivery_share');
+                        const sentMsg = sendMessage(JSON.stringify(deliveryData), false, 'delivery_share', null, contact.id);
+                        if (typeof window.extractSpecificNamesFromStructuredMessage === 'function' && typeof window.createFactMemoryCandidateFromNames === 'function') {
+                            const names = window.extractSpecificNamesFromStructuredMessage('delivery_share', deliveryData, sentMsg && sentMsg.id);
+                            if (Array.isArray(names) && names.length > 0) {
+                                window.createFactMemoryCandidateFromNames(contact.id, names, 'delivery_share', {
+                                    sourceMsgId: sentMsg && sentMsg.id ? String(sentMsg.id) : '',
+                                    reason: `结构化外卖消息中出现具体名称：${names.join(' / ')}`,
+                                    sceneText: '联系人给用户点过外卖',
+                                    actor: 'contact',
+                                    notifyOnManual: false
+                                });
+                            }
+                        }
                     }, 1000);
                 }
                 processedSegment = processedSegment.replace(sendDeliveryMatch[0], '');
@@ -4177,6 +4158,25 @@ const icityDiaryRegex = /ACTION:\s*POST_ICITY_DIARY:\s*(.*?)(?:\n|$)/;
 
                 window.iphoneSimState.chatHistory[contact.id].push(msgData);
                 saveConfig();
+
+                if (typeof window.tryExtractStateMemoryFromMessage === 'function') {
+                    try {
+                        if (typeof window.getMemorySettingsV2 === 'function') {
+                            const stSettings = window.getMemorySettingsV2();
+                            const debugOn = !!(stSettings && stSettings.stateExtractV2 && stSettings.stateExtractV2.debugConsole);
+                            if (debugOn) {
+                                console.log('[memory-state-v2] ai_history_dispatch', {
+                                    contactId: contact.id,
+                                    msgId: msgData.id,
+                                    role: 'contact',
+                                    type: msgData.type,
+                                    text: String(msgData.content || '').slice(0, 80)
+                                });
+                            }
+                        }
+                    } catch (e) {}
+                    Promise.resolve(window.tryExtractStateMemoryFromMessage(contact.id, msgData, false)).catch(() => {});
+                }
                 
                 // 触发通知
                 let notificationText = contentToSave;

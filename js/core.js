@@ -1,3 +1,389 @@
+function createDefaultMemorySettingsV2() {
+    return {
+        extractMode: 'hybrid',
+        injectQuota: {
+            short_term: 2,
+            long_term: 2,
+            state: 2,
+            fact: 2,
+            refined: 1,
+            maxTotal: 7
+        },
+        injectRecentDays: {
+            short_term: 3,
+            long_term: 30,
+            state: 14,
+            fact: 30,
+            refined: 30
+        },
+        injectImportanceMin: {
+            short_term: 0.5,
+            long_term: 0.5,
+            state: 0.5,
+            fact: 0.5,
+            refined: 0.5
+        },
+        stateTtlDays: {
+            health: 7,
+            exam: 14,
+            travel: 10,
+            emotion: 3,
+            other: 7
+        },
+        dedupeThreshold: 0.75,
+        stateExtractV2: {
+            enabled: true,
+            strategy: 'rule_plus_ai',
+            debugConsole: true,
+            thresholds: {
+                accept: 0.78,
+                borderline: 0.60,
+                resolve: 0.72
+            },
+            ai: {
+                timeoutMs: 4500,
+                maxTokens: 180,
+                temperature: 0.1
+            }
+        }
+    };
+}
+
+function normalizeMemorySettingsV2(raw) {
+    const defaults = createDefaultMemorySettingsV2();
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const inject = src.injectQuota && typeof src.injectQuota === 'object' ? src.injectQuota : {};
+    const recentDays = src.injectRecentDays && typeof src.injectRecentDays === 'object' ? src.injectRecentDays : {};
+    const importanceMin = src.injectImportanceMin && typeof src.injectImportanceMin === 'object' ? src.injectImportanceMin : {};
+    const ttl = src.stateTtlDays && typeof src.stateTtlDays === 'object' ? src.stateTtlDays : {};
+    const stateExtract = src.stateExtractV2 && typeof src.stateExtractV2 === 'object' ? src.stateExtractV2 : {};
+    const stateThresholds = stateExtract.thresholds && typeof stateExtract.thresholds === 'object'
+        ? stateExtract.thresholds
+        : {};
+    const stateAi = stateExtract.ai && typeof stateExtract.ai === 'object' ? stateExtract.ai : {};
+
+    const toInt = (value, fallback, min = 0, max = 100) => {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return fallback;
+        return Math.max(min, Math.min(max, Math.floor(parsed)));
+    };
+    const toFloat = (value, fallback, min = 0, max = 1) => {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return fallback;
+        return Math.max(min, Math.min(max, parsed));
+    };
+
+    const normalized = {
+        extractMode: ['hybrid', 'auto', 'manual'].includes(src.extractMode) ? src.extractMode : defaults.extractMode,
+        injectQuota: {
+            short_term: toInt(inject.short_term, defaults.injectQuota.short_term),
+            long_term: toInt(inject.long_term, defaults.injectQuota.long_term),
+            state: toInt(inject.state, defaults.injectQuota.state),
+            fact: toInt(inject.fact, defaults.injectQuota.fact),
+            refined: toInt(inject.refined, defaults.injectQuota.refined),
+            maxTotal: toInt(inject.maxTotal, defaults.injectQuota.maxTotal, 1, 100)
+        },
+        injectRecentDays: {
+            short_term: toInt(recentDays.short_term, defaults.injectRecentDays.short_term, 0, 3650),
+            long_term: toInt(recentDays.long_term, defaults.injectRecentDays.long_term, 0, 3650),
+            state: toInt(recentDays.state, defaults.injectRecentDays.state, 0, 3650),
+            fact: toInt(recentDays.fact, defaults.injectRecentDays.fact, 0, 3650),
+            refined: toInt(recentDays.refined, defaults.injectRecentDays.refined, 0, 3650)
+        },
+        injectImportanceMin: {
+            short_term: toFloat(importanceMin.short_term, defaults.injectImportanceMin.short_term, 0.1, 1),
+            long_term: toFloat(importanceMin.long_term, defaults.injectImportanceMin.long_term, 0.1, 1),
+            state: toFloat(importanceMin.state, defaults.injectImportanceMin.state, 0.1, 1),
+            fact: toFloat(importanceMin.fact, defaults.injectImportanceMin.fact, 0.1, 1),
+            refined: toFloat(importanceMin.refined, defaults.injectImportanceMin.refined, 0.1, 1)
+        },
+        stateTtlDays: {
+            health: toInt(ttl.health, defaults.stateTtlDays.health, 1, 365),
+            exam: toInt(ttl.exam, defaults.stateTtlDays.exam, 1, 365),
+            travel: toInt(ttl.travel, defaults.stateTtlDays.travel, 1, 365),
+            emotion: toInt(ttl.emotion, defaults.stateTtlDays.emotion, 1, 365),
+            other: toInt(ttl.other, defaults.stateTtlDays.other, 1, 365)
+        },
+        dedupeThreshold: toFloat(src.dedupeThreshold, defaults.dedupeThreshold, 0.3, 0.99),
+        stateExtractV2: {
+            enabled: stateExtract.enabled === undefined ? true : !!stateExtract.enabled,
+            strategy: ['rule_plus_ai', 'rule_only'].includes(stateExtract.strategy)
+                ? stateExtract.strategy
+                : defaults.stateExtractV2.strategy,
+            debugConsole: stateExtract.debugConsole === undefined ? defaults.stateExtractV2.debugConsole : !!stateExtract.debugConsole,
+            thresholds: {
+                accept: toFloat(stateThresholds.accept, defaults.stateExtractV2.thresholds.accept, 0.3, 0.99),
+                borderline: toFloat(stateThresholds.borderline, defaults.stateExtractV2.thresholds.borderline, 0.3, 0.99),
+                resolve: toFloat(stateThresholds.resolve, defaults.stateExtractV2.thresholds.resolve, 0.3, 0.99)
+            },
+            ai: {
+                timeoutMs: toInt(stateAi.timeoutMs, defaults.stateExtractV2.ai.timeoutMs, 500, 15000),
+                maxTokens: toInt(stateAi.maxTokens, defaults.stateExtractV2.ai.maxTokens, 60, 800),
+                temperature: toFloat(stateAi.temperature, defaults.stateExtractV2.ai.temperature, 0, 1)
+            }
+        }
+    };
+    if (normalized.stateExtractV2.thresholds.borderline > normalized.stateExtractV2.thresholds.accept) {
+        normalized.stateExtractV2.thresholds.borderline = normalized.stateExtractV2.thresholds.accept;
+    }
+    return normalized;
+}
+
+function inferStateReasonTypeFromText(text) {
+    const normalized = String(text || '').toLowerCase();
+    const raw = String(text || '');
+    if (/(period|sick|ill|hospital|fever|health)/.test(normalized) || /[\u751f\u75c5\u53d1\u70e7\u611f\u5192\u7ecf\u671f\u751f\u7406\u671f\u4e0d\u9002\u533b\u9662\u8eab\u4f53]/.test(raw)) return 'health';
+    if (/(exam|test|quiz|final|deadline|ddl)/.test(normalized) || /[\u8003\u8bd5\u671f\u672b\u590d\u4e60\u4f5c\u4e1a\u7b54\u8fa9]/.test(raw)) return 'exam';
+    if (/(travel|trip|flight|train|away|business)/.test(normalized) || /[\u51fa\u5dee\u65c5\u884c\u65c5\u6e38\u5916\u5730\u822a\u73ed\u9ad8\u94c1]/.test(raw)) return 'travel';
+    if (/(emo|anxious|sad|stress|panic|mood|emotion|happy)/.test(normalized) || /[\u96be\u8fc7\u7126\u8651\u5931\u843d\u538b\u529b\u5d29\u6e83\u5f00\u5fc3\u5174\u594b\u60c5\u7eea]/.test(raw)) return 'emotion';
+    return 'other';
+}
+
+function normalizeStateOwnerValue(owner, fallback = 'user') {
+    return owner === 'contact' ? 'contact' : fallback;
+}
+
+function inferStateOwnerFromText(text, fallback = 'user') {
+    const value = String(text || '').trim();
+    if (!value) return normalizeStateOwnerValue(fallback, 'user');
+    if (/^(\u8054\u7cfb\u4eba|\u5bf9\u65b9)\u5f53\u524d\u72b6\u6001[:\uff1a]/.test(value)) return 'contact';
+    if (/^(\u7528\u6237|\u6211)\u5f53\u524d\u72b6\u6001[:\uff1a]/.test(value)) return 'user';
+    if (/^(\u4ed6|\u5979|\u5bf9\u65b9|\u8054\u7cfb\u4eba)(\u6700\u8fd1|\u8fd9\u51e0\u5929|\u76ee\u524d|\u672c\u5468|\u6b63\u5728|\u5728|\u521a)/.test(value)) return 'contact';
+    if (/^(\u6211|\u6211\u8fd9\u8fb9|\u672c\u4eba|\u6700\u8fd1\u6211|\u8fd9\u51e0\u5929\u6211|\u76ee\u524d\u6211|\u672c\u5468\u6211)(\u6b63\u5728|\u5728|\u6700\u8fd1|\u8fd9\u51e0\u5929|\u76ee\u524d|\u672c\u5468|\u521a)?/.test(value)) return 'user';
+    return normalizeStateOwnerValue(fallback, 'user');
+}
+
+function inferLegacyMemoryTags(memory) {
+    if (!memory || typeof memory !== 'object') return ['long_term'];
+    if (Array.isArray(memory.memoryTags) && memory.memoryTags.length > 0) return memory.memoryTags;
+    const content = String(memory.content || '');
+    if (content.indexOf('\u3010\u901a\u8bdd\u56de\u5fc6\u3011') === 0) return ['short_term'];
+    return ['long_term'];
+}
+
+const DEFAULT_MEMORY_IMPORTANCE_BY_TAG = {
+    short_term: 0.65,
+    long_term: 0.7,
+    state: 0.8,
+    fact: 0.85,
+    refined: 0.78
+};
+
+function normalizeMemoryImportanceValueCore(value, fallback = 0.7) {
+    const parsed = Number(value);
+    const safe = Number.isFinite(parsed) ? parsed : fallback;
+    const clamped = Math.max(0.1, Math.min(1, safe));
+    return Math.round(clamped * 100) / 100;
+}
+
+function getImportanceFallbackByTagsCore(tags) {
+    const list = Array.isArray(tags) ? tags : [];
+    if (list.includes('state')) return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.state;
+    if (list.includes('fact')) return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.fact;
+    if (list.includes('refined')) return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.refined;
+    if (list.includes('short_term')) return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.short_term;
+    return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.long_term;
+}
+
+function normalizeStateMeta(memory, settings) {
+    const now = Date.now();
+    const tags = Array.isArray(memory.memoryTags) ? memory.memoryTags : [];
+    if (!tags.includes('state')) return false;
+
+    const prevMeta = memory.stateMeta && typeof memory.stateMeta === 'object' ? memory.stateMeta : {};
+    const stateOwner = normalizeStateOwnerValue(
+        prevMeta.owner || memory.stateOwner || inferStateOwnerFromText(memory.content, 'user'),
+        'user'
+    );
+    const reasonType = ['health', 'exam', 'travel', 'emotion', 'other'].includes(prevMeta.reasonType)
+        ? prevMeta.reasonType
+        : inferStateReasonTypeFromText(memory.content);
+    const startAt = Number.isFinite(Number(prevMeta.startAt))
+        ? Number(prevMeta.startAt)
+        : (Number.isFinite(Number(memory.time)) ? Number(memory.time) : now);
+    const resolvedAt = Number.isFinite(Number(prevMeta.resolvedAt)) ? Number(prevMeta.resolvedAt) : null;
+
+    let phase = prevMeta.phase;
+    if (!['active', 'resolved'].includes(phase)) {
+        phase = 'active';
+    }
+
+    const nextMeta = {
+        phase: phase,
+        startAt: startAt,
+        expiresAt: null,
+        resolvedAt: resolvedAt,
+        reasonType: reasonType,
+        owner: stateOwner
+    };
+
+    const changed = JSON.stringify(prevMeta) !== JSON.stringify(nextMeta);
+    memory.stateMeta = nextMeta;
+    memory.stateOwner = stateOwner;
+    return changed;
+}
+
+function migrateMemorySchemaV2() {
+    let changed = false;
+    if (!Array.isArray(state.memories)) {
+        state.memories = [];
+        changed = true;
+    }
+    if (!Array.isArray(state.memoryCandidates)) {
+        state.memoryCandidates = [];
+        changed = true;
+    }
+
+    const prevSettingsJson = JSON.stringify(state.memorySettingsV2 || {});
+    state.memorySettingsV2 = normalizeMemorySettingsV2(state.memorySettingsV2);
+    const settings = state.memorySettingsV2;
+    if (JSON.stringify(settings) !== prevSettingsJson) changed = true;
+
+    state.memories.forEach(memory => {
+        if (!memory || typeof memory !== 'object') return;
+        const nextTags = inferLegacyMemoryTags(memory);
+        if (!Array.isArray(memory.memoryTags) || memory.memoryTags.length === 0) {
+            memory.memoryTags = nextTags;
+            changed = true;
+        }
+        const memoryImportanceFallback = getImportanceFallbackByTagsCore(memory.memoryTags);
+        const normalizedImportance = normalizeMemoryImportanceValueCore(memory.importance, memoryImportanceFallback);
+        if (!Number.isFinite(Number(memory.importance)) || Number(memory.importance) !== normalizedImportance) {
+            memory.importance = normalizedImportance;
+            changed = true;
+        }
+        if (memory.reviewStatus !== 'approved') {
+            memory.reviewStatus = 'approved';
+            changed = true;
+        }
+        if (!memory.source) {
+            memory.source = 'auto_summary';
+            changed = true;
+        }
+        if (!Number.isFinite(Number(memory.confidence))) {
+            memory.confidence = 0.7;
+            changed = true;
+        }
+        if (normalizeStateMeta(memory, settings)) changed = true;
+    });
+
+    const existingByContact = {};
+    state.memories.forEach(memory => {
+        if (!memory || typeof memory !== 'object') return;
+        const contactId = memory.contactId;
+        if (!existingByContact[contactId]) existingByContact[contactId] = new Set();
+        existingByContact[contactId].add(String(memory.content || '').trim());
+    });
+
+    const now = Date.now();
+    (state.contacts || []).forEach(contact => {
+        if (!contact || typeof contact !== 'object') return;
+        const cid = contact.id;
+        if (!existingByContact[cid]) existingByContact[cid] = new Set();
+
+        if (Array.isArray(contact.importantStates)) {
+            contact.importantStates.forEach(info => {
+                const text = String(info || '').trim();
+                if (!text || existingByContact[cid].has(text)) return;
+                const stateMemory = {
+                    id: Date.now() + Math.floor(Math.random() * 1000),
+                    contactId: cid,
+                    content: text,
+                    time: now,
+                    memoryTags: ['state'],
+                    source: 'ai_action',
+                    confidence: 0.8,
+                    importance: DEFAULT_MEMORY_IMPORTANCE_BY_TAG.state,
+                    reviewStatus: 'approved',
+                    stateMeta: {
+                        phase: 'active',
+                        startAt: now,
+                        expiresAt: null,
+                        resolvedAt: null,
+                        reasonType: 'other',
+                        owner: 'user'
+                    },
+                    stateOwner: 'user'
+                };
+                state.memories.push(stateMemory);
+                existingByContact[cid].add(text);
+                changed = true;
+            });
+        }
+
+        if (Array.isArray(contact.userPerception)) {
+            contact.userPerception.forEach(info => {
+                const text = String(info || '').trim();
+                if (!text || existingByContact[cid].has(text)) return;
+                state.memories.push({
+                    id: Date.now() + Math.floor(Math.random() * 1000),
+                    contactId: cid,
+                    content: text,
+                    time: now,
+                    memoryTags: ['fact'],
+                    source: 'ai_action',
+                    confidence: 0.8,
+                    importance: DEFAULT_MEMORY_IMPORTANCE_BY_TAG.fact,
+                    reviewStatus: 'approved'
+                });
+                existingByContact[cid].add(text);
+                changed = true;
+            });
+        }
+    });
+
+    state.memoryCandidates.forEach(candidate => {
+        if (!candidate || typeof candidate !== 'object') return;
+        if (!Array.isArray(candidate.suggestedTags) || candidate.suggestedTags.length === 0) {
+            candidate.suggestedTags = ['long_term'];
+            changed = true;
+        }
+        const candidateImportanceFallback = getImportanceFallbackByTagsCore(candidate.suggestedTags);
+        const normalizedCandidateImportance = normalizeMemoryImportanceValueCore(candidate.importance, candidateImportanceFallback);
+        if (!Number.isFinite(Number(candidate.importance)) || Number(candidate.importance) !== normalizedCandidateImportance) {
+            candidate.importance = normalizedCandidateImportance;
+            changed = true;
+        }
+        if (!['pending', 'approved', 'rejected'].includes(candidate.status)) {
+            candidate.status = 'pending';
+            changed = true;
+        }
+        if (!Number.isFinite(Number(candidate.confidence))) {
+            candidate.confidence = 0.7;
+            changed = true;
+        }
+        const tags = Array.isArray(candidate.suggestedTags) ? candidate.suggestedTags : [];
+        if (tags.includes('state')) {
+            const owner = normalizeStateOwnerValue(
+                (candidate.stateMeta && candidate.stateMeta.owner) || candidate.stateOwner || inferStateOwnerFromText(candidate.content, 'user'),
+                'user'
+            );
+            if (candidate.stateOwner !== owner) {
+                candidate.stateOwner = owner;
+                changed = true;
+            }
+            if (!candidate.stateMeta || typeof candidate.stateMeta !== 'object') {
+                candidate.stateMeta = {
+                    phase: 'active',
+                    startAt: now,
+                    expiresAt: null,
+                    resolvedAt: null,
+                    reasonType: inferStateReasonTypeFromText(candidate.content),
+                    owner
+                };
+                changed = true;
+            } else if (candidate.stateMeta.owner !== owner) {
+                candidate.stateMeta.owner = owner;
+                changed = true;
+            }
+        }
+    });
+
+    return changed;
+}
+
+window.createDefaultMemorySettingsV2 = createDefaultMemorySettingsV2;
+window.migrateMemorySchemaV2 = migrateMemorySchemaV2;
 
 const state = {
     amapSettings: {
@@ -92,7 +478,9 @@ const state = {
         wxid: 'wxid_123456'
     },
     moments: [], // { id, contactId, content, images: [], time, likes: [], comments: [] }
-    memories: [], // { id, contactId, content, time }
+    memories: [], // { id, contactId, content, time, memoryTags, stateMeta, ... }
+    memoryCandidates: [], // { id, contactId, content, suggestedTags, status, ... }
+    memorySettingsV2: createDefaultMemorySettingsV2(),
     defaultVirtualImageUrl: '',
     wallet: {
         balance: 0.00,
@@ -559,6 +947,8 @@ async function loadConfig() {
             if (!state.userPersonas) state.userPersonas = [];
             if (!state.moments) state.moments = [];
             if (!state.memories) state.memories = [];
+            if (!state.memoryCandidates) state.memoryCandidates = [];
+            state.memorySettingsV2 = normalizeMemorySettingsV2(state.memorySettingsV2);
             if (!state.defaultVirtualImageUrl) state.defaultVirtualImageUrl = '';
             if (state.showStatusBar === undefined) state.showStatusBar = true;
             if (!state.iconColors) state.iconColors = {};
@@ -621,6 +1011,11 @@ async function loadConfig() {
             
             if (state.currentStickerCategoryId !== 'all' && !state.stickerCategories.find(c => c.id === state.currentStickerCategoryId)) {
                 state.currentStickerCategoryId = 'all';
+            }
+
+            const memoryMigrationChanged = migrateMemorySchemaV2();
+            if (memoryMigrationChanged) {
+                saveConfig();
             }
         }
     } catch (e) {
