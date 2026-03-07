@@ -1087,11 +1087,25 @@ function setupThemeListeners() {
     const iconPresetSelect = document.getElementById('icon-preset-select');
     if (iconPresetSelect) iconPresetSelect.addEventListener('change', handleApplyIconPreset);
 
-    const saveAllSettingsBtn = document.getElementById('save-all-settings');
-    if (saveAllSettingsBtn) {
-        saveAllSettingsBtn.addEventListener('click', () => {
+    const settingsSavePill = document.getElementById('settings-save-pill');
+    if (settingsSavePill) {
+        settingsSavePill.addEventListener('click', () => {
             saveConfig();
-            alert('所有配置已保存');
+
+            const label = settingsSavePill.querySelector('span');
+            const dot = settingsSavePill.querySelector('.status-dot');
+            if (!label || !dot) return;
+
+            const previousText = label.textContent;
+            const previousColor = dot.style.background;
+            label.textContent = '配置已保存';
+            dot.style.background = '#30d158';
+
+            clearTimeout(settingsSavePill._resetTimer);
+            settingsSavePill._resetTimer = setTimeout(() => {
+                label.textContent = previousText || 'System Ready';
+                dot.style.background = previousColor || '';
+            }, 1400);
         });
     }
     

@@ -355,6 +355,7 @@
 
 /* Bottom Floating Status */
 #settings-app .settings-status-pill {
+    appearance: none;
     position: absolute;
     bottom: 20px;
     left: 50%;
@@ -370,6 +371,22 @@
     gap: 10px;
     box-shadow: 0 5px 20px rgba(0,0,0,0.2);
     z-index: 100;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+#settings-app .settings-status-pill:hover {
+    transform: translateX(-50%) translateY(-1px);
+    background: rgba(0,0,0,0.88);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.24);
+}
+#settings-app .settings-status-pill:active {
+    transform: translateX(-50%) scale(0.98);
+}
+#settings-app .settings-status-pill:focus-visible {
+    outline: 2px solid rgba(255,255,255,0.7);
+    outline-offset: 2px;
 }
 #settings-app .status-dot {
     width: 8px;

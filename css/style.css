@@ -1838,6 +1838,12 @@ textarea {
     display: none;
 }
 
+.chat-bottom-stack {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
 /* iMessage Style Input Area */
 .chat-input-area {
     min-height: 50px;
@@ -4148,6 +4154,8 @@ input:checked + .slider:before {
     border-top: 1px solid #dcdcdc;
     font-size: 13px;
     color: #666;
+    position: relative;
+    z-index: 101;
 }
 
 .reply-bar.hidden {

@@ -192,9 +192,11 @@
 
         // Helper to post a new forum entry programmatically
         window.addForumPost = function(contactId, caption, images = []) {
-            const user = forumState.currentUser;
+            const authorProfile = resolveForumAuthorProfile(contactId);
+            const user = authorProfile.user;
+            const followers = authorProfile.followers;
+
             let likes = 0, commentsCount = 0, forwards = 0, shares = 0;
-            const followers = user.followers || 0;
             if (followers > 0) {
                 const likeRate = 0.05 + Math.random() * 0.1;
                 likes = Math.max(0, Math.floor(followers * likeRate));
@@ -207,7 +209,7 @@
 
             const newPost = {
                 id: Date.now(),
-                user: { ...user, name: user.bio || user.username },
+                user,
                 images: (images && images.length > 0) ? [...images] : [],
                 image: (images && images.length > 0) ? images[0] : null,
                 caption: caption || '',
@@ -242,6 +244,35 @@
         function getContactProfile(contactId) {
             const profiles = (forumState.settings && forumState.settings.contactProfiles) ? forumState.settings.contactProfiles : {};
             return profiles[contactId] || {};
+        }
+
+        function resolveForumAuthorProfile(contactId) {
+            if (!contactId) {
+                return {
+                    user: { ...forumState.currentUser, name: forumState.currentUser.bio || forumState.currentUser.username },
+                    followers: Number(forumState.currentUser.followers || 0) || 0
+                };
+            }
+
+            const contact = (window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts))
+                ? window.iphoneSimState.contacts.find(c => String(c.id) === String(contactId))
+                : null;
+            const profile = getContactProfile(contactId) || {};
+            const contactName = profile.name || (contact ? (contact.remark || contact.name) : '') || '联系人';
+            const avatarSeed = profile.username || contactName || String(contactId);
+
+            return {
+                user: {
+                    id: contact ? contact.id : contactId,
+                    name: contactName,
+                    avatar: profile.avatar || (contact && contact.avatar) || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(avatarSeed))}`,
+                    verified: !!profile.verified,
+                    subtitle: profile.identity || '',
+                    bio: profile.bio || '',
+                    username: profile.username || String(contactId)
+                },
+                followers: Number(profile.followers || 0) || 0
+            };
         }
 
         function isWechatSyncEnabled(contactId) {
@@ -2892,6 +2923,19 @@ ${hostModeExtra}
         if (forumState.posts) {
             let changed = false;
             forumState.posts.forEach(p => {
+                if (p.userId) {
+                    const expectedAuthor = resolveForumAuthorProfile(p.userId).user;
+                    const currentAuthor = p.user || {};
+                    if (
+                        currentAuthor.name !== expectedAuthor.name ||
+                        currentAuthor.avatar !== expectedAuthor.avatar ||
+                        currentAuthor.subtitle !== expectedAuthor.subtitle ||
+                        String(currentAuthor.id || '') !== String(expectedAuthor.id || '')
+                    ) {
+                        p.user = { ...expectedAuthor };
+                        changed = true;
+                    }
+                }
                 if (p.comments_list) {
                     p.comments_list.forEach(c => {
                         if (c.user && c.user.avatar && c.user.avatar.includes('avataaars')) {

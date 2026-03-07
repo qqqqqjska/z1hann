@@ -1404,6 +1404,13 @@ async function callAiForContactComments(diary, contacts) {
         // Memories
         const memories = window.iphoneSimState.memories ? window.iphoneSimState.memories.filter(m => m.contactId === contact.id).slice(-5) : [];
         const memoryContext = memories.map(m => m.content).join('\n');
+
+        const recentPosts = (window.iphoneSimState.icityFriendsPosts || [])
+            .filter(post => post.contactId === contact.id)
+            .slice(0, 5)
+            .map(post => String(post.content || '').trim())
+            .filter(Boolean)
+            .join('\n');
         
         // Worldbook
         let wbContext = '';
@@ -1419,7 +1426,8 @@ async function callAiForContactComments(diary, contacts) {
             persona: contact.persona || '无',
             chat: chatContext,
             memory: memoryContext,
-            wb: wbContext
+            wb: wbContext,
+            recentPosts: recentPosts
         });
     }
 
@@ -1432,6 +1440,8 @@ ${d.chat}
 ${d.memory}
 世界观背景:
 ${d.wb}
+RECENT_ICITY_POSTS:
+${d.recentPosts || 'none'}
 `).join('\n--------------------------------\n');
 
     const prompt = `用户在朋友圈/iCity发布了一条动态：
@@ -2947,7 +2957,9 @@ async function handleGenerateIcityWorld() {
         console.error('Failed to generate world posts:', e);
         alert('生成失败，请检查 API 设置');
     } finally {
-        if (btn) btn.innerHTML = '<i class="fas fa-magic"></i>';
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-magic"></i>';
+        }
     }
 }
 
@@ -3797,9 +3809,54 @@ window.deleteSelectedIcityFeedItems = deleteSelectedIcityFeedItems;
 window.deleteIcityFeedItem = deleteIcityFeedItem;
 window.toggleIcityFeedMenu = toggleIcityFeedMenu;
 
+let isGeneratingIcityFriends = false;
+
+function rerenderIcityFriendsIfVisible() {
+    const friendsTab = document.getElementById('icity-tab-content-world');
+    const headerFriends = document.getElementById('icity-header-friends');
+    if (friendsTab && friendsTab.style.display !== 'none' && headerFriends && headerFriends.dataset.active === 'true') {
+        renderIcityFriends();
+    }
+}
+
+function insertIcityFriendsPost(post, options = {}) {
+    if (!post) return null;
+    if (!window.iphoneSimState.icityFriendsPosts) window.iphoneSimState.icityFriendsPosts = [];
+
+    const normalizedContent = String(post.content || '').trim();
+    if (!normalizedContent) return null;
+
+    const candidatePost = {
+        ...post,
+        content: normalizedContent
+    };
+
+    if (typeof window.getIcityFriendPostFingerprint === 'function') {
+        const fingerprint = window.getIcityFriendPostFingerprint(candidatePost);
+        if (fingerprint) {
+            const hasDuplicate = window.iphoneSimState.icityFriendsPosts.some(existing => (
+                window.getIcityFriendPostFingerprint(existing) === fingerprint
+            ));
+            if (hasDuplicate) return null;
+        }
+    }
+
+    window.iphoneSimState.icityFriendsPosts.unshift(candidatePost);
+
+    if (options.save !== false) saveConfig();
+    if (options.render !== false) rerenderIcityFriendsIfVisible();
+    return candidatePost;
+}
+
 async function handleGenerateIcityFriends() {
+    if (isGeneratingIcityFriends) return;
+    isGeneratingIcityFriends = true;
+
     const btn = document.getElementById('icity-world-generate-btn');
-    if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    if (btn) {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+    }
     
     try {
         const linkedIds = window.iphoneSimState.icityProfile.linkedContactIds || [];
@@ -3823,11 +3880,25 @@ async function handleGenerateIcityFriends() {
 
         const posts = await callAiForFriendsPosts(contacts);
         if (posts && posts.length > 0) {
-            // Prepend new posts
-            if (!window.iphoneSimState.icityFriendsPosts) window.iphoneSimState.icityFriendsPosts = [];
-            window.iphoneSimState.icityFriendsPosts = [...posts, ...window.iphoneSimState.icityFriendsPosts];
-            saveConfig();
-            renderIcityFriends();
+            let insertedCount = 0;
+            for (let i = posts.length - 1; i >= 0; i--) {
+                const insertedPost = insertIcityFriendsPost(posts[i], { save: false, render: false });
+                if (insertedPost) insertedCount++;
+            }
+
+            if (insertedCount === 0) {
+                if (typeof window.showChatToast === 'function') {
+                    window.showChatToast('生成结果与现有 iCity 动态重复，已自动跳过', 2800);
+                }
+                return;
+            }
+
+            if (insertedCount > 0) {
+                saveConfig();
+                rerenderIcityFriendsIfVisible();
+            } else if (typeof window.showChatToast === 'function') {
+                window.showChatToast('生成结果与现有 iCity 动态重复，已自动跳过', 2800);
+            }
         }
     } catch (e) {
         console.error('Failed to generate friends posts:', e);
@@ -3836,6 +3907,72 @@ async function handleGenerateIcityFriends() {
         if (btn) btn.innerHTML = '<i class="fas fa-magic"></i>';
     }
 }
+
+handleGenerateIcityFriends = async function() {
+    if (isGeneratingIcityFriends) return;
+    isGeneratingIcityFriends = true;
+
+    const btn = document.getElementById('icity-world-generate-btn');
+    if (btn) {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+    }
+
+    try {
+        const linkedIds = window.iphoneSimState.icityProfile.linkedContactIds || [];
+        if (linkedIds.length === 0 && window.iphoneSimState.icityProfile.linkedContactId) {
+            linkedIds.push(window.iphoneSimState.icityProfile.linkedContactId);
+        }
+
+        if (linkedIds.length === 0) {
+            alert('请先在设置中关联联系人');
+            return;
+        }
+
+        if (linkedIds.length === 0) {
+            alert('请先在设置中关联联系人');
+            return;
+        }
+
+        const contacts = window.iphoneSimState.contacts.filter(c => linkedIds.includes(c.id));
+        if (contacts.length === 0) {
+            alert('未找到已关联的联系人');
+            return;
+        }
+
+        if (contacts.length === 0) {
+            alert('未找到已关联的联系人');
+            return;
+        }
+
+        const posts = await callAiForFriendsPosts(contacts);
+        if (posts && posts.length > 0) {
+            let insertedCount = 0;
+            for (let i = posts.length - 1; i >= 0; i--) {
+                const insertedPost = insertIcityFriendsPost(posts[i], { save: false, render: false });
+                if (insertedPost) insertedCount++;
+            }
+
+            if (insertedCount > 0) {
+                saveConfig();
+                rerenderIcityFriendsIfVisible();
+            } else if (typeof window.showChatToast === 'function') {
+                window.showChatToast('生成结果与现有 iCity 动态重复，已自动跳过', 2800);
+            }
+        }
+    } catch (e) {
+        console.error('Failed to generate friends posts:', e);
+        alert('生成失败，请检查 API 设置');
+    } finally {
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-magic"></i>';
+            btn.disabled = false;
+        }
+        isGeneratingIcityFriends = false;
+    }
+};
+
+window.handleGenerateIcityFriends = handleGenerateIcityFriends;
 
 async function callAiForFriendsPosts(contacts) {
     const postsData = [];
@@ -3950,7 +4087,7 @@ ${contextStr}
                     name: name,
                     handle: handle,
                     avatar: avatar,
-                    content: item.content,
+                    content: String(item.content || '').trim(),
                     time: Date.now(),
                     visibility: item.visibility || 'public',
                     likes: item.likes || 0,
@@ -3971,7 +4108,7 @@ window.handleGenerateIcityFriends = handleGenerateIcityFriends;
 
 window.addIcityPost = function(contactId, content, visibility = 'friends') {
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
-    if (!contact) return;
+    if (!contact) return null;
 
     const displayName = (contact.icityData && contact.icityData.name) ? contact.icityData.name : contact.name;
     const handle = (contact.icityData && contact.icityData.handle) ? contact.icityData.handle : `@User_${contact.id.toString().substring(0, 4)}`;
@@ -3990,16 +4127,8 @@ window.addIcityPost = function(contactId, content, visibility = 'friends') {
         comments: 0
     };
 
-    if (!window.iphoneSimState.icityFriendsPosts) window.iphoneSimState.icityFriendsPosts = [];
-    window.iphoneSimState.icityFriendsPosts.unshift(newPost);
-    saveConfig();
-    
-    // Refresh if visible
-    const friendsTab = document.getElementById('icity-tab-content-world');
-    const headerFriends = document.getElementById('icity-header-friends');
-    if (friendsTab && friendsTab.style.display !== 'none' && headerFriends && headerFriends.dataset.active === 'true') {
-        renderIcityFriends();
-    }
+    const insertedPost = insertIcityFriendsPost(newPost);
+    if (!insertedPost) return null;
 
     // Inject into chat history
     if (!window.iphoneSimState.chatHistory) window.iphoneSimState.chatHistory = {};
@@ -4012,6 +4141,8 @@ window.addIcityPost = function(contactId, content, visibility = 'friends') {
         content: `(你在iCity发布了动态: "${content}")`,
         time: Date.now()
     });
+
+    return insertedPost;
 };
 
 window.writeToIcityBook = function(contactId, content) {
@@ -4096,6 +4227,7 @@ window.generateScheduledContactDiary = async function(contact) {
             if (contactWb) wbContext += '\n' + contactWb;
     }
 
+
     const prompt = `你现在扮演 ${contact.name} (iCity昵称: ${displayName})。
 人设: ${contact.persona || '无'}
 世界观背景: ${wbContext}
@@ -4136,18 +4268,8 @@ ${chatContext}
                 comments: 0
             };
 
-            // Add to Friends Feed
-            if (!window.iphoneSimState.icityFriendsPosts) window.iphoneSimState.icityFriendsPosts = [];
-            window.iphoneSimState.icityFriendsPosts.unshift(newPost);
-            
-            saveConfig();
-            
-            // If the user is currently viewing the friends tab, refresh it
-            const friendsTab = document.getElementById('icity-tab-content-world');
-            const headerFriends = document.getElementById('icity-header-friends');
-            if (friendsTab && friendsTab.style.display !== 'none' && headerFriends && headerFriends.dataset.active === 'true') {
-                renderIcityFriends();
-            }
+            const insertedPost = insertIcityFriendsPost(newPost);
+            if (!insertedPost) return;
             
             // Optional: Notification
             if (window.showChatNotification) {
@@ -4696,17 +4818,23 @@ function injectBookStyles() {
             background: #e0e0e0; z-index: 2000;
             display: flex; flex-direction: column;
             opacity: 0; pointer-events: none; transition: opacity 0.3s;
+            overflow: hidden;
+            overscroll-behavior: contain;
+            isolation: isolate;
         }
         .book-reader-screen.visible {
             opacity: 1; pointer-events: auto;
         }
         .book-reader-header {
-            padding: 60px 20px 10px; display: flex; justify-content: space-between;
-            align-items: center; background: transparent; z-index: 10;
+            padding: max(18px, calc(env(safe-area-inset-top) + 12px)) 20px 10px;
+            display: flex; justify-content: space-between;
+            align-items: center; background: transparent; z-index: 30;
+            position: relative; flex-shrink: 0;
         }
         .book-stage {
             flex: 1; display: flex; align-items: center; justify-content: center;
             perspective: 1500px; overflow: hidden; position: relative;
+            min-height: 0; z-index: 1;
         }
         .book-3d {
             width: 80vw; max-width: 400px;
@@ -4714,6 +4842,8 @@ function injectBookStyles() {
             position: relative;
             transform-style: preserve-3d;
             transition: transform 0.5s;
+            contain: layout paint style;
+            isolation: isolate;
         }
         .book-page {
             position: absolute; top: 0; left: 0;
@@ -4726,6 +4856,7 @@ function injectBookStyles() {
             backface-visibility: hidden;
             display: flex; flex-direction: column;
             overflow: hidden;
+            contain: layout paint style;
         }
         .book-page.flipped {
             transform: rotateY(-180deg);
@@ -4734,6 +4865,11 @@ function injectBookStyles() {
             flex: 1; padding: 30px; font-size: 16px; line-height: 1.8;
             color: #333; overflow-y: auto; white-space: pre-wrap; font-family: 'Songti SC', serif;
             outline: none;
+            min-height: 0;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
         }
         .book-page-footer {
             height: 30px; display: flex; justify-content: center; align-items: center;
@@ -4745,10 +4881,31 @@ function injectBookStyles() {
         .book-controls {
             position: absolute; bottom: 20px; width: 100%;
             display: flex; justify-content: center; gap: 20px; z-index: 20;
+            padding-bottom: max(0px, env(safe-area-inset-bottom));
         }
         .book-control-btn {
             background: rgba(0,0,0,0.5); color: #fff; border: none;
             padding: 10px 20px; border-radius: 20px; cursor: pointer;
+        }
+        .book-reader-screen.flat-mode .book-stage {
+            padding: 0 16px 90px;
+        }
+        .book-reader-screen.flat-mode .book-3d {
+            width: min(88vw, 420px);
+            height: min(62vh, 640px);
+            max-height: 62vh;
+            aspect-ratio: auto;
+            transform-style: flat;
+            perspective: none;
+        }
+        .book-reader-screen.flat-mode .book-page {
+            position: relative;
+            border-radius: 14px;
+            transform: none !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+        }
+        .book-reader-screen.flat-mode .book-page-content {
+            padding: 28px 28px 20px;
         }
         /* Animation helper for opening */
         .book-fly-anim {
@@ -4765,6 +4922,7 @@ function injectBookStyles() {
             display: inline-block;
             text-align: center;
             opacity: 0.9;
+            line-height: 1.2;
         }
         /* Pen Colors for Ruby/Handwritten */
         .pen-blue { color: #007AFF; }
@@ -4795,6 +4953,34 @@ function injectBookStyles() {
         .handwritten-text {
             font-family: "Comic Sans MS", "Chalkboard SE", sans-serif;
         }
+        .book-page-content .icity-ruby-note {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: flex-start;
+            vertical-align: top;
+            max-width: 100%;
+            margin: 0 2px;
+        }
+        .book-page-content .icity-ruby-base {
+            display: inline;
+        }
+        .book-page-content .icity-ruby-rt {
+            display: block;
+            max-width: min(16em, 100%);
+            white-space: normal;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            line-height: 1.15;
+            margin-bottom: 2px;
+        }
+        .book-page-content img.icity-sticker {
+            max-width: min(30%, 140px);
+            height: auto;
+            float: right;
+            clear: right;
+            margin: 8px 0 8px 12px;
+            border-radius: 4px;
+        }
         
         /* Reset helper */
         .reset-style {
@@ -4807,6 +4993,280 @@ function injectBookStyles() {
         }
     `;
     document.head.appendChild(style);
+}
+
+const ICITY_BOOK_ALLOWED_CLASSES = new Set([
+    'handwritten',
+    'pen-blue',
+    'pen-red',
+    'pen-purple',
+    'pen-pink',
+    'pen-teal',
+    'pen-black',
+    'highlight-marker',
+    'highlight-yellow',
+    'highlight-green',
+    'highlight-pink',
+    'highlight-blue',
+    'highlight-purple',
+    'strikethrough-hand',
+    'handwritten-text',
+    'reset-style',
+    'icity-sticker',
+    'icity-ruby-note',
+    'icity-ruby-base',
+    'icity-ruby-rt'
+]);
+
+const ICITY_BOOK_TEXT_COLOR_CLASS_MAP = [
+    { values: ['#007aff', 'rgb(0,122,255)'], className: 'pen-blue' },
+    { values: ['#ff3b30', 'rgb(255,59,48)'], className: 'pen-red' },
+    { values: ['#5856d6', 'rgb(88,86,214)'], className: 'pen-purple' },
+    { values: ['#ff2d55', 'rgb(255,45,85)'], className: 'pen-pink' },
+    { values: ['#30b0c7', 'rgb(48,176,199)'], className: 'pen-teal' },
+    { values: ['#333333', '#000000', 'rgb(51,51,51)', 'rgb(0,0,0)'], className: 'pen-black' }
+];
+
+function normalizeIcityBookColorValue(value) {
+    return String(value || '').toLowerCase().replace(/\s+/g, '');
+}
+
+function mapIcityBookTextColorToClass(value) {
+    const normalized = normalizeIcityBookColorValue(value);
+    if (!normalized) return null;
+    const matched = ICITY_BOOK_TEXT_COLOR_CLASS_MAP.find(item => item.values.includes(normalized));
+    return matched ? matched.className : null;
+}
+
+function extractIcityBookClasses(node, tagName) {
+    const classes = new Set();
+    if (node.classList) {
+        node.classList.forEach(cls => {
+            if (ICITY_BOOK_ALLOWED_CLASSES.has(cls)) {
+                classes.add(cls);
+            }
+        });
+    }
+
+    const fontColor = node.getAttribute && node.getAttribute('color');
+    const style = node.getAttribute && node.getAttribute('style');
+    const styleColorMatch = style && style.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+    const colorClass = mapIcityBookTextColorToClass(
+        fontColor || (styleColorMatch ? styleColorMatch[1] : '')
+    );
+    if (colorClass) classes.add(colorClass);
+
+    if (tagName === 'rt') {
+        classes.add('handwritten');
+    }
+    if (tagName === 's') {
+        classes.add('strikethrough-hand');
+    }
+    if (tagName === 'img') {
+        classes.add('icity-sticker');
+    }
+
+    return Array.from(classes);
+}
+
+function sanitizeIcityBookNode(node) {
+    if (!node) return null;
+    if (node.nodeType === Node.TEXT_NODE) {
+        return document.createTextNode(node.textContent || '');
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+        return null;
+    }
+
+    const tagName = node.tagName.toLowerCase();
+
+    if (tagName === 'br') {
+        return document.createElement('br');
+    }
+
+    if (tagName === 'img') {
+        const src = String(node.getAttribute('src') || '').trim();
+        if (!src || !/^(https?:\/\/|data:image\/)/i.test(src)) return null;
+        const img = document.createElement('img');
+        img.src = src;
+        img.className = extractIcityBookClasses(node, tagName).join(' ');
+        if (!img.className) img.className = 'icity-sticker';
+        return img;
+    }
+
+    if (['div', 'p', 'section', 'article', 'blockquote', 'li'].includes(tagName)) {
+        const fragment = document.createDocumentFragment();
+        Array.from(node.childNodes).forEach(child => {
+            const sanitizedChild = sanitizeIcityBookNode(child);
+            if (sanitizedChild) fragment.appendChild(sanitizedChild);
+        });
+        fragment.appendChild(document.createElement('br'));
+        return fragment;
+    }
+
+    if (tagName === 'ruby') {
+        const wrapper = document.createElement('span');
+        wrapper.className = 'icity-ruby-note';
+
+        const note = document.createElement('span');
+        note.className = 'icity-ruby-rt handwritten';
+
+        const base = document.createElement('span');
+        base.className = 'icity-ruby-base';
+
+        Array.from(node.childNodes).forEach(child => {
+            if (child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === 'rt') {
+                const rtClasses = extractIcityBookClasses(child, 'rt');
+                note.className = `icity-ruby-rt ${rtClasses.join(' ')}`.trim();
+                Array.from(child.childNodes).forEach(rtChild => {
+                    const sanitizedRtChild = sanitizeIcityBookNode(rtChild);
+                    if (sanitizedRtChild) note.appendChild(sanitizedRtChild);
+                });
+                return;
+            }
+
+            const sanitizedBaseChild = sanitizeIcityBookNode(child);
+            if (sanitizedBaseChild) base.appendChild(sanitizedBaseChild);
+        });
+
+        if (!note.textContent.trim()) {
+            note.className = 'icity-ruby-rt handwritten pen-black';
+        }
+
+        wrapper.appendChild(note);
+        wrapper.appendChild(base);
+        return wrapper;
+    }
+
+    let normalizedTag = tagName;
+    if (tagName === 'b') normalizedTag = 'strong';
+    if (tagName === 'i') normalizedTag = 'em';
+    if (tagName === 'font') normalizedTag = 'span';
+
+    if (!['ruby', 'rt', 'span', 's', 'strong', 'em', 'u'].includes(normalizedTag)) {
+        const fragment = document.createDocumentFragment();
+        Array.from(node.childNodes).forEach(child => {
+            const sanitizedChild = sanitizeIcityBookNode(child);
+            if (sanitizedChild) fragment.appendChild(sanitizedChild);
+        });
+        return fragment;
+    }
+
+    const el = document.createElement(normalizedTag);
+    const classes = extractIcityBookClasses(node, normalizedTag);
+    const style = String(node.getAttribute('style') || '');
+    const hasBoldStyle = /font-weight\s*:\s*(bold|[6-9]00)/i.test(style);
+    const hasItalicStyle = /font-style\s*:\s*italic/i.test(style);
+    const hasUnderlineStyle = /text-decoration[^;]*underline/i.test(style);
+
+    if (classes.length > 0) {
+        el.className = classes.join(' ');
+    }
+    if (hasBoldStyle) {
+        el.style.fontWeight = '700';
+    }
+    if (hasItalicStyle) {
+        el.style.fontStyle = 'italic';
+    }
+    if (hasUnderlineStyle) {
+        el.style.textDecoration = 'underline';
+    }
+
+    Array.from(node.childNodes).forEach(child => {
+        const sanitizedChild = sanitizeIcityBookNode(child);
+        if (sanitizedChild) el.appendChild(sanitizedChild);
+    });
+
+    return el;
+}
+
+function sanitizeIcityBookHtml(html) {
+    if (!html) return '';
+
+    const template = document.createElement('template');
+    template.innerHTML = String(html);
+    const wrapper = document.createElement('div');
+
+    Array.from(template.content.childNodes).forEach(node => {
+        const sanitizedNode = sanitizeIcityBookNode(node);
+        if (sanitizedNode) wrapper.appendChild(sanitizedNode);
+    });
+
+    return wrapper.innerHTML
+        .replace(/(?:<br>\s*){3,}/gi, '<br><br>')
+        .replace(/^(?:<br>\s*)+|(?:<br>\s*)+$/gi, '')
+        .trim();
+}
+
+function getIcityBookPageElements() {
+    return Array.from(document.querySelectorAll('#book-3d-container .book-page'));
+}
+
+function getCurrentIcityBookContentElement() {
+    const container = document.getElementById('book-3d-container');
+    return container ? container.querySelector('.book-page-content') : null;
+}
+
+function clampCurrentIcityBookPage(book) {
+    if (!book) return 0;
+    const maxPageIndex = Math.max(0, (book.pages ? book.pages.length : 0));
+    if (!Number.isInteger(window.currentBookPage)) {
+        window.currentBookPage = 0;
+    }
+    window.currentBookPage = Math.min(Math.max(window.currentBookPage, 0), maxPageIndex);
+    return window.currentBookPage;
+}
+
+function shouldUseFlatIcityBookRenderer(book) {
+    if (!book) return false;
+    const isSmallOrTouchViewport = window.innerWidth <= 900 ||
+        (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    const totalContentLength = (book.pages || []).reduce((sum, page) => sum + String(page.content || '').length, 0);
+    const stickerCount = (book.pages || []).reduce((sum, page) => {
+        const matches = String(page.content || '').match(/class="[^"]*icity-sticker[^"]*"/g);
+        return sum + (matches ? matches.length : 0);
+    }, 0);
+    return isSmallOrTouchViewport || book.pages.length >= 12 || totalContentLength >= 12000 || stickerCount >= 8;
+}
+
+function createIcityBookPageElement(pageIndex, page, options = {}) {
+    const { isCover = false, zIndex = null } = options;
+    const pageDiv = document.createElement('div');
+    pageDiv.className = `book-page${isCover ? ' book-cover-page' : ''}`;
+    if (zIndex !== null) {
+        pageDiv.style.zIndex = String(zIndex);
+    }
+
+    if (isCover) {
+        if (page && page.cover) {
+            pageDiv.style.backgroundImage = `url('${page.cover}')`;
+        } else if (page && page.name) {
+            pageDiv.style.backgroundColor = '#8e8e93';
+            pageDiv.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:24px; font-weight:bold; font-family:'Times New Roman'; padding:20px; text-align:center;">${page.name}</div>`;
+        }
+        pageDiv.onclick = () => nextIcityBookPage();
+        return pageDiv;
+    }
+
+    const safeContent = sanitizeIcityBookHtml(page.content || '');
+    if (safeContent !== (page.content || '')) {
+        page.content = safeContent;
+        window.__icityBookNeedsSave = true;
+    }
+
+    pageDiv.innerHTML = `
+        <div class="book-page-content" contenteditable="true" oninput="updateBookPageContent(${pageIndex}, this)">${safeContent}</div>
+        <div class="book-page-footer">- ${pageIndex + 1} -</div>
+    `;
+
+    const contentDiv = pageDiv.querySelector('.book-page-content');
+    contentDiv.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contentDiv.focus();
+    });
+
+    pageDiv.onclick = () => nextIcityBookPage();
+    return pageDiv;
 }
 
 function openIcityBook(id, startEl) {
@@ -4847,6 +5307,11 @@ function openIcityBook(id, startEl) {
         `;
         document.body.appendChild(reader);
     }
+
+    reader.dataset.prevBodyOverflow = document.body.style.overflow || '';
+    reader.dataset.prevRootOverflow = document.documentElement.style.overflow || '';
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
     
     document.getElementById('book-reader-title').textContent = book.name;
     // Update settings button handler
@@ -4896,41 +5361,59 @@ function openIcityBook(id, startEl) {
 
 function renderBookPages(book) {
     const container = document.getElementById('book-3d-container');
+    const reader = document.getElementById('icity-book-reader');
+    if (!container || !reader || !book) return;
+
     container.innerHTML = '';
-    
-    // Cover Page (Index 0)
-    const coverDiv = document.createElement('div');
-    coverDiv.className = 'book-page book-cover-page';
-    coverDiv.style.zIndex = 100;
-    if (book.cover) {
-        coverDiv.style.backgroundImage = `url('${book.cover}')`;
-    } else {
-        coverDiv.style.backgroundColor = '#8e8e93';
-        coverDiv.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:24px; font-weight:bold; font-family:'Times New Roman'; padding:20px; text-align:center;">${book.name}</div>`;
+    clampCurrentIcityBookPage(book);
+    window.__icityBookNeedsSave = false;
+
+    const useFlatRenderer = shouldUseFlatIcityBookRenderer(book);
+    window.currentIcityBookUseFlatRenderer = useFlatRenderer;
+    reader.classList.toggle('flat-mode', useFlatRenderer);
+
+    const persistSanitizedPagesIfNeeded = () => {
+        if (window.__icityBookNeedsSave) {
+            saveConfig();
+            window.__icityBookNeedsSave = false;
+        }
+    };
+
+    if (useFlatRenderer) {
+        if (window.currentBookPage === 0) {
+            container.appendChild(createIcityBookPageElement(0, { name: book.name, cover: book.cover }, {
+                isCover: true,
+                zIndex: 1
+            }));
+            persistSanitizedPagesIfNeeded();
+            return;
+        }
+
+        const currentPageIndex = window.currentBookPage - 1;
+        const page = book.pages[currentPageIndex];
+        if (!page) return;
+        container.appendChild(createIcityBookPageElement(currentPageIndex, page, { zIndex: 1 }));
+        persistSanitizedPagesIfNeeded();
+        return;
     }
-    container.appendChild(coverDiv);
+
+    container.appendChild(createIcityBookPageElement(0, { name: book.name, cover: book.cover }, {
+        isCover: true,
+        zIndex: 100
+    }));
     
-    // Content Pages
     book.pages.forEach((page, index) => {
-        const pageDiv = document.createElement('div');
-        pageDiv.className = 'book-page';
-        pageDiv.style.zIndex = 99 - index; // Stack order
-        pageDiv.innerHTML = `
-            <div class="book-page-content" contenteditable="true" oninput="updateBookPageContent(${index}, this)">${page.content}</div>
-            <div class="book-page-footer">- ${index + 1} -</div>
-        `;
-        // Prevent click propagation to avoid flipping when editing
-        const contentDiv = pageDiv.querySelector('.book-page-content');
-        contentDiv.addEventListener('click', (e) => {
-            e.stopPropagation(); // Don't flip when clicking text
-            contentDiv.focus();
-        });
-        
-        // Click on page margin to flip?
-        pageDiv.onclick = () => nextIcityBookPage();
-        
-        container.appendChild(pageDiv);
+        container.appendChild(createIcityBookPageElement(index, page, {
+            zIndex: 99 - index
+        }));
     });
+
+    const pages = getIcityBookPageElements();
+    const flippedCount = Math.min(window.currentBookPage, pages.length);
+    for (let i = 0; i < flippedCount; i++) {
+        pages[i].classList.add('flipped');
+    }
+    persistSanitizedPagesIfNeeded();
 }
 
 let bookSaveTimer = null;
@@ -4950,19 +5433,36 @@ function updateBookPageContent(index, el) {
 }
 
 function nextIcityBookPage() {
+    if (!window.currentReadingBook) return;
+    saveCurrentBookPage();
     const total = window.currentReadingBook.pages.length + 1; // +1 for cover
     if (window.currentBookPage < total - 1) {
-        const pages = document.querySelectorAll('.book-page');
-        pages[window.currentBookPage].classList.add('flipped');
+        if (window.currentIcityBookUseFlatRenderer) {
+            window.currentBookPage++;
+            renderBookPages(window.currentReadingBook);
+            return;
+        }
+        const pages = getIcityBookPageElements();
+        if (pages[window.currentBookPage]) {
+            pages[window.currentBookPage].classList.add('flipped');
+        }
         window.currentBookPage++;
     }
 }
 
 function prevIcityBookPage() {
+    if (!window.currentReadingBook) return;
+    saveCurrentBookPage();
     if (window.currentBookPage > 0) {
         window.currentBookPage--;
-        const pages = document.querySelectorAll('.book-page');
-        pages[window.currentBookPage].classList.remove('flipped');
+        if (window.currentIcityBookUseFlatRenderer) {
+            renderBookPages(window.currentReadingBook);
+            return;
+        }
+        const pages = getIcityBookPageElements();
+        if (pages[window.currentBookPage]) {
+            pages[window.currentBookPage].classList.remove('flipped');
+        }
     }
 }
 
@@ -4970,15 +5470,8 @@ function addIcityBookPage() {
     if (window.currentReadingBook) {
         window.currentReadingBook.pages.push({ content: '' });
         saveConfig();
+        window.currentBookPage = window.currentReadingBook.pages.length;
         renderBookPages(window.currentReadingBook);
-        // Go to new page (last one)
-        // We need to re-apply flipped states
-        const pages = document.querySelectorAll('.book-page');
-        // Flip all previous
-        for (let i = 0; i < pages.length - 1; i++) {
-            pages[i].classList.add('flipped');
-        }
-        window.currentBookPage = pages.length - 1;
     }
 }
 
@@ -4999,6 +5492,7 @@ function closeIcityBook() {
 }
 
 function forceCloseIcityBook() {
+    saveCurrentBookPage();
     // Flush pending save
     if (bookSaveTimer) {
         clearTimeout(bookSaveTimer);
@@ -5010,6 +5504,9 @@ function forceCloseIcityBook() {
     if (reader) {
         reader.classList.remove('visible');
         window.currentReadingBook = null;
+        window.currentIcityBookUseFlatRenderer = false;
+        document.body.style.overflow = reader.dataset.prevBodyOverflow || '';
+        document.documentElement.style.overflow = reader.dataset.prevRootOverflow || '';
     }
 }
 
@@ -5124,7 +5621,7 @@ function protectAnnotations(html) {
     // span with class handwritten-text (Handwritten)
     // span with class starting with pen- (Colored text)
     
-    const selector = 'ruby, s.strikethrough-hand, span.highlight-marker, span.handwritten-text, span[class*="pen-"], img.icity-sticker';
+    const selector = 'ruby, span.icity-ruby-note, s.strikethrough-hand, span.highlight-marker, span.handwritten-text, span[class*="pen-"], img.icity-sticker';
     const nodes = div.querySelectorAll(selector);
     
     nodes.forEach((node, index) => {
@@ -5268,6 +5765,7 @@ ${stickerContext}
                 
                 // Append a reset span to ensure subsequent typing is default style
                 cleanContent += '&nbsp;<span class="reset-style">&#8203;</span>';
+                cleanContent = sanitizeIcityBookHtml(cleanContent);
                 
                 page.content = cleanContent;
                 page.lastAnnotated = Date.now();
@@ -5361,6 +5859,7 @@ ${stickerContext}
                 
                 // Convert newlines to <br> for HTML display
                 processedContent = processedContent.replace(/\n/g, '<br>');
+                processedContent = sanitizeIcityBookHtml(processedContent);
                 
                 newPageContent = processedContent;
             }
@@ -5483,16 +5982,13 @@ function insertIcitySticker(url) {
     if (contentPageIndex < 0 || contentPageIndex >= window.currentReadingBook.pages.length) return;
     
     const page = window.currentReadingBook.pages[contentPageIndex];
-    const pages = document.querySelectorAll('.book-page');
-    
-    if (pages[pageIndex]) {
-        const contentDiv = pages[pageIndex].querySelector('.book-page-content');
-        if (contentDiv) {
-            const imgHtml = `<img src="${url}" class="icity-sticker" style="max-width: 30%; float: right; margin: 5px 0 5px 10px;">`;
-            contentDiv.insertAdjacentHTML('beforeend', imgHtml);
-            page.content = contentDiv.innerHTML;
-            saveConfig();
-        }
+    const contentDiv = getCurrentIcityBookContentElement();
+    if (contentDiv) {
+        const imgHtml = `<img src="${url}" class="icity-sticker">`;
+        contentDiv.insertAdjacentHTML('beforeend', imgHtml);
+        page.content = sanitizeIcityBookHtml(contentDiv.innerHTML);
+        contentDiv.innerHTML = page.content;
+        saveConfig();
     }
 }
 
@@ -5627,14 +6123,16 @@ function saveCurrentBookPage() {
     const pageIndex = window.currentBookPage || 0;
     if (pageIndex === 0) return;
     const contentIndex = pageIndex - 1;
-    
-    const pages = document.querySelectorAll('.book-page');
-    if (pages[pageIndex]) {
-        const contentDiv = pages[pageIndex].querySelector('.book-page-content');
-        if (contentDiv && window.currentReadingBook) {
-            window.currentReadingBook.pages[contentIndex].content = contentDiv.innerHTML;
-            saveConfig();
+
+    const contentDiv = getCurrentIcityBookContentElement();
+    if (contentDiv && window.currentReadingBook && window.currentReadingBook.pages[contentIndex]) {
+        const safeContent = sanitizeIcityBookHtml(contentDiv.innerHTML);
+        if (safeContent !== contentDiv.innerHTML) {
+            contentDiv.innerHTML = safeContent;
         }
+        window.currentReadingBook.pages[contentIndex].content = safeContent;
+        window.currentReadingBook.pages[contentIndex].lastModified = Date.now();
+        saveConfig();
     }
 }
 

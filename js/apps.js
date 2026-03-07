@@ -188,22 +188,35 @@ function renderMomentsList() {
     });
 }
 
-function addMoment(contactId, content, images = []) {
+function addMoment(contactId, content, images = [], options = {}) {
     if (!window.iphoneSimState.moments) window.iphoneSimState.moments = [];
+
+    const normalizedContent = typeof content === 'string' ? content.trim() : '';
+    const normalizedImages = Array.isArray(images) ? images : [];
     
     const newMoment = {
         id: Date.now(),
         contactId,
-        content,
-        images,
+        content: normalizedContent,
+        images: normalizedImages,
         time: Date.now(),
         likes: [],
         comments: []
     };
+
+    const shouldDedupe = options.dedupe !== false && contactId !== 'me' && typeof window.getMomentFingerprint === 'function';
+    if (shouldDedupe) {
+        const fingerprint = window.getMomentFingerprint(newMoment);
+        if (fingerprint) {
+            const hasDuplicate = window.iphoneSimState.moments.some(moment => window.getMomentFingerprint(moment) === fingerprint);
+            if (hasDuplicate) return null;
+        }
+    }
     
     window.iphoneSimState.moments.unshift(newMoment);
     saveConfig();
     renderMomentsList();
+    return newMoment;
 }
 
 function handlePostMoment() {
@@ -668,14 +681,24 @@ async function generateAiMoment(isSilent = false) {
     }
 
     try {
+        const recentMoments = (window.iphoneSimState.moments || [])
+            .filter(moment => moment.contactId === contact.id)
+            .slice(0, 5)
+            .map((moment, index) => `${index + 1}. ${String(moment.content || '').trim()}`)
+            .filter(Boolean)
+            .join('\n');
+
         let systemPrompt = `你现在扮演 ${contact.name}。
 人设：${contact.persona || '无'}
 请生成一条朋友圈动态内容。
+最近已经发过的朋友圈（严禁重复或只改几个字重复）：
+${recentMoments || '无'}
 内容要求：
 1. 符合你的人设。
 2. 像真实的朋友圈，可以是心情、生活分享、吐槽等。
 3. 不要太长，通常在100字以内。
-4. 直接返回内容文本，不要包含任何解释、引号或前缀后缀。`;
+4. 不要与上面已经发过的朋友圈重复，也不要做轻微改写后重复。
+5. 直接返回内容文本，不要包含任何解释、引号或前缀后缀。`;
 
         let fetchUrl = settings.url;
         if (!fetchUrl.endsWith('/chat/completions')) {
@@ -709,7 +732,18 @@ async function generateAiMoment(isSilent = false) {
             content = content.slice(1, -1);
         }
 
-        addMoment(contact.id, content);
+        const createdMoment = addMoment(contact.id, content);
+        if (!createdMoment) {
+            if (!isSilent) {
+                const duplicateMsg = '生成内容和该联系人已有动态重复，已跳过发布';
+                if (typeof window.showChatToast === 'function') {
+                    window.showChatToast(duplicateMsg, 2800);
+                } else {
+                    alert(duplicateMsg);
+                }
+            }
+            return;
+        }
         
         if (!isSilent) {
             alert('动态发布成功！');
@@ -727,16 +761,23 @@ async function generateAiMoment(isSilent = false) {
     }
 }
 
-function openAiMoments() {
-    if (!window.iphoneSimState.currentChatContactId) return;
-    
-    renderPersonalMoments(window.iphoneSimState.currentChatContactId);
-    document.getElementById('personal-moments-screen').classList.remove('hidden');
+function getAiMomentsContactId() {
+    return window.iphoneSimState.currentAiProfileContactId || window.iphoneSimState.currentChatContactId || null;
 }
 
+window.openAiMoments = function() {
+    const contactId = getAiMomentsContactId();
+    if (!contactId) return;
+
+    window.iphoneSimState.personalMomentsSource = window.iphoneSimState.currentAiProfileContactId ? 'ai-profile' : 'chat';
+    renderPersonalMoments(contactId);
+    document.getElementById('personal-moments-screen').classList.remove('hidden');
+};
+
 function handlePersonalMomentsBgUpload(e) {
-    if (!window.iphoneSimState.currentChatContactId) return;
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+    const contactId = getAiMomentsContactId();
+    if (!contactId) return;
+    const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return;
 
     const file = e.target.files[0];
@@ -1529,13 +1570,12 @@ function updateTransferStatus(transferId, status) {
 
 // --- 记忆功能 ---
 
-const MEMORY_VALID_TAGS = ['refined', 'short_term', 'long_term', 'state', 'fact'];
+const MEMORY_VALID_TAGS = ['refined', 'short_term', 'long_term', 'state'];
 const MEMORY_FILTER_TO_TAG = {
     refined: 'refined',
     short_term: 'short_term',
     long_term: 'long_term',
-    state: 'state',
-    fact: 'fact'
+    state: 'state'
 };
 const MEMORY_FILTER_LABELS = {
     all: '全部',
@@ -1543,17 +1583,15 @@ const MEMORY_FILTER_LABELS = {
     short_term: '短期',
     long_term: '长期',
     state: '状态',
-    fact: '具体信息',
     candidate: '待确认'
 };
 const MEMORY_TAG_LABELS = {
     refined: 'REFINED',
     short_term: 'SHORT',
     long_term: 'LONG',
-    state: 'STATE',
-    fact: 'FACT'
+    state: 'STATE'
 };
-const MEMORY_DISPLAY_TAG_PRIORITY = ['state', 'fact', 'refined', 'short_term', 'long_term'];
+const MEMORY_DISPLAY_TAG_PRIORITY = ['state', 'refined', 'short_term', 'long_term'];
 const FACT_SOURCE_TYPES = ['delivery_share', 'shopping_gift', 'gift_card', 'user_explicit_text', 'refine_extract'];
 const CANDIDATE_SOURCE_LABELS = {
     auto_summary: '自动总结',
@@ -1627,7 +1665,6 @@ const MEMORY_DEFAULT_IMPORTANCE_BY_TAG = {
     short_term: 0.65,
     long_term: 0.7,
     state: 0.8,
-    fact: 0.85,
     refined: 0.78
 };
 
@@ -1685,14 +1722,138 @@ function inferStateOwnerFromContent(content, fallback = 'user') {
     if (!text) return normalizeStateOwner(fallback, 'user');
     if (/^联系人当前状态[:：]/.test(text) || /^对方当前状态[:：]/.test(text)) return 'contact';
     if (/^用户当前状态[:：]/.test(text) || /^我当前状态[:：]/.test(text)) return 'user';
+
+    const escapeRegexText = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const contactId = Number.isFinite(Number(window.iphoneSimState && window.iphoneSimState.currentChatContactId))
+        ? Number(window.iphoneSimState.currentChatContactId)
+        : null;
+    const collectOwnerNames = (owner) => {
+        const safeOwner = normalizeStateOwner(owner, 'user');
+        const names = [];
+        const contacts = window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts)
+            ? window.iphoneSimState.contacts
+            : [];
+        const userPersonas = window.iphoneSimState && Array.isArray(window.iphoneSimState.userPersonas)
+            ? window.iphoneSimState.userPersonas
+            : [];
+        const contact = Number.isFinite(contactId)
+            ? contacts.find(item => Number(item && item.id) === contactId)
+            : null;
+
+        if (safeOwner === 'contact') {
+            [contact && contact.remark, contact && contact.nickname, contact && contact.name, '联系人', '对方']
+                .forEach(name => {
+                    const cleaned = String(name || '').trim();
+                    if (cleaned && !names.includes(cleaned)) names.push(cleaned);
+                });
+        } else {
+            const persona = contact && contact.userPersonaId
+                ? userPersonas.find(item => String(item && item.id) === String(contact.userPersonaId))
+                : null;
+            [
+                persona && persona.name,
+                window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name,
+                '用户',
+                '我'
+            ].forEach(name => {
+                const cleaned = String(name || '').trim();
+                if (cleaned && !names.includes(cleaned)) names.push(cleaned);
+            });
+        }
+        return names;
+    };
+
+    const startsWithOwnerName = (owner) => {
+        const names = collectOwnerNames(owner);
+        return names.some(name => {
+            const escaped = escapeRegexText(name);
+            return new RegExp(`^${escaped}当前状态[:：]`).test(text)
+                || new RegExp(`^${escaped}(最近|这几天|目前|本周|正在|在|刚)`).test(text);
+        });
+    };
+
+    if (startsWithOwnerName('contact')) return 'contact';
+    if (startsWithOwnerName('user')) return 'user';
     if (/^(他|她|对方|联系人)(最近|这几天|目前|本周|正在|在|刚)/.test(text)) return 'contact';
     if (/^(我|我这边|本人|最近我|这几天我|目前我|本周我)(正在|在|最近|这几天|目前|本周|刚)?/.test(text)) return 'user';
     return normalizeStateOwner(fallback, 'user');
 }
 
-function getStateOwnerLabel(owner) {
+function getStateOwnerLabel(owner, contactId = null) {
     const safeOwner = normalizeStateOwner(owner, 'user');
-    return STATE_OWNER_LABELS[safeOwner] || STATE_OWNER_LABELS.user;
+    const resolvedContactId = Number.isFinite(Number(contactId))
+        ? Number(contactId)
+        : (Number.isFinite(Number(window.iphoneSimState && window.iphoneSimState.currentChatContactId))
+            ? Number(window.iphoneSimState.currentChatContactId)
+            : null);
+    const contacts = window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts)
+        ? window.iphoneSimState.contacts
+        : [];
+    const userPersonas = window.iphoneSimState && Array.isArray(window.iphoneSimState.userPersonas)
+        ? window.iphoneSimState.userPersonas
+        : [];
+    const contact = Number.isFinite(resolvedContactId)
+        ? contacts.find(item => Number(item && item.id) === resolvedContactId)
+        : null;
+
+    if (safeOwner === 'contact') {
+        return String(
+            (contact && (contact.name || contact.remark || contact.nickname))
+            || STATE_OWNER_LABELS.contact
+            || '联系人'
+        ).trim();
+    }
+
+    const persona = contact && contact.userPersonaId
+        ? userPersonas.find(item => String(item && item.id) === String(contact.userPersonaId))
+        : null;
+    return String(
+        (persona && persona.name)
+        || (window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name)
+        || STATE_OWNER_LABELS.user
+        || '用户'
+    ).trim();
+}
+
+function stripLeadingStateOwnerReference(content, owner, contactId = null) {
+    const raw = String(content || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+
+    const escapeRegexText = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const ownerLabel = getStateOwnerLabel(owner, contactId);
+    const safeOwner = normalizeStateOwner(owner, 'user');
+    const aliases = safeOwner === 'contact'
+        ? [ownerLabel, '联系人', '对方', '他', '她', '我', '本人', '我这边']
+        : [ownerLabel, '用户', '我', '本人', '我这边'];
+    const uniqueAliases = Array.from(new Set(aliases.map(item => String(item || '').trim()).filter(Boolean)));
+
+    for (const alias of uniqueAliases) {
+        const escaped = escapeRegexText(alias);
+        const statePrefixRegex = new RegExp(`^${escaped}\\s*当前状态\\s*[:：]\\s*`, 'i');
+        if (statePrefixRegex.test(raw)) {
+            return raw.replace(statePrefixRegex, '').trim();
+        }
+        const subjectPrefixRegex = new RegExp(`^${escaped}(?=(最近|这几天|目前|本周|正在|在|刚|刚刚|已经|已|有点|有些|要|现在|暂时|还在|仍在|发烧|生病|感冒|复习|备考|出差|旅行|难受|开心|焦虑|低落|恢复|好了))`, 'i');
+        if (subjectPrefixRegex.test(raw)) {
+            return raw.replace(subjectPrefixRegex, '').trim();
+        }
+    }
+    return raw;
+}
+
+function rewriteStateContentWithOwnerName(content, owner, contactId = null) {
+    const ownerLabel = getStateOwnerLabel(owner, contactId);
+    const stripped = stripLeadingStateOwnerReference(content, owner, contactId);
+    if (!stripped) return ownerLabel;
+    if (stripped.startsWith(ownerLabel)) return stripped;
+    return `${ownerLabel}${stripped}`;
+}
+
+function formatStateMemoryContent(owner, content, time = Date.now(), contactId = null) {
+    const ownerLabel = getStateOwnerLabel(owner, contactId);
+    const normalizedContent = stripLeadingStateOwnerReference(content, owner, contactId);
+    if (!normalizedContent) return '';
+    return `${ownerLabel}当前状态：${normalizedContent}，识别时间：${formatDateTimeForMemory(time)}`;
 }
 
 function getStatePhaseLabel(phase) {
@@ -1758,9 +1919,10 @@ function applyInlineStateRecord(contactId, owner, reasonType, content, options =
 
     const safeOwner = normalizeStateOwner(owner, 'user');
     const safeReason = normalizeInlineStateReasonType(reasonType, normalizedContent);
+    const savedContent = rewriteStateContentWithOwnerName(normalizedContent, safeOwner, cid);
     const now = Date.now();
     const created = createMemoryCandidate(cid, {
-        content: normalizedContent,
+        content: savedContent,
         suggestedTags: ['state'],
         source: 'ai_action',
         confidence: clampFloat(options.confidence, 0.86, 0, 1),
@@ -1771,9 +1933,9 @@ function applyInlineStateRecord(contactId, owner, reasonType, content, options =
 
     if (created && options.silent !== true) {
         if (created.status === 'pending') {
-            notifyInlineStateAction(`${getStateOwnerLabel(safeOwner)}待确认`);
+            notifyInlineStateAction(`${getStateOwnerLabel(safeOwner, cid)}待确认`);
         } else {
-            notifyInlineStateAction(`${getStateOwnerLabel(safeOwner)}已记录`);
+            notifyInlineStateAction(`${getStateOwnerLabel(safeOwner, cid)}已记录`);
         }
     }
     return created;
@@ -1795,7 +1957,7 @@ function applyInlineStateResolve(contactId, owner, reasonType, content, options 
         renderMemoryList();
     }
     if (options.silent !== true) {
-        notifyInlineStateAction(`${getStateOwnerLabel(safeOwner)}已更新为已结束`);
+        notifyInlineStateAction(`${getStateOwnerLabel(safeOwner, cid)}已更新为已结束`);
     }
     return resolved;
 }
@@ -4331,7 +4493,6 @@ function buildMemoryDisplayTitle(memory) {
         return truncateTitle(compact, 7);
     }
     if (tags.includes('state')) return '状态记忆';
-    if (tags.includes('fact')) return '具体信息';
     if (tags.includes('refined')) return '精炼记忆';
     if (rawContent.includes('【时间与背景】') || rawContent.includes('【关键经过】')) {
         return '详细总结';
@@ -4636,7 +4797,7 @@ function formatCandidateMetaText(candidate) {
     const timeText = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
     const candidateTags = normalizeMemoryTags(candidate && candidate.suggestedTags, 'long_term');
     const ownerPart = candidateTags.includes('state')
-        ? `，对象：${getStateOwnerLabel(getMemoryStateOwner(candidate, 'user'))}`
+        ? `，对象：${getStateOwnerLabel(getMemoryStateOwner(candidate, 'user'), candidate && candidate.contactId)}`
         : '';
     const reasonText = String(candidate.reason || '').trim();
     const reasonPart = reasonText ? `，原因：${reasonText}` : '';
@@ -4656,10 +4817,36 @@ function ensureMemoryCollections() {
     window.iphoneSimState.memories.forEach(memory => {
         if (!memory || typeof memory !== 'object') return;
         const fallbackTag = String(memory.content || '').startsWith('【通话回忆】') ? 'short_term' : 'long_term';
+        const normalizedTags = normalizeMemoryTags(memory.memoryTags, fallbackTag);
+        if (
+            !Array.isArray(memory.memoryTags) ||
+            memory.memoryTags.length !== normalizedTags.length ||
+            memory.memoryTags.some((tag, index) => tag !== normalizedTags[index])
+        ) {
+            memory.memoryTags = normalizedTags;
+            changed = true;
+        }
+        if (memory.factMeta) {
+            delete memory.factMeta;
+            changed = true;
+        }
         if (ensureMemoryImportance(memory, memory.memoryTags, fallbackTag)) changed = true;
     });
     window.iphoneSimState.memoryCandidates.forEach(candidate => {
         if (!candidate || typeof candidate !== 'object') return;
+        const normalizedTags = normalizeMemoryTags(candidate.suggestedTags, 'long_term');
+        if (
+            !Array.isArray(candidate.suggestedTags) ||
+            candidate.suggestedTags.length !== normalizedTags.length ||
+            candidate.suggestedTags.some((tag, index) => tag !== normalizedTags[index])
+        ) {
+            candidate.suggestedTags = normalizedTags;
+            changed = true;
+        }
+        if (candidate.factMeta) {
+            delete candidate.factMeta;
+            changed = true;
+        }
         if (ensureMemoryImportance(candidate, candidate.suggestedTags, 'long_term')) changed = true;
     });
     return changed;
@@ -4671,9 +4858,9 @@ function getDefaultMemorySettingsRuntime() {
     }
     return {
         extractMode: 'hybrid',
-        injectQuota: { short_term: 2, long_term: 2, state: 2, fact: 2, refined: 1, maxTotal: 7 },
-        injectRecentDays: { short_term: 3, long_term: 30, state: 14, fact: 30, refined: 30 },
-        injectImportanceMin: { short_term: 0.5, long_term: 0.5, state: 0.5, fact: 0.5, refined: 0.5 },
+        injectQuota: { short_term: 2, long_term: 2, state: 2, refined: 1, maxTotal: 7 },
+        injectRecentDays: { short_term: 3, long_term: 30, state: 14, refined: 30 },
+        injectImportanceMin: { short_term: 0.5, long_term: 0.5, state: 0.5, refined: 0.5 },
         stateTtlDays: { health: 7, exam: 14, travel: 10, emotion: 3, other: 7 },
         dedupeThreshold: 0.75,
         stateExtractV2: {
@@ -4716,7 +4903,6 @@ function ensureMemorySettingsV2() {
             short_term: clampInt(inject.short_term, defaults.injectQuota.short_term, 0, 50),
             long_term: clampInt(inject.long_term, defaults.injectQuota.long_term, 0, 50),
             state: clampInt(inject.state, defaults.injectQuota.state, 0, 50),
-            fact: clampInt(inject.fact, defaults.injectQuota.fact, 0, 50),
             refined: clampInt(inject.refined, defaults.injectQuota.refined, 0, 50),
             maxTotal: clampInt(inject.maxTotal, defaults.injectQuota.maxTotal, 1, 100)
         },
@@ -4724,14 +4910,12 @@ function ensureMemorySettingsV2() {
             short_term: clampInt(recentDays.short_term, defaults.injectRecentDays.short_term, 0, 3650),
             long_term: clampInt(recentDays.long_term, defaults.injectRecentDays.long_term, 0, 3650),
             state: clampInt(recentDays.state, defaults.injectRecentDays.state, 0, 3650),
-            fact: clampInt(recentDays.fact, defaults.injectRecentDays.fact, 0, 3650),
             refined: clampInt(recentDays.refined, defaults.injectRecentDays.refined, 0, 3650)
         },
         injectImportanceMin: {
             short_term: clampFloat(importanceMin.short_term, defaults.injectImportanceMin.short_term, 0.1, 1),
             long_term: clampFloat(importanceMin.long_term, defaults.injectImportanceMin.long_term, 0.1, 1),
             state: clampFloat(importanceMin.state, defaults.injectImportanceMin.state, 0.1, 1),
-            fact: clampFloat(importanceMin.fact, defaults.injectImportanceMin.fact, 0.1, 1),
             refined: clampFloat(importanceMin.refined, defaults.injectImportanceMin.refined, 0.1, 1)
         },
         stateTtlDays: {
@@ -4808,18 +4992,20 @@ setTimeout(() => {
 }, 0);
 
 function normalizeMemoryTags(tags, fallback = 'long_term') {
+    const safeFallback = MEMORY_VALID_TAGS.includes(String(fallback || '').trim().toLowerCase())
+        ? String(fallback || '').trim().toLowerCase()
+        : 'long_term';
     const next = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',') : []);
     const normalized = Array.from(new Set(
         next.map(tag => String(tag || '').trim().toLowerCase()).filter(tag => MEMORY_VALID_TAGS.includes(tag))
     ));
-    if (normalized.length === 0) normalized.push(fallback);
+    if (normalized.length === 0) normalized.push(safeFallback);
     return normalized;
 }
 
 function getDefaultImportanceByTags(tags, fallbackTag = 'long_term') {
     const normalizedTags = normalizeMemoryTags(tags, fallbackTag);
     if (normalizedTags.includes('state')) return MEMORY_DEFAULT_IMPORTANCE_BY_TAG.state;
-    if (normalizedTags.includes('fact')) return MEMORY_DEFAULT_IMPORTANCE_BY_TAG.fact;
     if (normalizedTags.includes('refined')) return MEMORY_DEFAULT_IMPORTANCE_BY_TAG.refined;
     if (normalizedTags.includes('short_term')) return MEMORY_DEFAULT_IMPORTANCE_BY_TAG.short_term;
     return MEMORY_DEFAULT_IMPORTANCE_BY_TAG.long_term;
@@ -5409,7 +5595,7 @@ window.tryExtractStateMemoryFromMessage = async function(contactId, msg, isUser)
                 saveConfig();
                 const memoryApp = document.getElementById('memory-app');
                 if (memoryApp && !memoryApp.classList.contains('hidden')) renderMemoryList();
-                showNotification(`${getStateOwnerLabel(stateOwner)}已自动更新为已结束`, 1400, 'success');
+                showNotification(`${getStateOwnerLabel(stateOwner, cid)}已自动更新为已结束`, 1400, 'success');
                 return { resolved: true, memory: resolved };
             }
             stateExtractDebugLog('resolve_no_active_target', {
@@ -5442,13 +5628,13 @@ window.tryExtractStateMemoryFromMessage = async function(contactId, msg, isUser)
 
     const now = Date.now();
     const reasonLabel = STATE_REASON_LABELS[reasonType] || '其他';
-    const ownerLabel = getStateOwnerLabel(stateOwner);
+    const ownerLabel = getStateOwnerLabel(stateOwner, cid);
     const detectorLabel = usedConversationFallback
         ? '问答语境'
         : (hasRuleMatch ? `规则${aiResult ? '+AI' : ''}` : 'AI语义');
     const candidateReason = `自动状态识别（${detectorLabel}）：${ownerLabel}，${reasonLabel}类，可信度${Math.round(finalConfidence * 100)}%`;
     const created = createMemoryCandidate(cid, {
-        content: `${stateOwner === 'contact' ? '联系人' : '用户'}当前状态：${normalizedContent}，识别时间：${formatDateTimeForMemory(now)}`,
+        content: formatStateMemoryContent(stateOwner, normalizedContent, now, cid),
         suggestedTags: ['state'],
         source: 'ai_action',
         confidence: finalConfidence,
@@ -5483,13 +5669,13 @@ window.tryExtractStateMemoryFromMessage = async function(contactId, msg, isUser)
             ...trace,
             detector
         }, 'info', settings);
-        showNotification(`手动模式：检测到${getStateOwnerLabel(stateOwner)}，请手动确认`, 2200);
+        showNotification(`手动模式：检测到${getStateOwnerLabel(stateOwner, cid)}，请手动确认`, 2200);
         return null;
     }
     if (created && created.status === 'pending') {
-        showNotification(`${getStateOwnerLabel(stateOwner)}待确认`, 1500, 'success');
+        showNotification(`${getStateOwnerLabel(stateOwner, cid)}待确认`, 1500, 'success');
     } else if (created) {
-        showNotification(`${getStateOwnerLabel(stateOwner)}已记录`, 1500, 'success');
+        showNotification(`${getStateOwnerLabel(stateOwner, cid)}已记录`, 1500, 'success');
     }
     return created;
 };
@@ -5563,7 +5749,6 @@ function syncLegacyPerceptionAndState(contactId) {
     if (!contact) return;
     const memories = getContactMemories(contactId).slice().sort((a, b) => (b.time || 0) - (a.time || 0));
     const importantStates = [];
-    const userPerception = [];
     memories.forEach(memory => {
         const tags = normalizeMemoryTags(memory.memoryTags, 'long_term');
         if (tags.includes('state')) {
@@ -5580,12 +5765,8 @@ function syncLegacyPerceptionAndState(contactId) {
                 }
             }
         }
-        if (tags.includes('fact') && !userPerception.includes(memory.content)) {
-            userPerception.push(memory.content);
-        }
     });
     contact.importantStates = importantStates.slice(0, 5);
-    contact.userPerception = userPerception.slice(0, 40);
 }
 
 function createOrMergeApprovedMemory(payload) {
@@ -5606,34 +5787,11 @@ function createOrMergeApprovedMemory(payload) {
     const confidence = clampFloat(payload.confidence, 0.8, 0, 1);
     const dedupeThreshold = clampFloat(settings.dedupeThreshold, 0.75, 0.3, 0.99);
     const now = Date.now();
-    const inferredNames = tags.includes('fact') ? extractNamesFromFactContent(content) : [];
-    const inferredSceneText = tags.includes('fact') ? extractSceneTextFromFactContent(content) : '';
-    const factMetaPayload = normalizeFactMeta(payload.factMeta, 'user_explicit_text')
-        || (inferredNames.length > 0
-            ? normalizeFactMeta({
-                sourceType: 'user_explicit_text',
-                exactNames: inferredNames,
-                sceneText: inferredSceneText || inferFactSceneBySource('user_explicit_text', 'user')
-            }, 'user_explicit_text')
-            : null);
     const refinedMetaPayload = normalizeRefinedMeta(payload.refinedMeta);
-    const factKeyPayload = tags.includes('fact') && factMetaPayload ? buildExactNamesKey(factMetaPayload.exactNames) : '';
 
     let duplicate = null;
     let bestScore = 0;
     const approvedMemories = getContactMemories(contactId);
-
-    if (factKeyPayload) {
-        const exactHit = approvedMemories.find(memory => {
-            const existingTags = normalizeMemoryTags(memory.memoryTags, 'long_term');
-            if (!existingTags.includes('fact')) return false;
-            return buildExactNamesKey(getMemoryExactNames(memory)) === factKeyPayload;
-        });
-        if (exactHit) {
-            duplicate = exactHit;
-            bestScore = 1;
-        }
-    }
 
     approvedMemories.forEach(memory => {
         if (duplicate && memory.id === duplicate.id) return;
@@ -5679,12 +5837,7 @@ function createOrMergeApprovedMemory(payload) {
             delete duplicate.stateMeta;
             delete duplicate.stateOwner;
         }
-        const mergedFactMeta = mergeFactMeta(duplicate.factMeta, factMetaPayload, 'user_explicit_text');
-        if (mergedFactMeta) {
-            duplicate.factMeta = mergedFactMeta;
-        } else if (!duplicate.memoryTags.includes('fact')) {
-            delete duplicate.factMeta;
-        }
+        delete duplicate.factMeta;
         const mergedRefinedMeta = mergeRefinedMeta(duplicate.refinedMeta, refinedMetaPayload);
         if (mergedRefinedMeta) {
             duplicate.refinedMeta = mergedRefinedMeta;
@@ -5713,9 +5866,7 @@ function createOrMergeApprovedMemory(payload) {
     if (payload.refinedFrom && Array.isArray(payload.refinedFrom)) {
         memory.refinedFrom = payload.refinedFrom.slice(0);
     }
-    if (factMetaPayload && memory.memoryTags.includes('fact')) {
-        memory.factMeta = factMetaPayload;
-    }
+    delete memory.factMeta;
     if (refinedMetaPayload && memory.memoryTags.includes('refined')) {
         memory.refinedMeta = refinedMetaPayload;
     }
@@ -5754,18 +5905,7 @@ function createMemoryCandidate(contactId, payload = {}) {
     const confidence = clampFloat(payload.confidence, 0.75, 0, 1);
     const extractMode = settings.extractMode || 'hybrid';
     const now = Date.now();
-    const inferredNames = tags.includes('fact') ? extractNamesFromFactContent(content) : [];
-    const inferredSceneText = tags.includes('fact') ? extractSceneTextFromFactContent(content) : '';
-    const factMetaPayload = normalizeFactMeta(payload.factMeta, 'user_explicit_text')
-        || (inferredNames.length > 0
-            ? normalizeFactMeta({
-                sourceType: 'user_explicit_text',
-                exactNames: inferredNames,
-                sceneText: inferredSceneText || inferFactSceneBySource('user_explicit_text', 'user')
-            }, 'user_explicit_text')
-            : null);
     const stateExtractMetaPayload = normalizeStateExtractMeta(payload.stateExtractMeta);
-    const factKeyPayload = tags.includes('fact') && factMetaPayload ? buildExactNamesKey(factMetaPayload.exactNames) : '';
 
     if (extractMode === 'manual') {
         return null;
@@ -5773,50 +5913,6 @@ function createMemoryCandidate(contactId, payload = {}) {
 
     const dedupeThreshold = clampFloat(settings.dedupeThreshold, 0.75, 0.3, 0.99);
     const pending = getPendingCandidates(contactId);
-    if (factKeyPayload) {
-        const exactPending = pending.find(existing => {
-            const candidateTags = normalizeMemoryTags(existing.suggestedTags, 'long_term');
-            if (!candidateTags.includes('fact')) return false;
-            return buildExactNamesKey(getMemoryExactNames(existing)) === factKeyPayload;
-        });
-        if (exactPending) {
-            exactPending.content = content.length > String(exactPending.content || '').length ? content : exactPending.content;
-            exactPending.suggestedTags = Array.from(new Set([...normalizeMemoryTags(exactPending.suggestedTags, 'long_term'), ...tags]));
-            exactPending.confidence = Math.max(clampFloat(exactPending.confidence, 0.6, 0, 1), confidence);
-            const oldImportance = getMemoryImportance(exactPending, getDefaultImportanceByTags(exactPending.suggestedTags, 'long_term'));
-            exactPending.importance = hasExplicitImportance ? importance : Math.max(oldImportance, importance);
-            exactPending.reason = payload.reason || exactPending.reason;
-            exactPending.range = payload.range || exactPending.range;
-            exactPending.createdAt = now;
-            exactPending.factMeta = mergeFactMeta(exactPending.factMeta, factMetaPayload, 'user_explicit_text');
-            if (exactPending.suggestedTags.includes('state')) {
-                const nextStateOwner = payloadStateOwner || getMemoryStateOwner(exactPending, 'user');
-                exactPending.stateOwner = nextStateOwner;
-                if (exactPending.stateMeta && typeof exactPending.stateMeta === 'object') {
-                    exactPending.stateMeta.owner = nextStateOwner;
-                }
-            }
-            if (payload.stateMeta && typeof payload.stateMeta === 'object') {
-                exactPending.stateMeta = Object.assign({}, payload.stateMeta);
-                if (exactPending.stateMeta && typeof exactPending.stateMeta === 'object') {
-                    exactPending.stateMeta.owner = payloadStateOwner || getMemoryStateOwner(exactPending, 'user');
-                }
-            } else if (exactPending.suggestedTags.includes('state') && !exactPending.stateMeta) {
-                exactPending.stateMeta = makeStateMeta(
-                    inferStateReasonType(exactPending.content),
-                    now,
-                    null,
-                    payloadStateOwner || getMemoryStateOwner(exactPending, 'user')
-                );
-            }
-            exactPending.stateExtractMeta = mergeStateExtractMeta(exactPending.stateExtractMeta, stateExtractMetaPayload);
-            ensureMemoryImportance(exactPending, exactPending.suggestedTags, 'long_term');
-            saveConfig();
-            const memoryApp = document.getElementById('memory-app');
-            if (memoryApp && !memoryApp.classList.contains('hidden')) renderMemoryList();
-            return exactPending;
-        }
-    }
     for (const existing of pending) {
         const existingTags = normalizeMemoryTags(existing.suggestedTags, 'long_term');
         const existingStateOwner = existingTags.includes('state') ? getMemoryStateOwner(existing, 'user') : null;
@@ -5833,7 +5929,7 @@ function createMemoryCandidate(contactId, payload = {}) {
             existing.reason = payload.reason || existing.reason;
             existing.range = payload.range || existing.range;
             existing.createdAt = now;
-            existing.factMeta = mergeFactMeta(existing.factMeta, factMetaPayload, 'user_explicit_text');
+            delete existing.factMeta;
             if (existing.suggestedTags.includes('state')) {
                 const nextStateOwner = payloadStateOwner || getMemoryStateOwner(existing, 'user');
                 existing.stateOwner = nextStateOwner;
@@ -5873,8 +5969,7 @@ function createMemoryCandidate(contactId, payload = {}) {
             importance: importance,
             range: payload.range || '',
             stateOwner: payloadStateOwner,
-            stateMeta: payload.stateMeta || (tags.includes('state') ? makeStateMeta(inferStateReasonType(content), now, null, payloadStateOwner || 'user') : null),
-            factMeta: factMetaPayload
+            stateMeta: payload.stateMeta || (tags.includes('state') ? makeStateMeta(inferStateReasonType(content), now, null, payloadStateOwner || 'user') : null)
         });
         saveConfig();
         const memoryApp = document.getElementById('memory-app');
@@ -5898,7 +5993,6 @@ function createMemoryCandidate(contactId, payload = {}) {
             ? Object.assign({}, payload.stateMeta)
             : (tags.includes('state') ? makeStateMeta(inferStateReasonType(content), now, null, payloadStateOwner || 'user') : null),
         stateOwner: payloadStateOwner,
-        factMeta: factMetaPayload,
         stateExtractMeta: stateExtractMetaPayload,
         status: 'pending'
     };
@@ -5927,8 +6021,7 @@ function approveMemoryCandidate(candidateId, overrides = {}) {
         importance: normalizeMemoryImportanceValue(overrides.importance, getMemoryImportance(candidate, getDefaultImportanceByTags(candidate && candidate.suggestedTags, 'long_term'))),
         range: overrides.range || candidate.range || '',
         stateOwner: overrides.stateOwner || candidate.stateOwner || getMemoryStateOwner(candidate, 'user'),
-        stateMeta: overrides.stateMeta || candidate.stateMeta || null,
-        factMeta: overrides.factMeta || candidate.factMeta || null
+        stateMeta: overrides.stateMeta || candidate.stateMeta || null
     });
     candidate.status = 'approved';
     saveConfig();
@@ -6098,7 +6191,6 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         short_term: getImportanceLimit('short_term'),
         long_term: getImportanceLimit('long_term'),
         state: getImportanceLimit('state'),
-        fact: getImportanceLimit('fact'),
         refined: getImportanceLimit('refined')
     };
     const isWithinRecentDays = (memory, bucket) => {
@@ -6112,7 +6204,7 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         const importance = getMemoryImportance(memory, getDefaultImportanceByTags(memory && memory.memoryTags, 'long_term'));
         return importance >= getImportanceLimit(bucket);
     };
-    const hasActiveRecentDaysLimit = ['short_term', 'long_term', 'state', 'fact', 'refined']
+    const hasActiveRecentDaysLimit = ['short_term', 'long_term', 'state', 'refined']
         .some(bucket => getDaysLimit(bucket) > 0);
 
     let maxTotal = clampInt(quotaBase.maxTotal, 7, 1, 100);
@@ -6162,12 +6254,6 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         .filter(item => isAboveImportanceLimit(item.memory, 'long_term'))
         .sort((a, b) => b.score - a.score)
         .slice(0, clampInt(quotaBase.long_term, 2, 0, 50));
-    const factList = withScore
-        .filter(item => item.memory.memoryTags.includes('fact'))
-        .filter(item => isWithinRecentDays(item.memory, 'fact'))
-        .filter(item => isAboveImportanceLimit(item.memory, 'fact'))
-        .sort((a, b) => (b.relevance + b.confidence) - (a.relevance + a.confidence))
-        .slice(0, clampInt(quotaBase.fact, 2, 0, 50));
     const refinedList = withScore
         .filter(item => item.memory.memoryTags.includes('refined'))
         .filter(item => isWithinRecentDays(item.memory, 'refined'))
@@ -6179,7 +6265,6 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         ...stateList.map(item => ({ bucket: 'state', item })),
         ...shortList.map(item => ({ bucket: 'short_term', item })),
         ...longList.map(item => ({ bucket: 'long_term', item })),
-        ...factList.map(item => ({ bucket: 'fact', item })),
         ...refinedList.map(item => ({ bucket: 'refined', item }))
     ];
     if (selected.length === 0) {
@@ -6194,7 +6279,7 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
                 maxTotal
             },
             selectedRows: [],
-            sectionCounts: { state: 0, short_term: 0, long_term: 0, fact: 0, refined: 0 },
+            sectionCounts: { state: 0, short_term: 0, long_term: 0, refined: 0 },
             memoryContext: fallbackContext
         });
         return fallbackContext;
@@ -6204,7 +6289,7 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         selected = selected.sort((a, b) => b.item.score - a.item.score).slice(0, maxTotal);
     }
 
-    const sections = { state: [], short_term: [], long_term: [], fact: [], refined: [] };
+    const sections = { state: [], short_term: [], long_term: [], refined: [] };
     selected.forEach(entry => sections[entry.bucket].push(entry.item.memory));
 
     const buildSection = (title, list) => {
@@ -6213,23 +6298,10 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         if (title === '状态记忆') {
             text += '- 说明：每条状态会标注主体（用户/联系人），请勿混淆主体。\n';
         }
-        if (title === '具体信息') {
-            const mergedNames = [];
-            list.forEach(memory => {
-                getMemoryExactNames(memory).forEach(name => mergedNames.push(name));
-            });
-            const exactNames = normalizeExactNames(mergedNames);
-            if (exactNames.length > 0) {
-                text += `- 关键名称：${exactNames.join(' / ')}\n`;
-                text += '- 规则：涉及这些名称时必须逐字一致，不得改写或混淆。\n';
-            }
-        }
         list.sort((a, b) => (a.time || 0) - (b.time || 0)).forEach(memory => {
             const date = new Date(memory.time || Date.now());
             const dateStr = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-            let lineContent = title === '具体信息'
-                ? buildFactMemoryReadableContent(memory)
-                : String(memory.content || '');
+            let lineContent = String(memory.content || '');
             if (title === '状态记忆') {
                 const owner = getMemoryStateOwner(memory, 'user');
                 const ownerLabel = owner === 'contact' ? '联系人状态' : '用户状态';
@@ -6246,7 +6318,6 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
     output += buildSection('状态记忆', sections.state);
     output += buildSection('短期记忆', sections.short_term);
     output += buildSection('长期记忆', sections.long_term);
-    output += buildSection('具体信息', sections.fact);
     output += buildSection('精炼记忆', sections.refined);
     if (!output.trim()) {
         const fallbackContext = hasActiveRecentDaysLimit ? '' : buildLegacyMemoryContext(contact, history);
@@ -6264,7 +6335,6 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
                 state: sections.state.length,
                 short_term: sections.short_term.length,
                 long_term: sections.long_term.length,
-                fact: sections.fact.length,
                 refined: sections.refined.length
             },
             memoryContext: fallbackContext
@@ -6286,7 +6356,6 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
             state: sections.state.length,
             short_term: sections.short_term.length,
             long_term: sections.long_term.length,
-            fact: sections.fact.length,
             refined: sections.refined.length
         },
         memoryContext: output
@@ -6413,7 +6482,7 @@ function buildAllTagBadgesForMemory(memory, tags) {
     const reasonType = memory && memory.stateMeta && memory.stateMeta.reasonType
         ? memory.stateMeta.reasonType
         : inferStateReasonType(memory && memory.content);
-    const ownerLabel = getStateOwnerLabel(getMemoryStateOwner(memory, 'user'));
+    const ownerLabel = getStateOwnerLabel(getMemoryStateOwner(memory, 'user'), memory && memory.contactId);
     badgeHtml += `<span class="memory-tag-badge tag-state-reason">类型：${escapeHtml(getStateReasonLabel(reasonType))}</span>`;
     badgeHtml += `<span class="memory-tag-badge tag-state-phase">阶段：${escapeHtml(getStatePhaseLabel(phase))}</span>`;
     badgeHtml += `<span class="memory-tag-badge tag-state-owner">${escapeHtml(ownerLabel)}</span>`;
@@ -6434,7 +6503,7 @@ function buildAllTagBadgesForCandidate(candidate, tags) {
     const reasonType = candidate && candidate.stateMeta && candidate.stateMeta.reasonType
         ? candidate.stateMeta.reasonType
         : inferStateReasonType(candidate && candidate.content);
-    const ownerLabel = getStateOwnerLabel(getMemoryStateOwner(candidate, 'user'));
+    const ownerLabel = getStateOwnerLabel(getMemoryStateOwner(candidate, 'user'), candidate && candidate.contactId);
     badgeHtml += `<span class="memory-tag-badge tag-state-reason">类型：${escapeHtml(getStateReasonLabel(reasonType))}</span>`;
     badgeHtml += `<span class="memory-tag-badge tag-state-phase">阶段：${escapeHtml(getStatePhaseLabel(phase))}</span>`;
     badgeHtml += `<span class="memory-tag-badge tag-state-owner">${escapeHtml(ownerLabel)}</span>`;
@@ -6651,47 +6720,6 @@ window.extractSpecificNamesFromUserText = function(text) {
     return normalizeExactNames(names);
 };
 
-window.createFactMemoryCandidateFromNames = function(contactId, names, sourceType = 'user_explicit_text', extraMeta = {}) {
-    const cid = Number(contactId);
-    if (!Number.isFinite(cid)) return null;
-    const exactNames = normalizeExactNames(Array.isArray(names) ? names : []);
-    if (exactNames.length === 0) return null;
-
-    const safeSourceType = FACT_SOURCE_TYPES.includes(sourceType) ? sourceType : 'user_explicit_text';
-    const safeActor = extraMeta.actor === 'contact' ? 'contact' : 'user';
-    const sceneText = buildFactSceneText(safeSourceType, Object.assign({}, extraMeta, { actor: safeActor }));
-    const content = buildFactMemoryContent(exactNames, safeSourceType, Object.assign({}, extraMeta, { actor: safeActor, sceneText }));
-    const reason = extraMeta.reason || `${sceneText || '检测到具体场景'}，提取名称：${exactNames.join(' / ')}`;
-    const sourceRange = extraMeta.sourceRange !== undefined && extraMeta.sourceRange !== null
-        ? String(extraMeta.sourceRange)
-        : '';
-    const sourceMsgId = extraMeta.sourceMsgId !== undefined && extraMeta.sourceMsgId !== null
-        ? String(extraMeta.sourceMsgId)
-        : '';
-    const confidence = clampFloat(extraMeta.confidence, 0.9, 0, 1);
-
-    const result = createMemoryCandidate(cid, {
-        content,
-        suggestedTags: ['fact'],
-        source: 'ai_action',
-        confidence,
-        reason,
-        range: sourceRange,
-        factMeta: {
-            sourceType: safeSourceType,
-            exactNames,
-            sourceMsgId,
-            sourceRange,
-            sceneText
-        }
-    });
-
-    if (!result && ensureMemorySettingsV2().extractMode === 'manual' && extraMeta.notifyOnManual) {
-        showNotification('手动模式：检测到具体名称，请手动添加', 2200);
-    }
-    return result;
-};
-
 async function callRefineMemoryBatchModel(contact, selectedMemories) {
     const settings = window.iphoneSimState.aiSettings2.url ? window.iphoneSimState.aiSettings2 : window.iphoneSimState.aiSettings;
     if (!settings || !settings.url || !settings.key) return null;
@@ -6720,13 +6748,11 @@ async function callRefineMemoryBatchModel(contact, selectedMemories) {
                     role: 'system',
                     content: `你是记忆精炼助手。输入是同一联系人的多条记忆，请输出严格 JSON：
 {
-  "refined_summary": "1-2句总览",
-  "key_facts": [{"name":"关键名称","reason":"提取原因"}]
+  "refined_summary": "1-2句总览"
 }
 要求：
 1) 只输出 JSON，不要 Markdown。
-2) key_facts.name 只保留原文中的具体名称，不要改写、不要近义替换。
-3) 如果没有可提取名称，key_facts 返回空数组。`
+2) 只生成一条适合归档的精炼总览，不要额外字段。`
                 },
                 {
                     role: 'user',
@@ -6795,23 +6821,6 @@ window.refineSelectedMemories = async function(contactId, selectedIds) {
         return null;
     }
 
-    const rawKeyFacts = Array.isArray(result && result.key_facts) ? result.key_facts : [];
-    const extractedNames = normalizeExactNames(
-        rawKeyFacts
-            .map(item => {
-                if (typeof item === 'string') return item;
-                if (item && typeof item === 'object') return item.name;
-                return '';
-            })
-            .filter(Boolean)
-    );
-    const fallbackNameBuffer = [];
-    selectedMemories.forEach(memory => {
-        getMemoryExactNames(memory).forEach(name => fallbackNameBuffer.push(name));
-    });
-    const fallbackNames = normalizeExactNames(fallbackNameBuffer);
-    const finalNames = extractedNames.length > 0 ? extractedNames : fallbackNames;
-
     createOrMergeApprovedMemory({
         contactId: cid,
         content: refinedSummary,
@@ -6821,41 +6830,18 @@ window.refineSelectedMemories = async function(contactId, selectedIds) {
         refinedFrom: uniqueIds,
         refinedMeta: {
             selectedMemoryIds: uniqueIds,
-            keyFactsCount: finalNames.length
+            sourceMemoryCount: uniqueIds.length
         }
-    });
-
-    finalNames.forEach(name => {
-        const factSceneText = buildFactSceneText('refine_extract', {
-            actor: 'user',
-            sceneText: '从用户选择的历史记忆中提炼出的关键事实'
-        });
-        createOrMergeApprovedMemory({
-            contactId: cid,
-            content: buildFactMemoryContent([name], 'refine_extract', {
-                actor: 'user',
-                sceneText: factSceneText
-            }),
-            memoryTags: ['fact'],
-            source: 'refine',
-            confidence: 0.88,
-            factMeta: {
-                sourceType: 'refine_extract',
-                exactNames: [name],
-                sourceRange: uniqueIds.join('-'),
-                sceneText: factSceneText
-            }
-        });
     });
 
     syncLegacyPerceptionAndState(cid);
     saveConfig();
     resetMemorySelection();
     renderMemoryList();
-    showNotification(`精炼归档完成：总览 1 条，关键名称 ${finalNames.length} 条`, 2200, 'success');
+    showNotification('精炼归档完成：总览 1 条', 2200, 'success');
     return {
         refinedSummary,
-        keyFacts: finalNames
+        keyFacts: []
     };
 };
 
@@ -6909,21 +6895,6 @@ function handleSaveManualMemory() {
         const start = Date.now();
         stateMeta = makeStateMeta(reason, start, null, stateOwner || 'user');
     }
-    let factMeta = null;
-    if (tags.includes('fact') && typeof window.extractSpecificNamesFromUserText === 'function') {
-        const names = window.extractSpecificNamesFromUserText(content);
-        if (Array.isArray(names) && names.length > 0) {
-            const sceneText = buildFactSceneText('user_explicit_text', {
-                actor: 'user',
-                sourceText: content
-            });
-            factMeta = {
-                sourceType: 'user_explicit_text',
-                exactNames: normalizeExactNames(names),
-                sceneText
-            };
-        }
-    }
 
     createOrMergeApprovedMemory({
         contactId: window.iphoneSimState.currentChatContactId,
@@ -6934,8 +6905,7 @@ function handleSaveManualMemory() {
         confidence: 1,
         importance: importance,
         stateOwner: stateOwner,
-        stateMeta: stateMeta,
-        factMeta: factMeta
+        stateMeta: stateMeta
     });
     saveConfig();
     renderMemoryList();
@@ -6991,7 +6961,6 @@ function openMemorySettings() {
         ['short_term', 'modal-memory-days-short-term'],
         ['long_term', 'modal-memory-days-long-term'],
         ['state', 'modal-memory-days-state'],
-        ['fact', 'modal-memory-days-fact'],
         ['refined', 'modal-memory-days-refined']
     ];
     recentDaysMap.forEach(([key, id]) => {
@@ -7002,7 +6971,6 @@ function openMemorySettings() {
         ['short_term', 'modal-memory-importance-short-term'],
         ['long_term', 'modal-memory-importance-long-term'],
         ['state', 'modal-memory-importance-state'],
-        ['fact', 'modal-memory-importance-fact'],
         ['refined', 'modal-memory-importance-refined']
     ];
     importanceMap.forEach(([key, id]) => {
@@ -7028,7 +6996,6 @@ function handleSaveMemorySettings() {
         ['short_term', 'modal-memory-days-short-term'],
         ['long_term', 'modal-memory-days-long-term'],
         ['state', 'modal-memory-days-state'],
-        ['fact', 'modal-memory-days-fact'],
         ['refined', 'modal-memory-days-refined']
     ];
     recentDaysMap.forEach(([key, id]) => {
@@ -7040,7 +7007,6 @@ function handleSaveMemorySettings() {
         ['short_term', 'modal-memory-importance-short-term'],
         ['long_term', 'modal-memory-importance-long-term'],
         ['state', 'modal-memory-importance-state'],
-        ['fact', 'modal-memory-importance-fact'],
         ['refined', 'modal-memory-importance-refined']
     ];
     importanceMap.forEach(([key, id]) => {
@@ -7260,21 +7226,6 @@ window.editAndApproveMemoryCandidate = function(candidateId) {
         const owner = getMemoryStateOwner(candidate, inferStateOwnerFromContent(text, 'user'));
         overrides.stateOwner = owner;
     }
-    if (candidateTags.includes('fact')) {
-        const extracted = window.extractSpecificNamesFromUserText ? window.extractSpecificNamesFromUserText(text) : [];
-        const fallback = getMemoryExactNames(candidate);
-        const exactNames = normalizeExactNames(extracted.length > 0 ? extracted : fallback);
-        if (exactNames.length > 0) {
-            overrides.factMeta = {
-                sourceType: (candidate.factMeta && FACT_SOURCE_TYPES.includes(candidate.factMeta.sourceType))
-                    ? candidate.factMeta.sourceType
-                    : 'user_explicit_text',
-                exactNames,
-                sourceMsgId: candidate.factMeta && candidate.factMeta.sourceMsgId ? candidate.factMeta.sourceMsgId : '',
-                sourceRange: candidate.factMeta && candidate.factMeta.sourceRange ? candidate.factMeta.sourceRange : ''
-            };
-        }
-    }
     approveMemoryCandidate(candidateId, overrides);
     showNotification('已存档', 1200, 'success');
 };
@@ -7316,24 +7267,7 @@ function handleSaveEditedMemory() {
             delete memory.stateMeta;
             delete memory.stateOwner;
         }
-        if (memory.memoryTags.includes('fact')) {
-            if (!memory.factMeta || !Array.isArray(memory.factMeta.exactNames) || memory.factMeta.exactNames.length === 0) {
-                const inferred = window.extractSpecificNamesFromUserText ? window.extractSpecificNamesFromUserText(memory.content) : [];
-                if (Array.isArray(inferred) && inferred.length > 0) {
-                    const sceneText = buildFactSceneText('user_explicit_text', {
-                        actor: 'user',
-                        sourceText: memory.content
-                    });
-                    memory.factMeta = {
-                        sourceType: 'user_explicit_text',
-                        exactNames: normalizeExactNames(inferred),
-                        sceneText
-                    };
-                }
-            }
-        } else {
-            delete memory.factMeta;
-        }
+        delete memory.factMeta;
         if (!memory.memoryTags.includes('refined')) {
             delete memory.refinedMeta;
         }
@@ -7359,7 +7293,7 @@ window.retagMemory = function(id) {
     const memory = window.iphoneSimState.memories.find(m => m.id === id);
     if (!memory) return;
     const current = normalizeMemoryTags(memory.memoryTags, 'long_term').join(', ');
-    const input = prompt('输入标签（refined, short_term, long_term, state, fact）\n逗号分隔：', current);
+    const input = prompt('输入标签（refined, short_term, long_term, state）\n逗号分隔：', current);
     if (input === null) return;
     const tags = normalizeMemoryTags(String(input).split(','), 'long_term');
     memory.memoryTags = tags;
@@ -7375,9 +7309,7 @@ window.retagMemory = function(id) {
         delete memory.stateMeta;
         delete memory.stateOwner;
     }
-    if (!tags.includes('fact')) {
-        delete memory.factMeta;
-    }
+    delete memory.factMeta;
     if (!tags.includes('refined')) {
         delete memory.refinedMeta;
     }
@@ -9827,7 +9759,15 @@ function setupAppsListeners() {
     const closePersonalMomentsBtn = document.getElementById('close-personal-moments');
     const personalMomentsBgInput = document.getElementById('personal-moments-bg-input');
     
-    if (closePersonalMomentsBtn) closePersonalMomentsBtn.addEventListener('click', () => personalMomentsScreen.classList.add('hidden'));
+    if (closePersonalMomentsBtn) {
+        closePersonalMomentsBtn.addEventListener('click', () => {
+            personalMomentsScreen.classList.add('hidden');
+            if (window.iphoneSimState.personalMomentsSource === 'ai-profile') {
+                document.getElementById('ai-profile-screen')?.classList.remove('hidden');
+            }
+            window.iphoneSimState.personalMomentsSource = null;
+        });
+    }
     if (personalMomentsBgInput) personalMomentsBgInput.addEventListener('change', handlePersonalMomentsBgUpload);
 
     const transferModal = document.getElementById('transfer-modal');

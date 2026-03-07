@@ -5,7 +5,6 @@ function createDefaultMemorySettingsV2() {
             short_term: 2,
             long_term: 2,
             state: 2,
-            fact: 2,
             refined: 1,
             maxTotal: 7
         },
@@ -13,14 +12,12 @@ function createDefaultMemorySettingsV2() {
             short_term: 3,
             long_term: 30,
             state: 14,
-            fact: 30,
             refined: 30
         },
         injectImportanceMin: {
             short_term: 0.5,
             long_term: 0.5,
             state: 0.5,
-            fact: 0.5,
             refined: 0.5
         },
         stateTtlDays: {
@@ -79,7 +76,6 @@ function normalizeMemorySettingsV2(raw) {
             short_term: toInt(inject.short_term, defaults.injectQuota.short_term),
             long_term: toInt(inject.long_term, defaults.injectQuota.long_term),
             state: toInt(inject.state, defaults.injectQuota.state),
-            fact: toInt(inject.fact, defaults.injectQuota.fact),
             refined: toInt(inject.refined, defaults.injectQuota.refined),
             maxTotal: toInt(inject.maxTotal, defaults.injectQuota.maxTotal, 1, 100)
         },
@@ -87,14 +83,12 @@ function normalizeMemorySettingsV2(raw) {
             short_term: toInt(recentDays.short_term, defaults.injectRecentDays.short_term, 0, 3650),
             long_term: toInt(recentDays.long_term, defaults.injectRecentDays.long_term, 0, 3650),
             state: toInt(recentDays.state, defaults.injectRecentDays.state, 0, 3650),
-            fact: toInt(recentDays.fact, defaults.injectRecentDays.fact, 0, 3650),
             refined: toInt(recentDays.refined, defaults.injectRecentDays.refined, 0, 3650)
         },
         injectImportanceMin: {
             short_term: toFloat(importanceMin.short_term, defaults.injectImportanceMin.short_term, 0.1, 1),
             long_term: toFloat(importanceMin.long_term, defaults.injectImportanceMin.long_term, 0.1, 1),
             state: toFloat(importanceMin.state, defaults.injectImportanceMin.state, 0.1, 1),
-            fact: toFloat(importanceMin.fact, defaults.injectImportanceMin.fact, 0.1, 1),
             refined: toFloat(importanceMin.refined, defaults.injectImportanceMin.refined, 0.1, 1)
         },
         stateTtlDays: {
@@ -165,7 +159,6 @@ const DEFAULT_MEMORY_IMPORTANCE_BY_TAG = {
     short_term: 0.65,
     long_term: 0.7,
     state: 0.8,
-    fact: 0.85,
     refined: 0.78
 };
 
@@ -179,10 +172,25 @@ function normalizeMemoryImportanceValueCore(value, fallback = 0.7) {
 function getImportanceFallbackByTagsCore(tags) {
     const list = Array.isArray(tags) ? tags : [];
     if (list.includes('state')) return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.state;
-    if (list.includes('fact')) return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.fact;
     if (list.includes('refined')) return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.refined;
     if (list.includes('short_term')) return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.short_term;
     return DEFAULT_MEMORY_IMPORTANCE_BY_TAG.long_term;
+}
+
+function normalizeMemoryTagsCore(tags, fallback = 'long_term') {
+    const validTags = ['refined', 'short_term', 'long_term', 'state'];
+    const safeFallback = validTags.includes(String(fallback || '').trim().toLowerCase())
+        ? String(fallback || '').trim().toLowerCase()
+        : 'long_term';
+    const next = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',') : []);
+    const normalized = Array.from(new Set(
+        next
+            .map(tag => String(tag || '').trim().toLowerCase())
+            .map(tag => tag === 'fact' ? 'long_term' : tag)
+            .filter(tag => validTags.includes(tag))
+    ));
+    if (normalized.length === 0) normalized.push(safeFallback);
+    return normalized;
 }
 
 function normalizeStateMeta(memory, settings) {
@@ -242,8 +250,16 @@ function migrateMemorySchemaV2() {
     state.memories.forEach(memory => {
         if (!memory || typeof memory !== 'object') return;
         const nextTags = inferLegacyMemoryTags(memory);
-        if (!Array.isArray(memory.memoryTags) || memory.memoryTags.length === 0) {
-            memory.memoryTags = nextTags;
+        const normalizedTags = normalizeMemoryTagsCore(
+            Array.isArray(memory.memoryTags) && memory.memoryTags.length > 0 ? memory.memoryTags : nextTags,
+            nextTags.includes('short_term') ? 'short_term' : 'long_term'
+        );
+        if (
+            !Array.isArray(memory.memoryTags) ||
+            memory.memoryTags.length !== normalizedTags.length ||
+            memory.memoryTags.some((tag, index) => tag !== normalizedTags[index])
+        ) {
+            memory.memoryTags = normalizedTags;
             changed = true;
         }
         const memoryImportanceFallback = getImportanceFallbackByTagsCore(memory.memoryTags);
@@ -262,6 +278,10 @@ function migrateMemorySchemaV2() {
         }
         if (!Number.isFinite(Number(memory.confidence))) {
             memory.confidence = 0.7;
+            changed = true;
+        }
+        if (memory.factMeta) {
+            delete memory.factMeta;
             changed = true;
         }
         if (normalizeStateMeta(memory, settings)) changed = true;
@@ -320,10 +340,10 @@ function migrateMemorySchemaV2() {
                     contactId: cid,
                     content: text,
                     time: now,
-                    memoryTags: ['fact'],
+                    memoryTags: ['long_term'],
                     source: 'ai_action',
                     confidence: 0.8,
-                    importance: DEFAULT_MEMORY_IMPORTANCE_BY_TAG.fact,
+                    importance: DEFAULT_MEMORY_IMPORTANCE_BY_TAG.long_term,
                     reviewStatus: 'approved'
                 });
                 existingByContact[cid].add(text);
@@ -334,8 +354,13 @@ function migrateMemorySchemaV2() {
 
     state.memoryCandidates.forEach(candidate => {
         if (!candidate || typeof candidate !== 'object') return;
-        if (!Array.isArray(candidate.suggestedTags) || candidate.suggestedTags.length === 0) {
-            candidate.suggestedTags = ['long_term'];
+        const normalizedTags = normalizeMemoryTagsCore(candidate.suggestedTags, 'long_term');
+        if (
+            !Array.isArray(candidate.suggestedTags) ||
+            candidate.suggestedTags.length !== normalizedTags.length ||
+            candidate.suggestedTags.some((tag, index) => tag !== normalizedTags[index])
+        ) {
+            candidate.suggestedTags = normalizedTags;
             changed = true;
         }
         const candidateImportanceFallback = getImportanceFallbackByTagsCore(candidate.suggestedTags);
@@ -350,6 +375,10 @@ function migrateMemorySchemaV2() {
         }
         if (!Number.isFinite(Number(candidate.confidence))) {
             candidate.confidence = 0.7;
+            changed = true;
+        }
+        if (candidate.factMeta) {
+            delete candidate.factMeta;
             changed = true;
         }
         const tags = Array.isArray(candidate.suggestedTags) ? candidate.suggestedTags : [];
@@ -521,6 +550,7 @@ const state = {
         bgImage: ''
     },
     icityDiaries: [], // { id, content, visibility, time, likes, comments }
+    icityFriendsPosts: [], // { id, contactId, content, time, visibility, likes, comments }
     stickerCategories: [], // { id, name, list: [{ url, desc }] }
     currentStickerCategoryId: 'all',
     isStickerManageMode: false,
@@ -535,6 +565,95 @@ const state = {
 };
 
 window.iphoneSimState = state;
+
+function normalizeAutoPostTextValue(text) {
+    return String(text || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\u00A0/g, ' ')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\s*\n\s*/g, '\n')
+        .trim();
+}
+
+function normalizeMomentImagesForFingerprint(images) {
+    if (!Array.isArray(images) || images.length === 0) return '';
+    return images.map(img => {
+        if (typeof img === 'string') return img.trim();
+        if (img && typeof img === 'object') {
+            return String(img.src || img.url || img.description || img.desc || '').trim();
+        }
+        return '';
+    }).filter(Boolean).join('|');
+}
+
+function getMomentFingerprint(moment) {
+    if (!moment || String(moment.contactId || '') === 'me') return '';
+    const contactId = String(moment.contactId || '').trim();
+    const contentKey = normalizeAutoPostTextValue(moment.content);
+    const imageKey = normalizeMomentImagesForFingerprint(moment.images);
+    if (!contactId || (!contentKey && !imageKey)) return '';
+    return `moment::${contactId}::${contentKey}::${imageKey}`;
+}
+
+function getIcityFriendPostFingerprint(post) {
+    if (!post) return '';
+    const ownerKey = String(post.contactId || post.handle || post.name || '').trim();
+    const contentKey = normalizeAutoPostTextValue(post.content);
+    if (!ownerKey || !contentKey) return '';
+    return `icity::${ownerKey}::${contentKey}`;
+}
+
+function dedupeCollectionByFingerprint(items, getFingerprint) {
+    if (!Array.isArray(items) || typeof getFingerprint !== 'function') {
+        return { changed: false, items: Array.isArray(items) ? items.slice() : [] };
+    }
+
+    const seen = new Set();
+    const deduped = [];
+    let changed = false;
+
+    // Walk from old to new so we keep the earliest/original post and drop later duplicates.
+    for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        const fingerprint = getFingerprint(item);
+        if (fingerprint && seen.has(fingerprint)) {
+            changed = true;
+            continue;
+        }
+        if (fingerprint) seen.add(fingerprint);
+        deduped.unshift(item);
+    }
+
+    if (deduped.length !== items.length) changed = true;
+    return { changed, items: deduped };
+}
+
+function sanitizeAutoGeneratedSocialContent() {
+    let changed = false;
+
+    if (Array.isArray(state.moments)) {
+        const dedupedMoments = dedupeCollectionByFingerprint(state.moments, getMomentFingerprint);
+        if (dedupedMoments.changed) {
+            state.moments = dedupedMoments.items;
+            changed = true;
+        }
+    }
+
+    if (Array.isArray(state.icityFriendsPosts)) {
+        const dedupedIcityPosts = dedupeCollectionByFingerprint(state.icityFriendsPosts, getIcityFriendPostFingerprint);
+        if (dedupedIcityPosts.changed) {
+            state.icityFriendsPosts = dedupedIcityPosts.items;
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
+window.normalizeAutoPostTextValue = normalizeAutoPostTextValue;
+window.getMomentFingerprint = getMomentFingerprint;
+window.getIcityFriendPostFingerprint = getIcityFriendPostFingerprint;
+window.sanitizeAutoGeneratedSocialContent = sanitizeAutoGeneratedSocialContent;
 
 window.appInitFunctions = [];
 
@@ -946,6 +1065,7 @@ async function loadConfig() {
             if (!state.worldbook) state.worldbook = [];
             if (!state.userPersonas) state.userPersonas = [];
             if (!state.moments) state.moments = [];
+            if (!state.icityFriendsPosts) state.icityFriendsPosts = [];
             if (!state.memories) state.memories = [];
             if (!state.memoryCandidates) state.memoryCandidates = [];
             state.memorySettingsV2 = normalizeMemorySettingsV2(state.memorySettingsV2);
@@ -1014,7 +1134,8 @@ async function loadConfig() {
             }
 
             const memoryMigrationChanged = migrateMemorySchemaV2();
-            if (memoryMigrationChanged) {
+            const socialContentSanitized = sanitizeAutoGeneratedSocialContent();
+            if (memoryMigrationChanged || socialContentSanitized) {
                 saveConfig();
             }
         }

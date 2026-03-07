@@ -565,17 +565,16 @@
                         </label>
                     </div>
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
-                        <button class="btn-black" id="save-all-settings">保存配置</button>
                         <button class="btn-secondary" id="export-json">导出数据</button>
+                        <label for="import-json" class="btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: center; margin: 0;">
+                            导入数据
+                            <input type="file" id="import-json" style="display: none;">
+                        </label>
                     </div>
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
                         <button class="btn-secondary" id="optimize-storage">压缩图片</button>
                         <button class="btn-secondary" id="analyze-storage">存储分析</button>
                     </div>
-                    <label for="import-json" class="btn-secondary" style="margin-top: 10px; width: 100%;">
-                        导入数据
-                        <input type="file" id="import-json" style="display: none;">
-                    </label>
                     <button class="btn-text btn-danger" id="clear-all-data" style="width:100%; margin-top:10px;">清空所有数据</button>
                 </div>
             </div>
@@ -583,10 +582,10 @@
 
     </div>
 
-    <div class="settings-status-pill">
+    <button type="button" id="settings-save-pill" class="settings-status-pill" title="点击保存当前配置">
         <div class="status-dot"></div>
         <span>System Ready</span>
-    </div>
+    </button>
 
     <script>
         function switchTab(tabId) {
@@ -1320,29 +1319,31 @@
                         <div class="thought-pet-content" id="thought-pet-content-text"></div>
                     </div>
                 </div>
-                <!-- 引用回复条 -->
-                <div id="reply-bar" class="reply-bar hidden">
-                    <div class="reply-content">
-                        <span id="reply-name" style="font-weight: 600;"></span>: <span id="reply-text"></span>
+                <div class="chat-bottom-stack">
+                    <!-- 引用回复条 -->
+                    <div id="reply-bar" class="reply-bar hidden">
+                        <div class="reply-content">
+                            <span id="reply-name" style="font-weight: 600;"></span>: <span id="reply-text"></span>
+                        </div>
+                        <div class="reply-close" id="close-reply-bar"><i class="fas fa-times-circle"></i></div>
                     </div>
-                    <div class="reply-close" id="close-reply-bar"><i class="fas fa-times-circle"></i></div>
-                </div>
-                <!-- 临时提示组件 -->
-                <div id="chat-toast" class="chat-toast hidden">
-                    <span id="chat-toast-text"></span>
-                </div>
-                <div class="chat-input-area">
-                    <button id="chat-more-btn" class="chat-icon-btn" aria-label="更多功能">
-                        <i class="ri-add-line"></i>
-                    </button>
-                    <div class="chat-input-shell">
-                        <input type="text" id="chat-input" placeholder="iMessage">
-                        <button id="sticker-btn" class="chat-input-inline-btn" aria-label="贴纸">
-                            <i class="ri-sticker-line ri-emoji-sticker-line"></i>
+                    <!-- 临时提示组件 -->
+                    <div id="chat-toast" class="chat-toast hidden">
+                        <span id="chat-toast-text"></span>
+                    </div>
+                    <div class="chat-input-area">
+                        <button id="chat-more-btn" class="chat-icon-btn" aria-label="更多功能">
+                            <i class="ri-add-line"></i>
                         </button>
-                        <button id="trigger-ai-reply-btn" class="chat-input-inline-btn" aria-label="语音">
-                            <i class="ri-mic-line"></i>
-                        </button>
+                        <div class="chat-input-shell">
+                            <input type="text" id="chat-input" placeholder="iMessage">
+                            <button id="sticker-btn" class="chat-input-inline-btn" aria-label="贴纸">
+                                <i class="ri-sticker-line ri-emoji-sticker-line"></i>
+                            </button>
+                            <button id="trigger-ai-reply-btn" class="chat-input-inline-btn" aria-label="语音">
+                                <i class="ri-mic-line"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <!-- 表情包面板 -->
@@ -2489,12 +2490,6 @@
                     background: #fff8ec;
                 }
 
-                #memory-app .memory-tag-badge.tag-fact {
-                    border-color: #4c8bf5;
-                    color: #2257b5;
-                    background: #f2f7ff;
-                }
-
                 #memory-app .memory-tag-badge.tag-refined {
                     border-color: #7f56d9;
                     color: #6c43ca;
@@ -2645,7 +2640,7 @@
 
                 #memory-app .memory-days-grid {
                     display: grid;
-                    grid-template-columns: repeat(5, minmax(0, 1fr));
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
                     gap: 8px;
                 }
 
@@ -2663,18 +2658,8 @@
 
                 #memory-app .memory-importance-grid {
                     display: grid;
-                    grid-template-columns: repeat(5, minmax(0, 1fr));
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
                     gap: 8px;
-                }
-
-                #memory-app .memory-fact-tip {
-                    margin-bottom: 10px;
-                    border: 1px solid #dbeafe;
-                    border-radius: 10px;
-                    background: #f5f9ff;
-                    padding: 10px 12px;
-                    font-size: 12px;
-                    color: #1e3a8a;
                 }
 
                 #memory-app .memory-refine-toolbar {
@@ -2923,7 +2908,6 @@
                             <button class="memory-filter-option" data-filter="short_term">短期</button>
                             <button class="memory-filter-option" data-filter="long_term">长期</button>
                             <button class="memory-filter-option" data-filter="state">状态</button>
-                            <button class="memory-filter-option" data-filter="fact">具体信息</button>
                             <button class="memory-filter-option" data-filter="candidate">待确认</button>
                         </div>
                     </div>
@@ -2985,7 +2969,6 @@
                                 <label class="memory-tag-option"><input type="checkbox" value="short_term">短期</label>
                                 <label class="memory-tag-option"><input type="checkbox" value="long_term" checked>长期</label>
                                 <label class="memory-tag-option"><input type="checkbox" value="state">状态</label>
-                                <label class="memory-tag-option"><input type="checkbox" value="fact">具体信息</label>
                                 <label class="memory-tag-option"><input type="checkbox" value="refined">精炼</label>
                             </div>
                         </div>
@@ -3029,7 +3012,6 @@
                                 <label class="memory-tag-option"><input type="checkbox" value="short_term">短期</label>
                                 <label class="memory-tag-option"><input type="checkbox" value="long_term" checked>长期</label>
                                 <label class="memory-tag-option"><input type="checkbox" value="state">状态</label>
-                                <label class="memory-tag-option"><input type="checkbox" value="fact">具体信息</label>
                                 <label class="memory-tag-option"><input type="checkbox" value="refined">精炼</label>
                             </div>
                         </div>
@@ -3112,10 +3094,6 @@
                                     <input type="number" id="modal-memory-days-state" min="0">
                                 </div>
                                 <div class="memory-days-item">
-                                    <label for="modal-memory-days-fact">具体信息</label>
-                                    <input type="number" id="modal-memory-days-fact" min="0">
-                                </div>
-                                <div class="memory-days-item">
                                     <label for="modal-memory-days-refined">精炼记忆</label>
                                     <input type="number" id="modal-memory-days-refined" min="0">
                                 </div>
@@ -3136,10 +3114,6 @@
                                 <div class="memory-days-item">
                                     <label for="modal-memory-importance-state">状态记忆</label>
                                     <input type="number" id="modal-memory-importance-state" min="0.1" max="1" step="0.01">
-                                </div>
-                                <div class="memory-days-item">
-                                    <label for="modal-memory-importance-fact">具体信息</label>
-                                    <input type="number" id="modal-memory-importance-fact" min="0.1" max="1" step="0.01">
                                 </div>
                                 <div class="memory-days-item">
                                     <label for="modal-memory-importance-refined">精炼记忆</label>
@@ -3167,7 +3141,7 @@
                     <div class="modal-body">
                         <div class="memory-refine-confirm-summary">
                             已选择 <span id="memory-refine-selected-count-modal">0</span> 条记忆。
-                            将生成 1 条精炼总览，并提取关键名称为具体信息记忆存档。
+                            将生成 1 条精炼总览并归档。
                         </div>
                         <div class="memory-refine-confirm-actions">
                             <button id="cancel-memory-refine-confirm">取消</button>
@@ -6304,30 +6278,6 @@
     <script src="js/lookus.js"></script>
     <script src="js/novelai.js"></script>
     <script src="js/settings_v3.js"></script>
-    <script>
-        // 修复 资料卡 背景点击上传图片
-
-
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const aiProfileBg = document.getElementById('ai-profile-bg');
-            const aiProfileBgInput = document.getElementById('ai-profile-bg-input');
-            if (aiProfileBg && aiProfileBgInput) {
-                // 确保移除旧的监听器（如果有的话，虽然这里是新增，但为了安全）
-                // 重新绑定点击事件
-                aiProfileBg.onclick = () => {
-                    aiProfileBgInput.click();
-                };
-                
-                aiProfileBgInput.onchange = (e) => {
-                    if (window.handleAiProfileBgUpload) {
-                        window.handleAiProfileBgUpload(e);
-                    }
-                };
-            }
-        });
-    </script>
-
 <!-- 在 index.html 中找到 <!-- 编辑记忆弹窗 --> 附近，添加以下代码 -->
 
             <!-- 编辑消息弹窗 -->

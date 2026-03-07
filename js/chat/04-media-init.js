@@ -3589,7 +3589,7 @@ function handleSaveEditedChatMessage() {
 }
 
 // 初始化监听器
-function openAiMoments() {
+function openWechatMomentsTab() {
     const momentsTab = document.querySelector('#wechat-app .wechat-tab-item[data-tab="moments"]');
     if (momentsTab) {
         momentsTab.click();
@@ -3683,6 +3683,7 @@ function setupChatListeners() {
         }
         const pet = document.getElementById('thought-pet');
         if (pet) pet.classList.add('hidden');
+        window.iphoneSimState.currentAiProfileContactId = null;
         window.iphoneSimState.currentChatContactId = null;
     });
 
@@ -3926,7 +3927,8 @@ function setupChatListeners() {
         currentAiProfileSendMsgBtn.parentNode.replaceChild(newBtn, currentAiProfileSendMsgBtn);
         
         newBtn.addEventListener('click', () => {
-            openMeetingsScreen(window.iphoneSimState.currentChatContactId);
+            const contactId = window.iphoneSimState.currentAiProfileContactId || window.iphoneSimState.currentChatContactId;
+            openMeetingsScreen(contactId);
         });
     }
 
@@ -3934,7 +3936,12 @@ function setupChatListeners() {
     const closeRelationSelectBtn = document.getElementById('close-relation-select');
     const aiMomentsEntry = document.getElementById('ai-moments-entry');
 
-    if (closeAiProfileBtn) closeAiProfileBtn.addEventListener('click', () => aiProfileScreen.classList.add('hidden'));
+    if (closeAiProfileBtn) {
+        closeAiProfileBtn.addEventListener('click', () => {
+            aiProfileScreen.classList.add('hidden');
+            window.iphoneSimState.currentAiProfileContactId = null;
+        });
+    }
     if (aiProfileMoreBtn) aiProfileMoreBtn.addEventListener('click', openChatSettings);
     
 
@@ -3944,7 +3951,7 @@ function setupChatListeners() {
     if (aiRelationItem) aiRelationItem.addEventListener('click', openRelationSelect);
     if (closeRelationSelectBtn) closeRelationSelectBtn.addEventListener('click', () => relationSelectModal.classList.add('hidden'));
     
-    if (aiMomentsEntry) aiMomentsEntry.addEventListener('click', openAiMoments);
+    if (aiMomentsEntry) aiMomentsEntry.addEventListener('click', window.openAiMoments);
 
     if (chatSettingsBtn) chatSettingsBtn.addEventListener('click', openChatSettings);
     if (closeChatSettingsBtn) closeChatSettingsBtn.addEventListener('click', () => chatSettingsScreen.classList.add('hidden'));

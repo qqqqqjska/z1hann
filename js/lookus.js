@@ -96,10 +96,395 @@ function getContactCoordinates(contactId) {
     if (loc.province && CITY_COORDINATES[loc.province]) {
         return CITY_COORDINATES[loc.province];
     }
+return null;
+}
+
+function getLookusSeed(contact) {
+    const basis = `${contact?.id || ''}::${contact?.remark || ''}::${contact?.name || ''}::${contact?.persona || ''}`;
+    let seed = 0;
+    for (let i = 0; i < basis.length; i++) {
+        seed = ((seed << 5) - seed) + basis.charCodeAt(i);
+        seed |= 0;
+    }
+    return Math.abs(seed);
+}
+
+function pickSeededLookusModel(models, seed) {
+    if (!Array.isArray(models) || models.length === 0) return '未知型号';
+    return models[seed % models.length];
+}
+
+const LOOKUS_DEVICE_MODEL_MATCHERS = [
+    { model: 'iPhone 16 Pro Max', regex: /(?:iphone|苹果)\s*16\s*pro\s*max/i },
+    { model: 'iPhone 16 Pro', regex: /(?:iphone|苹果)\s*16\s*pro(?!\s*max)/i },
+    { model: 'iPhone 16 Plus', regex: /(?:iphone|苹果)\s*16\s*plus/i },
+    { model: 'iPhone 16', regex: /(?:iphone|苹果)\s*16(?!\s*(?:pro|max|plus))/i },
+    { model: 'iPhone 15 Pro Max', regex: /(?:iphone|苹果)\s*15\s*pro\s*max/i },
+    { model: 'iPhone 15 Pro', regex: /(?:iphone|苹果)\s*15\s*pro(?!\s*max)/i },
+    { model: 'iPhone 15 Plus', regex: /(?:iphone|苹果)\s*15\s*plus/i },
+    { model: 'iPhone 15', regex: /(?:iphone|苹果)\s*15(?!\s*(?:pro|max|plus))/i },
+    { model: 'iPhone 14 Pro Max', regex: /(?:iphone|苹果)\s*14\s*pro\s*max/i },
+    { model: 'iPhone 14 Pro', regex: /(?:iphone|苹果)\s*14\s*pro(?!\s*max)/i },
+    { model: 'iPhone 14 Plus', regex: /(?:iphone|苹果)\s*14\s*plus/i },
+    { model: 'iPhone 14', regex: /(?:iphone|苹果)\s*14(?!\s*(?:pro|max|plus))/i },
+    { model: 'iPhone 13 mini', regex: /(?:iphone|苹果)\s*13\s*mini/i },
+    { model: 'iPhone 13 Pro Max', regex: /(?:iphone|苹果)\s*13\s*pro\s*max/i },
+    { model: 'iPhone 13 Pro', regex: /(?:iphone|苹果)\s*13\s*pro(?!\s*max)/i },
+    { model: 'iPhone 13', regex: /(?:iphone|苹果)\s*13(?!\s*(?:pro|max|mini))/i },
+    { model: 'iPhone SE 3', regex: /(?:iphone|苹果)\s*se\s*(?:3|第三代)?/i },
+    { model: 'Huawei Mate 70 Pro', regex: /(?:huawei|华为)\s*mate\s*70\s*pro/i },
+    { model: 'Huawei Mate 60 Pro', regex: /(?:huawei|华为)\s*mate\s*60\s*pro/i },
+    { model: 'Huawei Pura 70 Ultra', regex: /(?:huawei|华为)\s*(?:pura|p)\s*70\s*ultra/i },
+    { model: 'Huawei Pura 70 Pro', regex: /(?:huawei|华为)\s*(?:pura|p)\s*70\s*pro/i },
+    { model: 'Huawei nova 12 Ultra', regex: /(?:huawei|华为)\s*nova\s*12\s*ultra/i },
+    { model: 'Huawei nova 12 Pro', regex: /(?:huawei|华为)\s*nova\s*12\s*pro/i },
+    { model: 'Huawei nova 12', regex: /(?:huawei|华为)\s*nova\s*12(?!\s*(?:pro|ultra))/i },
+    { model: 'Samsung Galaxy S24 Ultra', regex: /(?:samsung|三星)(?:\s*galaxy)?\s*s\s*24\s*ultra/i },
+    { model: 'Samsung Galaxy S24+', regex: /(?:samsung|三星)(?:\s*galaxy)?\s*s\s*24\s*(?:\+|plus)/i },
+    { model: 'Samsung Galaxy S24', regex: /(?:samsung|三星)(?:\s*galaxy)?\s*s\s*24(?!\s*(?:ultra|\+|plus))/i },
+    { model: 'Xiaomi 15 Ultra', regex: /(?:xiaomi|小米)\s*15\s*ultra/i },
+    { model: 'Xiaomi 15 Pro', regex: /(?:xiaomi|小米)\s*15\s*pro/i },
+    { model: 'Xiaomi 15', regex: /(?:xiaomi|小米)\s*15(?!\s*(?:pro|ultra))/i },
+    { model: 'Xiaomi 14 Ultra', regex: /(?:xiaomi|小米)\s*14\s*ultra/i },
+    { model: 'Xiaomi 14 Pro', regex: /(?:xiaomi|小米)\s*14\s*pro/i },
+    { model: 'Xiaomi 14', regex: /(?:xiaomi|小米)\s*14(?!\s*(?:pro|ultra))/i },
+    { model: 'Xiaomi Civi 4 Pro', regex: /(?:xiaomi|小米)\s*civi\s*4\s*pro/i },
+    { model: 'Redmi K70 Pro', regex: /(?:redmi|红米)\s*k\s*70\s*pro/i },
+    { model: 'Redmi K70', regex: /(?:redmi|红米)\s*k\s*70(?!\s*pro)/i },
+    { model: 'Redmi Note 13 Pro', regex: /(?:redmi|红米)\s*note\s*13\s*pro(?:\+)?/i },
+    { model: 'Redmi Note 13', regex: /(?:redmi|红米)\s*note\s*13(?!\s*pro)/i },
+    { model: 'OnePlus 13', regex: /(?:oneplus|一加)\s*13(?!\s*(?:pro|r))/i },
+    { model: 'OnePlus 12', regex: /(?:oneplus|一加)\s*12(?!\s*(?:pro|r))/i },
+    { model: 'OnePlus Ace 5 Pro', regex: /(?:oneplus|一加)\s*ace\s*5\s*pro/i },
+    { model: 'OnePlus Ace 5', regex: /(?:oneplus|一加)\s*ace\s*5(?!\s*pro)/i },
+    { model: 'OnePlus Ace 3 Pro', regex: /(?:oneplus|一加)\s*ace\s*3\s*pro/i },
+    { model: 'OnePlus Ace 3', regex: /(?:oneplus|一加)\s*ace\s*3(?!\s*pro)/i },
+    { model: 'OPPO Find X8 Ultra', regex: /oppo\s*find\s*x\s*8\s*ultra/i },
+    { model: 'OPPO Find X8 Pro', regex: /oppo\s*find\s*x\s*8\s*pro/i },
+    { model: 'OPPO Find X8', regex: /oppo\s*find\s*x\s*8(?!\s*(?:pro|ultra))/i },
+    { model: 'OPPO Find X7 Ultra', regex: /oppo\s*find\s*x\s*7\s*ultra/i },
+    { model: 'OPPO Find X7', regex: /oppo\s*find\s*x\s*7(?!\s*ultra)/i },
+    { model: 'OPPO Reno13 Pro', regex: /oppo\s*reno\s*13\s*pro/i },
+    { model: 'OPPO Reno13', regex: /oppo\s*reno\s*13(?!\s*pro)/i },
+    { model: 'OPPO Reno12 Pro', regex: /oppo\s*reno\s*12\s*pro/i },
+    { model: 'OPPO Reno12', regex: /oppo\s*reno\s*12(?!\s*pro)/i },
+    { model: 'OPPO A3 Pro', regex: /oppo\s*a\s*3\s*pro/i },
+    { model: 'vivo X200 Pro', regex: /vivo\s*x\s*200\s*pro/i },
+    { model: 'vivo X100 Pro', regex: /vivo\s*x\s*100\s*pro/i },
+    { model: 'vivo S18 Pro', regex: /vivo\s*s\s*18\s*pro/i },
+    { model: 'vivo S18', regex: /vivo\s*s\s*18(?!\s*pro)/i },
+    { model: 'iQOO 13', regex: /(?:iqoo|爱酷)\s*13/i },
+    { model: 'iQOO 12', regex: /(?:iqoo|爱酷)\s*12/i },
+    { model: 'iQOO Neo9 Pro', regex: /(?:iqoo|爱酷)\s*neo\s*9\s*pro/i },
+    { model: 'iQOO Neo9', regex: /(?:iqoo|爱酷)\s*neo\s*9(?!\s*pro)/i },
+    { model: 'Honor 200 Pro', regex: /(?:honor|荣耀)\s*200\s*pro/i },
+    { model: 'Honor 200', regex: /(?:honor|荣耀)\s*200(?!\s*pro)/i },
+    { model: 'Honor 90 GT', regex: /(?:honor|荣耀)\s*90\s*gt/i },
+    { model: 'Honor X50', regex: /(?:honor|荣耀)\s*x\s*50/i },
+    { model: 'RedMagic 9 Pro', regex: /(?:redmagic|红魔)\s*9\s*pro/i },
+    { model: 'ROG Phone 8', regex: /rog\s*phone\s*8/i },
+    { model: 'realme GT5 Pro', regex: /(?:realme|真我)\s*gt\s*5\s*pro/i }
+];
+
+function normalizeLookusDeviceModel(model) {
+    return String(model || '')
+        .replace(/[“”"'`]/g, '')
+        .replace(/[（(][^()（）]{0,20}[)）]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getLookusHistoryMessageText(msg) {
+    if (!msg) return '';
+
+    const type = String(msg.type || 'text');
+    if (type === 'image' || type === 'virtual_image' || type === 'sticker' || type === 'transfer') {
+        return '';
+    }
+
+    if (type === 'voice' || type === 'voice_call_text') {
+        try {
+            const data = JSON.parse(msg.content);
+            return String(data && data.text ? data.text : '').trim();
+        } catch (e) {
+            return '';
+        }
+    }
+
+    return typeof msg.content === 'string' ? msg.content.trim() : '';
+}
+
+function findLookusDeviceModelCandidates(text) {
+    const source = normalizeLookusDeviceModel(text);
+    if (!source) return [];
+
+    const matches = [];
+    LOOKUS_DEVICE_MODEL_MATCHERS.forEach(({ model, regex }) => {
+        const flags = regex.flags.includes('g') ? regex.flags : `${regex.flags}g`;
+        const globalRegex = new RegExp(regex.source, flags);
+        let match;
+        while ((match = globalRegex.exec(source)) !== null) {
+            matches.push({
+                model,
+                index: match.index,
+                length: match[0].length
+            });
+            if (!match[0]) break;
+        }
+    });
+
+    const seen = new Set();
+    return matches
+        .sort((a, b) => a.index - b.index || b.length - a.length)
+        .filter(match => {
+            const key = `${match.index}:${match.model}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+}
+
+function extractLookusDeviceModelFromText(text) {
+    const matches = findLookusDeviceModelCandidates(text);
+    return matches.length ? matches[matches.length - 1].model : null;
+}
+
+function isExplicitLookusDeviceStatement(text) {
+    const source = String(text || '').trim();
+    if (!source) return false;
+
+    const positivePatterns = [
+        /(我|我的|我这|我现在|我最近|我刚|本人).{0,12}(换了|换成|刚换|买了|刚买|入手|现在用|目前用|用的是|手机是|拿的是|在用|机型|型号)/i,
+        /(新手机|这手机|现在这台|目前用的|手机型号).{0,8}(是|换成|用了|用的是|就是)/i,
+        /^(换成|刚换成|刚换了|刚买了|刚入手了|现在用的是|目前用的是|手机是|机型是|型号是)/i,
+        /(最近|前两天|这两天).{0,8}(换了|换成|买了|入手)/i
+    ];
+    const negativePatterns = [
+        /(你|给你|帮你|让你|叫你).{0,12}(换成|买|入手|用|拿)/i,
+        /(推荐|安利|建议).{0,12}(给你|你|你们)?/i
+    ];
+
+    if (negativePatterns.some(regex => regex.test(source))) return false;
+    return positivePatterns.some(regex => regex.test(source));
+}
+
+function isLookusDeviceChangeStatement(text) {
+    const source = String(text || '').trim();
+    if (!source) return false;
+
+    const positivePatterns = [
+        /(我|我的|我这|我现在|我最近|我刚|本人).{0,12}(换了手机|换手机|刚换机|换机了|换新机|换新手机|买了新手机|刚买新手机|入手了新手机)/i,
+        /(最近|前两天|这两天).{0,8}(换了手机|换机|换新机|买了新手机|入手了新手机)/i,
+        /^(刚换了手机|刚换机|换机了|换新手机了|买了新手机|入手了新手机)/i
+    ];
+    const negativePatterns = [
+        /(你|给你|帮你|让你|叫你).{0,12}(换成|买|入手|用|拿)/i,
+        /(推荐|安利|建议).{0,12}(给你|你|你们)?/i
+    ];
+
+    if (negativePatterns.some(regex => regex.test(source))) return false;
+    return positivePatterns.some(regex => regex.test(source));
+}
+
+function extractExplicitLookusDeviceModelFromHistory(history) {
+    if (!Array.isArray(history) || history.length === 0) return null;
+
+    for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i];
+        if (!msg || String(msg.role || '').toLowerCase() !== 'assistant') continue;
+
+        const text = getLookusHistoryMessageText(msg);
+        if (!text || !isExplicitLookusDeviceStatement(text)) continue;
+
+        const model = extractLookusDeviceModelFromText(text);
+        if (!model) continue;
+
+        return {
+            model,
+            text,
+            time: Number(msg.time) || 0,
+            index: i,
+            messageId: msg.id || null
+        };
+    }
+
     return null;
 }
 
+function extractLookusDeviceChangeSignalFromHistory(history) {
+    if (!Array.isArray(history) || history.length === 0) return null;
+
+    for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i];
+        if (!msg || String(msg.role || '').toLowerCase() !== 'assistant') continue;
+
+        const text = getLookusHistoryMessageText(msg);
+        if (!text || !isLookusDeviceChangeStatement(text)) continue;
+
+        return {
+            text,
+            time: Number(msg.time) || 0,
+            index: i,
+            messageId: msg.id || null
+        };
+    }
+
+    return null;
+}
+
+function syncLookusDeviceModelFromChatHistory(contact, history, explicitEvidence) {
+    if (!contact) return false;
+
+    const evidence = explicitEvidence || extractExplicitLookusDeviceModelFromHistory(history);
+    if (!evidence || !evidence.model) return false;
+
+    const nextModel = normalizeLookusDeviceModel(evidence.model);
+    const currentModel = normalizeLookusDeviceModel(contact.deviceModel);
+    const sameModel = currentModel && currentModel.toLowerCase() === nextModel.toLowerCase();
+
+    if (sameModel && contact.lookusDeviceModelVersion >= 3) return false;
+
+    contact.deviceModel = nextModel;
+    contact.lookusDeviceModelVersion = 3;
+    if (contact.lookusData) {
+        contact.lookusData.device = nextModel;
+    }
+    return true;
+}
+
+function inferLookusDeviceModel(contact) {
+    const personaText = String([
+        contact?.persona || '',
+        contact?.remark || '',
+        contact?.name || '',
+        contact?.occupation || '',
+        contact?.identity || ''
+    ].join(' ')).toLowerCase();
+    const seed = getLookusSeed(contact);
+
+    const luxuryKeywords = /(富二代|豪门|总裁|ceo|老板|财阀|千金|少爷|富有|有钱|名媛|高管|明星|艺人|投资人)/i;
+    const businessKeywords = /(律师|医生|商务|金融|白领|总监|经理|老师|教授|精英|成熟|稳重|职业)/i;
+    const gamerKeywords = /(游戏|电竞|二次元|宅|数码控|发烧友|geek|极客|程序员|开发|代码)/i;
+    const studentKeywords = /(学生|大学|高中|研究生|实习|打工|穷|拮据|省钱|节俭|校园)/i;
+    const appleKeywords = /(苹果|iphone|ios|果粉)/i;
+    const lifestyleKeywords = /(博主|摄影|拍照|时尚|穿搭|美妆|vlog|旅行|生活方式)/i;
+
+    let modelPool = [
+        'Xiaomi 14',
+        'OnePlus 12',
+        'Huawei nova 12',
+        'OPPO Reno12',
+        'vivo S18',
+        'Honor 90 GT'
+    ];
+
+    if (luxuryKeywords.test(personaText)) {
+        modelPool = [
+            'iPhone 16 Pro Max',
+            'iPhone 15 Pro Max',
+            'Huawei Mate 70 Pro',
+            'Samsung Galaxy S24 Ultra',
+            'Xiaomi 15 Ultra',
+            'vivo X200 Pro'
+        ];
+    } else if (businessKeywords.test(personaText)) {
+        modelPool = [
+            'Huawei Mate 60 Pro',
+            'iPhone 15 Pro',
+            'Samsung Galaxy S24',
+            'Xiaomi 14 Pro',
+            'OPPO Find X7',
+            'vivo X100 Pro'
+        ];
+    } else if (studentKeywords.test(personaText)) {
+        modelPool = [
+            'Redmi K70',
+            'Redmi Note 13 Pro',
+            'iQOO Neo9',
+            'OnePlus Ace 3',
+            'Honor X50',
+            'OPPO A3 Pro'
+        ];
+    } else if (gamerKeywords.test(personaText)) {
+        modelPool = [
+            'RedMagic 9 Pro',
+            'ROG Phone 8',
+            'iQOO 12',
+            'OnePlus Ace 3 Pro',
+            'Redmi K70 Pro',
+            'realme GT5 Pro'
+        ];
+    } else if (lifestyleKeywords.test(personaText)) {
+        modelPool = [
+            'Xiaomi Civi 4 Pro',
+            'vivo S18 Pro',
+            'OPPO Reno12 Pro',
+            'iPhone 15',
+            'Huawei nova 12 Ultra',
+            'Honor 200 Pro'
+        ];
+    } else if (appleKeywords.test(personaText)) {
+        modelPool = [
+            'iPhone 15',
+            'iPhone 15 Pro',
+            'iPhone 14',
+            'iPhone 13 mini',
+            'iPhone SE 3',
+            'iPhone 16'
+        ];
+    }
+
+    return pickSeededLookusModel(modelPool, seed);
+}
+
+function shouldRefreshLegacyLookusDeviceModel(contact) {
+    if (!contact) return false;
+    if (!contact.deviceModel) return true;
+    if (contact.lookusDeviceModelVersion >= 2) return false;
+
+    const model = String(contact.deviceModel || '').trim();
+    return /^(iPhone|iPhone 15|iPhone 15 Pro|iPhone 15 Pro Max)(?:\b|$)/i.test(model);
+}
+
+function ensureLookusDeviceModel(contact, history, explicitEvidence) {
+    if (!contact) return false;
+
+    let changed = false;
+    if (shouldRefreshLegacyLookusDeviceModel(contact)) {
+        contact.deviceModel = inferLookusDeviceModel(contact);
+        contact.lookusDeviceModelVersion = 2;
+        if (contact.lookusData) {
+            contact.lookusData.device = contact.deviceModel;
+        }
+        changed = true;
+    }
+
+    if (syncLookusDeviceModelFromChatHistory(
+        contact,
+        Array.isArray(history)
+            ? history
+            : ((window.iphoneSimState.chatHistory && window.iphoneSimState.chatHistory[contact.id]) || []),
+        explicitEvidence
+    )) {
+        changed = true;
+    }
+
+    if (contact.deviceModel && contact.lookusData && contact.lookusData.device !== contact.deviceModel) {
+        contact.lookusData.device = contact.deviceModel;
+        changed = true;
+    }
+
+    return changed;
+}
+
 function initLookusApp() {
+    let deviceModelChanged = false;
+    (window.iphoneSimState.contacts || []).forEach(contact => {
+        if (ensureLookusDeviceModel(contact)) deviceModelChanged = true;
+    });
+    if (deviceModelChanged && typeof saveConfig === 'function') {
+        saveConfig();
+    }
     // 绑定顶部点击事件
     const headerBadge = document.getElementById('lookus-header-time-badge');
     if (headerBadge) {
@@ -334,6 +719,11 @@ function isSameDay(timestamp) {
 }
 
 async function checkAndRefreshLookusData(contact) {
+    const deviceModelChanged = ensureLookusDeviceModel(contact);
+    if (deviceModelChanged && contact.lookusData && isSameDay(contact.lookusData.lastUpdateTime)) {
+        saveConfig();
+    }
+
     if (!contact.lookusData || !isSameDay(contact.lookusData.lastUpdateTime)) {
         console.log(`Resetting Lookus data for ${contact.name} (New Day or First Load)`);
         
@@ -342,8 +732,8 @@ async function checkAndRefreshLookusData(contact) {
             distance: '--',
             battery: '--%',
             network: '未知',
-            // Use existing device model if available, otherwise default pending generation
-            device: contact.deviceModel || 'iPhone', 
+            // Use existing device model if available, otherwise keep unknown until inferred
+            device: contact.deviceModel || '未知型号', 
             screenTimeH: 0,
             screenTimeM: 0,
             unlockCount: '0次',
@@ -548,12 +938,19 @@ function getItineraryText(contactId) {
 async function updateLookusStatusWithAI(contactId) {
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return;
+    const history = window.iphoneSimState.chatHistory[contactId] || [];
+    const explicitDeviceEvidence = extractExplicitLookusDeviceModelFromHistory(history);
+    const deviceChangeEvidence = explicitDeviceEvidence ? null : extractLookusDeviceChangeSignalFromHistory(history);
+    const allowAIDeviceModelUpdate = !explicitDeviceEvidence && !!deviceChangeEvidence;
+    const deviceModelChanged = ensureLookusDeviceModel(contact, history, explicitDeviceEvidence);
+    if (deviceModelChanged) {
+        saveConfig();
+    }
     
     const timeEl = document.getElementById('lookus-update-time');
     if (timeEl) timeEl.textContent = "更新中...";
 
     const currentData = getLookusData(contactId);
-    const history = window.iphoneSimState.chatHistory[contactId] || [];
     
     // 获取最近聊天记录，用于上下文感知
     const recentHistory = history.slice(-30).map(m => {
@@ -585,11 +982,12 @@ async function updateLookusStatusWithAI(contactId) {
     
     const itineraryText = getItineraryText(contactId);
     
-    // Check if device model needs generation
-    let deviceInstruction = "";
-    if (!contact.deviceModel) {
-        deviceInstruction = `\n- **首次生成手机型号**：该角色尚未设置手机型号。请根据人设（特别是经济状况、性格、职业）推断并返回 "deviceModel" 字段。例如富二代可能用 "iPhone 15 Pro Max 1TB"，学生可能用 "Redmi K70"，商务人士可能用 "Huawei Mate 60 Pro"。请生成一个具体的型号。`;
-    }
+    const fixedDeviceModel = contact.deviceModel || inferLookusDeviceModel(contact);
+    const deviceInstruction = explicitDeviceEvidence
+        ? `\n- 最近聊天里你明确提到现在使用的手机型号是 "${fixedDeviceModel}"，LookUs 必须沿用这个型号并与聊天内容保持一致。`
+        : (allowAIDeviceModelUpdate
+            ? `\n- 最近聊天里你明确提到自己刚换了手机，但没有说具体型号。请结合人设、近期聊天和使用场景，为 LookUs 选择一个合理的新手机型号，并通过 deviceModel 字段返回；不要继续沿用旧型号 "${fixedDeviceModel}"。`
+            : `\n- 当前已知手机型号是 "${fixedDeviceModel}"。除非最近聊天里有你本人明确说自己换了手机，或直接说明现在在用的具体型号，否则不要改成别的型号。`);
 
     // Calculate time elapsed
     let timeElapsedStr = "首次生成或新的一天";
@@ -685,7 +1083,7 @@ ${itineraryText || "暂无具体行程"}
 {
   "battery": "数字 (0-100)",
   "network": "WiFi名称 或 5G",
-  ${!contact.deviceModel ? '"deviceModel": "手机型号",' : ''}
+  ${allowAIDeviceModelUpdate ? '"deviceModel": "如果最近聊天明确提到刚换手机，请返回一个新的合理手机型号",' : ''}
   "screenTimeH": "数字 (小时)",
   "screenTimeM": "数字 (分钟)",
   "unlockCount": "数字 (次数，应 >= 已有次数)",
@@ -762,9 +1160,21 @@ ${itineraryText || "暂无具体行程"}
                 }
             }
             
-            // Save permanent device model if generated
-            if (newData.deviceModel && !contact.deviceModel) {
-                contact.deviceModel = newData.deviceModel;
+            // Allow AI to refresh the model only when chat explicitly says the contact changed phones.
+            if (newData.deviceModel) {
+                const aiDeviceModel = normalizeLookusDeviceModel(newData.deviceModel);
+                const currentDeviceModel = normalizeLookusDeviceModel(contact.deviceModel);
+                if (!currentDeviceModel && aiDeviceModel) {
+                    contact.deviceModel = aiDeviceModel;
+                    contact.lookusDeviceModelVersion = 3;
+                } else if (
+                    allowAIDeviceModelUpdate &&
+                    aiDeviceModel &&
+                    aiDeviceModel.toLowerCase() !== currentDeviceModel.toLowerCase()
+                ) {
+                    contact.deviceModel = aiDeviceModel;
+                    contact.lookusDeviceModelVersion = 3;
+                }
             }
 
             // Fix: Ensure battery consistency with report events
@@ -897,7 +1307,7 @@ ${itineraryText || "暂无具体行程"}
                 distance: '--', // Always reset to placeholder, let renderLookusApp calculate it
                 battery: (newData.battery || 80) + '%',
                 network: newData.network || '5G',
-                device: contact.deviceModel || newData.deviceModel || 'iPhone', 
+                device: contact.deviceModel || newData.deviceModel || '未知型号', 
                 screenTimeH: newData.screenTimeH || 0,
                 screenTimeM: newData.screenTimeM || 0,
                 unlockCount: newUnlock + '次',

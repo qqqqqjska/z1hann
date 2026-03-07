@@ -1077,10 +1077,23 @@ function openChat(contactId) {
 
 // --- 资料卡功能 ---
 
-window.openAiProfile = async function() {
-    if (!window.iphoneSimState.currentChatContactId) return;
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+function getActiveAiProfileContactId() {
+    return window.iphoneSimState.currentAiProfileContactId || window.iphoneSimState.currentChatContactId || null;
+}
+
+function getActiveAiProfileContact() {
+    const contactId = getActiveAiProfileContactId();
+    if (!contactId) return null;
+    return window.iphoneSimState.contacts.find(c => c.id === contactId) || null;
+}
+
+window.openAiProfile = async function(contactId = null) {
+    const resolvedContactId = contactId || window.iphoneSimState.currentChatContactId;
+    if (!resolvedContactId) return;
+    const contact = window.iphoneSimState.contacts.find(c => c.id === resolvedContactId);
     if (!contact) return;
+
+    window.iphoneSimState.currentAiProfileContactId = contact.id;
 
     if (!contact.initializedProfile) {
         await generateInitialProfile(contact);
@@ -1342,8 +1355,7 @@ function renderAiProfile(contact) {
 }
 
 function handleAiProfileBgUpload(e) {
-    if (!window.iphoneSimState.currentChatContactId) return;
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+    const contact = getActiveAiProfileContact();
     if (!contact) return;
 
     const file = e.target.files[0];
@@ -1358,6 +1370,8 @@ function handleAiProfileBgUpload(e) {
     });
     e.target.value = '';
 }
+
+window.handleAiProfileBgUpload = handleAiProfileBgUpload;
 
 function openRelationSelect() {
     const modal = document.getElementById('relation-select-modal');
@@ -1378,8 +1392,7 @@ function openRelationSelect() {
 }
 
 function setRelation(relation) {
-    if (!window.iphoneSimState.currentChatContactId) return;
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+    const contact = getActiveAiProfileContact();
     if (!contact) return;
 
     contact.relation = relation;
@@ -1391,8 +1404,7 @@ function setRelation(relation) {
 // --- 聊天设置功能 ---
 
 function openChatSettings() {
-    if (!window.iphoneSimState.currentChatContactId) return;
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+    const contact = getActiveAiProfileContact();
     if (!contact) return;
 
     document.getElementById('chat-setting-name').value = contact.name || '';
