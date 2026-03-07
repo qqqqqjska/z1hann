@@ -23,6 +23,7 @@
     --color-theme: #FF2D55;
     --color-shopping: #FF9500;
     --color-forum: #30B0C7;
+    --color-album: #5AC8FA;
     --color-phone: #34C759;
     
     /* WeChat Colors */
@@ -702,8 +703,8 @@ body {
     display: flex;
     justify-content: space-between;
     width: 100%;
-    max-width: 300px;
-    gap: 20px;
+    max-width: 340px;
+    gap: 12px;
 }
 
 .dock-item .app-icon {
@@ -719,6 +720,7 @@ body {
 /* Dock图标颜色 */
 .icon-shopping { background-color: var(--color-shopping); }
 .icon-forum { background-color: var(--color-forum); }
+.icon-album { background-color: var(--color-album); }
 .icon-phone { background-color: var(--color-phone); }
 
 /* Home Indicator */
@@ -4076,11 +4078,14 @@ input:checked + .slider:before {
     background-color: #333;
     color: #fff;
     border-radius: 8px;
-    padding: 5px 0;
+    padding: 0;
     display: flex;
+    flex-direction: column;
+    width: min(102px, calc(100vw - 24px));
+    overflow: hidden;
     z-index: 1000;
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .context-menu.hidden {
@@ -4088,13 +4093,21 @@ input:checked + .slider:before {
 }
 
 .context-menu-item {
-    padding: 8px 15px;
+    width: 100%;
+    min-width: 0;
+    padding: 9px 5px;
     cursor: pointer;
     white-space: nowrap;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid #555;
+    line-height: 1.1;
 }
 
-.context-menu-item:not(:last-child) {
-    border-right: 1px solid #555;
+.context-menu-item:last-child {
+    border-bottom: none;
 }
 
 .context-menu-item:active {

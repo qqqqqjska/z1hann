@@ -42,6 +42,7 @@
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/bold/style.css">
     <link rel="stylesheet" href="css/remixicon.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
+    <link rel="stylesheet" href="css/album.css">
     <link rel="stylesheet" href="css/chat_ui_v1_overrides.css">
 </head>
 <body>
@@ -224,6 +225,12 @@
                         <i class="fas fa-comments"></i>
                     </div>
                     <span class="app-label">论坛</span>
+                </div>
+                <div class="app-item dock-item" data-app-id="album-app">
+                    <div class="app-icon icon-album">
+                        <i class="fas fa-images"></i>
+                    </div>
+                    <span class="app-label">相册</span>
                 </div>
                 <div class="app-item dock-item" data-app-id="phone-app">
                     <div class="app-icon icon-phone">
@@ -4634,6 +4641,180 @@
         <!-- 内容由 js/forum.js 动态生成 -->
     </div>
 
+    <!-- 相册 App -->
+    <div id="album-app" class="app-screen hidden" style="z-index: 205;">
+        <div class="album-shell">
+            <header class="album-header">
+                <h1 id="album-page-title" class="album-page-exit" aria-label="Back to home">Recent</h1>
+                <div class="album-header-actions">
+                    <button id="album-manage-btn" class="album-text-btn" type="button" aria-label="Manage current view">
+                        管理
+                    </button>
+                    <button id="album-create-btn" class="album-header-btn" type="button" aria-label="Create album">
+                        <i class="ri-add-line"></i>
+                    </button>
+                    <input type="file" id="album-upload-input" accept="image/*" multiple class="file-input-hidden">
+                </div>
+            </header>
+
+            <main class="album-main">
+                <section id="album-recent-view" class="album-view active">
+                    <div id="album-recent-content"></div>
+                </section>
+
+                <section id="album-albums-view" class="album-view">
+                    <div id="album-albums-grid" class="album-grid"></div>
+                </section>
+            </main>
+
+            <div id="album-main-manage-bar" class="album-manage-bar hidden">
+                <div id="album-main-manage-count" class="album-manage-count">已选择 0 项</div>
+                <div class="album-manage-actions">
+                    <button id="album-main-select-all-btn" class="album-action-btn" type="button">全选</button>
+                    <button id="album-main-add-btn" class="album-action-btn" type="button">添加到</button>
+                    <button id="album-main-export-btn" class="album-action-btn" type="button">导出ZIP</button>
+                    <button id="album-main-delete-btn" class="album-action-btn album-action-danger" type="button">删除</button>
+                </div>
+            </div>
+
+            <nav class="album-tab-bar" aria-label="Album tabs">
+                <button id="album-tab-recent" class="album-tab-item active" type="button" data-tab="recent">
+                    <i class="ri-image-2-fill"></i>
+                    <span>Photos</span>
+                </button>
+                <button id="album-tab-albums" class="album-tab-item" type="button" data-tab="albums">
+                    <i class="ri-folder-fill"></i>
+                    <span>Albums</span>
+                </button>
+            </nav>
+
+            <div id="album-detail-overlay" class="album-detail-view">
+                <div class="album-detail-header">
+                    <button id="album-detail-back-btn" class="album-detail-back" type="button">
+                        <i class="ri-arrow-left-s-line"></i>
+                        <span>Back</span>
+                    </button>
+                    <div class="album-detail-title" id="album-detail-title">Detail</div>
+                    <div class="album-detail-actions">
+                        <button id="album-detail-manage-btn" class="album-text-btn album-detail-text-btn" type="button" aria-label="Manage album photos">
+                            管理
+                        </button>
+                    </div>
+                </div>
+                <div class="album-detail-content" id="album-detail-content"></div>
+                <div id="album-detail-manage-bar" class="album-manage-bar album-detail-manage-bar hidden">
+                    <div id="album-detail-manage-count" class="album-manage-count">已选择 0 项</div>
+                    <div class="album-manage-actions">
+                        <button id="album-detail-select-all-btn" class="album-action-btn" type="button">全选</button>
+                        <button id="album-detail-export-btn" class="album-action-btn" type="button">导出ZIP</button>
+                        <button id="album-detail-delete-btn" class="album-action-btn album-action-danger" type="button">删除</button>
+                        <button id="album-detail-move-btn" class="album-action-btn" type="button">移动到</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="album-create-modal" class="album-modal-overlay">
+                <div class="album-modal-content">
+                    <div class="album-modal-title">New Album</div>
+                    <div class="album-modal-body">
+                        <input type="text" id="album-new-name" placeholder="Title" class="album-modal-input">
+                    </div>
+                    <div class="album-modal-actions">
+                        <button id="album-modal-cancel" class="album-modal-btn album-modal-cancel" type="button">Cancel</button>
+                        <button id="album-modal-save" class="album-modal-btn album-modal-save" type="button">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="album-move-modal" class="album-modal-overlay">
+                <div class="album-modal-content album-move-modal-content">
+                    <div id="album-move-title" class="album-modal-title">移动到相簿</div>
+                    <div id="album-move-options" class="album-move-options"></div>
+                    <div class="album-modal-actions">
+                        <button id="album-move-cancel" class="album-modal-btn" type="button">取消</button>
+                        <button id="album-move-confirm" class="album-modal-btn album-modal-save hidden" type="button">添加</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="album-privacy-action-modal" class="album-modal-overlay">
+                <div class="album-modal-content">
+                    <div id="album-privacy-action-title" class="album-modal-title">隐私相册</div>
+                    <div class="album-modal-body">
+                        <div id="album-privacy-action-description" class="album-modal-subtitle"></div>
+                    </div>
+                    <div class="album-modal-actions">
+                        <button id="album-privacy-action-cancel" class="album-modal-btn album-modal-cancel" type="button">取消</button>
+                        <button id="album-privacy-action-confirm" class="album-modal-btn album-modal-save" type="button">确定</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="album-privacy-password-modal" class="album-modal-overlay">
+                <div class="album-modal-content">
+                    <div id="album-privacy-password-title" class="album-modal-title">输入相册密码</div>
+                    <div class="album-modal-body">
+                        <div id="album-privacy-password-description" class="album-modal-subtitle"></div>
+                        <input type="password" id="album-privacy-password-input" placeholder="请输入密码" class="album-modal-input">
+                        <div id="album-privacy-password-error" class="album-modal-error hidden"></div>
+                    </div>
+                    <div class="album-modal-actions">
+                        <button id="album-privacy-password-cancel" class="album-modal-btn album-modal-cancel" type="button">取消</button>
+                        <button id="album-privacy-password-confirm" class="album-modal-btn album-modal-save" type="button">确定</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="album-photo-detail-view" class="album-photo-view">
+                <div class="album-photo-header">
+                    <div class="album-photo-header-left">
+                        <div class="album-photo-location" id="album-photo-location">Fuzhou · Gushan</div>
+                        <div class="album-photo-datetime" id="album-photo-datetime">July 8 · 16:11</div>
+                        <div class="album-photo-live-btn">
+                            <i class="ri-record-circle-line"></i>
+                            <span>Live</span>
+                            <i class="ri-arrow-down-s-line"></i>
+                        </div>
+                    </div>
+                    <div class="album-photo-header-right">
+                        <button class="album-photo-icon-btn" type="button" aria-label="More">
+                            <i class="ri-more-fill"></i>
+                        </button>
+                        <button id="album-photo-close-btn" class="album-photo-icon-btn" type="button" aria-label="Close photo detail">
+                            <i class="ri-close-line"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="album-photo-main">
+                    <img id="album-photo-main-img" src="" alt="Main photo">
+                </div>
+
+                <div id="album-photo-thumbnails" class="album-photo-thumbnails"></div>
+
+                <div class="album-photo-toolbar">
+                    <button id="album-photo-export-btn" class="album-photo-tool-btn" type="button" aria-label="Export photo file">
+                        <i class="ri-share-box-line"></i>
+                    </button>
+                    <div class="album-photo-toolbar-center">
+                        <button id="album-photo-favorite-btn" class="album-photo-center-btn" type="button" aria-label="Favorite">
+                            <i class="ri-heart-line"></i>
+                        </button>
+                        <button class="album-photo-center-btn" type="button" aria-label="Info">
+                            <i class="ri-information-line"></i>
+                        </button>
+                        <button class="album-photo-center-btn" type="button" aria-label="Adjust">
+                            <i class="ri-equalizer-line"></i>
+                        </button>
+                    </div>
+                    <button class="album-photo-tool-btn" type="button" aria-label="Delete">
+                        <i class="ri-delete-bin-line"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 音乐全屏App (内嵌还原 v2 样式，不依赖 iframe) -->
     <div id="music-app" class="app-screen hidden" style="background-color: #e5e5ea; z-index: 210; overflow: hidden;">
         <div id="music-app-shadow-host" style="width: 100%; height: 100%;"></div>
@@ -6278,6 +6459,7 @@
     <script src="js/lookus.js"></script>
     <script src="js/novelai.js"></script>
     <script src="js/settings_v3.js"></script>
+    <script src="js/album.js"></script>
 <!-- 在 index.html 中找到 <!-- 编辑记忆弹窗 --> 附近，添加以下代码 -->
 
             <!-- 编辑消息弹窗 -->

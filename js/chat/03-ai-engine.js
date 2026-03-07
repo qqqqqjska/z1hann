@@ -1471,12 +1471,30 @@ function showContextMenu(targetEl, msgData) {
     const oldMenu = document.querySelector('.context-menu');
     if (oldMenu) oldMenu.remove();
 
+    const currentContactId = window.iphoneSimState.currentChatContactId;
+    const currentHistory = currentContactId && window.iphoneSimState.chatHistory
+        ? window.iphoneSimState.chatHistory[currentContactId]
+        : null;
+    const fullMsg = Array.isArray(currentHistory) && msgData.msgId
+        ? currentHistory.find(m => m && m.id === msgData.msgId)
+        : null;
+    const canSaveAiImageToAlbum = !!(
+        !msgData.isUser &&
+        fullMsg &&
+        fullMsg.role === 'assistant' &&
+        msgData.type === 'image' &&
+        typeof fullMsg.content === 'string' &&
+        fullMsg.content.trim() &&
+        fullMsg.novelaiPrompt
+    );
+
     const menu = document.createElement('div');
     menu.className = 'context-menu';
     menu.innerHTML = `
         <div class="context-menu-item" id="menu-quote">引用</div>
         <div class="context-menu-item" id="menu-copy">复制</div>
         ${(msgData.type === 'image' || msgData.type === 'sticker' || msgData.type === 'virtual_image') ? '<div class="context-menu-item" id="menu-set-avatar">设为头像</div>' : ''}
+        ${canSaveAiImageToAlbum ? '<div class="context-menu-item" id="menu-save-to-album">保存到相册</div>' : ''}
         <div class="context-menu-item" id="menu-edit">编辑</div>
         <div class="context-menu-item" id="menu-delete" style="color: #ff3b30;">删除</div>
     `;
@@ -1487,30 +1505,34 @@ function showContextMenu(targetEl, msgData) {
     const menuRect = menu.getBoundingClientRect();
     const targetRect = targetEl.getBoundingClientRect();
     const gap = 10;
+    const edgePadding = 8;
     
     let left, top;
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
+    const viewportLeft = scrollX + edgePadding;
+    const viewportRight = scrollX + window.innerWidth - edgePadding;
+    const viewportTop = scrollY + edgePadding;
+    const viewportBottom = scrollY + window.innerHeight - edgePadding;
 
     if (msgData.isUser) {
         left = targetRect.left - menuRect.width - gap + scrollX;
+        if (left < viewportLeft) {
+            left = targetRect.right + gap + scrollX;
+        }
     } else {
         left = targetRect.right + gap + scrollX;
+        if (left + menuRect.width > viewportRight) {
+            left = targetRect.left - menuRect.width - gap + scrollX;
+        }
     }
-    
-    top = targetRect.top + scrollY;
-    
-    if (left < 0 || left + menuRect.width > window.innerWidth) {
-         left = targetRect.left + (targetRect.width - menuRect.width) / 2 + scrollX;
-         top = targetRect.top - menuRect.height - gap + scrollY;
-         
-         if (top < scrollY) {
-             top = targetRect.bottom + gap + scrollY;
-         }
-    }
-    
-    if (left < 0) left = 10;
-    if (left + menuRect.width > window.innerWidth) left = window.innerWidth - menuRect.width - 10;
+
+    top = targetRect.top + ((targetRect.height - menuRect.height) / 2) + scrollY;
+
+    if (left < viewportLeft) left = viewportLeft;
+    if (left + menuRect.width > viewportRight) left = viewportRight - menuRect.width;
+    if (top < viewportTop) top = viewportTop;
+    if (top + menuRect.height > viewportBottom) top = viewportBottom - menuRect.height;
 
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
@@ -1565,6 +1587,40 @@ function showContextMenu(targetEl, msgData) {
                 // Maybe just a toast?
                 if (window.showChatToast) window.showChatToast('头像已更新');
                 else alert('头像已更新');
+            }
+        };
+    }
+
+    const saveToAlbumBtn = menu.querySelector('#menu-save-to-album');
+    if (saveToAlbumBtn) {
+        saveToAlbumBtn.onclick = async () => {
+            menu.remove();
+
+            if (!fullMsg || !fullMsg.content) {
+                alert('找不到可保存的图片');
+                return;
+            }
+
+            if (typeof window.savePhotoToAlbumLibrary !== 'function') {
+                alert('相册功能未加载');
+                return;
+            }
+
+            try {
+                const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+                const sourceLabel = contact ? `Saved from ${contact.remark || contact.name}` : 'Saved from Chat';
+                const result = await window.savePhotoToAlbumLibrary(fullMsg.content, {
+                    location: sourceLabel
+                });
+
+                if (typeof window.showChatToast === 'function') {
+                    window.showChatToast(result && result.duplicate ? '这张图片已经在相册里了' : '已保存到相册');
+                } else {
+                    alert(result && result.duplicate ? '这张图片已经在相册里了' : '已保存到相册');
+                }
+            } catch (error) {
+                console.error('Save AI image to album failed:', error);
+                alert(`保存失败: ${error.message}`);
             }
         };
     }

@@ -561,7 +561,8 @@ const state = {
     selectedMessages: new Set(),
     enableSystemNotifications: false,
     enableBackgroundAudio: false,
-    shoppingProducts: []
+    shoppingProducts: [],
+    albumData: null
 };
 
 window.iphoneSimState = state;
@@ -666,6 +667,7 @@ const knownApps = {
     'theme-app': { name: 'Theme', icon: 'fas fa-paint-brush', color: '#5856D6' },
     'shopping-app': { name: 'Shop', icon: 'fas fa-shopping-bag', color: '#FF9500' },
     'forum-app': { name: 'Forum', icon: 'fas fa-comments', color: '#30B0C7' },
+    'album-app': { name: 'Album', icon: 'fas fa-images', color: '#5AC8FA' },
     'phone-app': { name: 'Phone', icon: 'fas fa-mobile-alt', color: '#34C759' },
     'bank-app': { name: 'Bank', icon: 'fas fa-building-columns', color: '#1E66F5' },
     'icity-app': { name: 'iCity', icon: 'fas fa-city', color: '#000000' },
@@ -1090,6 +1092,12 @@ async function loadConfig() {
                 ],
                 lyricsFile: ''
             };
+            if (!state.albumData || typeof state.albumData !== 'object') {
+                state.albumData = null;
+            } else {
+                if (!Array.isArray(state.albumData.recentSections)) state.albumData.recentSections = [];
+                if (!Array.isArray(state.albumData.albums)) state.albumData.albums = [];
+            }
             if (!state.bankApp) state.bankApp = {
                 initialized: false,
                 cashBalance: 0.00,
@@ -1345,6 +1353,8 @@ async function init() {
     } catch (e) {
         console.error('Operation failed. See details below.', e);
     }
+
+    if (window.reloadAlbumAppState) window.reloadAlbumAppState();
 
     if (window.updateLookusUi) window.updateLookusUi();
 

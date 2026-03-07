@@ -1,0 +1,852 @@
+#album-app {
+    --album-primary-blue: #007aff;
+    --album-bg-color: #ffffff;
+    --album-card-bg: #ffffff;
+    --album-text-primary: #000000;
+    --album-text-secondary: #8e8e93;
+    --album-separator: #c6c6c8;
+    --album-glass-bg: rgba(255, 255, 255, 0.85);
+    background: var(--album-bg-color);
+    color: var(--album-text-primary);
+}
+
+#album-app * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#album-app button,
+#album-app input {
+    font: inherit;
+}
+
+#album-app .album-shell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    background: var(--album-bg-color);
+    overflow: hidden;
+}
+
+#album-app .album-header {
+    padding: calc(max(47px, env(safe-area-inset-top, 0px)) + 18px) 16px 10px;
+    background: var(--album-bg-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-shrink: 0;
+    z-index: 10;
+}
+
+#album-app .album-header h1 {
+    font-size: 34px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.5px;
+    flex: 1;
+    text-align: left;
+}
+
+#album-app .album-page-exit {
+    cursor: pointer;
+}
+
+#album-app .album-header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 120px;
+    gap: 12px;
+}
+
+#album-app .album-text-btn {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--album-primary-blue);
+    font-size: 17px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+#album-app .album-text-btn.is-active {
+    font-weight: 600;
+}
+
+#album-app .album-header-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--album-primary-blue);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+
+#album-app .album-main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 16px calc(96px + env(safe-area-inset-bottom, 0px));
+    -webkit-overflow-scrolling: touch;
+}
+
+#album-app .album-view {
+    display: none;
+    animation: album-fade-in 0.3s ease;
+    min-height: 100%;
+}
+
+#album-app .album-view.active {
+    display: block;
+}
+
+@keyframes album-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+#album-app .album-date-header {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 20px 0 10px;
+    padding: 0 4px;
+}
+
+#album-app .album-photo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+}
+
+#album-app .album-photo-item {
+    position: relative;
+    padding-bottom: 100%;
+    background: #d9d9de;
+    overflow: hidden;
+    cursor: pointer;
+    border: none;
+}
+
+#album-app .album-photo-item:active {
+    opacity: 0.72;
+}
+
+#album-app .album-photo-item img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+#album-app .album-photo-item.is-manage,
+#album-app .album-card.is-manage {
+    position: relative;
+}
+
+#album-app .album-photo-item.is-selected::after,
+#album-app .album-card.is-selected::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 122, 255, 0.18);
+    pointer-events: none;
+}
+
+#album-app .album-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 10px;
+    padding-bottom: 20px;
+}
+
+#album-app .album-card {
+    position: relative;
+    height: 180px;
+    padding: 0;
+    border: none;
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    background: #d9d9de;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    transition: transform 0.3s ease;
+}
+
+#album-app .album-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.46) 28%, rgba(0, 0, 0, 0.08) 58%, rgba(0, 0, 0, 0) 76%);
+    z-index: 1;
+    pointer-events: none;
+}
+
+#album-app .album-card:active {
+    transform: scale(0.98);
+}
+
+#album-app .album-card img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.5s ease;
+}
+
+#album-app .album-card:hover img {
+    transform: scale(1.05);
+}
+
+#album-app .album-card.is-private img {
+    filter: blur(14px) saturate(0.85);
+    transform: scale(1.08);
+}
+
+#album-app .album-card.is-private:hover img {
+    transform: scale(1.12);
+}
+
+#album-app .album-card-lock {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 2;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.34);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+}
+
+#album-app .album-card-lock i {
+    font-size: 14px;
+}
+
+#album-app .album-card-details {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    padding: 30px 14px 14px;
+    background: none;
+    text-align: left;
+}
+
+#album-app .album-card-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    color: #ffffff;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.35);
+}
+
+#album-app .album-card-meta {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.92);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.28);
+}
+
+#album-app .album-card-meta i {
+    font-size: 14px;
+    color: #ffffff !important;
+}
+
+#album-app .album-selection-mark {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.95);
+    background: rgba(0, 0, 0, 0.18);
+    color: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+#album-app .album-selection-mark.is-selected {
+    background: var(--album-primary-blue);
+    border-color: #ffffff;
+    color: #ffffff;
+}
+
+#album-app .album-detail-view,
+#album-app .album-modal-overlay,
+#album-app .album-photo-view {
+    position: absolute;
+    inset: 0;
+}
+
+#album-app .album-detail-view {
+    background: var(--album-bg-color);
+    z-index: 100;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    display: flex;
+    flex-direction: column;
+}
+
+#album-app .album-detail-view.open {
+    transform: translateX(0);
+}
+
+#album-app .album-detail-header {
+    padding: calc(max(47px, env(safe-area-inset-top, 0px)) + 18px) 16px 10px;
+    display: flex;
+    align-items: center;
+    background: var(--album-glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+}
+
+#album-app .album-detail-back {
+    min-width: 60px;
+    padding: 0;
+    border: none;
+    background: none;
+    display: inline-flex;
+    align-items: center;
+    color: var(--album-primary-blue);
+    font-size: 17px;
+    cursor: pointer;
+}
+
+#album-app .album-detail-back i {
+    font-size: 24px;
+    margin-right: -4px;
+}
+
+#album-app .album-detail-title {
+    flex: 1;
+    text-align: center;
+    font-weight: 600;
+    font-size: 17px;
+}
+
+#album-app .album-detail-actions {
+    width: 64px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+#album-app .album-detail-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+#album-app .album-detail-view.is-managing .album-detail-content {
+    padding-bottom: 112px;
+}
+
+#album-app .album-detail-empty {
+    margin-top: 24px;
+    padding: 28px 16px;
+    border-radius: 18px;
+    background: var(--album-card-bg);
+    color: var(--album-text-secondary);
+    text-align: center;
+    line-height: 1.5;
+}
+
+#album-app .album-modal-overlay {
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+#album-app .album-modal-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+#album-app .album-modal-content {
+    width: 270px;
+    overflow: hidden;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transform: scale(1.08);
+    transition: transform 0.2s ease;
+}
+
+#album-app .album-modal-overlay.open .album-modal-content {
+    transform: scale(1);
+}
+
+#album-app .album-modal-title {
+    padding: 20px 16px 15px;
+    text-align: center;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+#album-app .album-modal-body {
+    padding: 0 16px 20px;
+}
+
+#album-app .album-modal-subtitle {
+    color: var(--album-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+#album-app .album-modal-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 0.5px solid rgba(60, 60, 67, 0.3);
+    border-radius: 6px;
+    outline: none;
+    background: #fff;
+    font-size: 13px;
+}
+
+#album-app .album-modal-subtitle + .album-modal-input {
+    margin-top: 12px;
+}
+
+#album-app .album-modal-error {
+    margin-top: 10px;
+    color: #ff3b30;
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: center;
+}
+
+#album-app .album-modal-actions {
+    display: flex;
+    border-top: 0.5px solid rgba(60, 60, 67, 0.2);
+}
+
+#album-app .album-modal-btn {
+    flex: 1;
+    padding: 12px 0;
+    border: none;
+    background: none;
+    color: var(--album-primary-blue);
+    font-size: 17px;
+    cursor: pointer;
+}
+
+#album-app .album-modal-cancel {
+    border-right: 0.5px solid rgba(60, 60, 67, 0.2);
+    font-weight: 400;
+}
+
+#album-app .album-modal-save {
+    font-weight: 600;
+}
+
+#album-app .album-modal-btn:active {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+#album-app .album-modal-btn.is-disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+#album-app .album-move-modal-content {
+    width: 300px;
+}
+
+#album-app .album-move-options {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 0 16px 16px;
+}
+
+#album-app .album-move-option {
+    width: 100%;
+    padding: 14px 0;
+    border: none;
+    border-top: 0.5px solid rgba(60, 60, 67, 0.15);
+    background: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--album-text-primary);
+    cursor: pointer;
+}
+
+#album-app .album-move-option.is-selected .album-move-option-name {
+    color: var(--album-primary-blue);
+}
+
+#album-app .album-move-option:first-child {
+    border-top: none;
+}
+
+#album-app .album-move-option-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+#album-app .album-move-option-name {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+#album-app .album-move-option-count {
+    font-size: 13px;
+    color: var(--album-text-secondary);
+}
+
+#album-app .album-move-option-check,
+#album-app .album-move-option-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+#album-app .album-move-option-check {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(0, 122, 255, 0.3);
+    color: transparent;
+    transition: all 0.2s ease;
+}
+
+#album-app .album-move-option.is-selected .album-move-option-check {
+    background: var(--album-primary-blue);
+    border-color: var(--album-primary-blue);
+    color: #ffffff;
+}
+
+#album-app .album-move-option-arrow {
+    color: var(--album-text-secondary);
+    font-size: 18px;
+}
+
+#album-app .album-move-empty {
+    padding: 8px 0 18px;
+    text-align: center;
+    color: var(--album-text-secondary);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+#album-app .album-photo-view {
+    background: #ffffff;
+    z-index: 150;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+#album-app .album-photo-view.open {
+    transform: translateY(0);
+}
+
+#album-app .album-photo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: calc(max(47px, env(safe-area-inset-top, 0px)) + 18px) 16px 10px;
+}
+
+#album-app .album-photo-header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#album-app .album-photo-location {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+#album-app .album-photo-datetime {
+    font-size: 12px;
+    color: var(--album-text-secondary);
+}
+
+#album-app .album-photo-live-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: flex-start;
+    margin-top: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--album-separator);
+    border-radius: 12px;
+    color: var(--album-text-secondary);
+    font-size: 11px;
+}
+
+#album-app .album-photo-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+#album-app .album-photo-icon-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    color: var(--album-primary-blue);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    cursor: pointer;
+}
+
+#album-app .album-photo-main {
+    flex: 1;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: zoom-in;
+}
+
+#album-app .album-photo-main img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 16px;
+}
+
+#album-app .album-photo-main.is-full-view {
+    cursor: zoom-out;
+}
+
+#album-app .album-photo-main.is-full-view img {
+    object-fit: contain;
+}
+
+#album-app .album-photo-thumbnails {
+    display: flex;
+    gap: 4px;
+    padding: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+#album-app .album-photo-thumbnails::-webkit-scrollbar {
+    display: none;
+}
+
+#album-app .album-photo-thumb {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    overflow: hidden;
+    background: none;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+#album-app .album-photo-thumb.is-active {
+    border-color: var(--album-primary-blue);
+}
+
+#album-app .album-photo-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+#album-app .album-photo-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+#album-app .album-photo-tool-btn,
+#album-app .album-photo-center-btn {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--album-primary-blue);
+    cursor: pointer;
+}
+
+#album-app .album-photo-tool-btn {
+    font-size: 24px;
+}
+
+#album-app .album-photo-toolbar-center {
+    display: flex;
+    gap: 30px;
+    padding: 6px 20px;
+    border-radius: 20px;
+    background: #ffffff;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
+}
+
+#album-app .album-photo-center-btn {
+    font-size: 22px;
+}
+
+#album-app .album-photo-center-btn.is-active {
+    color: #ff3b30;
+}
+
+#album-app .album-manage-bar {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: calc(83px + env(safe-area-inset-bottom, 0px) + 12px);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+    z-index: 80;
+}
+
+#album-app .album-detail-manage-bar {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    z-index: 120;
+}
+
+#album-app .album-manage-count {
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--album-text-primary);
+    white-space: nowrap;
+}
+
+#album-app .album-manage-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex: 1;
+    flex-wrap: wrap;
+}
+
+#album-app .album-action-btn {
+    min-width: 0;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(0, 122, 255, 0.12);
+    color: var(--album-primary-blue);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#album-app .album-action-btn.album-action-danger {
+    background: rgba(255, 59, 48, 0.12);
+    color: #ff3b30;
+}
+
+#album-app .album-action-btn.is-disabled,
+#album-app .album-text-btn.is-disabled,
+#album-app .album-header-btn.is-disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+#album-app .album-tab-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(83px + env(safe-area-inset-bottom, 0px));
+    padding-top: 10px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    display: flex;
+    justify-content: space-around;
+    background: var(--album-glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 0.5px solid rgba(0, 0, 0, 0.2);
+    z-index: 50;
+}
+
+#album-app.is-main-managing .album-main {
+    padding-bottom: calc(172px + env(safe-area-inset-bottom, 0px));
+}
+
+#album-app .album-tab-item {
+    width: 50%;
+    padding: 0;
+    border: none;
+    background: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: var(--album-text-secondary);
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+#album-app .album-tab-item i {
+    font-size: 24px;
+    margin-bottom: 4px;
+    transition: transform 0.2s ease;
+}
+
+#album-app .album-tab-item.active {
+    color: var(--album-primary-blue);
+}
+
+#album-app .album-tab-item:active i {
+    transform: scale(0.9);
+}
