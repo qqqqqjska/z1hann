@@ -92,7 +92,7 @@
 #album-app .album-main {
     flex: 1;
     overflow-y: auto;
-    padding: 0 16px calc(96px + env(safe-area-inset-bottom, 0px));
+    padding: 0 16px calc(60px + env(safe-area-inset-bottom, 0px));
     -webkit-overflow-scrolling: touch;
 }
 
@@ -743,7 +743,7 @@
     position: absolute;
     left: 16px;
     right: 16px;
-    bottom: calc(83px + env(safe-area-inset-bottom, 0px) + 12px);
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px) + 10px);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -806,20 +806,18 @@
     left: 0;
     right: 0;
     bottom: 0;
-    height: calc(83px + env(safe-area-inset-bottom, 0px));
-    padding-top: 10px;
+    height: calc(48px + env(safe-area-inset-bottom, 0px));
+    padding-top: 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     display: flex;
     justify-content: space-around;
     background: var(--album-glass-bg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-top: 0.5px solid rgba(0, 0, 0, 0.2);
+    border-top: none;
     z-index: 50;
 }
 
 #album-app.is-main-managing .album-main {
-    padding-bottom: calc(172px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(134px + env(safe-area-inset-bottom, 0px));
 }
 
 #album-app .album-tab-item {
@@ -829,17 +827,19 @@
     background: none;
     display: flex;
     flex-direction: column;
+    justify-content: center;
     align-items: center;
     color: var(--album-text-secondary);
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 500;
+    line-height: 1;
     cursor: pointer;
     transition: color 0.2s ease;
 }
 
 #album-app .album-tab-item i {
-    font-size: 24px;
-    margin-bottom: 4px;
+    font-size: 20px;
+    margin-bottom: 2px;
     transition: transform 0.2s ease;
 }
 
