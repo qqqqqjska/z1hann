@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <title>iPhone Simulator</title>
@@ -45,6 +45,7 @@
     <link rel="stylesheet" href="css/album.css">
     <link rel="stylesheet" href="css/chat_ui_v1_overrides.css">
     <link rel="stylesheet" href="css/screen_share.css">
+    <link rel="stylesheet" href="css/calendar_app.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -4226,6 +4227,228 @@
         </div>
     </div>
 
+    <!-- Calendar App -->
+    <div id="calendar-app" class="app-screen hidden" style="z-index: 250;">
+        <div class="calendar-v1-shell">
+            <div class="calendar-v1-top-bar">
+                <div class="calendar-v1-leading">
+                    <button id="calendar-v1-back-btn" class="calendar-v1-back-btn" type="button" aria-label="Back">
+                        <i class="ri-arrow-left-s-line"></i>
+                    </button>
+                    <button id="calendar-v1-date-trigger" class="calendar-v1-date-trigger" type="button">
+                        <div class="calendar-v1-date-info">
+                            <h1 id="calendar-v1-page-title">Today</h1>
+                            <p id="calendar-v1-page-subtitle">October 24, 2026</p>
+                        </div>
+                    </button>
+                </div>
+                <div class="calendar-v1-user-avatar" aria-hidden="true">
+                    <i class="ri-user-smile-line"></i>
+                </div>
+            </div>
+
+            <div class="calendar-v1-views-wrapper">
+                <div class="calendar-v1-view active" id="calendar-v1-view-calendar">
+                    <div id="calendar-v1-month-card" class="calendar-v1-glass-card calendar-v1-month-card">
+                        <div class="calendar-v1-weekdays">
+                            <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+                        </div>
+                        <div id="calendar-v1-days" class="calendar-v1-days"></div>
+                    </div>
+
+                    <div class="calendar-v1-section-title">
+                        <span>Upcoming</span>
+                        <button id="calendar-v1-event-add-btn" class="calendar-v1-section-action" type="button" aria-label="Add event">
+                            <i class="ri-more-fill"></i>
+                        </button>
+                    </div>
+                    <div id="calendar-v1-upcoming-list" class="calendar-v1-upcoming-list"></div>
+
+                    <div style="height: 100px;"></div>
+                </div>
+
+                <div class="calendar-v1-view" id="calendar-v1-view-schedule">
+                    <div class="calendar-v1-schedule-container">
+                        <div class="calendar-v1-glass-card" style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <span style="font-weight: 600; font-size: 14px;">Week 8</span>
+                            <div style="display: flex; gap: 10px;">
+                                <i class="ri-arrow-left-s-line" style="cursor: pointer;"></i>
+                                <i class="ri-arrow-right-s-line" style="cursor: pointer;"></i>
+                            </div>
+                        </div>
+
+                        <div class="calendar-v1-glass-card" style="padding: 15px 10px;">
+                            <div class="calendar-v1-tt-wrapper">
+                                <div class="calendar-v1-timetable">
+                                    <div class="calendar-v1-tt-header">
+                                        <div class="calendar-v1-tt-corner"></div>
+                                        <div class="calendar-v1-tt-days">
+                                            <div class="calendar-v1-tt-day">Mon</div>
+                                            <div class="calendar-v1-tt-day">Tue</div>
+                                            <div class="calendar-v1-tt-day">Wed</div>
+                                            <div class="calendar-v1-tt-day">Thu</div>
+                                            <div class="calendar-v1-tt-day">Fri</div>
+                                            <div class="calendar-v1-tt-day">Sat</div>
+                                            <div class="calendar-v1-tt-day">Sun</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="calendar-v1-tt-body">
+                                        <div class="calendar-v1-tt-times">
+                                            <div class="calendar-v1-tt-time">08:00</div>
+                                            <div class="calendar-v1-tt-time">09:00</div>
+                                            <div class="calendar-v1-tt-time">10:00</div>
+                                            <div class="calendar-v1-tt-time">11:00</div>
+                                            <div class="calendar-v1-tt-time">12:00</div>
+                                            <div class="calendar-v1-tt-time">13:00</div>
+                                            <div class="calendar-v1-tt-time">14:00</div>
+                                            <div class="calendar-v1-tt-time">15:00</div>
+                                            <div class="calendar-v1-tt-time">16:00</div>
+                                            <div class="calendar-v1-tt-time">17:00</div>
+                                            <div class="calendar-v1-tt-time">18:00</div>
+                                            <div class="calendar-v1-tt-time">19:00</div>
+                                            <div class="calendar-v1-tt-time">20:00</div>
+                                            <div class="calendar-v1-tt-time">21:00</div>
+                                        </div>
+
+                                        <div class="calendar-v1-tt-grid">
+                                            <div class="calendar-v1-tt-col">
+                                                <div class="calendar-v1-tt-course blue" style="top: 50px; height: 96px;">
+                                                    <div class="calendar-v1-tt-c-title">UI Design</div>
+                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> R302</div>
+                                                </div>
+                                                <div class="calendar-v1-tt-course green" style="top: 300px; height: 96px;">
+                                                    <div class="calendar-v1-tt-c-title">Web Dev</div>
+                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> Lab2</div>
+                                                </div>
+                                            </div>
+
+                                            <div class="calendar-v1-tt-col">
+                                                <div class="calendar-v1-tt-course pink" style="top: 100px; height: 96px;">
+                                                    <div class="calendar-v1-tt-c-title">Color Theory</div>
+                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> R105</div>
+                                                </div>
+                                                <div class="calendar-v1-tt-course gray" style="top: 550px; height: 96px;">
+                                                    <div class="calendar-v1-tt-c-title">Night Class</div>
+                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-moon-line"></i> A101</div>
+                                                </div>
+                                            </div>
+
+                                            <div class="calendar-v1-tt-col">
+                                                <div class="calendar-v1-tt-course blue" style="top: 50px; height: 96px;">
+                                                    <div class="calendar-v1-tt-c-title">UI Design</div>
+                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> R302</div>
+                                                </div>
+                                            </div>
+
+                                            <div class="calendar-v1-tt-col">
+                                                <div class="calendar-v1-tt-course gray" style="top: 275px; height: 96px;">
+                                                    <div class="calendar-v1-tt-c-title">Ethics</div>
+                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> R104</div>
+                                                </div>
+                                            </div>
+
+                                            <div class="calendar-v1-tt-col">
+                                                <div class="calendar-v1-tt-course green" style="top: 100px; height: 96px;">
+                                                    <div class="calendar-v1-tt-c-title">Web Dev</div>
+                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> Lab2</div>
+                                                </div>
+                                            </div>
+
+                                            <div class="calendar-v1-tt-col"></div>
+                                            <div class="calendar-v1-tt-col"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="calendar-v1-bottom-nav-container">
+                <div class="calendar-v1-bottom-nav">
+                    <button class="calendar-v1-nav-item active" type="button" data-target="calendar-v1-view-calendar" aria-label="Calendar">
+                        <i class="ri-calendar-line"></i>
+                    </button>
+                    <button class="calendar-v1-nav-item" type="button" data-target="calendar-v1-view-schedule" aria-label="Schedule">
+                        <i class="ri-book-open-line"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div id="calendar-v1-month-sheet" class="calendar-v1-month-sheet" aria-hidden="true">
+                <button id="calendar-v1-month-sheet-backdrop" class="calendar-v1-month-sheet-backdrop" type="button" aria-label="Close month picker"></button>
+                <div class="calendar-v1-month-sheet-panel">
+                    <div class="calendar-v1-month-sheet-handle"></div>
+                    <div class="calendar-v1-month-sheet-header">
+                        <button id="calendar-v1-month-prev-year" class="calendar-v1-month-sheet-nav" type="button" aria-label="Previous year">
+                            <i class="ri-arrow-left-s-line"></i>
+                        </button>
+                        <div id="calendar-v1-month-sheet-year" class="calendar-v1-month-sheet-year">2026</div>
+                        <button id="calendar-v1-month-next-year" class="calendar-v1-month-sheet-nav" type="button" aria-label="Next year">
+                            <i class="ri-arrow-right-s-line"></i>
+                        </button>
+                    </div>
+                    <div id="calendar-v1-month-sheet-grid" class="calendar-v1-month-sheet-grid"></div>
+                    <div class="calendar-v1-month-sheet-actions">
+                        <button id="calendar-v1-month-back-today" class="calendar-v1-month-sheet-action primary" type="button">Back to Today</button>
+                        <button id="calendar-v1-month-sheet-cancel" class="calendar-v1-month-sheet-action" type="button">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="calendar-v1-event-sheet" class="calendar-v1-event-sheet" aria-hidden="true">
+                <button id="calendar-v1-event-sheet-backdrop" class="calendar-v1-event-sheet-backdrop" type="button" aria-label="关闭弹窗"></button>
+                <div class="calendar-v1-event-sheet-panel">
+                    <div class="calendar-v1-event-sheet-handle"></div>
+                    <div class="calendar-v1-event-sheet-header">
+                        <div>
+                            <div id="calendar-v1-event-sheet-title" class="calendar-v1-event-sheet-title">新建安排</div>
+                            <div id="calendar-v1-event-sheet-subtitle" class="calendar-v1-event-sheet-subtitle">March 5, 2026</div>
+                        </div>
+                        <button id="calendar-v1-event-sheet-close" class="calendar-v1-event-sheet-close" type="button" aria-label="关闭弹窗">
+                            <i class="ri-close-line"></i>
+                        </button>
+                    </div>
+
+                    <form id="calendar-v1-event-form" class="calendar-v1-event-form">
+                        <div class="calendar-v1-event-field">
+                            <label class="calendar-v1-event-label" for="calendar-v1-event-title-input">要做啥</label>
+                            <input id="calendar-v1-event-title-input" class="calendar-v1-event-input" type="text" maxlength="80" placeholder="写点安排吧～">
+                        </div>
+
+                        <div class="calendar-v1-event-field">
+                            <label class="calendar-v1-event-label" for="calendar-v1-event-location-input">地点 / 备注</label>
+                            <input id="calendar-v1-event-location-input" class="calendar-v1-event-input" type="text" maxlength="120" placeholder="比如会议室、咖啡店，或者随手记一句">
+                        </div>
+
+                        <div class="calendar-v1-event-switch-row">
+                            <div>
+                                <div class="calendar-v1-event-label" style="margin-bottom: 2px;">全天</div>
+                                <div class="calendar-v1-event-sheet-subtitle">这是全天的事，不用填时间啦～</div>
+                            </div>
+                            <input id="calendar-v1-event-all-day-input" class="calendar-v1-event-switch" type="checkbox">
+                        </div>
+
+                        <div id="calendar-v1-event-time-field" class="calendar-v1-event-field">
+                            <label class="calendar-v1-event-label" for="calendar-v1-event-time-input">几点</label>
+                            <input id="calendar-v1-event-time-input" class="calendar-v1-event-input" type="time">
+                        </div>
+
+                        <div id="calendar-v1-event-form-error" class="calendar-v1-event-form-error"></div>
+
+                        <div class="calendar-v1-event-sheet-actions">
+                            <button id="calendar-v1-event-delete-btn" class="calendar-v1-event-sheet-action danger" type="button">删掉</button>
+                            <button id="calendar-v1-event-cancel-btn" class="calendar-v1-event-sheet-action" type="button">先不填</button>
+                            <button id="calendar-v1-event-save-btn" class="calendar-v1-event-sheet-action primary" type="submit">保存一下</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- iCity Stranger Profile Screen -->
     <div id="icity-stranger-profile-screen" class="app-screen hidden" style="background-color: #fff; z-index: 250;">
         <div class="app-header" style="position: absolute; top: 0; left: 0; width: 100%; z-index: 10; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; justify-content: space-between; padding-left: 10px; padding-right: 10px; padding-top: max(10px, env(safe-area-inset-top)); pointer-events: none;">
@@ -6473,6 +6696,7 @@
     <script src="js/apps.js"></script>
     <script src="js/icity.js"></script>
     <script src="js/home.js"></script>
+    <script src="js/calendar_app.js"></script>
     <script src="js/music_app_screen.js"></script>
     <script src="js/check_phone.js"></script>
     <script src="js/chat/01-contact-settings.js"></script>

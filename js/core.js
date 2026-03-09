@@ -1,4 +1,4 @@
-function createDefaultMemorySettingsV2() {
+﻿function createDefaultMemorySettingsV2() {
     return {
         extractMode: 'hybrid',
         injectQuota: {
@@ -523,6 +523,11 @@ const state = {
         familyCardUsageMonthKey: '',
         unboundFamilyCards: []
     },
+    calendarApp: {
+        selectedDate: '',
+        visibleMonth: '',
+        events: []
+    },
     music: {
         playing: false,
         cover: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
@@ -665,6 +670,7 @@ const knownApps = {
     'worldbook-app': { name: 'Worldbook', icon: 'fas fa-globe', color: '#007AFF' },
     'settings-app': { name: 'Settings', icon: 'fas fa-cog', color: '#8E8E93' },
     'theme-app': { name: 'Theme', icon: 'fas fa-paint-brush', color: '#5856D6' },
+    'calendar-app': { name: '鏃ュ巻', icon: 'fas fa-calendar-alt', color: '#FF3B30' },
     'shopping-app': { name: 'Shop', icon: 'fas fa-shopping-bag', color: '#FF9500' },
     'forum-app': { name: 'Forum', icon: 'fas fa-comments', color: '#30B0C7' },
     'album-app': { name: 'Album', icon: 'fas fa-images', color: '#5AC8FA' },
@@ -840,6 +846,9 @@ function handleAppClick(appId, appName) {
             if (window.renderContactList && window.iphoneSimState) {
                 window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
             }
+        }
+        if (appId === 'calendar-app' && window.initCalendarAppView) {
+            window.initCalendarAppView();
         }
         if (appId === 'bank-app' && window.initBankAppView) {
             window.initBankAppView();
@@ -1106,6 +1115,16 @@ async function loadConfig() {
                 familyCardUsageMonthKey: '',
                 unboundFamilyCards: []
             };
+            if (!state.calendarApp || typeof state.calendarApp !== 'object') {
+                state.calendarApp = {
+                    selectedDate: '',
+                    visibleMonth: '',
+                    events: []
+                };
+            }
+            if (typeof state.calendarApp.selectedDate !== 'string') state.calendarApp.selectedDate = '';
+            if (typeof state.calendarApp.visibleMonth !== 'string') state.calendarApp.visibleMonth = '';
+            if (!Array.isArray(state.calendarApp.events)) state.calendarApp.events = [];
             const bankApp = state.bankApp;
             const migratedCash = Number.isFinite(Number(bankApp.cashBalance))
                 ? Number(bankApp.cashBalance)
@@ -1424,4 +1443,5 @@ async function init() {
         }
     });
 }
+
 

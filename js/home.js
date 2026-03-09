@@ -27,6 +27,7 @@ let homeScreenData = [
     // 其他 App (放在第4行: Index 12-15)
     { index: 24, type: 'app', name: 'icity', iconClass: 'fas fa-book', color: '#333', appId: 'icity-app' },
     { index: 25, type: 'app', name: 'LookUS', iconClass: 'fas fa-eye', color: '#FF2D55', appId: 'lookus-app' },
+    { index: 26, type: 'app', name: '日历', iconClass: 'fas fa-calendar-alt', color: '#FF3B30', appId: 'calendar-app' },
     { index: 10, type: 'app', name: '微信', iconClass: 'fab fa-weixin', color: '#07C160', appId: 'wechat-app' },
     { index: 11, type: 'app', name: '世界书', iconClass: 'fas fa-globe', color: '#007AFF', appId: 'worldbook-app' },
     { index: 13, type: 'app', name: '银行', iconClass: 'fas fa-building-columns', color: '#1E66F5', appId: 'bank-app' },
@@ -117,6 +118,43 @@ function initGrid() {
             iconClass: 'fas fa-eye', 
             color: '#FF2D55', 
             appId: 'lookus-app',
+            _internalId: generateId()
+        });
+    }
+
+    // 强制添加日历应用 (如果不存在)
+    if (!homeScreenData.some(item => item.appId === 'calendar-app')) {
+        let targetIndex = 26;
+        const isOccupied = (idx) => homeScreenData.some(item => {
+            const slots = getOccupiedSlots(item.index, item.size || '1x1');
+            return slots && slots.includes(idx);
+        });
+
+        if (isOccupied(targetIndex)) {
+            for (let i = 24; i < SLOTS_PER_PAGE * 2; i++) {
+                if (!isOccupied(i)) {
+                    targetIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (isOccupied(targetIndex)) {
+            for (let i = 0; i < SLOTS_PER_PAGE * totalPages; i++) {
+                if (!isOccupied(i)) {
+                    targetIndex = i;
+                    break;
+                }
+            }
+        }
+
+        homeScreenData.push({
+            index: targetIndex,
+            type: 'app',
+            name: '日历',
+            iconClass: 'fas fa-calendar-alt',
+            color: '#FF3B30',
+            appId: 'calendar-app',
             _internalId: generateId()
         });
     }
