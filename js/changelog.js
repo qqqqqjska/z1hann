@@ -5,7 +5,7 @@
  * 2. 修改 CHANGELOG_CONTENT 里的更新内容
  */
 
-const CHANGELOG_VERSION = 'v1.0.1'; // 修改这个版本号来让弹窗再次显示
+const CHANGELOG_VERSION = 'v1.0.2'; // 修改这个版本号来让弹窗再次显示
 const CHANGELOG_CONTENT = `
     <h2 style="margin-top: 0; margin-bottom: 15px; text-align: center; color: #333;">更新日志</h2>
     <div style="font-size: 14px; color: #666; margin-bottom: 15px;">版本: ${CHANGELOG_VERSION}</div>

@@ -397,6 +397,17 @@
     padding-bottom: 10px;
     --calendar-v1-tt-row-height: 104px;
     --calendar-v1-tt-row-count: 6;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+#calendar-app .calendar-v1-tt-wrapper::-webkit-scrollbar {
+    display: none;
+}
+
+#calendar-app .calendar-v1-tt-col {
+    width: 80px;
+    min-width: 80px;
 }
 
 #calendar-app .calendar-v1-schedule-slide-next,
@@ -438,6 +449,7 @@
     display: flex;
     flex-direction: column;
     width: 100%;
+    min-width: max-content;
 }
 
 #calendar-app .calendar-v1-tt-header {
@@ -456,7 +468,8 @@
 }
 
 #calendar-app .calendar-v1-tt-day {
-    flex: 1;
+    width: 80px;
+    min-width: 80px;
     text-align: center;
     font-size: 10px;
     font-weight: 600;
