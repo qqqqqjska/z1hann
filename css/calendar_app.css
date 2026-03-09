@@ -69,6 +69,8 @@
 #calendar-app .calendar-v1-user-avatar {
     background: var(--calendar-accent-blue);
     box-shadow: 0 8px 18px rgba(163, 194, 222, 0.22);
+    border: none;
+    cursor: pointer;
 }
 
 #calendar-app .calendar-v1-back-btn:active,
@@ -184,7 +186,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     gap: 4px;
     cursor: pointer;
     color: var(--calendar-text-main);
@@ -393,6 +395,43 @@
 #calendar-app .calendar-v1-tt-wrapper {
     width: 100%;
     padding-bottom: 10px;
+    --calendar-v1-tt-row-height: 104px;
+    --calendar-v1-tt-row-count: 6;
+}
+
+#calendar-app .calendar-v1-schedule-slide-next,
+#calendar-app .calendar-v1-schedule-slide-prev {
+    will-change: transform, opacity;
+}
+
+#calendar-app .calendar-v1-schedule-slide-next {
+    animation: calendar-v1-schedule-slide-next 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#calendar-app .calendar-v1-schedule-slide-prev {
+    animation: calendar-v1-schedule-slide-prev 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes calendar-v1-schedule-slide-next {
+    from {
+        transform: translateX(20px);
+        opacity: 0.22;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes calendar-v1-schedule-slide-prev {
+    from {
+        transform: translateX(-20px);
+        opacity: 0.22;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
 
 #calendar-app .calendar-v1-timetable {
@@ -407,7 +446,7 @@
 }
 
 #calendar-app .calendar-v1-tt-corner {
-    width: 32px;
+    width: 46px;
     flex-shrink: 0;
 }
 
@@ -425,60 +464,138 @@
     padding: 0 1px;
 }
 
+#calendar-app .calendar-v1-tt-day.active {
+    color: var(--calendar-text-main);
+}
+
+#calendar-app .calendar-v1-tt-day-label {
+    display: block;
+    font-size: 10px;
+}
+
+#calendar-app .calendar-v1-tt-day-date {
+    display: block;
+    margin-top: 2px;
+    font-size: 9px;
+    opacity: 0.72;
+}
+
 #calendar-app .calendar-v1-tt-body {
     display: flex;
     position: relative;
+    align-items: stretch;
 }
 
 #calendar-app .calendar-v1-tt-times {
-    width: 32px;
+    width: 46px;
     flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    padding-top: 10px;
+    position: relative;
+    display: grid;
+    grid-template-rows: repeat(var(--calendar-v1-tt-row-count), var(--calendar-v1-tt-row-height));
+    padding-right: 6px;
 }
 
 #calendar-app .calendar-v1-tt-time {
-    height: 50px;
-    font-size: 9px;
-    font-weight: 600;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    height: var(--calendar-v1-tt-row-height);
     color: var(--calendar-text-secondary);
     text-align: right;
-    padding-right: 4px;
-    position: relative;
-    top: -6px;
+    width: 100%;
+    padding: 5px 2px 6px 0;
+    border-top: 1px dashed rgba(0, 0, 0, 0.08);
+    line-height: 1.1;
+    box-sizing: border-box;
+}
+
+#calendar-app .calendar-v1-tt-time:last-child {
+    border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+#calendar-app .calendar-v1-tt-time.is-placeholder {
+    opacity: 0.3;
+}
+
+#calendar-app .calendar-v1-tt-time-order {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    opacity: 0.55;
+}
+
+#calendar-app .calendar-v1-tt-time-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+}
+
+#calendar-app .calendar-v1-tt-time-start {
+    font-size: 10px;
+    font-weight: 700;
+}
+
+#calendar-app .calendar-v1-tt-time-end {
+    font-size: 10px;
+    font-weight: 700;
+    opacity: 1;
 }
 
 #calendar-app .calendar-v1-tt-grid {
     flex: 1;
     display: flex;
     position: relative;
-    background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
-    background-size: 100% 50px;
-    background-position: 0 10px;
-    padding-top: 10px;
-    height: 710px;
+    background: transparent;
+    padding-top: 0;
+    height: auto;
+    min-height: calc(var(--calendar-v1-tt-row-count) * var(--calendar-v1-tt-row-height));
 }
 
 #calendar-app .calendar-v1-tt-col {
     flex: 1;
     position: relative;
-    border-right: 1px dashed rgba(0, 0, 0, 0.04);
-    overflow: hidden;
+    display: grid;
+    grid-template-rows: repeat(var(--calendar-v1-tt-row-count), var(--calendar-v1-tt-row-height));
+    border-right: 1px solid rgba(0, 0, 0, 0.04);
+    overflow: visible;
 }
 
 #calendar-app .calendar-v1-tt-col:last-child {
     border-right: none;
 }
 
+#calendar-app .calendar-v1-tt-col.active {
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+}
+
+#calendar-app .calendar-v1-tt-slot {
+    height: var(--calendar-v1-tt-row-height);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0;
+    border-top: 1px dashed rgba(0, 0, 0, 0.08);
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+#calendar-app .calendar-v1-tt-slot:last-child {
+    border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+#calendar-app .calendar-v1-tt-slot.active {
+    background: rgba(255, 255, 255, 0.12);
+}
+
 #calendar-app .calendar-v1-tt-course {
-    position: absolute;
-    left: 1px;
-    right: 1px;
-    border-radius: 6px;
-    padding: 4px 3px;
-    font-size: 9px;
-    line-height: 1.1;
+    position: relative;
+    border-radius: 8px;
+    padding: 10px 7px;
+    font-size: 10px;
+    line-height: 1.18;
     color: #1d1d1f;
     cursor: pointer;
     transition: transform 0.2s;
@@ -486,7 +603,14 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
+    align-self: stretch;
+    min-height: 0;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    margin: 4px 4px 4px 2px;
+    z-index: 2;
 }
 
 #calendar-app .calendar-v1-tt-course:active {
@@ -494,8 +618,8 @@
 }
 
 #calendar-app .calendar-v1-tt-course.blue {
-    background: rgba(163, 194, 222, 0.5);
-    border-left: 2px solid #7da6cf;
+    background: rgba(194, 213, 231, 0.58);
+    border-left: 2px solid #9db9d3;
 }
 
 #calendar-app .calendar-v1-tt-course.gray {
@@ -504,33 +628,154 @@
 }
 
 #calendar-app .calendar-v1-tt-course.pink {
-    background: rgba(240, 190, 200, 0.4);
-    border-left: 2px solid #d99aa7;
+    background: rgba(239, 213, 221, 0.56);
+    border-left: 2px solid #d7adba;
 }
 
 #calendar-app .calendar-v1-tt-course.green {
-    background: rgba(180, 220, 190, 0.4);
-    border-left: 2px solid #8abf9a;
+    background: rgba(239, 231, 198, 0.6);
+    border-left: 2px solid #d8c58a;
 }
 
 #calendar-app .calendar-v1-tt-c-title {
     font-weight: 600;
-    font-size: 9px;
+    font-size: 10px;
     display: -webkit-box;
-    -webkit-line-clamp: 3;
+    -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    text-align: center;
+    width: 100%;
 }
 
 #calendar-app .calendar-v1-tt-c-loc {
-    font-size: 8px;
-    opacity: 0.8;
+    font-size: 9px;
+    opacity: 0.82;
     display: flex;
+    justify-content: center;
     align-items: center;
-    gap: 1px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    gap: 2px;
+    line-height: 1.2;
+    min-width: 0;
+    text-align: center;
+    width: 100%;
+}
+
+
+#calendar-app .calendar-v1-tt-c-loc-text {
+    display: block;
+    white-space: normal;
+    overflow: visible;
+    word-break: break-word;
+    text-align: center;
+}
+
+#calendar-app .calendar-v1-course-sheet {
+    position: absolute;
+    inset: 0;
+    z-index: 145;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.24s ease;
+}
+
+#calendar-app .calendar-v1-course-sheet.is-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+#calendar-app .calendar-v1-course-sheet-backdrop {
+    position: absolute;
+    inset: 0;
+    border: none;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+#calendar-app .calendar-v1-course-sheet-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 12px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+    border-radius: 28px 28px 0 0;
+    background: rgba(250, 251, 253, 0.97);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.12);
+    transform: translateY(100%);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#calendar-app .calendar-v1-course-sheet.is-open .calendar-v1-course-sheet-panel {
+    transform: translateY(0);
+}
+
+#calendar-app .calendar-v1-course-sheet-handle {
+    width: 42px;
+    height: 5px;
+    margin: 0 auto 14px;
+    border-radius: 999px;
+    background: rgba(29, 29, 31, 0.12);
+}
+
+#calendar-app .calendar-v1-course-sheet-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+#calendar-app .calendar-v1-course-sheet-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--calendar-text-main);
+}
+
+#calendar-app .calendar-v1-course-sheet-subtitle {
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--calendar-text-secondary);
+}
+
+#calendar-app .calendar-v1-course-sheet-close {
+    width: 38px;
+    height: 38px;
+    border-radius: 19px;
+    border: none;
+    background: rgba(255, 255, 255, 0.84);
+    color: var(--calendar-text-main);
+    font-size: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#calendar-app .calendar-v1-course-sheet-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#calendar-app .calendar-v1-course-detail-row {
+    min-height: 52px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(95, 126, 163, 0.14);
+    padding: 12px 14px;
+}
+
+#calendar-app .calendar-v1-course-detail-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--calendar-text-secondary);
+    margin-bottom: 4px;
+}
+
+#calendar-app .calendar-v1-course-detail-value {
+    font-size: 15px;
+    color: var(--calendar-text-main);
+    line-height: 1.4;
 }
 
 #calendar-app .calendar-v1-bottom-nav-container {
@@ -974,6 +1219,14 @@
     background: rgba(143, 170, 199, 0.18);
     color: #5f7ea3;
 }
+
+
+
+
+
+
+
+
 
 
 

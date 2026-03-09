@@ -2814,6 +2814,90 @@ function findBestQuoteTargetMessage(history, quoteContent) {
     return bestScore >= 0.42 ? bestMsg : null;
 }
 
+function describeCalendarHolidayForPrompt(holiday, includeDaysAway = false) {
+    if (!holiday) return '';
+    const name = holiday.name || holiday.label || '节日安排';
+    let typeLabel = '节假日';
+    if (holiday.type === 'workday') {
+        typeLabel = '调休补班';
+    } else if (holiday.type === 'festival') {
+        typeLabel = '普通节日';
+    }
+    const dateLabel = holiday.dateLabel || holiday.dateKey || '';
+    const daysAwayText = includeDaysAway && Number.isInteger(holiday.daysAway)
+        ? `，还有${holiday.daysAway}天`
+        : '';
+    return `${name}（${typeLabel}${dateLabel ? `，${dateLabel}` : ''}${daysAwayText}）`;
+}
+
+function buildCalendarPromptContext(referenceDateKey = null) {
+    if (typeof window.getCalendarChatContext !== 'function') return '';
+
+    let calendarData = null;
+    try {
+        calendarData = window.getCalendarChatContext(referenceDateKey);
+    } catch (error) {
+        console.warn('构建日历聊天上下文失败:', error);
+        return '';
+    }
+
+    if (!calendarData || typeof calendarData !== 'object') return '';
+
+    const lines = ['\n【用户日历/课表背景】'];
+    if (calendarData.todayDateLabel || calendarData.todayDateKey) {
+        lines.push(`今天是 ${calendarData.todayDateLabel || calendarData.todayDateKey}。`);
+    }
+
+    lines.push('【用户今日日历】');
+    if (Array.isArray(calendarData.todayPersonalEvents) && calendarData.todayPersonalEvents.length > 0) {
+        calendarData.todayPersonalEvents.forEach((event) => {
+            const timeText = event.allDay ? '全天' : (event.time || '时间待定');
+            const locationText = event.location ? ` @ ${event.location}` : '';
+            lines.push(`- ${timeText} ${event.title}${locationText}`);
+        });
+    } else {
+        lines.push('- 今天没有额外日历事件。');
+    }
+
+    lines.push('【节假日/近期提醒】');
+    if (calendarData.todayHoliday) {
+        lines.push(`- 今天是 ${describeCalendarHolidayForPrompt(calendarData.todayHoliday)}。`);
+    } else if (calendarData.upcomingHoliday) {
+        lines.push(`- 未来7天最近的节假日/调休是 ${describeCalendarHolidayForPrompt(calendarData.upcomingHoliday, true)}。`);
+    } else {
+        lines.push('- 未来7天没有临近的节假日或调休提醒。');
+    }
+
+    lines.push('【用户本周课表】');
+    if (calendarData.weeklySchedule) {
+        const weeklySchedule = calendarData.weeklySchedule;
+        const termName = weeklySchedule.termName || '本学期';
+        lines.push(`- ${termName}，第 ${weeklySchedule.weekNumber} 周（${weeklySchedule.weekRangeLabel || '本周'}）。`);
+        if (Array.isArray(weeklySchedule.todayCourses) && weeklySchedule.todayCourses.length > 0) {
+            lines.push('- 今天课程：');
+            weeklySchedule.todayCourses.forEach((course) => {
+                const locationText = course.location ? ` @ ${course.location}` : '';
+                lines.push(`  - ${course.startTime}-${course.endTime} ${course.title}${locationText}`);
+            });
+        } else {
+            lines.push('- 今天没有课程。');
+        }
+        if (Array.isArray(weeklySchedule.otherDaySummaries) && weeklySchedule.otherDaySummaries.length > 0) {
+            lines.push('- 本周其他有课日：');
+            weeklySchedule.otherDaySummaries.forEach((daySummary) => {
+                lines.push(`  - ${daySummary.dayLabel}（${daySummary.dateLabel}）：${daySummary.courseCount} 节，${daySummary.courseTitles.join('、')}`);
+            });
+        }
+    } else {
+        lines.push('- 当前没有可用的本周课表信息。');
+    }
+
+    lines.push('【使用方式】');
+    lines.push('这些信息是用户当前真实的日历背景。如果今天有事、有课或临近节假日，你可以更主动地关心、提醒或顺势聊一句，但不要每次都像念行程表；如果当前话题无关，也可以只把这些当作隐含背景，不必硬提。');
+
+    return `${lines.join('\n')}\n`;
+}
+
 async function generateAiReply(instruction = null, targetContactId = null) {
     const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
     if (!contactId) return;
@@ -2940,7 +3024,7 @@ async function generateAiReply(instruction = null, targetContactId = null) {
         }
     }
 
-    let timeContext = '';
+        let timeContext = '';
     let itineraryContext = '';
     if (contact.realTimeVisible) {
         timeContext = buildRealtimeTimeContext(contact.id);
@@ -2949,6 +3033,8 @@ async function generateAiReply(instruction = null, targetContactId = null) {
             itineraryContext = await window.getCurrentItineraryInfo(contact.id);
         }
     }
+
+    const calendarContext = buildCalendarPromptContext();
 
     let lookusContext = '';
     if (contact.lookusData) {
@@ -3150,6 +3236,7 @@ ${forumLiveInstruction}
 ${transferDecisionContext}
 ${musicTogetherContext}
 ${timeContext}
+${calendarContext}
 ${itineraryContext}
 
 你必须完全沉浸在角色中，绝对不能透露你是AI或语言模型。你的回复必须像一个真实的${contact.name}在使用微信聊天。
@@ -5380,3 +5467,4 @@ function optimizePromptForNovelAI(text) {
 
     return processed;
 }
+

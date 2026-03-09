@@ -7,6 +7,9 @@
     const MAX_YEAR = 2029;
     const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     const MONTH_SHORT_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const SCHEDULE_DAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const SCHEDULE_TIME_LABELS = Array.from({ length: 14 }, (_, index) => `${pad(index + 8)}:00`);
+    const SCHEDULE_COLOR_OPTIONS = ['blue', 'green', 'pink', 'gray'];
     const TEXT = {
         newYear: '\u5143\u65e6',
         valentine: '\u60c5\u4eba\u8282',
@@ -297,7 +300,12 @@
             state.calendarApp = {
                 selectedDate: todayKey,
                 visibleMonth: defaultMonthKey,
-                events: []
+                events: [],
+                schedule: {
+                    termName: '',
+                    termStartDate: '',
+                    courses: []
+                }
             };
         }
 
@@ -332,6 +340,8 @@
         const normalizedEvents = Array.isArray(state.calendarApp.events)
             ? state.calendarApp.events.map(normalizeEvent).filter(Boolean)
             : [];
+
+        state.calendarApp.schedule = normalizeScheduleConfig(state.calendarApp.schedule);
 
         state.calendarApp.events = normalizedEvents;
 
@@ -413,7 +423,8 @@
     function getEventsForDate(state, dateKey) {
         const storedEvents = (state.events || []).filter((event) => event.date === dateKey);
         const derived = createDerivedEvents(dateKey);
-        return [...derived, ...storedEvents].sort((a, b) => {
+        const scheduleEvents = getScheduleEventsForDate(state, dateKey);
+        return [...derived, ...scheduleEvents, ...storedEvents].sort((a, b) => {
             if (a.allDay && !b.allDay) return -1;
             if (!a.allDay && b.allDay) return 1;
             return String(a.time || '').localeCompare(String(b.time || ''));
@@ -424,12 +435,155 @@
         return (state.events || []).filter((event) => event.date === dateKey && event.type === 'event');
     }
 
+    function getPersonalEventsForDate(state, dateKey) {
+        return (state.events || [])
+            .filter((event) => event.date === dateKey && event.type === 'event' && event.source === 'user')
+            .sort((a, b) => {
+                if (a.allDay && !b.allDay) return -1;
+                if (!a.allDay && b.allDay) return 1;
+                return String(a.time || '').localeCompare(String(b.time || ''));
+            })
+            .map((event) => ({
+                title: String(event.title || ''),
+                time: String(event.time || ''),
+                location: String(event.location || ''),
+                allDay: !!event.allDay
+            }));
+    }
+
+    function getScheduleMaxWeek(schedule) {
+        if (!schedule || !Array.isArray(schedule.courses) || schedule.courses.length === 0) return null;
+        let maxWeek = 0;
+        schedule.courses.forEach((course) => {
+            if (Array.isArray(course.weeks) && course.weeks.length > 0) {
+                course.weeks.forEach((week) => {
+                    if (Number.isInteger(week) && week > maxWeek) {
+                        maxWeek = week;
+                    }
+                });
+                return;
+            }
+            if (Number.isInteger(course.endWeek) && course.endWeek > maxWeek) {
+                maxWeek = course.endWeek;
+                return;
+            }
+            if (Number.isInteger(course.startWeek) && course.startWeek > maxWeek) {
+                maxWeek = course.startWeek;
+            }
+        });
+        return maxWeek > 0 ? maxWeek : null;
+    }
+
+    function getHolidayInfoForDate(dateKey) {
+        const meta = getDateMeta(dateKey);
+        if (!meta) return null;
+        return {
+            type: String(meta.type || ''),
+            name: String(meta.name || meta.label || ''),
+            label: String(meta.label || meta.name || ''),
+            dateKey,
+            dateLabel: formatMonthDay(dateKey)
+        };
+    }
+
+    function getUpcomingHolidayInfo(referenceDateKey, maxDays = 7) {
+        for (let offset = 1; offset <= maxDays; offset += 1) {
+            const candidateDateKey = shiftDateKey(referenceDateKey, offset);
+            const meta = OFFICIAL_DAY_MAP[candidateDateKey];
+            if (!meta) continue;
+            return {
+                type: String(meta.type || ''),
+                name: String(meta.name || meta.label || ''),
+                label: String(meta.label || meta.name || ''),
+                dateKey: candidateDateKey,
+                dateLabel: formatMonthDay(candidateDateKey),
+                daysAway: offset
+            };
+        }
+        return null;
+    }
+
+    function buildWeeklyScheduleForChatContext(referenceDateKey) {
+        const state = ensureCalendarState();
+        const schedule = normalizeScheduleConfig(state.schedule);
+        if (!schedule.termStartDate || !Array.isArray(schedule.courses) || schedule.courses.length === 0) {
+            return null;
+        }
+
+        const weekNumber = getScheduleWeekNumber(schedule, referenceDateKey);
+        const maxWeek = getScheduleMaxWeek(schedule);
+        if (!Number.isInteger(weekNumber) || weekNumber < 1 || !Number.isInteger(maxWeek) || weekNumber > maxWeek) {
+            return null;
+        }
+
+        const weekDates = getWeekDates(referenceDateKey);
+        const todayWeekday = getDayOfWeekValue(referenceDateKey);
+        const courses = (schedule.courses || [])
+            .filter((course) => isCourseInWeek(course, weekNumber))
+            .sort((a, b) => {
+                if (a.dayOfWeek !== b.dayOfWeek) return a.dayOfWeek - b.dayOfWeek;
+                return parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime);
+            });
+
+        const todayCourses = courses
+            .filter((course) => course.dayOfWeek === todayWeekday)
+            .map((course) => ({
+                title: course.title,
+                startTime: course.startTime,
+                endTime: course.endTime,
+                location: course.location || ''
+            }));
+
+        const otherDaySummaries = weekDates.map((dateKey, index) => {
+            const dayOfWeek = index + 1;
+            if (dayOfWeek === todayWeekday) return null;
+            const dayCourses = courses.filter((course) => course.dayOfWeek === dayOfWeek);
+            if (dayCourses.length === 0) return null;
+            return {
+                dayOfWeek,
+                dayLabel: SCHEDULE_DAY_LABELS[index],
+                dateKey,
+                dateLabel: formatMonthDay(dateKey),
+                courseCount: dayCourses.length,
+                courseTitles: dayCourses.map((course) => course.title),
+                courses: dayCourses.map((course) => ({
+                    title: course.title,
+                    startTime: course.startTime,
+                    endTime: course.endTime,
+                    location: course.location || ''
+                }))
+            };
+        }).filter(Boolean);
+
+        return {
+            termName: schedule.termName || '',
+            weekNumber,
+            weekRangeLabel: `${formatMonthDay(weekDates[0])} - ${formatMonthDay(weekDates[6])}`,
+            todayCourses,
+            otherDaySummaries
+        };
+    }
+
+    function buildCalendarChatContext(referenceDateKey) {
+        const state = ensureCalendarState();
+        const todayDateKey = parseDateKey(referenceDateKey) ? referenceDateKey : getTodayKey();
+        return {
+            todayDateKey,
+            todayDateLabel: formatMonthDay(todayDateKey),
+            todayPersonalEvents: getPersonalEventsForDate(state, todayDateKey),
+            todayHoliday: getHolidayInfoForDate(todayDateKey),
+            upcomingHoliday: getUpcomingHolidayInfo(todayDateKey, 7),
+            weeklySchedule: buildWeeklyScheduleForChatContext(todayDateKey)
+        };
+    }
+
     function isEditableEvent(event) {
         return !!event && event.type === 'event';
     }
 
     function countVisibleEventDots(state, dateKey) {
-        return Math.min(3, getStoredEventsForDate(state, dateKey).length);
+        const totalCount = getStoredEventsForDate(state, dateKey).length + getScheduleEventsForDate(state, dateKey).length;
+        return Math.min(3, totalCount);
     }
 
     function createDayDotsHtml(count) {
@@ -450,6 +604,259 @@
             icon: event && event.icon ? String(event.icon) : 'ri-calendar-event-line',
             source: event && event.source === 'seed' ? 'seed' : 'user'
         };
+    }
+
+    function normalizeScheduleCourse(raw, index = 0) {
+        if (!raw || typeof raw !== 'object') return null;
+        const title = String(raw.title || raw.name || '').trim();
+        const location = String(raw.location || raw.room || raw.note || '').trim();
+        const dayOfWeek = Number(raw.dayOfWeek || raw.weekday || raw.day);
+        const startTime = String(raw.startTime || '').trim();
+        const endTime = String(raw.endTime || '').trim();
+        const startWeek = Number(raw.startWeek);
+        const endWeek = Number(raw.endWeek);
+        const weekValue = Number(raw.week);
+        const weeks = Array.isArray(raw.weeks)
+            ? Array.from(new Set(raw.weeks.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0))).sort((a, b) => a - b)
+            : (Number.isInteger(weekValue) && weekValue > 0 ? [weekValue] : []);
+        const color = SCHEDULE_COLOR_OPTIONS.includes(String(raw.color || '').trim())
+            ? String(raw.color || '').trim()
+            : SCHEDULE_COLOR_OPTIONS[index % SCHEDULE_COLOR_OPTIONS.length];
+
+        if (!title) return null;
+        if (!Number.isInteger(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 7) return null;
+        if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) return null;
+        if (parseTimeToMinutes(endTime) <= parseTimeToMinutes(startTime)) return null;
+        if (weeks.length === 0 && (!Number.isInteger(startWeek) || !Number.isInteger(endWeek) || startWeek <= 0 || endWeek < startWeek)) return null;
+
+        return {
+            id: String(raw.id || `course-${index + 1}`),
+            title,
+            location,
+            dayOfWeek,
+            startTime,
+            endTime,
+            startWeek: weeks.length ? null : startWeek,
+            endWeek: weeks.length ? null : endWeek,
+            weeks,
+            color
+        };
+    }
+
+    function normalizeScheduleConfig(raw) {
+        const src = raw && typeof raw === 'object' ? raw : {};
+        const termStartDate = parseDateKey(src.termStartDate) ? String(src.termStartDate) : '';
+        const termName = String(src.termName || '').trim();
+        const courses = Array.isArray(src.courses)
+            ? src.courses.map((course, index) => normalizeScheduleCourse(course, index)).filter(Boolean)
+            : [];
+        return {
+            termName,
+            termStartDate,
+            courses
+        };
+    }
+
+    function parseTimeToMinutes(time) {
+        const match = /^(\d{2}):(\d{2})$/.exec(String(time || ''));
+        if (!match) return null;
+        const hour = Number(match[1]);
+        const minute = Number(match[2]);
+        if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+        return hour * 60 + minute;
+    }
+
+    function shiftDateKey(dateKey, deltaDays) {
+        const parsed = parseDateKey(dateKey);
+        if (!parsed) return getTodayKey();
+        const shifted = new Date(parsed.year, parsed.month - 1, parsed.day + Number(deltaDays || 0));
+        return formatDateKey(shifted);
+    }
+
+    function getWeekStartDate(dateKey) {
+        const parsed = parseDateKey(dateKey);
+        if (!parsed) return new Date();
+        const date = new Date(parsed.year, parsed.month - 1, parsed.day);
+        const day = date.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        date.setDate(date.getDate() + diff);
+        date.setHours(0, 0, 0, 0);
+        return date;
+    }
+
+    function getWeekDates(dateKey) {
+        const start = getWeekStartDate(dateKey);
+        return Array.from({ length: 7 }, (_, index) => {
+            const current = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+            return formatDateKey(current);
+        });
+    }
+
+    function formatMonthDay(dateKey) {
+        const parsed = parseDateKey(dateKey);
+        if (!parsed) return '';
+        return `${parsed.month}/${parsed.day}`;
+    }
+
+    function getScheduleWeekNumber(schedule, dateKey) {
+        if (!schedule || !parseDateKey(schedule.termStartDate)) return null;
+        const target = parseDateKey(dateKey);
+        const start = parseDateKey(schedule.termStartDate);
+        if (!target || !start) return null;
+        const startDate = getWeekStartDate(schedule.termStartDate);
+        const targetDate = getWeekStartDate(dateKey);
+        const diffDays = Math.round((targetDate.getTime() - startDate.getTime()) / 86400000);
+        return Math.floor(diffDays / 7) + 1;
+    }
+
+    function isCourseInWeek(course, weekNumber) {
+        if (!course || !Number.isInteger(weekNumber) || weekNumber < 1) return false;
+        if (Array.isArray(course.weeks) && course.weeks.length > 0) {
+            return course.weeks.includes(weekNumber);
+        }
+        return Number.isInteger(course.startWeek) && Number.isInteger(course.endWeek)
+            ? weekNumber >= course.startWeek && weekNumber <= course.endWeek
+            : false;
+    }
+
+    function getCoursesForWeek(schedule, dateKey) {
+        const weekNumber = getScheduleWeekNumber(schedule, dateKey);
+        if (!schedule || !Array.isArray(schedule.courses) || !Number.isInteger(weekNumber) || weekNumber < 1) {
+            return { weekNumber: null, courses: [] };
+        }
+        const courses = schedule.courses
+            .filter((course) => isCourseInWeek(course, weekNumber))
+            .sort((a, b) => {
+                if (a.dayOfWeek !== b.dayOfWeek) return a.dayOfWeek - b.dayOfWeek;
+                return parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime);
+            });
+        return { weekNumber, courses };
+    }
+
+    function getDayOfWeekValue(dateKey) {
+        const parsed = parseDateKey(dateKey);
+        if (!parsed) return null;
+        const nativeDay = parsed.date.getDay();
+        return nativeDay === 0 ? 7 : nativeDay;
+    }
+
+    function getScheduleEventsForDate(state, dateKey) {
+        const schedule = normalizeScheduleConfig(state && state.schedule);
+        const weekday = getDayOfWeekValue(dateKey);
+        const weekNumber = getScheduleWeekNumber(schedule, dateKey);
+        if (!weekday || !Number.isInteger(weekNumber) || weekNumber < 1) return [];
+        return (schedule.courses || [])
+            .filter((course) => course.dayOfWeek === weekday && isCourseInWeek(course, weekNumber))
+            .sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime))
+            .map((course) => ({
+                id: `schedule-${dateKey}-${course.id}-${weekNumber}`,
+                date: dateKey,
+                time: course.startTime,
+                allDay: false,
+                title: course.title,
+                location: course.location || '上课地点待定',
+                icon: 'ri-book-open-line',
+                source: 'schedule',
+                type: 'schedule',
+                endTime: course.endTime
+            }));
+    }
+
+    function getSchedulePeriods(courses) {
+        const periodMap = new Map();
+        (Array.isArray(courses) ? courses : []).forEach((course) => {
+            const startTime = String(course && course.startTime || '').trim();
+            const endTime = String(course && course.endTime || '').trim();
+            const startMinutes = parseTimeToMinutes(startTime);
+            const endMinutes = parseTimeToMinutes(endTime);
+            if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+                return;
+            }
+            const key = `${startTime}-${endTime}`;
+            if (!periodMap.has(key)) {
+                periodMap.set(key, {
+                    key,
+                    startTime,
+                    endTime,
+                    startMinutes,
+                    endMinutes
+                });
+            }
+        });
+
+        const allPeriods = Array.from(periodMap.values())
+            .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
+
+        const basePeriods = allPeriods.filter((period) => {
+            const hasEarlierPart = allPeriods.some((other) => (
+                other.key !== period.key
+                && other.startMinutes === period.startMinutes
+                && other.endMinutes < period.endMinutes
+            ));
+            const hasLaterPart = allPeriods.some((other) => (
+                other.key !== period.key
+                && other.endMinutes === period.endMinutes
+                && other.startMinutes > period.startMinutes
+            ));
+            return !(hasEarlierPart && hasLaterPart);
+        });
+
+        return basePeriods.map((period, index) => ({
+            ...period,
+            index: index + 1
+        }));
+    }
+
+    function getCoursePeriodPlacement(course, periods) {
+        const validPeriods = Array.isArray(periods) ? periods : [];
+        if (!course || validPeriods.length === 0) return null;
+
+        const exactKey = `${course.startTime}-${course.endTime}`;
+        const exactIndex = validPeriods.findIndex((period) => period.key === exactKey);
+        if (exactIndex >= 0) {
+            return { startIndex: exactIndex, span: 1 };
+        }
+
+        const startIndex = validPeriods.findIndex((period) => period.startTime === course.startTime);
+        let endIndex = -1;
+        for (let index = validPeriods.length - 1; index >= 0; index -= 1) {
+            if (validPeriods[index].endTime === course.endTime) {
+                endIndex = index;
+                break;
+            }
+        }
+        if (startIndex >= 0 && endIndex >= startIndex) {
+            return {
+                startIndex,
+                span: endIndex - startIndex + 1
+            };
+        }
+
+        const courseStart = parseTimeToMinutes(course.startTime);
+        const courseEnd = parseTimeToMinutes(course.endTime);
+        if (!Number.isFinite(courseStart) || !Number.isFinite(courseEnd)) return null;
+
+        const overlappedRows = validPeriods
+            .map((period, index) => ({ period, index }))
+            .filter(({ period }) => period.startMinutes < courseEnd && period.endMinutes > courseStart)
+            .map(({ index }) => index);
+
+        if (!overlappedRows.length) return null;
+
+        return {
+            startIndex: overlappedRows[0],
+            span: overlappedRows[overlappedRows.length - 1] - overlappedRows[0] + 1
+        };
+    }
+
+    function getEmptySchedulePeriods(count = 6) {
+        return Array.from({ length: count }, (_, index) => ({
+            key: `placeholder-${index + 1}`,
+            startTime: '',
+            endTime: '',
+            placeholder: true,
+            index: index + 1
+        }));
     }
 
     function createStoredEventFromDraft(draft) {
@@ -478,6 +885,7 @@
     function getEventBorderColor(event) {
         if (event.type === 'holiday') return '#8faac7';
         if (event.type === 'workday') return '#b9cade';
+        if (event.type === 'schedule' || event.source === 'schedule') return '#8abf9a';
         if (event.title === 'Project Sync') return '#d1e2f3';
         if (event.title === 'Gym Session') return '#e0e0e0';
         return '#a3c2de';
@@ -548,18 +956,94 @@
         const eventFormError = document.getElementById('calendar-v1-event-form-error');
         const eventDeleteBtn = document.getElementById('calendar-v1-event-delete-btn');
         const eventCancelBtn = document.getElementById('calendar-v1-event-cancel-btn');
+        const headerActionBtn = document.getElementById('calendar-v1-header-action-btn');
+        const headerActionIcon = document.getElementById('calendar-v1-header-action-icon');
+        const scheduleImportInput = document.getElementById('calendar-v1-schedule-import-input');
+        const scheduleWeekLabel = document.getElementById('calendar-v1-schedule-week-label');
+        const schedulePrevWeekBtn = document.getElementById('calendar-v1-schedule-prev-week');
+        const scheduleNextWeekBtn = document.getElementById('calendar-v1-schedule-next-week');
+        const scheduleMeta = document.getElementById('calendar-v1-schedule-meta');
+        const timetableDays = document.getElementById('calendar-v1-tt-days');
+        const timetableTimes = document.getElementById('calendar-v1-tt-times');
+        const timetableGrid = document.getElementById('calendar-v1-tt-grid');
+        const timetableWrapper = calendarApp.querySelector('.calendar-v1-tt-wrapper');
+        const courseSheet = document.getElementById('calendar-v1-course-sheet');
+        const courseSheetBackdrop = document.getElementById('calendar-v1-course-sheet-backdrop');
+        const courseSheetTitle = document.getElementById('calendar-v1-course-sheet-title');
+        const courseSheetSubtitle = document.getElementById('calendar-v1-course-sheet-subtitle');
+        const courseSheetBody = document.getElementById('calendar-v1-course-sheet-body');
+        const courseSheetCloseBtn = document.getElementById('calendar-v1-course-sheet-close');
 
         let activeViewId = CALENDAR_VIEW_ID;
         let pickerYear = 2026;
         let headerTimer = null;
         let touchGesture = null;
         let activeEventDraft = null;
+        let activeScheduleCourse = null;
+        let renderedScheduleCourseMap = new Map();
 
         function blurIfFocusedWithin(container) {
             const activeElement = document.activeElement;
             if (container && activeElement && container.contains(activeElement) && typeof activeElement.blur === 'function') {
                 activeElement.blur();
             }
+        }
+
+        function formatCourseWeekHint(course) {
+            if (!course) return '';
+            return Array.isArray(course.weeks) && course.weeks.length > 0
+                ? `第 ${course.weeks.join('、')} 周`
+                : `第 ${course.startWeek}-${course.endWeek} 周`;
+        }
+
+        function renderCourseSheet() {
+            if (!activeScheduleCourse || !courseSheetBody) return;
+            if (courseSheetTitle) {
+                courseSheetTitle.textContent = activeScheduleCourse.title || '课程详情';
+            }
+            if (courseSheetSubtitle) {
+                courseSheetSubtitle.textContent = `${SCHEDULE_DAY_LABELS[(activeScheduleCourse.dayOfWeek || 1) - 1] || '本周课程'} · ${activeScheduleCourse.dateLabel || ''}`;
+            }
+            courseSheetBody.innerHTML = `
+                <div class="calendar-v1-course-detail-row">
+                    <div class="calendar-v1-course-detail-label">地点</div>
+                    <div class="calendar-v1-course-detail-value">${escapeHtml(activeScheduleCourse.location || '地点待定')}</div>
+                </div>
+                <div class="calendar-v1-course-detail-row">
+                    <div class="calendar-v1-course-detail-label">时间</div>
+                    <div class="calendar-v1-course-detail-value">${escapeHtml(activeScheduleCourse.startTime)} - ${escapeHtml(activeScheduleCourse.endTime)}</div>
+                </div>
+                <div class="calendar-v1-course-detail-row">
+                    <div class="calendar-v1-course-detail-label">上课周次</div>
+                    <div class="calendar-v1-course-detail-value">${escapeHtml(formatCourseWeekHint(activeScheduleCourse))}</div>
+                </div>
+                <div class="calendar-v1-course-detail-row">
+                    <div class="calendar-v1-course-detail-label">当前周</div>
+                    <div class="calendar-v1-course-detail-value">第 ${escapeHtml(String(activeScheduleCourse.weekNumber || ''))} 周</div>
+                </div>
+            `;
+        }
+
+        function openCourseSheet(course) {
+            if (!course) return;
+            closeMonthSheet();
+            closeEventSheet();
+            activeScheduleCourse = course;
+            renderCourseSheet();
+            if (courseSheet) {
+                courseSheet.classList.add('is-open');
+                courseSheet.setAttribute('aria-hidden', 'false');
+            }
+        }
+
+        function closeCourseSheet() {
+            blurIfFocusedWithin(courseSheet);
+            if (courseSheet) {
+                courseSheet.classList.remove('is-open');
+                courseSheet.setAttribute('aria-hidden', 'true');
+            }
+            if (courseSheetBody) courseSheetBody.innerHTML = '';
+            activeScheduleCourse = null;
         }
 
         function renderEventSheet() {
@@ -634,19 +1118,174 @@
             saveCalendarState();
         }
 
+        function showCalendarNotice(message) {
+            if (typeof window.showChatToast === 'function') {
+                window.showChatToast(message, 2200);
+                return;
+            }
+            window.alert(message);
+        }
+
+        function renderHeaderAction() {
+            if (!headerActionBtn || !headerActionIcon) return;
+            const isScheduleView = activeViewId === SCHEDULE_VIEW_ID;
+            headerActionBtn.classList.remove('is-import-mode');
+            headerActionBtn.setAttribute('aria-label', isScheduleView ? '导入课表 JSON' : '日历小助手');
+            headerActionBtn.title = isScheduleView ? '导入课表 JSON' : '日历小助手';
+            headerActionIcon.className = 'ri-user-smile-line';
+        }
+
+        function applyScheduleTransition(direction) {
+            if (!direction) return;
+            const className = direction === 'next'
+                ? 'calendar-v1-schedule-slide-next'
+                : direction === 'prev'
+                    ? 'calendar-v1-schedule-slide-prev'
+                    : '';
+            if (!className) return;
+            [scheduleWeekLabel, scheduleMeta, timetableWrapper].forEach((node) => {
+                if (!node) return;
+                node.classList.remove('calendar-v1-schedule-slide-next', 'calendar-v1-schedule-slide-prev');
+                void node.offsetWidth;
+                node.classList.add(className);
+                window.setTimeout(() => {
+                    node.classList.remove(className);
+                }, 280);
+            });
+        }
+
+        function renderScheduleView(transitionDirection = '') {
+            const state = ensureCalendarState();
+            const schedule = normalizeScheduleConfig(state.schedule);
+            const weekDates = getWeekDates(state.selectedDate);
+            const selectedWeekdayIndex = weekDates.indexOf(state.selectedDate);
+            const { weekNumber, courses } = getCoursesForWeek(schedule, state.selectedDate);
+            const activeWeekNumber = Number.isInteger(weekNumber) && weekNumber > 0 ? weekNumber : null;
+            const schedulePeriods = getSchedulePeriods(schedule.courses);
+            const displayPeriods = schedulePeriods.length ? schedulePeriods : getEmptySchedulePeriods();
+            renderedScheduleCourseMap = new Map();
+
+            if (timetableWrapper) {
+                timetableWrapper.style.setProperty('--calendar-v1-tt-row-count', String(displayPeriods.length || 1));
+            }
+
+            renderHeader(false);
+            renderHeaderAction();
+
+            if (scheduleWeekLabel) {
+                scheduleWeekLabel.textContent = activeWeekNumber ? `第 ${activeWeekNumber} 周` : '课表未就绪';
+            }
+
+            if (scheduleMeta) {
+                if (!schedule.termStartDate || schedule.courses.length === 0) {
+                    scheduleMeta.textContent = '还没导入课表哦，点右上角按钮把 JSON 课表塞进来吧～';
+                } else if (!activeWeekNumber || activeWeekNumber < 1) {
+                    scheduleMeta.textContent = `${schedule.termName || '这学期'} 还没开始呢，先等等呀～`;
+                } else {
+                    scheduleMeta.textContent = `${schedule.termName || '这学期'} · ${formatMonthDay(weekDates[0])} - ${formatMonthDay(weekDates[6])} · 本周 ${courses.length} 节课`;
+                }
+            }
+
+            if (timetableDays) {
+                timetableDays.innerHTML = weekDates.map((dateKey, index) => {
+                    const classes = ['calendar-v1-tt-day'];
+                    if (index === selectedWeekdayIndex) classes.push('active');
+                    return `
+                        <div class="${classes.join(' ')}">
+                            <span class="calendar-v1-tt-day-label">${SCHEDULE_DAY_LABELS[index]}</span>
+                            <span class="calendar-v1-tt-day-date">${escapeHtml(formatMonthDay(dateKey))}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            if (timetableTimes) {
+                timetableTimes.innerHTML = displayPeriods.map((period) => {
+                    const orderText = period.placeholder ? '' : String(period.index).padStart(2, '0');
+                    const classes = ['calendar-v1-tt-time'];
+                    if (period.placeholder) classes.push('is-placeholder');
+                    return `
+                        <div class="${classes.join(' ')}">
+                            <span class="calendar-v1-tt-time-order">${escapeHtml(orderText)}</span>
+                            <div class="calendar-v1-tt-time-main">
+                                <span class="calendar-v1-tt-time-start">${escapeHtml(period.startTime || '')}</span>
+                                <span class="calendar-v1-tt-time-end">${escapeHtml(period.endTime || '')}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            if (timetableGrid) {
+                const courseHtmlByDay = Array.from({ length: 7 }, () => []);
+                courses.forEach((course) => {
+                    const dayIndex = course.dayOfWeek - 1;
+                    const placement = getCoursePeriodPlacement(course, displayPeriods);
+                    if (dayIndex < 0 || dayIndex > 6 || !placement) return;
+                    const detailKey = `${course.id}-${activeWeekNumber || 0}-${dayIndex}`;
+                    renderedScheduleCourseMap.set(detailKey, {
+                        ...course,
+                        weekNumber: activeWeekNumber,
+                        dateKey: weekDates[dayIndex],
+                        dateLabel: formatMonthDay(weekDates[dayIndex])
+                    });
+                    courseHtmlByDay[dayIndex].push(`
+                        <div class="calendar-v1-tt-course ${escapeHtml(course.color)}" data-course-key="${escapeHtml(detailKey)}" style="grid-row: ${placement.startIndex + 1} / span ${placement.span};">
+                            <div class="calendar-v1-tt-c-title">${escapeHtml(course.title)}</div>
+                            <div class="calendar-v1-tt-c-loc"><span class="calendar-v1-tt-c-loc-text">${escapeHtml(course.location || '地点待定')}</span></div>
+                        </div>
+                    `);
+                });
+
+                timetableGrid.innerHTML = courseHtmlByDay.map((items, dayIndex) => {
+                    const colClasses = ['calendar-v1-tt-col'];
+                    if (dayIndex === selectedWeekdayIndex) colClasses.push('active');
+                    return `
+                    <div class="${colClasses.join(' ')}">${displayPeriods.map((period) => {
+                        const slotClasses = ['calendar-v1-tt-slot'];
+                        if (dayIndex === selectedWeekdayIndex) slotClasses.push('active');
+                        if (period.placeholder) slotClasses.push('is-placeholder');
+                        return `<div class="${slotClasses.join(' ')}"></div>`;
+                    }).join('')}${items.join('')}</div>
+                `;
+                }).join('');
+            }
+
+            applyScheduleTransition(transitionDirection);
+        }
+
+        function importScheduleFromObject(rawConfig) {
+            const normalized = normalizeScheduleConfig(rawConfig);
+            if (!normalized.termStartDate) {
+                throw new Error('缺少有效的 termStartDate');
+            }
+            if (!normalized.courses.length) {
+                throw new Error('courses 不能为空');
+            }
+            const state = ensureCalendarState();
+            state.schedule = normalized;
+            saveCalendarState();
+            renderScheduleView();
+        }
+
         function renderHeader(animate) {
             const state = ensureCalendarState();
             const parsedVisibleMonth = parseMonthKey(state.visibleMonth);
+            const scheduleWeekNumber = getScheduleWeekNumber(state.schedule, state.selectedDate);
             const nextTitle = activeViewId === SCHEDULE_VIEW_ID
                 ? 'Schedule'
                 : MONTH_LABELS[(parsedVisibleMonth ? parsedVisibleMonth.month : 1) - 1];
             const nextSubtitle = activeViewId === SCHEDULE_VIEW_ID
-                ? 'Weekly timetable'
+                ? (Number.isInteger(scheduleWeekNumber) && scheduleWeekNumber > 0
+                    ? `第 ${scheduleWeekNumber} 周课表`
+                    : '导入课表后这里会动起来哦～')
                 : formatFullDate(state.selectedDate);
 
             if (dateTrigger) {
                 dateTrigger.disabled = activeViewId !== CALENDAR_VIEW_ID;
             }
+
+            renderHeaderAction();
 
             if (!titleEl || !subtitleEl) return;
 
@@ -711,11 +1350,15 @@
             }
         }
 
-        function syncCalendarState(nextDateKey, shouldSave) {
+        function syncCalendarState(nextDateKey, shouldSave, options = {}) {
             const state = ensureCalendarState();
             state.selectedDate = nextDateKey;
             state.visibleMonth = monthKeyFromDateKey(nextDateKey);
-            renderCalendarView(false);
+            if (activeViewId === SCHEDULE_VIEW_ID) {
+                renderScheduleView(options.scheduleTransitionDirection || '');
+            } else {
+                renderCalendarView(false);
+            }
             if (shouldSave) saveCalendarState();
         }
 
@@ -818,11 +1461,15 @@
             if (targetId !== CALENDAR_VIEW_ID) {
                 closeMonthSheet();
                 closeEventSheet();
+            } else {
+                closeCourseSheet();
             }
             renderHeader(animateHeader);
             if (targetId === CALENDAR_VIEW_ID) {
                 renderCalendarGrid();
                 renderUpcoming();
+            } else if (targetId === SCHEDULE_VIEW_ID) {
+                renderScheduleView();
             }
         }
 
@@ -839,6 +1486,7 @@
             backBtn.addEventListener('click', () => {
                 closeMonthSheet();
                 closeEventSheet();
+                closeCourseSheet();
                 calendarApp.classList.add('hidden');
             });
         }
@@ -874,10 +1522,28 @@
             });
         }
 
+        if (timetableGrid) {
+            timetableGrid.addEventListener('click', (event) => {
+                const courseNode = event.target.closest('.calendar-v1-tt-course[data-course-key]');
+                if (!courseNode) return;
+                const courseKey = String(courseNode.dataset.courseKey || '');
+                const matchedCourse = renderedScheduleCourseMap.get(courseKey);
+                if (!matchedCourse) return;
+                openCourseSheet(matchedCourse);
+            });
+        }
+
         if (eventAddBtn) {
             eventAddBtn.addEventListener('click', () => {
                 const state = ensureCalendarState();
                 openEventSheet(state.selectedDate, null);
+            });
+        }
+
+        if (headerActionBtn) {
+            headerActionBtn.addEventListener('click', () => {
+                if (activeViewId !== SCHEDULE_VIEW_ID || !scheduleImportInput) return;
+                scheduleImportInput.click();
             });
         }
 
@@ -888,6 +1554,8 @@
         if (eventSheetBackdrop) eventSheetBackdrop.addEventListener('click', closeEventSheet);
         if (eventSheetCloseBtn) eventSheetCloseBtn.addEventListener('click', closeEventSheet);
         if (eventCancelBtn) eventCancelBtn.addEventListener('click', closeEventSheet);
+        if (courseSheetBackdrop) courseSheetBackdrop.addEventListener('click', closeCourseSheet);
+        if (courseSheetCloseBtn) courseSheetCloseBtn.addEventListener('click', closeCourseSheet);
 
         if (eventAllDayInput) {
             eventAllDayInput.addEventListener('change', () => {
@@ -903,6 +1571,24 @@
                 deleteStoredEvent(activeEventDraft.id);
                 closeEventSheet();
                 renderCalendarView(false);
+            });
+        }
+
+        if (scheduleImportInput) {
+            scheduleImportInput.addEventListener('change', async () => {
+                const file = scheduleImportInput.files && scheduleImportInput.files[0];
+                if (!file) return;
+                try {
+                    const rawText = await file.text();
+                    const parsed = JSON.parse(rawText);
+                    importScheduleFromObject(parsed);
+                    showCalendarNotice('课表导入好啦～ (๑•̀ㅂ•́)و✧');
+                } catch (error) {
+                    console.error('[calendar] failed to import schedule json:', error);
+                    showCalendarNotice('这个 JSON 好像不太对哦，按模板改改再试试～');
+                } finally {
+                    scheduleImportInput.value = '';
+                }
             });
         }
 
@@ -1007,6 +1693,20 @@
             }, { passive: true });
         }
 
+        if (schedulePrevWeekBtn) {
+            schedulePrevWeekBtn.addEventListener('click', () => {
+                const state = ensureCalendarState();
+                syncCalendarState(shiftDateKey(state.selectedDate, -7), true, { scheduleTransitionDirection: 'prev' });
+            });
+        }
+
+        if (scheduleNextWeekBtn) {
+            scheduleNextWeekBtn.addEventListener('click', () => {
+                const state = ensureCalendarState();
+                syncCalendarState(shiftDateKey(state.selectedDate, 7), true, { scheduleTransitionDirection: 'next' });
+            });
+        }
+
         window.initCalendarAppView = function () {
             closeMonthSheet();
             closeEventSheet();
@@ -1020,14 +1720,14 @@
         };
     }
 
+    window.getCalendarChatContext = buildCalendarChatContext;
+
     if (window.appInitFunctions) {
         window.appInitFunctions.push(initCalendarApp);
     } else {
         document.addEventListener('DOMContentLoaded', initCalendarApp);
     }
 })();
-
-
 
 
 

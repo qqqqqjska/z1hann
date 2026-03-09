@@ -526,7 +526,12 @@ const state = {
     calendarApp: {
         selectedDate: '',
         visibleMonth: '',
-        events: []
+        events: [],
+        schedule: {
+            termName: '',
+            termStartDate: '',
+            courses: []
+        }
     },
     music: {
         playing: false,
@@ -1119,12 +1124,27 @@ async function loadConfig() {
                 state.calendarApp = {
                     selectedDate: '',
                     visibleMonth: '',
-                    events: []
+                    events: [],
+                    schedule: {
+                        termName: '',
+                        termStartDate: '',
+                        courses: []
+                    }
                 };
             }
             if (typeof state.calendarApp.selectedDate !== 'string') state.calendarApp.selectedDate = '';
             if (typeof state.calendarApp.visibleMonth !== 'string') state.calendarApp.visibleMonth = '';
             if (!Array.isArray(state.calendarApp.events)) state.calendarApp.events = [];
+            if (!state.calendarApp.schedule || typeof state.calendarApp.schedule !== 'object') {
+                state.calendarApp.schedule = {
+                    termName: '',
+                    termStartDate: '',
+                    courses: []
+                };
+            }
+            if (typeof state.calendarApp.schedule.termName !== 'string') state.calendarApp.schedule.termName = '';
+            if (typeof state.calendarApp.schedule.termStartDate !== 'string') state.calendarApp.schedule.termStartDate = '';
+            if (!Array.isArray(state.calendarApp.schedule.courses)) state.calendarApp.schedule.courses = [];
             const bankApp = state.bankApp;
             const migratedCash = Number.isFinite(Number(bankApp.cashBalance))
                 ? Number(bankApp.cashBalance)

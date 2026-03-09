@@ -4242,9 +4242,9 @@
                         </div>
                     </button>
                 </div>
-                <div class="calendar-v1-user-avatar" aria-hidden="true">
-                    <i class="ri-user-smile-line"></i>
-                </div>
+                <button id="calendar-v1-header-action-btn" class="calendar-v1-user-avatar" type="button" aria-label="课表功能">
+                    <i id="calendar-v1-header-action-icon" class="ri-user-smile-line"></i>
+                </button>
             </div>
 
             <div class="calendar-v1-views-wrapper">
@@ -4270,94 +4270,31 @@
                 <div class="calendar-v1-view" id="calendar-v1-view-schedule">
                     <div class="calendar-v1-schedule-container">
                         <div class="calendar-v1-glass-card" style="padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <span style="font-weight: 600; font-size: 14px;">Week 8</span>
+                            <span id="calendar-v1-schedule-week-label" style="font-weight: 600; font-size: 14px;">第 1 周</span>
                             <div style="display: flex; gap: 10px;">
-                                <i class="ri-arrow-left-s-line" style="cursor: pointer;"></i>
-                                <i class="ri-arrow-right-s-line" style="cursor: pointer;"></i>
+                                <button id="calendar-v1-schedule-prev-week" class="calendar-v1-month-sheet-nav" type="button" aria-label="上一周">
+                                    <i class="ri-arrow-left-s-line"></i>
+                                </button>
+                                <button id="calendar-v1-schedule-next-week" class="calendar-v1-month-sheet-nav" type="button" aria-label="下一周">
+                                    <i class="ri-arrow-right-s-line"></i>
+                                </button>
                             </div>
                         </div>
 
                         <div class="calendar-v1-glass-card" style="padding: 15px 10px;">
+                            <div id="calendar-v1-schedule-meta" class="calendar-v1-empty-state" style="margin-bottom: 14px; text-align: left;">
+                                还没导入课表哦，点右上角按钮把 JSON 课表塞进来吧～
+                            </div>
                             <div class="calendar-v1-tt-wrapper">
                                 <div class="calendar-v1-timetable">
                                     <div class="calendar-v1-tt-header">
                                         <div class="calendar-v1-tt-corner"></div>
-                                        <div class="calendar-v1-tt-days">
-                                            <div class="calendar-v1-tt-day">Mon</div>
-                                            <div class="calendar-v1-tt-day">Tue</div>
-                                            <div class="calendar-v1-tt-day">Wed</div>
-                                            <div class="calendar-v1-tt-day">Thu</div>
-                                            <div class="calendar-v1-tt-day">Fri</div>
-                                            <div class="calendar-v1-tt-day">Sat</div>
-                                            <div class="calendar-v1-tt-day">Sun</div>
-                                        </div>
+                                        <div id="calendar-v1-tt-days" class="calendar-v1-tt-days"></div>
                                     </div>
 
                                     <div class="calendar-v1-tt-body">
-                                        <div class="calendar-v1-tt-times">
-                                            <div class="calendar-v1-tt-time">08:00</div>
-                                            <div class="calendar-v1-tt-time">09:00</div>
-                                            <div class="calendar-v1-tt-time">10:00</div>
-                                            <div class="calendar-v1-tt-time">11:00</div>
-                                            <div class="calendar-v1-tt-time">12:00</div>
-                                            <div class="calendar-v1-tt-time">13:00</div>
-                                            <div class="calendar-v1-tt-time">14:00</div>
-                                            <div class="calendar-v1-tt-time">15:00</div>
-                                            <div class="calendar-v1-tt-time">16:00</div>
-                                            <div class="calendar-v1-tt-time">17:00</div>
-                                            <div class="calendar-v1-tt-time">18:00</div>
-                                            <div class="calendar-v1-tt-time">19:00</div>
-                                            <div class="calendar-v1-tt-time">20:00</div>
-                                            <div class="calendar-v1-tt-time">21:00</div>
-                                        </div>
-
-                                        <div class="calendar-v1-tt-grid">
-                                            <div class="calendar-v1-tt-col">
-                                                <div class="calendar-v1-tt-course blue" style="top: 50px; height: 96px;">
-                                                    <div class="calendar-v1-tt-c-title">UI Design</div>
-                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> R302</div>
-                                                </div>
-                                                <div class="calendar-v1-tt-course green" style="top: 300px; height: 96px;">
-                                                    <div class="calendar-v1-tt-c-title">Web Dev</div>
-                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> Lab2</div>
-                                                </div>
-                                            </div>
-
-                                            <div class="calendar-v1-tt-col">
-                                                <div class="calendar-v1-tt-course pink" style="top: 100px; height: 96px;">
-                                                    <div class="calendar-v1-tt-c-title">Color Theory</div>
-                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> R105</div>
-                                                </div>
-                                                <div class="calendar-v1-tt-course gray" style="top: 550px; height: 96px;">
-                                                    <div class="calendar-v1-tt-c-title">Night Class</div>
-                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-moon-line"></i> A101</div>
-                                                </div>
-                                            </div>
-
-                                            <div class="calendar-v1-tt-col">
-                                                <div class="calendar-v1-tt-course blue" style="top: 50px; height: 96px;">
-                                                    <div class="calendar-v1-tt-c-title">UI Design</div>
-                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> R302</div>
-                                                </div>
-                                            </div>
-
-                                            <div class="calendar-v1-tt-col">
-                                                <div class="calendar-v1-tt-course gray" style="top: 275px; height: 96px;">
-                                                    <div class="calendar-v1-tt-c-title">Ethics</div>
-                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> R104</div>
-                                                </div>
-                                            </div>
-
-                                            <div class="calendar-v1-tt-col">
-                                                <div class="calendar-v1-tt-course green" style="top: 100px; height: 96px;">
-                                                    <div class="calendar-v1-tt-c-title">Web Dev</div>
-                                                    <div class="calendar-v1-tt-c-loc"><i class="ri-map-pin-line"></i> Lab2</div>
-                                                </div>
-                                            </div>
-
-                                            <div class="calendar-v1-tt-col"></div>
-                                            <div class="calendar-v1-tt-col"></div>
-                                        </div>
+                                        <div id="calendar-v1-tt-times" class="calendar-v1-tt-times"></div>
+                                        <div id="calendar-v1-tt-grid" class="calendar-v1-tt-grid"></div>
                                     </div>
                                 </div>
                             </div>
@@ -4365,6 +4302,8 @@
                     </div>
                 </div>
             </div>
+
+            <input type="file" id="calendar-v1-schedule-import-input" accept=".json,application/json" class="file-input-hidden">
 
             <div class="calendar-v1-bottom-nav-container">
                 <div class="calendar-v1-bottom-nav">
@@ -4444,6 +4383,23 @@
                             <button id="calendar-v1-event-save-btn" class="calendar-v1-event-sheet-action primary" type="submit">保存一下</button>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <div id="calendar-v1-course-sheet" class="calendar-v1-course-sheet" aria-hidden="true">
+                <button id="calendar-v1-course-sheet-backdrop" class="calendar-v1-course-sheet-backdrop" type="button" aria-label="关闭课程详情"></button>
+                <div class="calendar-v1-course-sheet-panel">
+                    <div class="calendar-v1-course-sheet-handle"></div>
+                    <div class="calendar-v1-course-sheet-header">
+                        <div>
+                            <div id="calendar-v1-course-sheet-title" class="calendar-v1-course-sheet-title">课程详情</div>
+                            <div id="calendar-v1-course-sheet-subtitle" class="calendar-v1-course-sheet-subtitle">点开看看今天上啥课</div>
+                        </div>
+                        <button id="calendar-v1-course-sheet-close" class="calendar-v1-course-sheet-close" type="button" aria-label="关闭课程详情">
+                            <i class="ri-close-line"></i>
+                        </button>
+                    </div>
+                    <div id="calendar-v1-course-sheet-body" class="calendar-v1-course-sheet-body"></div>
                 </div>
             </div>
         </div>
