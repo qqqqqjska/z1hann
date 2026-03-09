@@ -1,4 +1,4 @@
-﻿const DEFAULT_THOUGHT_PET_SIZE = 88;
+const DEFAULT_THOUGHT_PET_SIZE = 88;
 const MIN_THOUGHT_PET_SIZE = 52;
 const MAX_THOUGHT_PET_SIZE = 140;
 const DEFAULT_THOUGHT_PET_POSITION = { xRatio: 0.86, yRatio: 0.72 };
@@ -549,6 +549,13 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     }
 
     saveConfig();
+
+    if (window.syncToFloatingChat && window.isScreenSharing) {
+        window.syncToFloatingChat({ content: text, type: type, role: isUser ? 'user' : 'assistant' }, contactId);
+        if (typeof window.loadFloatingChatHistory === 'function') {
+            window.loadFloatingChatHistory();
+        }
+    }
     
     // Only update UI if we are in the chat with this contact
     if (window.iphoneSimState.currentChatContactId === contactId) {

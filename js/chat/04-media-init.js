@@ -1,4 +1,4 @@
-﻿function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null) {
+function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null) {
     return new Promise(resolve => {
         const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
         if (!contactId) {
@@ -45,6 +45,18 @@
         }
 
         saveConfig();
+
+        if (window.syncToFloatingChat && window.isScreenSharing) {
+            console.log('[ScreenShare Debug] sync assistant reply to floating', {
+                contactId,
+                type,
+                preview: String(text || '').slice(0, 120)
+            });
+            window.syncToFloatingChat({ content: text, type: type, role: 'assistant' }, contactId);
+            if (typeof window.loadFloatingChatHistory === 'function') {
+                window.loadFloatingChatHistory();
+            }
+        }
         
         if (window.iphoneSimState.currentChatContactId === contactId) {
             appendMessageToUI(text, false, type, null, replyTo, msgData.id, msgData.time);
@@ -4071,7 +4083,7 @@ function setupChatListeners() {
                     return;
                 }
 
-                if (item.id === 'chat-more-photo-btn' || item.id === 'chat-more-camera-btn' || item.id === 'chat-more-transfer-btn' || item.id === 'chat-more-memory-btn' || item.id === 'chat-more-location-btn' || item.id === 'chat-more-regenerate-btn' || item.id === 'chat-more-voice-btn' || item.id === 'chat-more-video-call-btn') return;
+                if (item.id === 'chat-more-photo-btn' || item.id === 'chat-more-camera-btn' || item.id === 'chat-more-transfer-btn' || item.id === 'chat-more-memory-btn' || item.id === 'chat-more-location-btn' || item.id === 'chat-more-regenerate-btn' || item.id === 'chat-more-voice-btn' || item.id === 'chat-more-video-call-btn' || item.id === 'chat-more-screen-share-btn') return;
                 
                 e.stopPropagation();
                 const label = item.querySelector('.more-label').textContent;

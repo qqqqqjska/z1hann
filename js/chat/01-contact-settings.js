@@ -605,7 +605,20 @@ function isHiddenForumWechatSyncText(text) {
 
 function shouldHideChatSyncMsg(msg) {
     if (!msg) return false;
-    if (msg.type === 'system_event' || msg.type === 'live_sync_hidden' || msg.type === 'family_card_spend_notice_hidden') return true;
+    if (msg.type === 'system_event' || msg.type === 'live_sync_hidden' || msg.type === 'family_card_spend_notice_hidden' || msg.type === 'screen_share_hidden') return true;
+    if (
+        msg.role === 'system'
+        && typeof msg.content === 'string'
+        && (
+            msg.content.startsWith('[System]: Screen share started')
+            || msg.content.startsWith('[System]: Typed ')
+            || msg.content.startsWith('[System]: Tried to type ')
+            || msg.content.startsWith('[System]: No text to type')
+            || msg.content.startsWith('[System]: No input is available right now')
+            || msg.content.startsWith('[System]: The password for ')
+            || msg.content.startsWith('[System]: Password is still empty, cannot tap Open yet')
+        )
+    ) return true;
     if (msg.type === 'text' && typeof msg.content === 'string' && isHiddenForumWechatSyncText(msg.content)) return true;
     return false;
 }

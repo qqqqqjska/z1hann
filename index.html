@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <title>iPhone Simulator</title>
@@ -44,9 +44,34 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
     <link rel="stylesheet" href="css/album.css">
     <link rel="stylesheet" href="css/chat_ui_v1_overrides.css">
+    <link rel="stylesheet" href="css/screen_share.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
+        <!-- 屏幕共享层 -->
+        <div id="screen-share-overlay" class="hidden">
+            <div class="screen-share-indicator">
+                <i class="fas fa-desktop"></i> 正在共享屏幕给 TA
+            </div>
+            <button id="exit-screen-share-btn" class="screen-share-exit-btn">退出共享</button>
+            <div id="ai-cursor"></div>
+            
+            <div id="floating-chat-window">
+                <div class="fc-header">
+                    <div class="fc-title"><i class="fas fa-comment-dots"></i> 聊天</div>
+                    <div class="fc-controls">
+                        <button id="fc-minimize-btn" class="fc-btn"><i class="fas fa-window-minimize"></i></button>
+                    </div>
+                </div>
+                <div id="fc-body" class="fc-body"></div>
+                <div class="fc-input-area">
+                    <input type="text" id="fc-input" class="fc-input" placeholder="输入消息...">
+                    <button id="fc-reply-btn" class="fc-reply-btn" title="生成回复"><i class="fas fa-robot"></i></button>
+                    <button id="fc-send-btn" class="fc-send-btn" title="发送消息"><i class="fas fa-arrow-up"></i></button>
+                </div>
+            </div>
+        </div>
+
         <!-- 消息通知横幅 -->
         <div id="chat-notification" class="chat-notification-banner hidden" onclick="window.handleNotificationClick()">
             <div class="chat-notification-content">
@@ -1433,6 +1458,10 @@
                             <div class="more-item" id="chat-more-edit-msg-btn">
                                 <div class="more-icon"><i class="fas fa-edit"></i></div>
                                 <div class="more-label">编辑</div>
+                            </div>
+                            <div class="more-item" id="chat-more-screen-share-btn" onclick="window.startScreenShare(); event.stopPropagation();">
+                                <div class="more-icon"><i class="fas fa-desktop"></i></div>
+                                <div class="more-label">屏幕共享</div>
                             </div>
                         </div>
                     </div>
@@ -6460,6 +6489,7 @@
     <script src="js/novelai.js"></script>
     <script src="js/settings_v3.js"></script>
     <script src="js/album.js"></script>
+    <script src="js/screen_share.js"></script>
 <!-- 在 index.html 中找到 <!-- 编辑记忆弹窗 --> 附近，添加以下代码 -->
 
             <!-- 编辑消息弹窗 -->

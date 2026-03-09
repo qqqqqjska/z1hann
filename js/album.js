@@ -298,6 +298,7 @@
     };
 
     const ALBUM_CARD_LONG_PRESS_DURATION = 480;
+    const ALBUM_SCREEN_SHARE_MAX_ITEMS = 4;
     let albumCardLongPressTimer = null;
     let suppressedAlbumOpenId = null;
 
@@ -423,6 +424,227 @@
     function getCurrentPhotoRecord() {
         if (!albumState.currentPhotoId) return null;
         return findPhotoById(albumState.currentPhotoCollectionKey, albumState.currentPhotoId);
+    }
+
+    function isAlbumElementVisibleInViewport(element, viewportElement = document.getElementById('album-app')) {
+        if (!element) return false;
+
+        const style = window.getComputedStyle(element);
+        if (style.visibility === 'hidden' || style.display === 'none' || element.offsetParent === null) {
+            return false;
+        }
+
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+
+        const viewportRect = viewportElement
+            ? viewportElement.getBoundingClientRect()
+            : { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight };
+
+        return rect.bottom > viewportRect.top
+            && rect.top < viewportRect.bottom
+            && rect.right > viewportRect.left
+            && rect.left < viewportRect.right;
+    }
+
+    function getVisibleAlbumElements(selector, limit = ALBUM_SCREEN_SHARE_MAX_ITEMS) {
+        if (!selector || limit <= 0) return [];
+
+        const app = document.getElementById('album-app');
+        return Array.from(document.querySelectorAll(selector))
+            .filter(element => isAlbumElementVisibleInViewport(element, app))
+            .slice(0, limit);
+    }
+
+    function getAlbumElementImageSrc(element) {
+        if (!element) return '';
+
+        const image = element.tagName === 'IMG' ? element : element.querySelector('img');
+        if (!image) return '';
+
+        return image.currentSrc || image.src || image.getAttribute('src') || '';
+    }
+
+    function normalizeScreenSharePhotoPayload(photo, fallbackSrc = '', sourceText = '') {
+        if (!photo) return null;
+
+        const src = typeof fallbackSrc === 'string' && fallbackSrc
+            ? fallbackSrc
+            : (typeof photo.src === 'string' && photo.src ? photo.src : (typeof photo.thumb === 'string' ? photo.thumb : ''));
+        if (!src) return null;
+
+        return {
+            photoId: typeof photo.id === 'string' ? photo.id : '',
+            src,
+            thumb: typeof photo.thumb === 'string' && photo.thumb
+                ? photo.thumb
+                : (typeof fallbackSrc === 'string' && fallbackSrc ? fallbackSrc : src),
+            location: typeof photo.location === 'string' ? photo.location : '',
+            datetime: typeof photo.datetime === 'string' ? photo.datetime : '',
+            sourceText: typeof sourceText === 'string' && sourceText.trim()
+                ? sourceText.trim()
+                : (typeof photo.location === 'string' ? photo.location : '')
+        };
+    }
+
+    function buildScreenSharePhotoItem(photo, position, fallbackSrc = '', sourceText = '') {
+        const normalizedPhoto = normalizeScreenSharePhotoPayload(photo, fallbackSrc, sourceText);
+        if (!normalizedPhoto) return null;
+
+        return {
+            kind: 'photo',
+            photoId: normalizedPhoto.photoId,
+            src: normalizedPhoto.src,
+            thumb: normalizedPhoto.thumb,
+            location: normalizedPhoto.location,
+            datetime: normalizedPhoto.datetime,
+            sourceText: normalizedPhoto.sourceText,
+            position
+        };
+    }
+
+    function buildScreenShareAlbumItem(album, position, fallbackSrc = '') {
+        if (!album) return null;
+
+        const src = typeof fallbackSrc === 'string' && fallbackSrc
+            ? fallbackSrc
+            : (typeof album.cover === 'string' && album.cover
+                ? album.cover
+                : ((album.photos && album.photos[0] && album.photos[0].src) || PLACEHOLDER_COVER));
+
+        return {
+            kind: 'album_cover',
+            albumId: typeof album.id === 'string' ? album.id : '',
+            albumName: typeof album.name === 'string' ? album.name : '',
+            src,
+            count: Number.isFinite(Number(album.count)) ? Number(album.count) : 0,
+            isPrivate: album.isPrivate === true,
+            position
+        };
+    }
+
+    function getCurrentPhotoAlbumName() {
+        if (!albumState.currentPhotoCollectionKey || !albumState.currentPhotoCollectionKey.startsWith('album:')) {
+            return null;
+        }
+
+        const album = getAlbumById(albumState.currentPhotoCollectionKey.slice('album:'.length));
+        return album ? album.name : null;
+    }
+
+    function getAlbumPhotoDetailSourceText() {
+        const sourceElement = document.getElementById('album-photo-location');
+        return sourceElement ? String(sourceElement.textContent || '').trim() : '';
+    }
+
+    function getAlbumScreenShareSnapshot() {
+        const app = document.getElementById('album-app');
+        if (!app || app.classList.contains('hidden')) return null;
+
+        const pageTitle = document.getElementById('album-page-title');
+        const detailOverlay = document.getElementById('album-detail-overlay');
+        const photoView = document.getElementById('album-photo-detail-view');
+        const privacyPasswordModal = document.getElementById('album-privacy-password-modal');
+        const privacyPasswordTitle = document.getElementById('album-privacy-password-title');
+        const privacyPasswordDescription = document.getElementById('album-privacy-password-description');
+        const privacyPasswordInput = document.getElementById('album-privacy-password-input');
+        const privacyPasswordError = document.getElementById('album-privacy-password-error');
+        const privacyPasswordConfirm = document.getElementById('album-privacy-password-confirm');
+        const isPhotoDetailOpen = !!(photoView && photoView.classList.contains('open'));
+        const isAlbumDetailOpen = !!(detailOverlay && detailOverlay.classList.contains('open'));
+        const isPrivacyPasswordOpen = !!(privacyPasswordModal && privacyPasswordModal.classList.contains('open'));
+        const privacyAlbum = albumState.privacyPasswordAlbumId ? getAlbumById(albumState.privacyPasswordAlbumId) : null;
+
+        const snapshot = {
+            app: 'album',
+            view: 'recent_grid',
+            title: pageTitle ? pageTitle.textContent.trim() : 'Album',
+            activeAlbumName: null,
+            currentPhoto: null,
+            photoOriginView: null,
+            detailSourceText: '',
+            passwordAlbumName: privacyAlbum && privacyAlbum.name ? privacyAlbum.name : null,
+            passwordMode: albumState.privacyPasswordMode || null,
+            passwordTitle: privacyPasswordTitle ? String(privacyPasswordTitle.textContent || '').trim() : '',
+            passwordDescription: privacyPasswordDescription ? String(privacyPasswordDescription.textContent || '').trim() : '',
+            passwordError: privacyPasswordError && !privacyPasswordError.classList.contains('hidden')
+                ? String(privacyPasswordError.textContent || '').trim()
+                : '',
+            passwordInputVisible: !!privacyPasswordInput,
+            passwordConfirmText: privacyPasswordConfirm ? String(privacyPasswordConfirm.textContent || '').trim() : '',
+            items: []
+        };
+
+        if (isPrivacyPasswordOpen) {
+            snapshot.view = 'privacy_password_modal';
+            snapshot.title = snapshot.passwordTitle || '输入相册密码';
+            snapshot.activeAlbumName = snapshot.passwordAlbumName;
+            snapshot.items = getVisibleAlbumElements('#album-albums-grid .album-card[data-album-id]')
+                .map((button, index) => buildScreenShareAlbumItem(getAlbumById(button.dataset.albumId), index + 1, getAlbumElementImageSrc(button)))
+                .filter(Boolean);
+            return snapshot;
+        }
+
+        if (isPhotoDetailOpen) {
+            const detailSourceText = getAlbumPhotoDetailSourceText();
+            const currentPhoto = normalizeScreenSharePhotoPayload(
+                getCurrentPhotoRecord(),
+                getAlbumElementImageSrc(document.getElementById('album-photo-main-img')),
+                detailSourceText
+            );
+            snapshot.view = 'photo_detail';
+            snapshot.title = currentPhoto && currentPhoto.location
+                ? currentPhoto.location
+                : (document.getElementById('album-photo-location')?.textContent || 'Photo').trim();
+            snapshot.activeAlbumName = getCurrentPhotoAlbumName();
+            snapshot.detailSourceText = detailSourceText;
+            snapshot.currentPhoto = currentPhoto;
+            snapshot.photoOriginView = isAlbumDetailOpen ? 'album_detail' : 'recent_grid';
+            snapshot.items = getVisibleAlbumElements('#album-photo-thumbnails .album-photo-thumb[data-photo-id]', ALBUM_SCREEN_SHARE_MAX_ITEMS + 1)
+                .filter(button => !button.classList.contains('is-active'))
+                .map((button, index) => buildScreenSharePhotoItem(
+                    findPhotoById(button.dataset.collectionKey || albumState.currentPhotoCollectionKey, button.dataset.photoId),
+                    index + 1,
+                    getAlbumElementImageSrc(button)
+                ))
+                .filter(Boolean);
+            return snapshot;
+        }
+
+        if (isAlbumDetailOpen) {
+            const currentAlbum = getAlbumById(albumState.currentAlbumId);
+            snapshot.view = 'album_detail';
+            snapshot.title = currentAlbum && currentAlbum.name ? currentAlbum.name : 'Album Detail';
+            snapshot.activeAlbumName = currentAlbum && currentAlbum.name ? currentAlbum.name : null;
+            snapshot.items = getVisibleAlbumElements('#album-detail-content .album-photo-item[data-photo-id]')
+                .map((button, index) => buildScreenSharePhotoItem(
+                    findPhotoById(button.dataset.collectionKey || `album:${albumState.currentAlbumId}`, button.dataset.photoId),
+                    index + 1,
+                    getAlbumElementImageSrc(button)
+                ))
+                .filter(Boolean);
+            return snapshot;
+        }
+
+        if (albumState.activeTab === 'albums') {
+            snapshot.view = 'albums_grid';
+            snapshot.title = pageTitle ? pageTitle.textContent.trim() : 'Albums';
+            snapshot.items = getVisibleAlbumElements('#album-albums-grid .album-card[data-album-id]')
+                .map((button, index) => buildScreenShareAlbumItem(getAlbumById(button.dataset.albumId), index + 1, getAlbumElementImageSrc(button)))
+                .filter(Boolean);
+            return snapshot;
+        }
+
+        snapshot.view = 'recent_grid';
+        snapshot.title = pageTitle ? pageTitle.textContent.trim() : 'Recent';
+        snapshot.items = getVisibleAlbumElements('#album-recent-content .album-photo-item[data-photo-id]')
+            .map((button, index) => buildScreenSharePhotoItem(
+                findPhotoById(button.dataset.collectionKey || 'recent', button.dataset.photoId),
+                index + 1,
+                getAlbumElementImageSrc(button)
+            ))
+            .filter(Boolean);
+        return snapshot;
     }
 
     function sanitizePhotoFileName(value) {
@@ -2086,6 +2308,7 @@
     window.reloadAlbumAppState = reloadAlbumAppState;
     window.closeAlbumApp = closeAlbumApp;
     window.savePhotoToAlbumLibrary = savePhotoToLibrary;
+    window.getAlbumScreenShareSnapshot = getAlbumScreenShareSnapshot;
 
     window.appInitFunctions = window.appInitFunctions || [];
     window.appInitFunctions.push(initAlbumApp);

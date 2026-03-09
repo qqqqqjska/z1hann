@@ -2065,6 +2065,168 @@ function parseMixedAiResponse(content) {
     return results;
 }
 
+function extractTextFromAiResponsePart(part) {
+    if (part === null || part === undefined) return '';
+    if (typeof part === 'string') return part;
+
+    if (Array.isArray(part)) {
+        return part.map(item => extractTextFromAiResponsePart(item)).filter(Boolean).join('\n');
+    }
+
+    if (typeof part !== 'object') return '';
+
+    if (typeof part.text === 'string') return part.text;
+    if (part.text && typeof part.text.value === 'string') return part.text.value;
+    if (typeof part.value === 'string') return part.value;
+    if (typeof part.content === 'string') return part.content;
+    if (typeof part.output_text === 'string') return part.output_text;
+
+    if (Array.isArray(part.content)) {
+        return part.content.map(item => extractTextFromAiResponsePart(item)).filter(Boolean).join('\n');
+    }
+
+    return '';
+}
+
+function extractReplyContentFromAiResponse(data) {
+    const choice = data && Array.isArray(data.choices) ? data.choices[0] : null;
+    const message = choice && choice.message ? choice.message : null;
+
+    const candidates = [
+        { source: 'choices[0].message.content', value: message ? message.content : null },
+        { source: 'choices[0].text', value: choice ? choice.text : null },
+        { source: 'choices[0].delta.content', value: choice && choice.delta ? choice.delta.content : null },
+        { source: 'output_text', value: data ? data.output_text : null },
+        { source: 'output[0].content', value: data && Array.isArray(data.output) && data.output[0] ? data.output[0].content : null }
+    ];
+
+    for (const candidate of candidates) {
+        const text = extractTextFromAiResponsePart(candidate.value).trim();
+        if (text) {
+            return {
+                content: text,
+                source: candidate.source
+            };
+        }
+    }
+
+    return {
+        content: '',
+        source: null
+    };
+}
+
+function normalizeAiRequestImageUrl(url) {
+    const rawUrl = String(url || '').trim();
+    if (!rawUrl) return '';
+    if (rawUrl.startsWith('data:image')) return rawUrl;
+    if (rawUrl.startsWith('//')) return `https:${rawUrl}`;
+
+    try {
+        return new URL(rawUrl, window.location.href).href;
+    } catch (error) {
+        return rawUrl;
+    }
+}
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function convertAiRequestImageUrlToDataUrl(url) {
+    const normalizedUrl = normalizeAiRequestImageUrl(url);
+    if (!normalizedUrl || normalizedUrl.startsWith('data:image')) return normalizedUrl;
+
+    if (!window.__aiRequestImageCache) {
+        window.__aiRequestImageCache = new Map();
+    }
+
+    const cache = window.__aiRequestImageCache;
+    if (cache.has(normalizedUrl)) {
+        return cache.get(normalizedUrl);
+    }
+
+    const pendingTask = (async () => {
+        const response = await fetch(normalizedUrl);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        let dataUrl = await blobToDataUrl(blob);
+
+        if (typeof compressBase64 === 'function' && typeof dataUrl === 'string' && dataUrl.startsWith('data:image')) {
+            try {
+                dataUrl = await compressBase64(dataUrl, 768, 0.72);
+            } catch (compressionError) {
+                console.warn('[AI Debug] image compression skipped for request part', compressionError);
+            }
+        }
+
+        return dataUrl;
+    })();
+
+    cache.set(normalizedUrl, pendingTask);
+
+    try {
+        const result = await pendingTask;
+        cache.set(normalizedUrl, Promise.resolve(result));
+        return result;
+    } catch (error) {
+        cache.delete(normalizedUrl);
+        throw error;
+    }
+}
+
+async function normalizeAiRequestMessageImages(messages) {
+    if (!Array.isArray(messages)) return;
+
+    let totalImageCount = 0;
+    let convertedCount = 0;
+    let failedCount = 0;
+
+    for (const message of messages) {
+        if (!message || !Array.isArray(message.content)) continue;
+
+        for (const part of message.content) {
+            if (!part || part.type !== 'image_url' || !part.image_url) continue;
+
+            totalImageCount += 1;
+            const originalUrl = part.image_url.url;
+            const normalizedUrl = normalizeAiRequestImageUrl(originalUrl);
+            if (normalizedUrl && normalizedUrl !== originalUrl) {
+                part.image_url.url = normalizedUrl;
+            }
+
+            if (!normalizedUrl || normalizedUrl.startsWith('data:image')) continue;
+
+            try {
+                part.image_url.url = await convertAiRequestImageUrlToDataUrl(normalizedUrl);
+                convertedCount += 1;
+            } catch (error) {
+                failedCount += 1;
+                console.warn('[AI Debug] failed to convert request image to data URL', {
+                    url: normalizedUrl,
+                    error: error && error.message ? error.message : String(error)
+                });
+            }
+        }
+    }
+
+    if (totalImageCount > 0) {
+        console.log('[AI Debug] normalized request images', {
+            totalImageCount,
+            convertedCount,
+            failedCount
+        });
+    }
+}
+
 // Helper to force split text containing stickers/images
 function forceSplitMixedContent(content) {
     if (typeof content !== 'string') {
@@ -2253,6 +2415,7 @@ async function generateAiReply(instruction = null, targetContactId = null) {
     }
 
     const history = window.iphoneSimState.chatHistory[contactId] || [];
+
     
     // Check for Truth or Dare triggers
     if (!targetContactId && window.currentMiniGame === 'truth_dare') {
@@ -2645,6 +2808,7 @@ ${contact.showThought ? `
 
 主动行为使用原则：
 1. 这些动作是“偶尔主动”，不是每轮都做，也不要一次回复里堆很多动作。
+   Screen-share exception: SCREEN_TAP / SCREEN_TYPE do not follow this limit. If the current screen already makes the next steps clear, you can output a full multi-step screen-action chain in one reply, and the system will execute them strictly in order.
 2. 主动动作要像关系中的真实反应，而不是为了展示功能硬塞。
 3. 相比转账、送礼、点外卖这类较重动作，更轻的主动行为（引用回复、发照片、发语音、发朋友圈）可以更常见。
 4. 如果当前聊天里有明确可接的话题、细节、吐槽、情绪、计划、回忆，优先考虑用引用回复来接话，会更像真人。
@@ -2684,6 +2848,16 @@ ${contact.showThought ? `
 - 发起一起听邀请 -> command: "MUSIC_SEND_INVITE", payload: "歌曲关键词(可选；当用户当前正在听歌时可留空)"
 - 引用回复 -> command: "QUOTE_MESSAGE", payload: "消息内容摘要"
   *建议*：这是增强真实聊天感的重要动作。只要你是在接用户某个具体点，优先考虑使用它。
+- Screen actions (screen-share only) ->
+  - command: "SCREEN_TAP", payload: "visible target name or higher-level navigation target"
+  - command: "SCREEN_TYPE", payload: "text to type into the focused field or password field"
+  Rules:
+  1. You may output any number of SCREEN_TAP / SCREEN_TYPE actions in one reply; keep them in the exact order you want them executed.
+  2. If the shared-screen context already includes images, source text, album names, visible buttons, or password-modal info, treat that as visible screen state. Do not say you cannot see it.
+  2.5. Role framing: in screen-share mode, you are actively checking the user's phone. The phone and its content belong to the user, and you are the one inspecting it. Unless the user explicitly says otherwise, do not frame the scene as the user checking your phone.
+  2.6. You may proactively inspect likely relevant areas on the user's phone when it fits the relationship or mood, such as chat records, profile pages, moments, albums, album details, and other already-implemented destinations. You do not need to wait for the user to micro-direct every single tap.
+  3. For private albums, you may use SCREEN_TYPE for a password only when it is grounded in known facts: either the user explicitly gave that password in the current chat history, or it can be directly inferred from established chat-settings persona/profile facts that are already in context, such as the user's birthday, your birthday, or another clearly stated important date. Prefer exact MMDD-style conversions like 12月24日 -> 1224. Do not invent unrelated guesses.
+  4. If the password page shows an error, do not try another guess. Tell the user the password was wrong or ask them to provide it again.
 - 更改资料 -> 
   - command: "UPDATE_NAME", payload: "新网名"
   - command: "UPDATE_WXID", payload: "新微信号"
@@ -3038,6 +3212,87 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         })
     ];
 
+    if (typeof window.getScreenShareAiContextMessages === 'function') {
+        try {
+            const screenShareContext = window.getScreenShareAiContextMessages();
+            if (screenShareContext && (screenShareContext.summaryText || screenShareContext.multimodalContent)) {
+                let lastUserMsgIndex = -1;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                    if (messages[i].role === 'user') {
+                        lastUserMsgIndex = i;
+                        break;
+                    }
+                }
+
+                const screenShareImageParts = Array.isArray(screenShareContext.multimodalContent)
+                    ? screenShareContext.multimodalContent.filter(part => part && part.type === 'image_url')
+                    : [];
+
+                console.log('[ScreenShare Debug] screen share context ready for request', {
+                    hasSummaryText: !!screenShareContext.summaryText,
+                    summaryText: screenShareContext.summaryText || null,
+                    multimodalPartCount: Array.isArray(screenShareContext.multimodalContent)
+                        ? screenShareContext.multimodalContent.length
+                        : 0,
+                    imageUrls: screenShareImageParts.map(part => part.image_url && part.image_url.url),
+                    lastUserMsgIndex
+                });
+
+                const screenShareParts = [];
+                if (screenShareContext.summaryText) {
+                    screenShareParts.push({
+                        type: 'text',
+                        text: `${screenShareContext.summaryText}. You are currently the one actively checking the user's phone, not letting the user check yours. The shared-screen album content below is visible right now as evidence from the user's device. You may proactively continue inspecting related areas if the situation calls for it. You may output multiple SCREEN_TAP / SCREEN_TYPE actions in one reply, and they will execute strictly in order. Screen actions are not limited by the normal “do not stack many actions” rule. If the current screen already makes the next steps obvious, output the full action chain at once. For a private-album password, you may use SCREEN_TYPE only when the password is grounded in known facts already in context: either the user explicitly provided it in chat history, or it can be directly inferred from established chat-settings persona/profile dates such as the user's birthday, your birthday, or another clearly stated important date. Prefer exact MMDD-style conversions like 12月24日 -> 1224. If the password page shows an error, do not guess again.`
+                    });
+                }
+                if (Array.isArray(screenShareContext.multimodalContent)) {
+                    screenShareParts.push(...screenShareContext.multimodalContent);
+                }
+
+                if (screenShareParts.length > 0) {
+                    if (lastUserMsgIndex !== -1) {
+                        const originalContent = messages[lastUserMsgIndex].content;
+                        const mergedContent = Array.isArray(originalContent)
+                            ? [...originalContent]
+                            : [{ type: 'text', text: String(originalContent || '') }];
+
+                        mergedContent.push({
+                            type: 'text',
+                            text: '【当前共享屏幕补充】'
+                        });
+                        mergedContent.push(...screenShareParts);
+                        messages[lastUserMsgIndex].content = mergedContent;
+                    } else {
+                        messages.push({
+                            role: 'user',
+                            content: screenShareParts
+                        });
+                    }
+
+                    const attachedMessage = lastUserMsgIndex !== -1
+                        ? messages[lastUserMsgIndex]
+                        : messages[messages.length - 1];
+                    const attachedImageParts = Array.isArray(attachedMessage.content)
+                        ? attachedMessage.content.filter(part => part && part.type === 'image_url')
+                        : [];
+
+                    console.log('[ScreenShare Debug] attached screen share context to message', {
+                        targetRole: attachedMessage.role,
+                        contentIsArray: Array.isArray(attachedMessage.content),
+                        targetImageUrlCount: attachedImageParts.length,
+                        targetImageUrls: attachedImageParts.map(part => part.image_url && part.image_url.url)
+                    });
+                } else {
+                    console.log('[ScreenShare Debug] screen share parts empty after build');
+                }
+            } else {
+                console.log('[ScreenShare Debug] no screen share context available for this request');
+            }
+        } catch (error) {
+            console.warn('Failed to build screen share AI context messages.', error);
+        }
+    }
+
     if (instruction) {
         messages.push({
             role: 'system',
@@ -3056,6 +3311,43 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         }
 
         const cleanKey = settings.key ? settings.key.replace(/[^\x00-\x7F]/g, "").trim() : '';
+        await normalizeAiRequestMessageImages(messages);
+        const outgoingImageParts = messages.reduce((list, message, index) => {
+            if (Array.isArray(message.content)) {
+                message.content.forEach(part => {
+                    if (part && part.type === 'image_url') {
+                        list.push({
+                            messageIndex: index,
+                            role: message.role,
+                            url: part.image_url && part.image_url.url
+                        });
+                    }
+                });
+            }
+            return list;
+        }, []);
+        let lastUserMessage = null;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') {
+                lastUserMessage = messages[i];
+                break;
+            }
+        }
+        console.log('[ScreenShare Debug] outgoing AI request summary', {
+            fetchUrl,
+            model: settings.model,
+            messageCount: messages.length,
+            outgoingImageUrlCount: outgoingImageParts.length,
+            outgoingImages: outgoingImageParts,
+            lastUserContentType: Array.isArray(lastUserMessage && lastUserMessage.content)
+                ? 'multimodal'
+                : typeof (lastUserMessage && lastUserMessage.content),
+            lastUserContentPreview: Array.isArray(lastUserMessage && lastUserMessage.content)
+                ? lastUserMessage.content.map(part => part && part.type === 'image_url'
+                    ? { type: 'image_url', url: part.image_url && part.image_url.url }
+                    : { type: part && part.type ? part.type : typeof part, text: part && part.text ? String(part.text).slice(0, 120) : '' })
+                : String((lastUserMessage && lastUserMessage.content) || '').slice(0, 240)
+        });
         const response = await fetch(fetchUrl, {
             method: 'POST',
             headers: {
@@ -3081,12 +3373,27 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
             throw new Error(`API Error: ${data.error.message || JSON.stringify(data.error)}`);
         }
 
-        if (!data.choices || !data.choices.length || !data.choices[0].message) {
+        if (!data.choices || !data.choices.length) {
             console.error('Invalid API response structure:', data);
             throw new Error('API返回数据格式异常，请检查控制台日志');
         }
 
-        let replyContent = data.choices[0].message.content;
+        const extractedReply = extractReplyContentFromAiResponse(data);
+        console.log('[AI Debug] extracted reply content', {
+            source: extractedReply.source,
+            length: extractedReply.content.length,
+            preview: extractedReply.content.slice(0, 240)
+        });
+
+        if (!extractedReply.content) {
+            console.warn('AI response contained no displayable content:', data);
+            if (typeof window.showChatToast === 'function') {
+                window.showChatToast('这次 AI 没有返回可显示的回复，请重试', 2500);
+            }
+            return;
+        }
+
+        let replyContent = extractedReply.content;
 
         replyContent = replyContent.replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
                                    .replace(/<think>[\s\S]*?<\/think>/g, '')
@@ -3213,13 +3520,16 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         const quoteMessageRegex = /ACTION:\s*QUOTE_MESSAGE:\s*(.*?)(?:\n|$)/;
         const recordUserStateRegex = /ACTION:\s*RECORD_USER_STATE:\s*(.*?)(?:\n|$)/;
         const resolveUserStateRegex = /ACTION:\s*RESOLVE_USER_STATE:\s*(.*?)(?:\n|$)/;
+        const screenActionRegex = /ACTION:\s*(SCREEN_TAP|SCREEN_TYPE)\s*:\s*(.*?)(?:\n|$)/g;
         const recordContactStateRegex = /ACTION:\s*RECORD_CONTACT_STATE:\s*(.*?)(?:\n|$)/;
         const resolveContactStateRegex = /ACTION:\s*RESOLVE_CONTACT_STATE:\s*(.*?)(?:\n|$)/;
         const sendVoiceRegex = /ACTION:\s*SEND_VOICE:\s*(\d+)\s*(.*?)(?:\n|$)/;
         const msClickRegex = /ACTION:\s*MINESWEEPER_CLICK:\s*(\d+)\s*,\s*(\d+)(?:\n|$)/;
         const msFlagRegex = /ACTION:\s*MINESWEEPER_FLAG:\s*(\d+)\s*,\s*(\d+)(?:\n|$)/;
         const witchGuessRegex = /ACTION:\s*WITCH_GUESS:\s*(\d+)\s*,\s*(\d+)(?:\n|$)/;
+
         const recordImportantStateRegex = /ACTION:\s*RECORD_IMPORTANT_STATE:\s*(.*?)(?:\n|$)/;
+        const screenTapRegex = /ACTION:\s*SCREEN_TAP:\s*(.*?)(?:\n|$)/;
         const pddCashHelpRegex = /ACTION:\s*PDD_CASH_HELP(?:\s*|$)/;
         const pddBargainHelpRegex = /ACTION:\s*PDD_BARGAIN_HELP:\s*(.*?)(?:\n|$)/;
         const musicSendInviteRegex = /ACTION:\s*MUSIC_SEND_INVITE(?:\s*:\s*(.*?))?(?:\n|$)/;
@@ -3355,14 +3665,24 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 processedSegment = processedSegment.replace(pddCashHelpMatch[0], '');
             }
 
-            let pddBargainHelpMatch;
-            while ((pddBargainHelpMatch = processedSegment.match(pddBargainHelpRegex)) !== null) {
-                const prodId = pddBargainHelpMatch[1].trim();
-                if (window.processPddHelp) {
-                    setTimeout(() => window.processPddHelp('bargain', prodId), 1000);
+            const orderedScreenActions = [];
+            processedSegment = processedSegment.replace(screenActionRegex, (fullMatch, actionName, rawPayload) => {
+                const normalizedActionName = String(actionName || '').trim().toUpperCase();
+                const actionPayload = (rawPayload || '').trim();
+                if (normalizedActionName && actionPayload) {
+                    orderedScreenActions.push({
+                        action: normalizedActionName,
+                        payload: actionPayload
+                    });
                 }
-                processedSegment = processedSegment.replace(pddBargainHelpMatch[0], '');
-            }
+                return '';
+            });
+            orderedScreenActions.forEach(screenAction => {
+                if (typeof window.executeAIScreenAction === 'function') {
+                    window.executeAIScreenAction(screenAction.action, screenAction.payload);
+                }
+            });
+
 
             const handleMusicTogetherAction = async (actionName, actionPayload) => {
                 if (typeof window.musicV2HandleTogetherRemoteAction !== 'function') {
@@ -4301,6 +4621,22 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
 
                 window.iphoneSimState.chatHistory[contact.id].push(msgData);
                 saveConfig();
+
+                if (window.syncToFloatingChat && window.isScreenSharing) {
+                    console.log('[ScreenShare Debug] sync background assistant reply to floating', {
+                        contactId: contact.id,
+                        type: typeToSave,
+                        preview: String(contentToSave || '').slice(0, 120)
+                    });
+                    window.syncToFloatingChat({
+                        content: contentToSave,
+                        type: typeToSave,
+                        role: 'assistant'
+                    }, contact.id);
+                    if (typeof window.loadFloatingChatHistory === 'function') {
+                        window.loadFloatingChatHistory();
+                    }
+                }
                 
                 // 触发通知
                 let notificationText = contentToSave;
@@ -4578,4 +4914,3 @@ function optimizePromptForNovelAI(text) {
 
     return processed;
 }
-
