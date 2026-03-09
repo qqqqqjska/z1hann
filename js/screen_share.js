@@ -1,13 +1,56 @@
 // Screen Share Simulation Logic
 
 window.isScreenSharing = false;
+window.isFloatingChatGenerating = false;
+
+function getFloatingChatContactId() {
+    return window.screenShareContactId || (window.iphoneSimState && window.iphoneSimState.currentChatContactId) || null;
+}
+
+function getFloatingChatDisplayName(contactId = getFloatingChatContactId()) {
+    if (!(window.iphoneSimState && contactId)) return '聊天';
+    const contact = (window.iphoneSimState.contacts || []).find(item => String(item.id) === String(contactId));
+    if (!contact) return '聊天';
+    return contact.remark || contact.nickname || contact.name || '聊天';
+}
+
+function setFloatingChatTitle(text) {
+    const titleEl = document.getElementById('fc-title-text');
+    if (titleEl) {
+        titleEl.textContent = text || '聊天';
+    }
+}
+
+function refreshFloatingChatTitle(contactId = getFloatingChatContactId()) {
+    if (window.isFloatingChatGenerating) {
+        setFloatingChatTitle('正在输入中...');
+        return;
+    }
+    setFloatingChatTitle(getFloatingChatDisplayName(contactId));
+}
+
+function setFloatingChatGeneratingState(isGenerating, contactId = getFloatingChatContactId()) {
+    window.isFloatingChatGenerating = !!isGenerating;
+    const sendBtn = document.getElementById('fc-send-btn');
+    if (sendBtn) {
+        sendBtn.disabled = !!isGenerating;
+        sendBtn.title = isGenerating ? '正在生成回复' : '生成回复';
+    }
+    if (isGenerating) {
+        setFloatingChatTitle('正在输入中...');
+        return;
+    }
+    setFloatingChatTitle(getFloatingChatDisplayName(contactId));
+}
+
+window.refreshFloatingChatTitle = refreshFloatingChatTitle;
+window.setFloatingChatGeneratingState = setFloatingChatGeneratingState;
 
 function initScreenShare() {
     console.log('initScreenShare running');
     const exitBtn = document.getElementById('exit-screen-share-btn');
     const minBtn = document.getElementById('fc-minimize-btn');
     const sendBtn = document.getElementById('fc-send-btn');
-    const replyBtn = document.getElementById('fc-reply-btn');
     const input = document.getElementById('fc-input');
     const chatWindow = document.getElementById('floating-chat-window');
 
@@ -16,13 +59,32 @@ function initScreenShare() {
     }
 
     if (minBtn && chatWindow) {
-        minBtn.onclick = () => {
+        minBtn.onclick = (e) => {
+            const suppressUntil = Number(chatWindow.dataset.dragSuppressClickUntil || 0);
+            if (suppressUntil && Date.now() < suppressUntil) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            const currentTop = chatWindow.offsetTop;
+            const currentRight = chatWindow.offsetLeft + chatWindow.offsetWidth;
             chatWindow.classList.toggle('minimized');
             minBtn.innerHTML = chatWindow.classList.contains('minimized') ? '<i class="fas fa-window-maximize"></i>' : '<i class="fas fa-window-minimize"></i>';
+            requestAnimationFrame(() => {
+                const padding = 20;
+                const overlay = document.getElementById('screen-share-overlay');
+                const overlayWidth = overlay ? overlay.clientWidth : window.innerWidth;
+                const overlayHeight = overlay ? overlay.clientHeight : window.innerHeight;
+                const maxTop = Math.max(padding, overlayHeight - chatWindow.offsetHeight - padding);
+                const nextTop = Math.min(Math.max(currentTop, padding), maxTop);
+                const maxLeft = Math.max(padding, overlayWidth - chatWindow.offsetWidth - padding);
+                const nextLeft = Math.min(Math.max(currentRight - chatWindow.offsetWidth, padding), maxLeft);
+                chatWindow.style.top = `${nextTop}px`;
+                chatWindow.style.left = `${nextLeft}px`;
+                chatWindow.style.bottom = 'auto';
+            });
         };
     }
-
-    const getFloatingChatContactId = () => window.screenShareContactId || (window.iphoneSimState && window.iphoneSimState.currentChatContactId);
 
     const sendMessage = () => {
         if (!input) return;
@@ -38,9 +100,19 @@ function initScreenShare() {
         }
     };
 
-    const requestAiReply = () => {
+    const requestAiReply = async () => {
         if (!window.generateAiReply) return;
         const contactId = getFloatingChatContactId();
+        if (!contactId || window.isFloatingChatGenerating) return;
+
+        if (input && input.value.trim()) {
+            input.focus();
+            if (typeof window.showChatToast === 'function') {
+                window.showChatToast('先按回车发送，再点蓝色按钮生成回复', 2200);
+            }
+            return;
+        }
+
         console.log('[ScreenShare Debug] floating reply requested', {
             contactId,
             isScreenSharing: !!window.isScreenSharing,
@@ -48,13 +120,16 @@ function initScreenShare() {
                 ? getScreenNavigationContext()
                 : null
         });
-        if (contactId) {
-            window.generateAiReply(null, contactId);
+
+        try {
+            setFloatingChatGeneratingState(true, contactId);
+            await window.generateAiReply(null, contactId);
+        } finally {
+            setFloatingChatGeneratingState(false, contactId);
         }
     };
 
-    if (sendBtn) sendBtn.onclick = sendMessage;
-    if (replyBtn) replyBtn.onclick = requestAiReply;
+    if (sendBtn) sendBtn.onclick = requestAiReply;
     if (input) {
         input.onkeydown = (e) => {
             if (e.key === 'Enter') {
@@ -97,6 +172,7 @@ window.startScreenShare = function() {
 
     overlay.classList.remove('hidden');
     window.isScreenSharing = true;
+    window.isFloatingChatGenerating = false;
 
     if (window.iphoneSimState && window.iphoneSimState.currentChatContactId) {
         window.screenShareContactId = window.iphoneSimState.currentChatContactId;
@@ -108,6 +184,7 @@ window.startScreenShare = function() {
         cursor.style.left = '50%';
     }
 
+    refreshFloatingChatTitle();
     loadFloatingChatHistory();
 
     const contactId = window.screenShareContactId;
@@ -148,6 +225,8 @@ window.stopScreenShare = function() {
     }
 
     window.screenShareContactId = null;
+    setFloatingChatGeneratingState(false, null);
+    setFloatingChatTitle('聊天');
 };
 
 function appendFloatingChatMessage(text, isUser, isSystem = false, type = 'text') {
@@ -183,6 +262,7 @@ function loadFloatingChatHistory() {
     body.innerHTML = '';
 
     const contactId = window.screenShareContactId || (window.iphoneSimState && window.iphoneSimState.currentChatContactId);
+    refreshFloatingChatTitle(contactId);
     if (!(window.iphoneSimState && contactId)) return;
 
     const history = window.iphoneSimState.chatHistory[contactId] || [];
@@ -201,7 +281,7 @@ function loadFloatingChatHistory() {
 window.loadFloatingChatHistory = loadFloatingChatHistory;
 
 function getActiveScreenShareContactId() {
-    return window.screenShareContactId || (window.iphoneSimState && window.iphoneSimState.currentChatContactId) || null;
+    return getFloatingChatContactId();
 }
 
 window.syncToFloatingChat = function(msg, sourceContactId = null) {
@@ -2107,6 +2187,9 @@ window.getScreenShareAiContextMessages = function() {
 
 function makeDraggable(element, handle) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    let dragStartX = 0, dragStartY = 0;
+    let hasDragged = false;
+    const dragThreshold = 6;
 
     handle.onmousedown = dragMouseDown;
     handle.ontouchstart = dragTouchStart;
@@ -2116,6 +2199,9 @@ function makeDraggable(element, handle) {
         e.preventDefault();
         pos3 = e.clientX;
         pos4 = e.clientY;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        hasDragged = false;
         document.onmouseup = closeDragElement;
         document.onmousemove = elementDrag;
     }
@@ -2124,6 +2210,9 @@ function makeDraggable(element, handle) {
         const touch = e.touches[0];
         pos3 = touch.clientX;
         pos4 = touch.clientY;
+        dragStartX = touch.clientX;
+        dragStartY = touch.clientY;
+        hasDragged = false;
         document.ontouchend = closeDragElement;
         document.ontouchmove = elementDragTouch;
     }
@@ -2135,6 +2224,10 @@ function makeDraggable(element, handle) {
         pos2 = pos4 - e.clientY;
         pos3 = e.clientX;
         pos4 = e.clientY;
+
+        if (!hasDragged && (Math.abs(e.clientX - dragStartX) > dragThreshold || Math.abs(e.clientY - dragStartY) > dragThreshold)) {
+            hasDragged = true;
+        }
 
         let newTop = element.offsetTop - pos2;
         let newLeft = element.offsetLeft - pos1;
@@ -2156,6 +2249,10 @@ function makeDraggable(element, handle) {
         pos3 = touch.clientX;
         pos4 = touch.clientY;
 
+        if (!hasDragged && (Math.abs(touch.clientX - dragStartX) > dragThreshold || Math.abs(touch.clientY - dragStartY) > dragThreshold)) {
+            hasDragged = true;
+        }
+
         let newTop = element.offsetTop - pos2;
         let newLeft = element.offsetLeft - pos1;
 
@@ -2170,6 +2267,9 @@ function makeDraggable(element, handle) {
     }
 
     function closeDragElement() {
+        if (hasDragged) {
+            element.dataset.dragSuppressClickUntil = String(Date.now() + 350);
+        }
         document.onmouseup = null;
         document.onmousemove = null;
         document.ontouchend = null;
