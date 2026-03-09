@@ -1,4 +1,4 @@
-const DEFAULT_THOUGHT_PET_SIZE = 88;
+﻿const DEFAULT_THOUGHT_PET_SIZE = 88;
 const MIN_THOUGHT_PET_SIZE = 52;
 const MAX_THOUGHT_PET_SIZE = 140;
 const DEFAULT_THOUGHT_PET_POSITION = { xRatio: 0.86, yRatio: 0.72 };
@@ -266,6 +266,10 @@ function renderThoughtEntryUI(contactId = window.iphoneSimState.currentChatConta
 window.renderThoughtEntryUI = renderThoughtEntryUI;
 
 function renderChatHistory(contactId, preserveScroll = false) {
+    if (typeof window.sanitizeChatHistoryForRender === 'function') {
+        const sanitized = window.sanitizeChatHistoryForRender(contactId);
+        if (sanitized) saveConfig();
+    }
     const messages = window.iphoneSimState.chatHistory[contactId] || [];
     const container = document.getElementById('chat-messages');
     if (typeof window.applyChatDisplayPreferences === 'function') {
@@ -343,7 +347,7 @@ function renderChatHistory(contactId, preserveScroll = false) {
     if (needSave) saveConfig();
 
     messagesRendered.forEach(msg => {
-        if (shouldHideChatSyncMsg(msg) || (typeof msg.content === 'string' && msg.content.startsWith('(用户发布了 iCity 日记:'))) {
+        if (msg._hiddenBySanitizer || shouldHideChatSyncMsg(msg) || (typeof msg.content === 'string' && msg.content.startsWith('(用户发布了 iCity 日记:'))) {
             return;
         }
         appendMessageToUI(msg.content, msg.role === 'user', msg.type || 'text', msg.description, msg.replyTo, msg.id, msg.time, true);
@@ -478,7 +482,10 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
         type: type,
         replyTo: (window.iphoneSimState.replyingToMsg && (!targetContactId || targetContactId === window.iphoneSimState.currentChatContactId)) ? {
             name: window.iphoneSimState.replyingToMsg.name,
-            content: window.iphoneSimState.replyingToMsg.type === 'text' ? window.iphoneSimState.replyingToMsg.content : `[${window.iphoneSimState.replyingToMsg.type === 'sticker' ? '表情包' : '图片'}]`
+            content: window.iphoneSimState.replyingToMsg.type === 'text' ? window.iphoneSimState.replyingToMsg.content : `[${window.iphoneSimState.replyingToMsg.type === 'sticker' ? '表情包' : window.iphoneSimState.replyingToMsg.type === 'voice' ? '语音' : '图片'}]`,
+            targetMsgId: window.iphoneSimState.replyingToMsg.msgId || '',
+            targetTimestamp: window.iphoneSimState.replyingToMsg.timestamp || null,
+            type: window.iphoneSimState.replyingToMsg.type || 'text'
         } : null
     };
 

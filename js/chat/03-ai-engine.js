@@ -1478,6 +1478,10 @@ function showContextMenu(targetEl, msgData) {
     const fullMsg = Array.isArray(currentHistory) && msgData.msgId
         ? currentHistory.find(m => m && m.id === msgData.msgId)
         : null;
+    if (fullMsg) {
+        msgData.timestamp = fullMsg.time || msgData.timestamp || null;
+        msgData.role = fullMsg.role || msgData.role || null;
+    }
     const canSaveAiImageToAlbum = !!(
         !msgData.isUser &&
         fullMsg &&
@@ -1881,187 +1885,213 @@ function mergeSplitHtmlMessages(messagesList) {
     return merged;
 }
 
-// New Robust Parser for AI Responses
-function parseMixedAiResponse(content) {
-    const results = [];
-    
-    // Helper to process valid item
-    const processItem = (item) => {
-        if (!item) return;
-        if (typeof item === 'string') {
-            splitAndPushText(item);
-            return;
-        }
-        
-        // Normalize types
-        let type = 'text';
-        let content = item.content || '';
-        
-        if (item.type) {
-            type = item.type;
-             // Map Chinese types if any (compatibility)
-            if (type === '消息') type = 'text';
-            else if (type === '表情包') type = 'sticker';
-            else if (type === '图片') type = 'image';
-            else if (type === '语音') type = 'voice';
-            else if (type === '旁白') type = 'description';
-            else if (type === 'html') type = 'text';
-        }
-        
-        if (type === 'voice') {
-             content = `${item.duration || 3} ${item.content || '语音消息'}`;
-             results.push({ type: '语音', content });
-        } else if (type === 'text') {
-            if (isHtmlPayloadForParser(content)) {
-                const normalizedHtml = stripHtmlBlockMarkers(String(content || '')).trim();
-                if (normalizedHtml) {
-                    results.push({ type: '消息', content: normalizedHtml });
-                }
-                return;
-            }
-            splitAndPushText(content);
-        } else if (type === 'thought') {
-            results.push({ type: 'thought', content: content });
-        } else if (type === 'action') {
-            results.push({ type: 'action', content: item }); // Keep full object
-        } else {
-            // Other types (sticker, image, etc.)
-            // 保留 item 中的其他字段（如 prompt）
-            results.push({ ...item, type: type, content: content });
-        }
-    };
+function splitLegacyTextContentIntoResults(text, results) {
+    if (!text) return;
 
-    const splitAndPushText = (text) => {
-        if (!text) return;
-
-        if (isHtmlPayloadForParser(text)) {
-            const normalizedHtml = stripHtmlBlockMarkers(String(text || '')).trim();
-            if (normalizedHtml) {
-                results.push({ type: '消息', content: normalizedHtml });
-            }
-            return;
+    if (isHtmlPayloadForParser(text)) {
+        const normalizedHtml = stripHtmlBlockMarkers(String(text || '')).trim();
+        if (normalizedHtml) {
+            results.push({ type: 'text_message', content: normalizedHtml, isHtml: true });
         }
-        
-        // 1. Handle Mixed Content (tags like [sticker])
-        const mixedItems = forceSplitMixedContent(text);
-        
-        mixedItems.forEach(mi => {
-            if (mi.type === '消息' || mi.type === 'text') {
-                 // 2. Sentence Splitting for pure text
-                 // Split by newlines OR punctuation (。！？!?)
-                 const rawSegments = mi.content.split(/([。！？!?]+|\n+)/);
-                 let buffer = '';
-                 
-                 for (let i = 0; i < rawSegments.length; i++) {
-                     const seg = rawSegments[i];
-                     if (!seg) continue;
-                     
-                     // Check if it's a separator
-                     if (/^[。！？!?]+$/.test(seg)) {
-                         buffer += seg;
-                         // Punctuation marks end a sentence -> push buffer
-                         if (buffer.trim()) {
-                             results.push({ type: '消息', content: buffer.trim() });
-                         }
-                         buffer = '';
-                     } else if (/^\n+$/.test(seg)) {
-                         // Newlines definitely end a sentence
-                         if (buffer.trim()) {
-                             results.push({ type: '消息', content: buffer.trim() });
-                         }
-                         buffer = '';
-                     } else {
-                         buffer += seg;
-                     }
-                 }
-                 if (buffer.trim()) {
-                     results.push({ type: '消息', content: buffer.trim() });
-                 }
-            } else {
-                results.push(mi);
-            }
-        });
-    };
-
-    // Helper to extract JSON objects from text using brace counting
-    const extractJsonFromText = (text) => {
-        const found = [];
-        let braceCount = 0;
-        let inString = false;
-        let escape = false;
-        let jsonStart = -1;
-        
-        for (let i = 0; i < text.length; i++) {
-            const char = text[i];
-            
-            if (inString) {
-                if (char === '\\' && !escape) escape = true;
-                else if (char === '"' && !escape) inString = false;
-                else escape = false;
-                continue;
-            }
-
-            if (char === '"') {
-                inString = true;
-                continue;
-            }
-            
-            if (char === '{') {
-                if (braceCount === 0) jsonStart = i;
-                braceCount++;
-            } else if (char === '}') {
-                braceCount--;
-                if (braceCount === 0 && jsonStart !== -1) {
-                    const jsonStr = text.substring(jsonStart, i + 1);
-                    try {
-                        // Clean loose commas before parsing
-                        const cleanJson = jsonStr.replace(/,\s*([\]}])/g, '$1');
-                        const obj = JSON.parse(cleanJson);
-                        found.push(obj);
-                        jsonStart = -1;
-                    } catch (e) {
-                         // Ignore invalid JSON
-                    }
-                } else if (braceCount < 0) {
-                    braceCount = 0;
-                    jsonStart = -1;
-                }
-            }
-        }
-        return found;
-    };
-
-    let cleanContent = content.trim();
-    
-    // Attempt 1: Full JSON Parse
-    try {
-        if (cleanContent.includes('```')) {
-            const match = cleanContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-            if (match) cleanContent = match[1].trim();
-        }
-        
-        const parsed = JSON.parse(cleanContent);
-        if (Array.isArray(parsed)) {
-            parsed.forEach(processItem);
-            return results;
-        } else if (typeof parsed === 'object') {
-            processItem(parsed);
-            return results;
-        }
-    } catch (e) {
-        // Continue to extraction
+        return;
     }
 
-    // Attempt 2: Extract JSON Objects
-    const extractedObjects = extractJsonFromText(cleanContent);
-    if (extractedObjects.length > 0) {
-        extractedObjects.forEach(processItem);
+    const mixedItems = forceSplitMixedContent(text);
+    mixedItems.forEach(mi => {
+        const normalizedType = normalizeAiSchemaType(mi.type);
+        if (normalizedType === 'text_message') {
+            const rawSegments = String(mi.content || '').split(/([。！？!?]+|\n+)/);
+            let buffer = '';
+            for (const seg of rawSegments) {
+                if (!seg) continue;
+                if (/^[。！？!?]+$/.test(seg)) {
+                    buffer += seg;
+                    if (buffer.trim()) {
+                        results.push({ type: 'text_message', content: buffer.trim() });
+                    }
+                    buffer = '';
+                } else if (/^\n+$/.test(seg)) {
+                    if (buffer.trim()) {
+                        results.push({ type: 'text_message', content: buffer.trim() });
+                    }
+                    buffer = '';
+                } else {
+                    buffer += seg;
+                }
+            }
+            if (buffer.trim()) {
+                results.push({ type: 'text_message', content: buffer.trim() });
+            }
+        } else if (normalizedType === 'sticker_message') {
+            results.push({ type: 'sticker_message', sticker: String(mi.content || '').trim() });
+        } else if (normalizedType === 'voice') {
+            results.push({ type: 'voice', content: mi.content });
+        } else if (normalizedType === 'image') {
+            results.push({ type: 'image', content: mi.content, prompt: mi.prompt });
+        } else if (normalizedType === 'description') {
+            results.push({ type: 'description', content: mi.content });
+        } else {
+            results.push({ ...mi, type: normalizedType || mi.type });
+        }
+    });
+}
+
+function parseMixedAiResponse(content) {
+    const results = [];
+
+    const pushSanitizedText = (rawText, options = {}) => {
+        const atomic = !!options.atomic;
+        const sanitized = extractVisibleControlData(rawText);
+
+        sanitized.thoughtTexts.forEach(thoughtText => {
+            if (thoughtText) {
+                results.push({ type: 'thought_state', displayText: thoughtText });
+            }
+        });
+
+        sanitized.stickerNames.forEach(stickerName => {
+            if (stickerName) {
+                results.push({ type: 'sticker_message', sticker: stickerName });
+            }
+        });
+
+        if (sanitized.quoteHints.length > 0 && sanitized.cleanText) {
+            const quote = sanitized.quoteHints[0];
+            results.push({
+                type: 'quote_reply',
+                targetMsgId: quote.targetMsgId || '',
+                targetTimestamp: quote.targetTimestamp || null,
+                targetName: quote.targetName || '',
+                targetContent: quote.targetContent || '',
+                replyContent: sanitized.cleanText
+            });
+            return;
+        }
+
+        if (!sanitized.cleanText) return;
+
+        if (atomic) {
+            results.push({ type: 'text_message', content: sanitized.cleanText });
+            return;
+        }
+
+        splitLegacyTextContentIntoResults(sanitized.cleanText, results);
+    };
+
+    const processItem = (item) => {
+        if (item === null || item === undefined) return;
+        if (typeof item === 'string') {
+            pushSanitizedText(item, { atomic: false });
+            return;
+        }
+        if (Array.isArray(item)) {
+            item.forEach(processItem);
+            return;
+        }
+        if (typeof item !== 'object') {
+            pushSanitizedText(String(item), { atomic: false });
+            return;
+        }
+
+        const originalType = String(item.type || '').trim().toLowerCase();
+        const normalizedType = normalizeAiSchemaType(item.type);
+
+        if (normalizedType === 'thought_state') {
+            const displayText = getThoughtStateDisplayText(item);
+            if (displayText) {
+                results.push({
+                    type: 'thought_state',
+                    displayText,
+                    emotion: typeof item.emotion === 'string' ? item.emotion.trim() : '',
+                    intent: typeof item.intent === 'string' ? item.intent.trim() : ''
+                });
+            }
+            return;
+        }
+
+        if (normalizedType === 'quote_reply') {
+            const replyContent = String(item.reply_content || item.replyContent || item.content || '').trim();
+            if (replyContent) {
+                results.push({
+                    type: 'quote_reply',
+                    targetMsgId: String(item.target_msg_id || item.targetMsgId || '').trim(),
+                    targetTimestamp: item.target_timestamp !== undefined && item.target_timestamp !== null && item.target_timestamp !== ''
+                        ? Number(item.target_timestamp || item.targetTimestamp)
+                        : null,
+                    targetName: String(item.target_name || item.targetName || '').trim(),
+                    targetContent: String(item.target_content || item.targetContent || '').trim(),
+                    replyContent
+                });
+            }
+            return;
+        }
+
+        if (normalizedType === 'text_message') {
+            pushSanitizedText(item.content || item.text || '', { atomic: originalType === 'text_message' });
+            return;
+        }
+
+        if (normalizedType === 'sticker_message') {
+            const stickerName = String(item.sticker || item.content || '').trim();
+            if (stickerName) {
+                results.push({ type: 'sticker_message', sticker: stickerName });
+            }
+            return;
+        }
+
+        if (normalizedType === 'voice') {
+            results.push({ type: 'voice', content: `${item.duration || 3} ${item.content || item.text || '语音消息'}` });
+            return;
+        }
+
+        if (normalizedType === 'action') {
+            results.push({ type: 'action', content: item });
+            return;
+        }
+
+        if (normalizedType === 'image') {
+            results.push({ ...item, type: item.type || 'image', content: item.content || item.description || '' });
+            return;
+        }
+
+        if (normalizedType === 'description') {
+            results.push({ type: 'description', content: item.content || item.text || '' });
+            return;
+        }
+
+        pushSanitizedText(item.content || item.text || '', { atomic: false });
+    };
+
+    const tryParseCandidate = (candidate) => {
+        if (!candidate) return false;
+        const candidates = [stripMarkdownCodeFences(candidate), repairPotentialJsonString(candidate)];
+        for (const current of candidates) {
+            if (!current) continue;
+            try {
+                const parsed = JSON.parse(current);
+                if (Array.isArray(parsed)) parsed.forEach(processItem);
+                else processItem(parsed);
+                return results.length > 0;
+            } catch (e) {}
+        }
+        return false;
+    };
+
+    const cleanContent = String(content || '').trim();
+    if (!cleanContent) return results;
+
+    if (tryParseCandidate(cleanContent)) {
         return results;
     }
 
-    // Attempt 3: Treat as raw text (Fallback)
-    splitAndPushText(cleanContent);
+    const jsonBlocks = extractJsonBlocksFromText(cleanContent);
+    for (const block of jsonBlocks) {
+        if (tryParseCandidate(block)) {
+            return results;
+        }
+    }
 
+    pushSanitizedText(cleanContent, { atomic: false });
     return results;
 }
 
@@ -2308,9 +2338,255 @@ function normalizeQuoteText(text) {
         .replace(/[，。！？、,.!?:;"'“”‘’（）()【】\[\]{}<>《》\-—_]/g, '');
 }
 
+function escapeContextAttrText(text) {
+    return String(text || '')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/"/g, "'")
+        .trim();
+}
+
+function buildContextRecordPrefix(msg) {
+    if (!msg) return '';
+    const msgId = escapeContextAttrText(msg.id || '');
+    const timestamp = Number.isFinite(Number(msg.time)) ? Number(msg.time) : '';
+    const role = escapeContextAttrText(msg.role || 'assistant');
+    const type = escapeContextAttrText(msg.type || 'text');
+    return `[context_record msg_id="${msgId}" timestamp="${timestamp}" role="${role}" type="${type}"]`;
+}
+
 function buildQuoteContextPrefix(replyTo) {
-    if (!replyTo || !replyTo.name || !replyTo.content) return '';
-    return `[引用回复：正在回复 ${replyTo.name} 的消息「${replyTo.content}」]\n`;
+    if (!replyTo || !replyTo.content) return '';
+    const attrs = [];
+    if (replyTo.targetMsgId) attrs.push(`target_msg_id="${escapeContextAttrText(replyTo.targetMsgId)}"`);
+    if (replyTo.targetTimestamp) attrs.push(`target_timestamp="${Number(replyTo.targetTimestamp)}"`);
+    if (replyTo.name) attrs.push(`target_name="${escapeContextAttrText(replyTo.name)}"`);
+    attrs.push(`target_content="${escapeContextAttrText(replyTo.content)}"`);
+    return `[reply_context ${attrs.join(' ')}]`;
+}
+
+function joinContextTextParts(...parts) {
+    return parts
+        .map(part => typeof part === 'string' ? part.trim() : '')
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+}
+
+function parseBracketAttributes(text) {
+    const attrs = {};
+    String(text || '').replace(/([a-zA-Z_][a-zA-Z0-9_]*)="([^"]*)"/g, (_, key, value) => {
+        attrs[key] = value;
+        return _;
+    });
+    return attrs;
+}
+
+function normalizeAiSchemaType(rawType) {
+    const type = String(rawType || '').trim().toLowerCase();
+    if (!type) return 'text_message';
+    if (type === 'thought' || type === 'thought_state' || type === 'thought-chain' || type === 'thought_chain') return 'thought_state';
+    if (type === 'text' || type === '消息' || type === 'message' || type === 'text_message') return 'text_message';
+    if (type === 'sticker' || type === '表情包' || type === 'sticker_message') return 'sticker_message';
+    if (type === 'quote_reply') return 'quote_reply';
+    if (type === 'voice' || type === '语音' || type === 'voice_message') return 'voice';
+    if (type === 'image' || type === '图片' || type === 'ai_image' || type === 'virtual_image') return 'image';
+    if (type === '旁白' || type === 'description') return 'description';
+    if (type === 'action') return 'action';
+    return type;
+}
+
+function getThoughtStateDisplayText(item) {
+    if (!item || typeof item !== 'object') return '';
+    const directCandidates = [
+        item.display_text,
+        item.displayText,
+        item.visible_text,
+        item.visibleText,
+        item.visible_subtext,
+        item.visibleSubtext,
+        item.content,
+        item.text
+    ];
+    for (const candidate of directCandidates) {
+        if (typeof candidate === 'string' && candidate.trim()) {
+            return candidate.trim();
+        }
+    }
+    if (item.character_thoughts && typeof item.character_thoughts === 'object') {
+        const nestedCandidates = [
+            item.character_thoughts.display_text,
+            item.character_thoughts.displayText,
+            item.character_thoughts.visible_subtext,
+            item.character_thoughts.visibleSubtext,
+            item.character_thoughts.content
+        ];
+        for (const candidate of nestedCandidates) {
+            if (typeof candidate === 'string' && candidate.trim()) {
+                return candidate.trim();
+            }
+        }
+    }
+    return '';
+}
+
+function stripMarkdownCodeFences(text) {
+    const source = String(text || '').trim();
+    const fencedMatch = source.match(/```(?:json|javascript|js)?\s*([\s\S]*?)\s*```/i);
+    return fencedMatch ? fencedMatch[1].trim() : source;
+}
+
+function repairPotentialJsonString(raw) {
+    let repaired = stripMarkdownCodeFences(raw)
+        .replace(/^\uFEFF/, '')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, '"')
+        .replace(/"([^"]+)"\s*：/g, '"$1":')
+        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*[：:])/g, '$1"$2":')
+        .replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3')
+        .replace(/:\s*'([^']*?)'/g, (_, value) => `: ${JSON.stringify(value)}`)
+        .replace(/,\s*([}\]])/g, '$1')
+        .trim();
+    return repaired;
+}
+
+function extractJsonBlocksFromText(text) {
+    const source = String(text || '');
+    const found = [];
+    const stack = [];
+    let inString = false;
+    let escape = false;
+    let blockStart = -1;
+
+    for (let i = 0; i < source.length; i++) {
+        const char = source[i];
+        if (inString) {
+            if (char === '\\' && !escape) {
+                escape = true;
+            } else if (char === '"' && !escape) {
+                inString = false;
+            } else {
+                escape = false;
+            }
+            continue;
+        }
+
+        if (char === '"') {
+            inString = true;
+            escape = false;
+            continue;
+        }
+
+        if (char === '{' || char === '[') {
+            if (stack.length === 0) blockStart = i;
+            stack.push(char);
+            continue;
+        }
+
+        if (char === '}' || char === ']') {
+            if (!stack.length) continue;
+            const expected = char === '}' ? '{' : '[';
+            if (stack[stack.length - 1] !== expected) {
+                stack.length = 0;
+                blockStart = -1;
+                continue;
+            }
+            stack.pop();
+            if (stack.length === 0 && blockStart >= 0) {
+                found.push(source.slice(blockStart, i + 1));
+                blockStart = -1;
+            }
+        }
+    }
+
+    return found;
+}
+
+function extractVisibleControlData(rawText) {
+    let working = String(rawText || '').replace(/\r/g, '');
+    const thoughtTexts = [];
+    const quoteHints = [];
+    const stickerNames = [];
+
+    working = working.replace(/(?:\[|【|\(|（)\s*(?:内心独白|心声)\s*[:：]\s*([\s\S]*?)(?:\]|】|\)|）)/gi, (_, text) => {
+        const clean = String(text || '').trim();
+        if (clean) thoughtTexts.push(clean);
+        return ' ';
+    });
+
+    working = working.replace(/(?:^|\n)\s*[【\[]?\s*引用回复\s*[：:]\s*正在回复\s*(.*?)\s*的消息\s*[「“"]([\s\S]*?)[」”"]\s*[】\]]?\s*(?=\n|$)/gim, (_, name, targetContent) => {
+        const cleanTarget = String(targetContent || '').trim();
+        quoteHints.push({
+            targetName: String(name || '').trim(),
+            targetContent: cleanTarget
+        });
+        return '\n';
+    });
+
+    working = working.replace(/\[reply_context\s+([^\]]+)\]/gi, (_, attrText) => {
+        const attrs = parseBracketAttributes(attrText);
+        quoteHints.push({
+            targetMsgId: attrs.target_msg_id || '',
+            targetTimestamp: attrs.target_timestamp ? Number(attrs.target_timestamp) : null,
+            targetName: attrs.target_name || '',
+            targetContent: attrs.target_content || ''
+        });
+        return ' ';
+    });
+
+    const cleanedLines = [];
+    for (const line of working.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            if (cleanedLines.length && cleanedLines[cleanedLines.length - 1] !== '') cleanedLines.push('');
+            continue;
+        }
+
+        let stickerMatch = trimmed.match(/^[【\[]?\s*(?:发送了一个?|发了一个?)?(?:表情包|贴纸)\s*[:：]?\s*(.+?)\s*[】\]]?$/i);
+        if (!stickerMatch) {
+            stickerMatch = trimmed.match(/^[【\[]\s*表情包\s*[:：]?\s*(.+?)\s*[】\]]$/i);
+        }
+        if (stickerMatch) {
+            const stickerName = String(stickerMatch[1] || '').trim().replace(/^["'「」]+|["'「」]+$/g, '');
+            if (stickerName) stickerNames.push(stickerName);
+            continue;
+        }
+
+        cleanedLines.push(line);
+    }
+
+    return {
+        cleanText: cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+        thoughtTexts,
+        quoteHints,
+        stickerNames
+    };
+}
+
+function resolveStickerAssetForContact(contact, stickerQuery) {
+    const query = String(stickerQuery || '').trim();
+    if (!query || !window.iphoneSimState || !Array.isArray(window.iphoneSimState.stickerCategories)) return null;
+    const allowedIds = Array.isArray(contact && contact.linkedStickerCategories)
+        ? contact.linkedStickerCategories
+        : null;
+    const queryNorm = normalizeQuoteText(query);
+
+    for (const cat of window.iphoneSimState.stickerCategories) {
+        if (allowedIds !== null && !allowedIds.includes(cat.id)) continue;
+        const found = Array.isArray(cat.list)
+            ? cat.list.find(sticker => {
+                const desc = String(sticker && sticker.desc ? sticker.desc : '').trim();
+                const descNorm = normalizeQuoteText(desc);
+                return desc === query || desc.includes(query) || query.includes(desc) || (descNorm && queryNorm && (descNorm === queryNorm || descNorm.includes(queryNorm) || queryNorm.includes(descNorm)));
+            })
+            : null;
+        if (found) {
+            return {
+                url: found.url,
+                desc: found.desc || query
+            };
+        }
+    }
+    return null;
 }
 
 function getMessageTextForQuoteMatch(msg) {
@@ -2332,6 +2608,143 @@ function getMessageTextForQuoteMatch(msg) {
     return '';
 }
 
+function findHistoryMessageById(history, targetMsgId) {
+    if (!Array.isArray(history) || !targetMsgId) return null;
+    const safeId = String(targetMsgId).trim();
+    if (!safeId) return null;
+    return history.find(msg => msg && String(msg.id || '').trim() === safeId) || null;
+}
+
+function findHistoryMessageByTimestamp(history, targetTimestamp) {
+    if (!Array.isArray(history)) return null;
+    const ts = Number(targetTimestamp);
+    if (!Number.isFinite(ts)) return null;
+    const matches = history.filter(msg => msg && Number(msg.time) === ts);
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function buildReplyToPayloadFromMessage(targetMsg, contact, fallbackName = '') {
+    if (!targetMsg) return null;
+
+    let targetName = String(fallbackName || '').trim();
+    if (!targetName) {
+        if (targetMsg.role === 'user') {
+            targetName = '我';
+            if (contact && contact.userPersonaId) {
+                const persona = window.iphoneSimState.userPersonas.find(p => p.id === contact.userPersonaId);
+                if (persona && persona.name) targetName = persona.name;
+            } else if (window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name) {
+                targetName = window.iphoneSimState.userProfile.name;
+            }
+        } else {
+            targetName = contact ? (contact.remark || contact.name) : 'AI';
+        }
+    }
+
+    let previewContent = getMessageTextForQuoteMatch(targetMsg);
+    if (!previewContent) {
+        if (targetMsg.type === 'sticker') previewContent = '[表情包]';
+        else if (targetMsg.type === 'image' || targetMsg.type === 'virtual_image') previewContent = '[图片]';
+        else if (targetMsg.type === 'voice') previewContent = '[语音]';
+    }
+
+    return {
+        name: targetName,
+        content: previewContent,
+        targetMsgId: targetMsg.id || '',
+        targetTimestamp: targetMsg.time || null,
+        type: targetMsg.type || 'text'
+    };
+}
+
+function resolveQuoteReplyTarget(history, quoteItem, contact, options = {}) {
+    const allowContentFallback = !!options.allowContentFallback;
+    if (!quoteItem) return null;
+
+    let targetMsg = findHistoryMessageById(history, quoteItem.targetMsgId);
+    if (!targetMsg) {
+        targetMsg = findHistoryMessageByTimestamp(history, quoteItem.targetTimestamp);
+    }
+    if (!targetMsg && allowContentFallback && quoteItem.targetContent) {
+        targetMsg = findBestQuoteTargetMessage(history, quoteItem.targetContent);
+    }
+    if (!targetMsg) return null;
+
+    const replyTo = buildReplyToPayloadFromMessage(targetMsg, contact, quoteItem.targetName);
+    const replyContent = String(quoteItem.replyContent || '').trim();
+    if (!replyTo || !replyContent) return null;
+
+    return {
+        targetMsg,
+        replyTo,
+        replyContent
+    };
+}
+
+window.sanitizeChatHistoryForRender = function(contactId) {
+    if (!window.iphoneSimState || !window.iphoneSimState.chatHistory) return false;
+
+    const history = window.iphoneSimState.chatHistory[contactId];
+    if (!Array.isArray(history) || history.length === 0) return false;
+
+    const contact = Array.isArray(window.iphoneSimState.contacts)
+        ? window.iphoneSimState.contacts.find(c => c.id === contactId)
+        : null;
+    let changed = false;
+
+    history.forEach(msg => {
+        if (!msg || msg.role !== 'assistant' || typeof msg.content !== 'string') return;
+
+        const msgType = String(msg.type || 'text').toLowerCase();
+        const isTextLike = msgType === 'text' || msgType === '消息' || msgType === 'description';
+        if (!isTextLike) return;
+
+        const sanitized = extractVisibleControlData(msg.content);
+        const thoughtText = sanitized.thoughtTexts.join(' ').trim();
+        if (thoughtText && msg.thought !== thoughtText) {
+            msg.thought = thoughtText;
+            changed = true;
+        }
+
+        if (!msg.replyTo && sanitized.quoteHints.length > 0) {
+            const resolvedQuote = resolveQuoteReplyTarget(history, {
+                ...sanitized.quoteHints[0],
+                replyContent: sanitized.cleanText
+            }, contact, { allowContentFallback: true });
+            if (resolvedQuote && resolvedQuote.replyTo) {
+                msg.replyTo = resolvedQuote.replyTo;
+                changed = true;
+            }
+        }
+
+        if (!sanitized.cleanText && sanitized.stickerNames.length > 0) {
+            const stickerAsset = resolveStickerAssetForContact(contact, sanitized.stickerNames[0]);
+            if (stickerAsset) {
+                msg.type = 'sticker';
+                msg.content = stickerAsset.url;
+                msg.description = stickerAsset.desc || sanitized.stickerNames[0];
+                delete msg._hiddenBySanitizer;
+                changed = true;
+                return;
+            }
+        }
+
+        if (sanitized.cleanText !== msg.content) {
+            msg.content = sanitized.cleanText;
+            changed = true;
+        }
+
+        if (!msg.content.trim()) {
+            msg._hiddenBySanitizer = true;
+            changed = true;
+        } else if (msg._hiddenBySanitizer) {
+            delete msg._hiddenBySanitizer;
+            changed = true;
+        }
+    });
+
+    return changed;
+}
 function quoteSimilarityScore(queryNorm, targetNorm) {
     if (!queryNorm || !targetNorm) return 0;
     if (targetNorm.includes(queryNorm) || queryNorm.includes(targetNorm)) return 1;
@@ -2744,55 +3157,63 @@ ${itineraryContext}
 如果回复涉及【状态记忆】，必须严格区分“用户状态”和“联系人状态”，不要混淆主体。
 
 ${contact.showThought ? `
-【⚡️强制要求：内心独白⚡️】
-⚠️ **最高优先级指令**：当前用户已开启“显示心声”模式。
-你**必须**在返回的 JSON 数组的**第一个元素**位置输出角色的内心独白。
-格式：{"type": "thought", "content": "这里写角色的心理活动..."}
-**如果不输出心声，将视为严重错误！请务必执行！**
+【⚡️强制要求：可展示心声⚡️】
+⚠️ 当前用户已开启“显示心声”模式。
+你**必须**在返回 JSON 数组的**第一个元素**位置输出一条可展示心声对象。
+格式：{"type":"thought_state","display_text":"这里写用户可见的角色心理活动","emotion":"sad|happy|angry|anxious|neutral","intent":"一句短意图说明"}
+**如果不输出 thought_state，将视为严重错误！请务必执行！**
 ` : ''}
 
-【⚡️绝对输出规则 - JSON 格式 (强制)⚡️】
-为了确保回复格式正确，你**必须且只能**返回一个标准的 JSON 数组。
+【⚡️绝对输出规则 - 强协议 JSON（强制）⚡️】
+为了确保回复不掉格式，你**必须且只能**返回一个标准 JSON 数组。
 **严禁**包含任何 Markdown 代码块标记（如 \`\`\`json 或 \`\`\`）。
 **严禁**在 JSON 数组之外输出任何文本。
-**严禁**输出类似 "[发送了一个表情包：xxx]" 的纯文本格式。
-**严禁**输出 "BAKA"、"baka" 等词汇，除非人设明确要求。
+**严禁**把控制信息写进可见正文，例如：
+- "[引用回复: ...]"
+- "(内心独白: ...)"
+- "ACTION: ..."
+- "[发送了一个表情包: ...]"
 
-数组中的每个元素代表一条消息、表情包或动作指令。请严格遵守以下 JSON 对象结构：
+你当前应优先使用以下对象类型：
 
-1. 💭 **内心独白** ${contact.showThought ? '(**必须作为第一项**)' : '(可选)'}：
-   \`{"type": "thought", "content": "想法内容"}\`
-   ${contact.showThought ? '*要求*：这是角色的心理活动，必须输出，且必须放在数组第一个位置。' : ''}
+1. 💭 **可展示心声** ${contact.showThought ? '(**必须作为第一项**)' : '(可选)'}：
+   \`{"type":"thought_state","display_text":"用户可见的心声","emotion":"sad|happy|angry|anxious|neutral","intent":"一句短意图"}\`
+   ${contact.showThought ? '*要求*：必须输出，且必须放在数组第一个位置。' : ''}
 
-2. 💬 **文本消息**：
-   \`{"type": "text", "content": "消息内容"}\`
-   *注意*：请务必将长回复拆分为多条短消息，模拟真实聊天节奏。**不要把多句话合并在一条消息里**。每条消息尽量简短（1-2句话）。如果内容包含多个句子（用句号、问号、感叹号等分隔），请强制拆分成多个 type="text" 的对象。
-   *例外规则（必须遵守）*：当你要输出完整 HTML（例如小剧场番外页面）时，必须只输出**单条** type="text"，不得拆分。建议使用 \`[[HTML_START]]\` 和 \`[[HTML_END]]\` 包裹完整 HTML。
-   *禁止*：content 中绝对不能包含 "[发送了一个表情包...]" 或 "[图片]" 这样的描述文本。表情包必须通过独立的 type="sticker" 对象发送。
+2. 💬 **普通文本消息**：
+   \`{"type":"text_message","content":"单条可见消息正文"}\`
+   *规则*：一个对象只代表一条消息。长回复请拆成多个 \`text_message\` 对象。**不要**把多句话硬塞进一条对象里。
+   *例外规则（必须遵守）*：当你要输出完整 HTML（例如小剧场番外页面）时，必须只输出**单条** \`text_message\`，不得拆分。建议使用 \`[[HTML_START]]\` 和 \`[[HTML_END]]\` 包裹完整 HTML。
 
-3. 😂 **表情包**（如果有）：
-   \`{"type": "sticker", "content": "表情包名称"}\`
-   *注意*：只能使用下方【可用表情包列表】中存在的名称。
-   *禁止*：不要在 content 中写 "[发送了一个表情包...]"，直接写表情包名称即可。
+3. 😂 **表情包消息**：
+   \`{"type":"sticker_message","sticker":"表情包名称"}\`
+   *规则*：只能使用下方【可用表情包列表】中存在的名称。
+   *禁止*：不要在任何字段中写 "[发送了一个表情包...]" 这类描述文本。
 
-4. 🖼️ **图片**：
-   \`{"type": "image", "content": "图片中文描述", "prompt": "NovelAI English tags..."}\`
-   *要求*：请务必提供 \`prompt\` 字段，将图片描述翻译为高质量的 NovelAI 英文标签（Tags），用逗号分隔。例如："1boy, solo, smile, looking at viewer"。
+4. ↩️ **精准引用回复**：
+   \`{"type":"quote_reply","target_msg_id":"消息ID","target_timestamp":消息时间戳,"reply_content":"引用后的回复内容"}\`
+   *规则*：\`quote_reply\` **只能引用一条真实消息**。
+   *优先级*：优先填写 \`target_msg_id\`；如缺失，再填写 \`target_timestamp\`。
+   *禁止*：不要自己生成 "[引用回复: ...]" 文本，不要把被引用内容和回复正文混在一起。
+   *说明*：你会在上下文中看到每条历史消息的 \`msg_id\` 和 \`timestamp\`。
 
-5. 🎤 **语音**：
-   \`{"type": "voice", "duration": 秒数, "content": "语音文本"}\`
+5. 🖼️ **图片**：
+   \`{"type":"image","content":"图片中文描述","prompt":"NovelAI English tags..."}\`
 
-6. ⚡️ **动作指令**：
-   \`{"type": "action", "command": "指令名", "payload": "参数"}\`
-   *说明*：原本的 \`ACTION:\` 指令请封装在此结构中。例如 \`ACTION: POST_MOMENT: 内容\` 变为 \`{"type": "action", "command": "POST_MOMENT", "payload": "内容"}\`。
+6. 🎤 **语音**：
+   \`{"type":"voice","duration":秒数,"content":"语音文本"}\`
+
+7. ⚡️ **动作指令**：
+   \`{"type":"action","command":"指令名","payload":"参数"}\`
+   *说明*：原本的 \`ACTION:\` 指令请封装在这个结构中。
 
 **示例回复：**
 [
-  {"type": "thought", "content": "他终于回我了，开心。"},
-  {"type": "text", "content": "你好呀！"},
-  {"type": "sticker", "content": "开心"},
-  {"type": "text", "content": "今天天气真不错。"},
-  {"type": "action", "command": "POST_MOMENT", "payload": "今天心情真好"}
+  {"type":"thought_state","display_text":"他终于回我了，心里一下就松了。","emotion":"happy","intent":"先接住他的话"},
+  {"type":"quote_reply","target_msg_id":"msg_1710000000000","target_timestamp":1710000000000,"reply_content":"先去喝水，别硬扛。"},
+  {"type":"sticker_message","sticker":"委屈"},
+  {"type":"text_message","content":"等会儿再跟我说你现在还哪里不舒服。"},
+  {"type":"action","command":"POST_MOMENT","payload":"今天心情真好"}
 ]
 
 【活人感与主动行为规则】
@@ -2816,9 +3237,9 @@ ${contact.showThought ? `
 
 【引用回复优先规则】
 - 当你是在回应用户上一条或上几条消息里的某个具体细节、某句话、某个情绪点、某个问题时，优先考虑先输出：
-  {"type":"action","command":"QUOTE_MESSAGE","payload":"消息内容摘要"}
-  然后再输出正常 text/voice/sticker。
-- QUOTE_MESSAGE 的使用频率可以明显高于其他主动动作；只要场景合适，就可以多用。
+  {"type":"quote_reply","target_msg_id":"消息ID","target_timestamp":消息时间戳,"reply_content":"只回复这一条消息"}
+  然后再按需要输出正常 text_message / sticker_message / voice。
+- quote_reply 在场景合适时可以明显高于其他主动动作，但一次只能精确引用一条真实消息。
 - 尤其在以下场景，优先使用引用回复：
   1. 用户一条消息里信息很多，你只想接其中一个点。
   2. 用户在连续发很多条消息，你要明确自己在回哪一句。
@@ -2846,8 +3267,8 @@ ${contact.showThought ? `
 - 送礼物给用户 -> command: "SEND_GIFT", payload: "物品名称 | 价格 | 备注" (例如 "一束鲜花 | 52.0 | 节日快乐")
 - 点外卖给用户 -> command: "SEND_DELIVERY", payload: "餐品名称 | 价格 | 备注" (例如 "炸鸡啤酒 | 35.0 | 趁热吃")
 - 发起一起听邀请 -> command: "MUSIC_SEND_INVITE", payload: "歌曲关键词(可选；当用户当前正在听歌时可留空)"
-- 引用回复 -> command: "QUOTE_MESSAGE", payload: "消息内容摘要"
-  *建议*：这是增强真实聊天感的重要动作。只要你是在接用户某个具体点，优先考虑使用它。
+- 引用回复 -> {"type":"quote_reply","target_msg_id":"消息ID","target_timestamp":消息时间戳,"reply_content":"引用后的回复"}
+  *建议*：这是增强真实聊天感的重要方式。只要你是在接用户某个具体点，优先考虑使用它，不要再输出 QUOTE_MESSAGE 文本指令。
 - Screen actions (screen-share only) ->
   - command: "SCREEN_TAP", payload: "visible target name or higher-level navigation target"
   - command: "SCREEN_TYPE", payload: "text to type into the focused field or password field"
@@ -2897,20 +3318,20 @@ ${contact.showThought ? `
 5. 只记录有时效性或明显重要的状态，避免琐碎瞬时行为（如“刚在吃饭”）。
 6. 状态动作是隐藏的系统动作，不要在可见文本里解释“我帮你记录了状态”。
 
-${contact.showThought ? '- **强制执行**：请务必输出角色的【内心独白】(心声)。格式：{"type": "thought", "content": "..."}。\n  *注意*：这是角色的心理活动，不是AI的思考过程。绝不要暴露你是AI，不要分析任务指令，而是描写角色此刻的真实想法。' : '- 如果需要输出角色的内心独白（心声），请使用格式：{"type": "thought", "content": "..."}'}
+${contact.showThought ? '- **强制执行**：请务必输出角色的【可展示心声】。格式：{"type":"thought_state","display_text":"...","emotion":"sad|happy|angry|anxious|neutral","intent":"一句短意图"}。\n  *注意*：这里只能写用户可见的角色心理活动，不是AI的思考过程。绝不要暴露你是AI，也不要输出任务分析。' : '- 如果需要输出角色的心声，请使用格式：{"type":"thought_state","display_text":"...","emotion":"sad|happy|angry|anxious|neutral","intent":"一句短意图"}'}
 
 注意：
 1. **严格遵守 JSON 格式**：整个回复必须是一个合法的 JSON 数组。
-2. **严禁**输出 "[发送了一个表情包：xxx]" 这种格式的文本。表情包必须用 sticker 对象。
+2. **严禁**输出 "[发送了一个表情包：xxx]"、"[引用回复: ...]"、"(内心独白: ...)" 这种控制文本。表情包必须用 sticker_message，对话正文必须用 text_message。
 3. 正常回复应该自然，不要机械地说“我点赞了”或“我收钱了”。
 4. 如果不想执行操作，就不要输出 action 指令。
 5. 发送图片时，请提供详细的画面描述。
 6. 一次回复中最多只能发起一笔转账。
 7. 你有权限更改自己的资料卡信息（网名、微信号、签名），当用户要求或你自己想改时可以使用。
-8. **内心独白**是角色的心理活动，用户可见（如果开启了显示）。${contact.showThought ? '当前已开启显示，请务必输出，且作为第一条。' : ''}
+8. **可展示心声**必须使用 thought_state.display_text 字段，用户可见（如果开启了显示）。${contact.showThought ? '当前已开启显示，请务必输出，且作为第一条。' : ''}
 9. 当对方消息带有“引用回复”关系时，请优先根据被引用消息理解对方在回应什么。
 10. 为了增强活人感，可以偶尔主动发照片、朋友圈、语音、引用回复、点外卖、送礼物、转账，但一定要符合关系、时机和情绪，不要滥用。
-11. 在适合回应具体句子或具体细节时，QUOTE_MESSAGE 的优先级高于普通平铺直叙回复，可以多使用。
+11. 在适合回应具体句子或具体细节时，quote_reply 的优先级高于普通平铺直叙回复，但一次只能精确引用一条真实消息。
 
 请回复对方的消息。`;
 
@@ -3048,7 +3469,9 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 return { role: 'system', content: h.content };
             }
             let content = h.content;
+            const contextPrefix = buildContextRecordPrefix(h);
             const quotePrefix = buildQuoteContextPrefix(h.replyTo);
+            const structuredPrefix = joinContextTextParts(contextPrefix, quotePrefix);
             
             // Parse hidden images from text content (e.g. from Moments)
             let embeddedImages = [];
@@ -3068,11 +3491,11 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
             }
 
             if (contact.thoughtVisible && h.thought) {
-                content += `\n(内心独白: ${h.thought})`;
+                content = joinContextTextParts(content, `[visible_thought display_text="${escapeContextAttrText(h.thought)}"]`);
             }
 
             if (embeddedImages.length > 0) {
-                const textPart = `${quotePrefix}${content}`.trim();
+                const textPart = joinContextTextParts(structuredPrefix, content);
                 const contentArray = [{ type: "text", text: textPart }];
                 embeddedImages.forEach(url => {
                     contentArray.push({ type: "image_url", image_url: { url: url } });
@@ -3082,11 +3505,11 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
 
             if (h.type === 'image') {
                 if (h._skipImage) {
-                    return { role: h.role, content: `${quotePrefix}[图片]` };
+                    return { role: h.role, content: joinContextTextParts(structuredPrefix, '[图片]') };
                 }
                 const imageContentArray = [];
-                if (quotePrefix) {
-                    imageContentArray.push({ type: "text", text: quotePrefix.trim() });
+                if (structuredPrefix) {
+                    imageContentArray.push({ type: "text", text: structuredPrefix });
                 }
                 imageContentArray.push({ type: "image_url", image_url: { url: h.content } });
                 return {
@@ -3097,13 +3520,13 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 const desc = h.description ? `: ${h.description}` : '';
                 return {
                     role: h.role,
-                    content: `${quotePrefix}[图片${desc}]`
+                    content: joinContextTextParts(structuredPrefix, `[图片${desc}]`)
                 };
             } else if (h.type === 'sticker') {
                 const desc = h.description ? `: ${h.description}` : '';
                 return {
                     role: h.role,
-                    content: `${quotePrefix}[表情包${desc}]`
+                    content: joinContextTextParts(structuredPrefix, `[表情包${desc}]`)
                 };
             } else if (h.type === 'voice') {
                 let voiceText = '语音消息';
@@ -3115,7 +3538,7 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 }
                 return {
                     role: h.role,
-                    content: `${quotePrefix}[语音: ${voiceText}]`
+                    content: joinContextTextParts(structuredPrefix, `[语音: ${voiceText}]`)
                 };
             } else if (h.type === 'voice_call_text') {
                 let callText = '通话内容';
@@ -3131,7 +3554,7 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                                    .replace(/{{\/DIALOGUE}}/gi, '')
                                    .replace(/{{.*?}}/g, '') // 移除其他可能的标签
                                    .trim();
-                return { role: h.role, content: `${quotePrefix}${callText}` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, callText) };
             } else if (h.type === 'gift_card') {
                 let giftData = {};
                 try {
@@ -3142,7 +3565,7 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 const amount = giftData.paymentAmount || giftData.price || '0';
                 const recipient = giftData.recipientName ? `，收货人：${giftData.recipientName}` : '';
                 const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
-                return { role: h.role, content: `${quotePrefix}[送出礼物：${giftData.title}，金额：${amount}元${recipient}${payMethod}] (这是我在闲鱼上看到你收藏的商品，特意买来送给你的)` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[送出礼物：${giftData.title}，金额：${amount}元${recipient}${payMethod}] (这是我在闲鱼上看到你收藏的商品，特意买来送给你的)`) };
             } else if (h.type === 'shopping_gift') {
                 let giftData = {};
                 try {
@@ -3152,19 +3575,19 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 const amount = giftData.paymentAmount || giftData.total || '0';
                 const recipient = (giftData.recipientName || giftData.recipientText) ? `，收货人：${giftData.recipientName || giftData.recipientText}` : '';
                 const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
-                return { role: h.role, content: `${quotePrefix}[送出礼物：${items}，总价值：${amount}元${recipient}${payMethod}] (这是我在购物APP购买并送给你的)` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[送出礼物：${items}，总价值：${amount}元${recipient}${payMethod}] (这是我在购物APP购买并送给你的)`) };
             } else if (h.type === 'savings_invite') {
                 let inviteData = {};
                 try {
                     inviteData = typeof content === 'string' ? JSON.parse(content) : content;
                 } catch(e) {}
-                return { role: h.role, content: `${quotePrefix}[共同存钱邀请: 计划${inviteData.title || '共同存钱计划'}，目标¥${Number(inviteData.targetAmount || 0).toFixed(2)}，基础年化${Number(inviteData.aprBase || 0).toFixed(2)}%]` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[共同存钱邀请: 计划${inviteData.title || '共同存钱计划'}，目标¥${Number(inviteData.targetAmount || 0).toFixed(2)}，基础年化${Number(inviteData.aprBase || 0).toFixed(2)}%]`) };
             } else if (h.type === 'savings_withdraw_request') {
                 let reqData = {};
                 try {
                     reqData = typeof content === 'string' ? JSON.parse(content) : content;
                 } catch(e) {}
-                return { role: h.role, content: `${quotePrefix}[共同存钱转出申请: 金额¥${Number(reqData.amount || 0).toFixed(2)}，状态待确认]` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[共同存钱转出申请: 金额¥${Number(reqData.amount || 0).toFixed(2)}，状态待确认]`) };
             } else if (h.type === 'icity_card') {
                 let cardData = {};
                 try {
@@ -3183,31 +3606,31 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                     commentsInfo = '\n评论区:\n' + recentComments.map(c => `${c.name}: ${c.content}`).join('\n');
                 }
                 
-                return { role: h.role, content: `${quotePrefix}[分享了 iCity 日记 (${authorInfo}): "${cardData.content || '内容'}"${commentsInfo}]` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了 iCity 日记 (${authorInfo}): "${cardData.content || '内容'}"${commentsInfo}]`) };
             } else if (h.type === 'pdd_cash_share') {
                 let data = {};
                 try { data = JSON.parse(content); } catch(e) {}
-                return { role: h.role, content: `${quotePrefix}[分享了天天领现金链接：差 ${data.diff} 元提现]` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了天天领现金链接：差 ${data.diff} 元提现]`) };
             } else if (h.type === 'pdd_bargain_share') {
                 let data = {};
                 try { data = JSON.parse(content); } catch(e) {}
-                return { role: h.role, content: `${quotePrefix}[分享了砍价免费拿链接：${data.title}，当前价格 ¥${data.currentPrice}，商品ID: ${data.productId}]` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了砍价免费拿链接：${data.title}，当前价格 ¥${data.currentPrice}，商品ID: ${data.productId}]`) };
             } else {
                 if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
                      try {
                          if (h.type === 'transfer') {
                              const data = JSON.parse(content);
-                             return { role: h.role, content: `${quotePrefix}[转账: ${data.amount}元] (ID: ${data.id})` };
+                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[转账: ${data.amount}元] (ID: ${data.id})`) };
                          } else if (h.type === 'family_card') {
                              const data = JSON.parse(content);
                              const modeText = data.mode === 'grant' ? '给予' : '索要';
                              const statusText = data.status || 'pending';
                              const limitText = data.monthlyLimit ? `${data.monthlyLimit}元/月` : '待设置';
-                             return { role: h.role, content: `${quotePrefix}[亲属卡: ${modeText}, 状态:${statusText}, 额度:${limitText}] (ID: ${data.id})` };
+                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[亲属卡: ${modeText}, 状态:${statusText}, 额度:${limitText}] (ID: ${data.id})`) };
                          }
                      } catch(e) {}
                 }
-                return { role: h.role, content: `${quotePrefix}${content}` };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, content) };
             }
         })
     ];
@@ -3406,30 +3829,95 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         // 使用新的混合解析器
         const parsedItems = parseMixedAiResponse(replyContent);
         
+        if (contact.showThought) {
+            const firstParsedType = parsedItems.length > 0 ? normalizeAiSchemaType(parsedItems[0] && parsedItems[0].type) : '';
+            if (firstParsedType !== 'thought_state') {
+                console.warn('[AI Protocol] missing leading thought_state item when showThought is enabled', {
+                    contactId: contact.id,
+                    parsedItems: parsedItems
+                });
+            }
+        }
+
         // 处理解析结果
         for (const item of parsedItems) {
-            if (item.type === 'thought') {
-                const t = item.content || '';
-                thoughtContent = thoughtContent ? (thoughtContent + ' ' + t) : t;
-            } else if (item.type === 'action') {
-                // 转换 action 为旧的字符串格式以复用逻辑
-                const cmd = item.content.command;
-                const pl = item.content.payload;
-                let actionStr = `ACTION: ${cmd}`;
-                if (pl) {
+            const normalizedType = normalizeAiSchemaType(item && item.type);
+
+            if (normalizedType === 'thought_state') {
+                const displayText = getThoughtStateDisplayText(item);
+                if (displayText) {
+                    thoughtContent = thoughtContent ? (thoughtContent + ' ' + displayText) : displayText;
+                }
+                continue;
+            }
+
+            if (normalizedType === 'action') {
+                const cmd = item && item.content ? item.content.command : item.command;
+                const pl = item && item.content ? item.content.payload : item.payload;
+                let actionStr = cmd ? `ACTION: ${cmd}` : '';
+                if (actionStr && pl !== undefined && pl !== null && String(pl).trim()) {
                     actionStr += `: ${pl}`;
                 }
-                actions.push(actionStr);
-            } else {
-                // 消息, 表情包, 图片, 语音 等
-                if (item.type === '消息' || item.type === 'text') {
-                    // 二次解析文本中的混合内容（防止 AI 输出纯文本的表情包标签）
-                    const subItems = forceSplitMixedContent(item.content);
-                    messagesList.push(...subItems);
-                } else {
-                    messagesList.push(item);
+                if (actionStr) {
+                    actions.push(actionStr);
                 }
+                continue;
             }
+
+            if (normalizedType === 'quote_reply') {
+                const resolvedQuote = resolveQuoteReplyTarget(history, item, contact, { allowContentFallback: false });
+                const quoteText = extractVisibleControlData(item.replyContent || '').cleanText;
+                if (!quoteText) {
+                    continue;
+                }
+                if (resolvedQuote && resolvedQuote.replyTo) {
+                    messagesList.push({ type: '消息', content: quoteText, replyTo: resolvedQuote.replyTo });
+                } else {
+                    messagesList.push({ type: '消息', content: quoteText });
+                }
+                continue;
+            }
+
+            if (normalizedType === 'text_message') {
+                const textContent = String(item.content || item.text || '').trim();
+                if (!textContent) {
+                    continue;
+                }
+                if (item.isHtml || isHtmlPayloadForParser(textContent)) {
+                    const htmlContent = stripHtmlBlockMarkers(textContent).trim();
+                    if (htmlContent) {
+                        messagesList.push({ type: '消息', content: htmlContent });
+                    }
+                } else {
+                    messagesList.push({ type: '消息', content: textContent });
+                }
+                continue;
+            }
+
+            if (normalizedType === 'sticker_message') {
+                const stickerName = String(item.sticker || item.content || '').trim();
+                const stickerAsset = resolveStickerAssetForContact(contact, stickerName);
+                if (stickerAsset) {
+                    messagesList.push({ type: '表情包', content: stickerAsset.desc || stickerName });
+                }
+                continue;
+            }
+
+            if (item.type === '消息' || item.type === 'text') {
+                const subItems = forceSplitMixedContent(item.content);
+                messagesList.push(...subItems);
+                continue;
+            }
+
+            if (item.type === '表情包' || item.type === 'sticker') {
+                const stickerAsset = resolveStickerAssetForContact(contact, item.content);
+                if (stickerAsset) {
+                    messagesList.push({ type: '表情包', content: stickerAsset.desc || String(item.content || '').trim() });
+                }
+                continue;
+            }
+
+            messagesList.push(item);
         }
 
         // Merge split HTML blocks back to a single message so rich layouts stay intact.
@@ -3443,50 +3931,72 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         // Re-scan text messages for embedded actions (legacy fallback)
         const finalMessages = [];
         const actionRegex = /^[\s\*\-\>]*ACTION\s*[:：]\s*(.*)$/i;
-        const thoughtRegex = /\[心声\s*[:：]\s*(.*?)\]/i;
 
         for (const msg of messagesList) {
-            if (msg.type === '消息') {
-                if (isHtmlPayloadForParser(msg.content)) {
-                    const htmlContent = stripHtmlBlockMarkers(String(msg.content || '')).trim();
-                    if (htmlContent) {
-                        finalMessages.push({ ...msg, type: '消息', content: htmlContent });
-                    }
-                    continue;
-                }
+            const msgType = normalizeAiSchemaType(msg && msg.type);
+            const isTextLike = msgType === 'text_message' || msg.type === '消息' || msg.type === 'text' || !msg.type;
 
-                let lines = msg.content.split('\n');
-                let cleanContent = '';
-                
-                for (let line of lines) {
-                    let trimmedLine = line.trim();
-                    
-                    // Optimization: Do not skip empty lines to preserve formatting (paragraph breaks)
-                    // if (!trimmedLine) continue; 
-
-                    let actionMatch = trimmedLine.match(actionRegex);
-                    let thoughtMatch = trimmedLine.match(thoughtRegex);
-
-                    if (actionMatch) {
-                        actions.push('ACTION: ' + actionMatch[1].trim());
-                    } else if (thoughtMatch) {
-                        const content = thoughtMatch[1].trim();
-                        thoughtContent = thoughtContent ? (thoughtContent + ' ' + content) : content;
-                    } else {
-                        cleanContent += (cleanContent ? '\n' : '') + line;
-                    }
-                }
-                
-                if (cleanContent) {
-                    // 如果清理后还有内容，保留消息
-                    // 还要再次检查是否是 [类型:内容] 格式（如果 fallback 到 parseMixedContent）
-                    // 但 parseMixedAiResponse 已经不做这个了。
-                    // 保持简单，直接作为文本
-                    finalMessages.push({ type: '消息', content: cleanContent });
-                }
-            } else {
+            if (!isTextLike) {
                 finalMessages.push(msg);
+                continue;
             }
+
+            const rawContent = String(msg.content || '');
+            if (isHtmlPayloadForParser(rawContent)) {
+                const htmlContent = stripHtmlBlockMarkers(rawContent).trim();
+                if (htmlContent) {
+                    finalMessages.push({ ...msg, type: '消息', content: htmlContent });
+                }
+                continue;
+            }
+
+            const sanitized = extractVisibleControlData(rawContent);
+
+            sanitized.thoughtTexts.forEach(text => {
+                if (text) {
+                    thoughtContent = thoughtContent ? (thoughtContent + ' ' + text) : text;
+                }
+            });
+
+            sanitized.stickerNames.forEach(name => {
+                const stickerAsset = resolveStickerAssetForContact(contact, name);
+                if (stickerAsset) {
+                    finalMessages.push({ type: '表情包', content: stickerAsset.desc || name });
+                }
+            });
+
+            const cleanLines = [];
+            for (const line of sanitized.cleanText.split('\n')) {
+                const actionMatch = line.trim().match(actionRegex);
+                if (actionMatch) {
+                    actions.push('ACTION: ' + actionMatch[1].trim());
+                } else {
+                    cleanLines.push(line);
+                }
+            }
+            const cleanContent = cleanLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+            if (!cleanContent) {
+                continue;
+            }
+
+            let resolvedReplyTo = msg.replyTo || null;
+            if (!resolvedReplyTo && sanitized.quoteHints.length > 0) {
+                const resolvedQuote = resolveQuoteReplyTarget(history, {
+                    ...sanitized.quoteHints[0],
+                    replyContent: cleanContent
+                }, contact, { allowContentFallback: false });
+                if (resolvedQuote && resolvedQuote.replyTo) {
+                    resolvedReplyTo = resolvedQuote.replyTo;
+                }
+            }
+
+            finalMessages.push({
+                ...msg,
+                type: '消息',
+                content: cleanContent,
+                replyTo: resolvedReplyTo
+            });
         }
         messagesList = finalMessages;
 
@@ -3861,10 +4371,7 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                         } else {
                             targetName = contact.remark || contact.name;
                         }
-                        replyToObj = {
-                            name: targetName,
-                            content: targetMsg.type === 'text' ? targetMsg.content : `[${targetMsg.type === 'sticker' ? '表情包' : '图片'}]`
-                        };
+                        replyToObj = buildReplyToPayloadFromMessage(targetMsg, contact, targetName);
                     }
                 }
                 processedSegment = processedSegment.replace(quoteMessageMatch[0], '');
@@ -4034,20 +4541,9 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
             while ((sendStickerMatch = processedSegment.match(sendStickerRegex)) !== null) {
                 const stickerDesc = sendStickerMatch[1].trim();
                 if (stickerDesc) {
-                    let stickerUrl = null;
-                    for (const cat of window.iphoneSimState.stickerCategories) {
-                        if (contact.linkedStickerCategories && !contact.linkedStickerCategories.includes(cat.id)) {
-                            continue;
-                        }
-                        const found = cat.list.find(s => s.desc === stickerDesc);
-                        if (found) {
-                            stickerUrl = found.url;
-                            break;
-                        }
-                    }
-                    
-                    if (stickerUrl) {
-                        imageToSend = { type: 'sticker', content: stickerUrl, desc: stickerDesc };
+                    const stickerAsset = resolveStickerAssetForContact(contact, stickerDesc);
+                    if (stickerAsset) {
+                        imageToSend = { type: 'sticker', content: stickerAsset.url, desc: stickerAsset.desc || stickerDesc };
                     }
                 }
                 processedSegment = processedSegment.replace(sendStickerMatch[0], '');
@@ -4370,7 +4866,7 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
         for (let i = 0; i < messagesList.length; i++) {
             const msg = messagesList[i];
             const currentThought = (i === messagesList.length - 1) ? thoughtContent : null;
-            const currentReplyTo = (i === 0) ? replyToObj : null;
+            const currentReplyTo = msg.replyTo || ((i === 0) ? replyToObj : null);
 
             // 检查用户是否仍在当前聊天界面
             const isChatOpen = !document.getElementById('chat-screen').classList.contains('hidden');
@@ -4399,24 +4895,9 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 if (msg.type === '消息' || msg.type === 'text') {
                     await typewriterEffect(msg.content, contact.avatar, currentThought, currentReplyTo, 'text', contactId);
                 } else if (msg.type === '表情包' || msg.type === 'sticker') {
-                    // 尝试查找表情包 URL
-                    let stickerUrl = null;
-                    if (window.iphoneSimState.stickerCategories) {
-                        let allowedIds = null;
-                        if (Array.isArray(contact.linkedStickerCategories)) allowedIds = contact.linkedStickerCategories;
-
-                        for (const cat of window.iphoneSimState.stickerCategories) {
-                            if (allowedIds !== null && !allowedIds.includes(cat.id)) continue;
-
-                            const found = cat.list.find(s => s.desc === msg.content || s.desc.includes(msg.content));
-                            if (found) {
-                                stickerUrl = found.url;
-                                break;
-                            }
-                        }
-                    }
-                    if (stickerUrl) {
-                        sendMessage(stickerUrl, false, 'sticker', msg.content, contactId);
+                    const stickerAsset = resolveStickerAssetForContact(contact, msg.content);
+                    if (stickerAsset) {
+                        sendMessage(stickerAsset.url, false, 'sticker', stickerAsset.desc || msg.content, contactId);
                     } else {
                         // 找不到表情包，直接忽略，不发送文本 fallback，以免破坏沉浸感
                         console.warn(`Sticker not found: ${msg.content}`);
@@ -4549,28 +5030,13 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【内心�
                 if (msg.type === '消息' || msg.type === 'text') {
                     typeToSave = 'text';
                 } else if (msg.type === '表情包' || msg.type === 'sticker') {
-                    let stickerUrl = null;
-                    if (window.iphoneSimState.stickerCategories) {
-                        let allowedIds = null;
-                        if (Array.isArray(contact.linkedStickerCategories)) allowedIds = contact.linkedStickerCategories;
-
-                        for (const cat of window.iphoneSimState.stickerCategories) {
-                            if (allowedIds !== null && !allowedIds.includes(cat.id)) continue;
-
-                            const found = cat.list.find(s => s.desc === msg.content || s.desc.includes(msg.content));
-                            if (found) {
-                                stickerUrl = found.url;
-                                break;
-                            }
-                        }
+                    const stickerAsset = resolveStickerAssetForContact(contact, msg.content);
+                    if (!stickerAsset) {
+                        console.warn(`Sticker not found: ${msg.content}`);
+                        continue;
                     }
-                    if (stickerUrl) {
-                        contentToSave = stickerUrl;
-                        typeToSave = 'sticker';
-                    } else {
-                        contentToSave = `[表情包: ${msg.content}]`;
-                        typeToSave = 'text';
-                    }
+                    contentToSave = stickerAsset.url;
+                    typeToSave = 'sticker';
                 } else if (msg.type === '语音' || msg.type === 'voice') {
                     let duration = 3;
                     let text = msg.content;
