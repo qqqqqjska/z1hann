@@ -555,24 +555,35 @@
             }
 
             try {
-                let fetchUrl = settings.url;
-                if (!fetchUrl.endsWith('/chat/completions')) fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
-                const prompt = `请总结这次直播连线，输出1-3句简洁中文，突出模式、互动和结果。\n${rawTimeline}`;
-                const resp = await fetch(fetchUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
-                    body: JSON.stringify({
-                        model: settings.model || 'gpt-3.5-turbo',
-                        messages: [
-                            { role: 'system', content: '你是直播连线总结助手，只输出纯文本总结。' },
-                            { role: 'user', content: prompt }
-                        ],
-                        temperature: 0.5
-                    })
+                if (typeof window.generateChannelNaturalSummary !== 'function') {
+                    throw new Error('summary helper unavailable');
+                }
+                const virtualContact = {
+                    id: contactId,
+                    name: (room.pk.opponent && room.pk.opponent.name) || '连线对象',
+                    realName: (room.pk.opponent && room.pk.opponent.name) || '连线对象'
+                };
+                const timelineMessages = rawTimeline
+                    .split('\n')
+                    .map((line, index) => ({
+                        role: index % 2 === 0 ? 'assistant' : 'user',
+                        time: Date.now() + index * 1000,
+                        content: String(line || '').trim(),
+                        type: 'live_link_text'
+                    }))
+                    .filter(msg => msg.content);
+                const generated = await window.generateChannelNaturalSummary(virtualContact, timelineMessages, {
+                    channel: 'live_link',
+                    source: 'live_sync_hidden',
+                    rangeLabel: `${room.host || '我方'} vs ${(room.pk.opponent && room.pk.opponent.name) || '对方'}`,
+                    detailModeHint: '当前是直播连线总结，重点写模式、双方互动、观众反馈、结果与后续策略。',
+                    summaryPromptMode: 'manual',
+                    totalMessageCount: timelineMessages.length,
+                    sourceMessageCount: timelineMessages.length,
+                    rangeOverride: { target: 170, min: 120, max: 220, maxTokens: 760 },
+                    settings
                 });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const data = await resp.json();
-                summaryText = String(data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '').trim();
+                summaryText = String(generated && generated.summary || '').trim();
                 if (!summaryText) throw new Error('empty summary');
 
                 if (!window.iphoneSimState.memories) window.iphoneSimState.memories = [];

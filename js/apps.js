@@ -2188,6 +2188,10 @@ function countSummaryChars(text) {
 }
 
 function resolveNaturalSummaryMode(options = {}) {
+    const explicitMode = String(options && options.summaryPromptMode || '').trim().toLowerCase();
+    if (explicitMode === 'manual' || explicitMode === 'auto') {
+        return explicitMode;
+    }
     if ((options && options.autoExtract === false) || String(options && options.source || '').trim() === 'manual') {
         return 'manual';
     }
@@ -2295,12 +2299,15 @@ function buildNaturalSummaryUserContent(chatContext, context = {}, firstDraft = 
 function buildManualNaturalSummaryPrompt(context = {}) {
     const userLabel = String(context.userLabel || '用户').trim() || '用户';
     const contactLabel = String(context.contactLabel || '联系人').trim() || '联系人';
+    const detailModeHint = String(context.detailModeHint || '').trim();
     const range = context.range && typeof context.range === 'object'
         ? context.range
         : getNaturalSummaryLengthRange(context.totalMessageCount || 1, 'manual');
     const referenceTime = `${context.dateStr || ''} ${context.timeStr || ''}`.trim();
     const leadIn = buildNaturalSummaryLeadIn(userLabel, contactLabel);
+    const rangeHint = `全文目标约${range.target}字，允许${range.min}~${range.max}字`;
     return `你是聊天记忆整理助手。请把聊天转录整理成一条适合存入长期记忆的纪要式备忘。
+${detailModeHint ? `\n场景补充要求：${detailModeHint}` : ''}
 
 硬性要求：
 1. 全文必须使用第三人称，人物只能写成“${userLabel}”和“${contactLabel}”，不要出现“我/我们/咱们”。
@@ -2312,7 +2319,7 @@ function buildManualNaturalSummaryPrompt(context = {}) {
 7. 尽量保留聊天里出现过的具体名称、昵称、地点、礼物名、车票、时间点和关键说法，但整体以转述为主，不要把聊天逐句抄出来。
 8. 文风尽量像会议纪要或备忘录，直接、克制、信息化，不要写成散文、小说或抒情文章。
 9. 不要出现“当前结论”“下一步”“时间线”“涉及时间点”“对话原话”等模板词。
-10. 全文大概控制在300字，允许小幅浮动；优先把真实发生过的关键事实按顺序讲清楚，不要为了凑字重复表达。
+10. ${rangeHint}；优先把真实发生过的关键事实按顺序讲清楚，不要为了凑字重复表达。
 
 只返回最终正文。
 参考时间：${referenceTime}`;
@@ -2321,12 +2328,15 @@ function buildManualNaturalSummaryPrompt(context = {}) {
 function buildAutoNaturalSummaryPrompt(context = {}) {
     const userLabel = String(context.userLabel || '用户').trim() || '用户';
     const contactLabel = String(context.contactLabel || '联系人').trim() || '联系人';
+    const detailModeHint = String(context.detailModeHint || '').trim();
     const range = context.range && typeof context.range === 'object'
         ? context.range
         : getNaturalSummaryLengthRange(context.totalMessageCount || 1, 'auto');
     const referenceTime = `${context.dateStr || ''} ${context.timeStr || ''}`.trim();
     const leadIn = buildNaturalSummaryLeadIn(userLabel, contactLabel);
+    const rangeHint = `全文目标约${range.target}字，允许${range.min}~${range.max}字`;
     return `你是聊天长期记忆整理助手。请根据聊天转录，生成一条适合自动归档的纪要式备忘。
+${detailModeHint ? `\n场景补充要求：${detailModeHint}` : ''}
 
 硬性要求：
 1. 全文必须使用第三人称，人物只能写成“${userLabel}”和“${contactLabel}”。
@@ -2338,7 +2348,7 @@ function buildAutoNaturalSummaryPrompt(context = {}) {
 7. 不要把聊天原话大段照抄，尽量写成自然转述。
 8. 文风尽量像会议纪要或备忘录，直接、克制、信息化，不要写成散文、小说或抒情文章。
 9. 不要出现“当前结论”“下一步”“时间线”“涉及时间点”等模板词。
-10. 全文大概控制在300字，允许小幅浮动；优先保留真正有长期价值的事实，不要为了追求篇幅而堆砌空话，也不要因为压缩而漏掉关键节点。
+10. ${rangeHint}；优先保留真正有长期价值的事实，不要为了追求篇幅而堆砌空话，也不要因为压缩而漏掉关键节点。
 
 只返回最终正文。
 参考时间：${referenceTime}`;
@@ -2352,6 +2362,7 @@ function buildNaturalSummaryRetryPrompt(context = {}, firstDraft = '') {
         : getNaturalSummaryLengthRange(context.totalMessageCount || 1, context.mode || 'auto');
     const leadIn = buildNaturalSummaryLeadIn(userLabel, contactLabel);
     const firstChars = countSummaryChars(firstDraft || '');
+    const rangeHint = `重写后目标约${range.target}字，允许${range.min}~${range.max}字`;
     return `你要重写一版聊天长期记忆总结。上一版只有 ${firstChars} 字，明显过短、过概括，事实密度不够。
 
 重写要求：
@@ -2360,7 +2371,7 @@ function buildNaturalSummaryRetryPrompt(context = {}, firstDraft = '') {
 3. 这次不要复读抽象套话，要补足明确时间节点、事件转折、状态变化、亲密互动、承诺、玩笑、困惑和关系推进。
 4. 如果聊天里出现具体日期、车票、地点、安排变化、返回、等待、思念、抱抱、称呼玩笑等内容，要尽量写进去。
 5. 继续只输出纪要式正文，不要标题，不要分点，不要 JSON，不要 Markdown。
-6. 重写后全文也尽量控制在300字上下，允许小幅浮动；重点是把事实补充完整，但不能空泛凑字。
+6. ${rangeHint}；重点是把事实补充完整，但不能空泛凑字。
 7. 文风尽量像会议纪要或备忘录，直接、克制、信息化，不要写成散文、小说或抒情文章。
 8. 必须基于原聊天重写，不要只在上一版后面随便补两句。
 
@@ -7382,6 +7393,7 @@ async function checkAndSummarize(contactId) {
         showNotification('正在生成详细总结...');
         await generateSummary(contact, messagesToSummarize, range, {
             autoExtract: true,
+            summaryPromptMode: 'manual',
             source: 'auto_summary',
             suggestedTags: ['long_term'],
             reason: '聊天自动详细总结'
@@ -7448,6 +7460,197 @@ function persistChatSummaryResult(contact, summaryText, range, options = {}, str
     return true;
 }
 
+function getChannelNaturalSummaryLengthRange(messageCount, channel = 'chat', mode = 'auto', rangeOverride = null) {
+    if (rangeOverride && typeof rangeOverride === 'object') {
+        const count = Number.isFinite(Number(rangeOverride.count))
+            ? Math.max(1, Math.round(Number(rangeOverride.count)))
+            : Math.max(1, Number.isFinite(Number(messageCount)) ? Math.round(Number(messageCount)) : 1);
+        const target = Number.isFinite(Number(rangeOverride.target)) ? Math.max(80, Math.round(Number(rangeOverride.target))) : 220;
+        const min = Number.isFinite(Number(rangeOverride.min)) ? Math.max(60, Math.round(Number(rangeOverride.min))) : Math.max(80, target - 60);
+        const max = Number.isFinite(Number(rangeOverride.max)) ? Math.max(min + 12, Math.round(Number(rangeOverride.max))) : Math.max(min + 24, target + 80);
+        const fallbackTokens = Math.max(512, Math.min(4000, Math.round(max * 2.2)));
+        const maxTokens = Number.isFinite(Number(rangeOverride.maxTokens))
+            ? Math.max(256, Math.min(4000, Math.round(Number(rangeOverride.maxTokens))))
+            : fallbackTokens;
+        return Object.assign({}, rangeOverride, {
+            mode: mode === 'manual' ? 'manual' : 'auto',
+            count,
+            target,
+            min,
+            max,
+            maxTokens
+        });
+    }
+
+    if (channel === 'chat') {
+        return getNaturalSummaryLengthRange(messageCount, mode);
+    }
+
+    if (channel === 'live_link') {
+        const count = Math.max(1, Number.isFinite(Number(messageCount)) ? Math.round(Number(messageCount)) : 1);
+        const target = Math.max(120, Math.min(220, Math.round(130 + count * 4)));
+        const min = Math.max(100, Math.min(target - 8, 120));
+        const max = Math.max(min + 20, Math.min(240, target + 34));
+        return {
+            mode: mode === 'manual' ? 'manual' : 'auto',
+            count,
+            target,
+            min,
+            max,
+            maxTokens: 760
+        };
+    }
+
+    const range = getSummaryLengthRangeByCount(messageCount, channel === 'meeting' ? 'meeting' : 'call');
+    return Object.assign({}, range, {
+        mode: mode === 'manual' ? 'manual' : 'auto',
+        maxTokens: channel === 'call' ? 900 : 1100
+    });
+}
+
+function getNaturalSummaryDetailHintByChannel(channel = 'chat', detailModeHint = '') {
+    const userHint = String(detailModeHint || '').trim();
+    const presetMap = {
+        meeting: '当前是见面总结，重点写线下关键动作、情绪变化、承诺或分歧以及后续动作。',
+        call: '当前是通话总结，重点写通话中的确认点、未决点与下一次确认时点。',
+        live_link: '当前是直播连线总结，重点写模式、双方互动、观众反馈、结果与后续策略。'
+    };
+    const preset = String(presetMap[channel] || '').trim();
+    if (preset && userHint) return `${preset} ${userHint}`;
+    return preset || userHint;
+}
+
+async function generateChannelNaturalSummary(contact, textMessages, options = {}) {
+    if (!contact || typeof contact !== 'object') {
+        throw new Error('缺少联系人信息');
+    }
+
+    const sourceMessages = Array.isArray(textMessages) ? textMessages.filter(Boolean) : [];
+    const normalizedMessages = sourceMessages
+        .map(msg => ({
+            role: msg && msg.role === 'user' ? 'user' : 'assistant',
+            time: msg && msg.time ? msg.time : Date.now(),
+            content: String(msg && msg.content ? msg.content : '').trim(),
+            type: msg && msg.type ? msg.type : 'text'
+        }))
+        .filter(msg => msg.content && !msg.content.startsWith('['));
+    if (normalizedMessages.length === 0) {
+        return { summary: '', context: null, range: null, mode: resolveNaturalSummaryMode(options) };
+    }
+
+    let userName = String(options.userLabel || '').trim();
+    if (!userName) {
+        if (contact.userPersonaId && Array.isArray(window.iphoneSimState.userPersonas)) {
+            const persona = window.iphoneSimState.userPersonas.find(item => item.id === contact.userPersonaId);
+            if (persona && persona.name) userName = persona.name;
+        }
+        if (!userName && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name) {
+            userName = window.iphoneSimState.userProfile.name;
+        }
+    }
+    if (!userName) userName = '用户';
+
+    const actorNames = resolveSummaryActorNames(contact, userName);
+    const resolvedUserName = actorNames.userLabel;
+    const contactLabel = actorNames.contactLabel;
+    const mode = resolveNaturalSummaryMode(options);
+    const channel = ['chat', 'meeting', 'call', 'live_link'].includes(String(options.channel || '').trim())
+        ? String(options.channel || '').trim()
+        : 'chat';
+    const totalMessageCount = Number.isFinite(Number(options.totalMessageCount))
+        ? Number(options.totalMessageCount)
+        : normalizedMessages.length;
+    const sourceMessageCount = Number.isFinite(Number(options.sourceMessageCount))
+        ? Number(options.sourceMessageCount)
+        : sourceMessages.length;
+    const lengthRange = getChannelNaturalSummaryLengthRange(totalMessageCount, channel, mode, options.rangeOverride || null);
+    const sourceTag = String(options.source || 'auto_summary').trim() || 'auto_summary';
+
+    console.log('[summary-natural-start]', {
+        mode,
+        sourceCount: sourceMessageCount,
+        textCount: normalizedMessages.length,
+        target: lengthRange.target,
+        min: lengthRange.min,
+        max: lengthRange.max,
+        source: sourceTag,
+        channel
+    });
+
+    const settings = options.settings && options.settings.url && options.settings.key
+        ? options.settings
+        : (window.iphoneSimState.aiSettings2.url ? window.iphoneSimState.aiSettings2 : window.iphoneSimState.aiSettings);
+    if (!settings.url || !settings.key) {
+        throw new Error('未配置API');
+    }
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    const runtimeContext = {
+        channel,
+        mode,
+        rangeLabel: String(options.rangeLabel || '').trim(),
+        totalMessageCount,
+        sourceMessageCount,
+        dateStr,
+        timeStr,
+        userLabel: resolvedUserName,
+        contactLabel,
+        detailModeHint: getNaturalSummaryDetailHintByChannel(channel, options.detailModeHint),
+        range: lengthRange
+    };
+
+    const chatContext = buildNaturalSummaryChatContext(normalizedMessages, resolvedUserName, contactLabel);
+    if (!chatContext) {
+        throw new Error('缺少可用聊天内容');
+    }
+
+    const systemPrompt = mode === 'manual'
+        ? buildManualNaturalSummaryPrompt(runtimeContext)
+        : buildAutoNaturalSummaryPrompt(runtimeContext);
+    const firstRaw = await requestNaturalSummaryText(settings, {
+        stage: 'first_pass',
+        mode,
+        systemPrompt,
+        userContent: buildNaturalSummaryUserContent(chatContext, runtimeContext),
+        temperature: 0.45,
+        presencePenalty: 0.2,
+        frequencyPenalty: 0.15,
+        maxTokens: lengthRange.maxTokens
+    });
+    let summary = normalizeNaturalSummaryOutput(firstRaw, runtimeContext).trim();
+
+    console.log('[summary-natural-first-pass]', {
+        mode,
+        outputChars: countSummaryChars(summary),
+        target: lengthRange.target,
+        min: lengthRange.min,
+        max: lengthRange.max,
+        channel
+    });
+
+    if (!summary) {
+        throw new Error('总结结果为空');
+    }
+
+    console.log('[summary-natural-final]', {
+        mode,
+        outputChars: countSummaryChars(summary),
+        finalStage: 'first_pass',
+        channel
+    });
+
+    return {
+        summary,
+        mode,
+        range: lengthRange,
+        context: runtimeContext
+    };
+}
+
+window.generateChannelNaturalSummary = generateChannelNaturalSummary;
+
 async function generateSummary(contact, messages, range, options = {}) {
     const sourceMessages = Array.isArray(messages) ? messages : [];
     const textMessages = sourceMessages.filter(m => m && m.type === 'text' && !String(m.content || '').startsWith('['));
@@ -7457,86 +7660,19 @@ async function generateSummary(contact, messages, range, options = {}) {
         return;
     }
 
-    let userName = '用户';
-    if (contact.userPersonaId) {
-        const p = window.iphoneSimState.userPersonas.find(p => p.id === contact.userPersonaId);
-        if (p) userName = p.name;
-    } else if (window.iphoneSimState.userProfile) {
-        userName = window.iphoneSimState.userProfile.name;
-    }
-
-    const actorNames = resolveSummaryActorNames(contact, userName);
-    userName = actorNames.userLabel;
-    const contactLabel = actorNames.contactLabel;
-    const mode = resolveNaturalSummaryMode(options);
-    const lengthRange = getNaturalSummaryLengthRange(textMessages.length, mode);
-    console.log('[summary-natural-start]', {
-        mode,
-        sourceCount: sourceMessages.length,
-        textCount: textMessages.length,
-        target: lengthRange.target,
-        min: lengthRange.min,
-        max: lengthRange.max,
-        source: options.source || 'auto_summary'
-    });
-
-    const settings = window.iphoneSimState.aiSettings2.url ? window.iphoneSimState.aiSettings2 : window.iphoneSimState.aiSettings;
-    if (!settings.url || !settings.key) {
-        console.log('未配置副API，无法自动总结');
-        showNotification('未配置API', 2000);
-        return;
-    }
-
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
-    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    const runtimeContext = {
-        channel: 'chat',
-        mode,
-        rangeLabel: String(range || ''),
-        totalMessageCount: textMessages.length,
-        sourceMessageCount: sourceMessages.length,
-        dateStr,
-        timeStr,
-        userLabel: userName,
-        contactLabel,
-        range: lengthRange
-    };
-    const chatContext = buildNaturalSummaryChatContext(textMessages, userName, contactLabel);
-    const baseUserContent = buildNaturalSummaryUserContent(chatContext, runtimeContext);
-
     try {
-        const firstPrompt = mode === 'manual'
-            ? buildManualNaturalSummaryPrompt(runtimeContext)
-            : buildAutoNaturalSummaryPrompt(runtimeContext);
-        const firstRaw = await requestNaturalSummaryText(settings, {
-            stage: 'first_pass',
-            mode,
-            systemPrompt: firstPrompt,
-            userContent: baseUserContent,
-            temperature: 0.45,
-            presencePenalty: 0.2,
-            frequencyPenalty: 0.15,
-            maxTokens: lengthRange.maxTokens
+        const result = await generateChannelNaturalSummary(contact, textMessages, {
+            channel: 'chat',
+            source: options.source || 'auto_summary',
+            rangeLabel: String(range || ''),
+            summaryPromptMode: options.summaryPromptMode,
+            detailModeHint: options.detailModeHint,
+            sourceMessageCount: sourceMessages.length,
+            totalMessageCount: textMessages.length,
+            rangeOverride: options.rangeOverride || null
         });
-        let summary = normalizeNaturalSummaryOutput(firstRaw, runtimeContext);
-        console.log('[summary-natural-first-pass]', {
-            mode,
-            outputChars: countSummaryChars(summary),
-            target: lengthRange.target,
-            min: lengthRange.min,
-            max: lengthRange.max
-        });
-
-        summary = normalizeNaturalSummaryOutput(summary, runtimeContext).trim();
-        if (!summary) {
-            throw new Error('总结结果为空');
-        }
-        console.log('[summary-natural-final]', {
-            mode,
-            outputChars: countSummaryChars(summary),
-            finalStage: 'first_pass'
-        });
+        const summary = String(result && result.summary || '').trim();
+        if (!summary) throw new Error('总结结果为空');
         persistChatSummaryResult(contact, summary, range, options, null);
     } catch (error) {
         console.error('自动总结失败:', error);

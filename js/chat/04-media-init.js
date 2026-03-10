@@ -1535,6 +1535,86 @@ async function summarizeVoiceCall(contactId, startIndex) {
 
     showNotification('正在总结通话...');
 
+    let summary = '';
+    let structuredPayload = null;
+    try {
+        if (typeof window.generateChannelNaturalSummary !== 'function') {
+            throw new Error('summary helper unavailable');
+        }
+        const generated = await window.generateChannelNaturalSummary(contact, callTextMessages, {
+            channel: 'call',
+            source: 'call_summary',
+            rangeLabel: '语音通话',
+            detailModeHint: '当前是通话总结，重点写通话中的确认点、未决点与下一次确认时点。',
+            summaryPromptMode: 'manual',
+            rangeLabel: '语音通话',
+            detailModeHint: '',
+            totalMessageCount,
+            sourceMessageCount: totalMessageCount,
+            rangeOverride: Object.assign({}, lengthRange, { maxTokens: 900 }),
+            settings
+        });
+        summary = String(generated && generated.summary || '').trim();
+        if (!summary) throw new Error('empty summary');
+    } catch (error) {
+        console.error('通话总结失败:', error);
+        const rawRecord = callTextMessages
+            .slice(0, 14)
+            .map(msg => `${msg.role === 'user' ? userName : contactLabel}: ${msg.content}`)
+            .join('；');
+        summary = rawRecord ? `【通话原始记录】${rawRecord}` : '';
+        if (!summary) {
+            showNotification('总结出错', 2000, 'error');
+            return;
+        }
+        showNotification('AI总结失败，已使用原始记录兜底', 2000, 'warning');
+    }
+
+    if (summary && summary !== '无' && summary !== '无。') {
+        const summaryTitle = typeof buildMemoryDisplayTitle === 'function'
+            ? buildMemoryDisplayTitle({
+                title: '',
+                content: summary,
+                structuredSummary: structuredPayload,
+                memoryTags: ['short_term']
+            })
+            : '';
+        const memoryContent = `【通话回忆】${summary}`;
+        if (typeof window.createMemoryCandidate === 'function') {
+            const created = window.createMemoryCandidate(contact.id, {
+                title: summaryTitle,
+                content: memoryContent,
+                suggestedTags: ['short_term'],
+                source: 'call_summary',
+                confidence: 0.8,
+                range: '语音通话',
+                reason: '语音通话总结'
+            });
+            saveConfig();
+            if (created && created.status === 'pending') {
+                showNotification('通话总结已加入待确认', 2000, 'success');
+            } else if (created) {
+                showNotification('通话总结完成', 2000, 'success');
+            } else {
+                showNotification('手动模式：未自动写入记忆', 2200);
+            }
+        } else {
+            window.iphoneSimState.memories.push({
+                id: Date.now(),
+                contactId: contact.id,
+                content: memoryContent,
+                time: Date.now(),
+                range: '语音通话'
+            });
+            saveConfig();
+            showNotification('通话总结完成', 2000, 'success');
+        }
+        console.log('通话总结完成:', summary);
+    }
+
+    return;
+
+    if (false) {
     const now = new Date();
     const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -1668,6 +1748,7 @@ async function summarizeVoiceCall(contactId, startIndex) {
     } catch (error) {
         console.error('通话总结失败:', error);
         showNotification('总结出错', 2000, 'error');
+    }
     }
 }
 

@@ -363,6 +363,41 @@ async function generateMeetingSummary(contactId, meeting, injectIntoChat = false
         return;
     }
 
+    let summary = '';
+    try {
+        if (typeof window.generateChannelNaturalSummary !== 'function') {
+            throw new Error('summary helper unavailable');
+        }
+        const generated = await window.generateChannelNaturalSummary(contact, meetingMessages, {
+            channel: 'meeting',
+            source: injectIntoChat ? 'meeting_sync' : 'meeting_summary',
+            rangeLabel: meeting && meeting.title ? meeting.title : '见面剧情',
+            detailModeHint: '当前是见面总结，重点写线下关键动作、情绪变化、承诺或分歧以及后续动作。',
+            summaryPromptMode: 'manual',
+            rangeLabel: meeting && meeting.title ? meeting.title : '见面剧情',
+            detailModeHint: '',
+            totalMessageCount,
+            sourceMessageCount: totalMessageCount,
+            rangeOverride: Object.assign({}, lengthRange, { maxTokens: 1100 }),
+            settings
+        });
+        summary = String(generated && generated.summary || '').trim();
+        if (!summary) throw new Error('empty summary');
+    } catch (error) {
+        console.error('见面总结API请求失败:', error);
+        const rawRecord = meetingMessages
+            .slice(0, 14)
+            .map(msg => `${msg.role === 'user' ? userName : contactLabel}: ${msg.content}`)
+            .join('；');
+        summary = rawRecord ? `【见面原始记录】${rawRecord}` : '';
+        if (!summary) {
+            showNotification('见面总结失败', 2000, 'error');
+            return;
+        }
+        showNotification('AI总结失败，已使用原始记录兜底', 2000, 'warning');
+    }
+
+    if (false) {
     const now = new Date();
     const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -468,6 +503,7 @@ async function generateMeetingSummary(contactId, meeting, injectIntoChat = false
         });
     }
     summary = String(summary || '').trim();
+    }
 
     if (summary && summary !== '无' && summary !== '无。') {
         // 1. 添加到记忆
