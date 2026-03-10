@@ -98,7 +98,7 @@ function handleRegenerateReply() {
         renderChatHistory(window.iphoneSimState.currentChatContactId);
     }
     
-    generateAiReply('请严格遵守JSON格式输出。如果开启了心声(thought)，必须先输出心声（角色的心理活动）。请务必将长回复拆分为多条短消息。');
+    generateAiReply('请基于当前协议重新生成上一轮回复：保持人设、自然聊天感和正确 JSON 格式；如果已开启显示心声，仍需先输出 thought_state；避免重复上一版的不自然表达。');
 }
 
 function handleTransfer() {
@@ -4979,10 +4979,10 @@ function checkActiveReplies() {
             
             if (lastMsg.role === 'user') {
                 // User sent last message, AI is replying late
-                activeInstruction = `（系统提示：主动发消息模式触发。距离用户上一条消息已过去 ${minutesPassed} 分钟。请回复用户的消息。你可以顺便解释一下为什么回复晚了，或者直接自然地继续话题。）`;
+                activeInstruction = `（系统提示：主动发消息模式触发。距离用户上一条消息已过去 ${minutesPassed} 分钟。请在不打断人设的前提下自然接住对方刚才的话；可以轻描淡写解释回复稍晚，也可以直接顺着话题继续。）`;
             } else {
                 // AI sent last message, User didn't reply
-                activeInstruction = `（系统提示：主动发消息模式触发。距离你上一条消息已过去 ${minutesPassed} 分钟，用户一直没有回复。请主动发起一条新消息，可以是对上一条的补充，或者是开启新话题，或者是分享当下的心情/状态。请保持自然，不要暴露你是AI。）`;
+                activeInstruction = `（系统提示：主动发消息模式触发。距离你上一条消息已过去 ${minutesPassed} 分钟，用户一直没有回复。请像真人间隔一阵后自然续聊：可以补一句、换个轻话题，或分享当下状态/见闻；不要写成系统通知或任务播报。）`;
             }
 
             generateAiReply(activeInstruction, contact.id);
