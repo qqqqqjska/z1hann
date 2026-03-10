@@ -3034,7 +3034,7 @@ async function generateAiReply(instruction = null, targetContactId = null) {
         }
     }
 
-    const calendarContext = buildCalendarPromptContext();
+    const calendarContext = contact.calendarAwareEnabled === false ? '' : buildCalendarPromptContext();
 
     let lookusContext = '';
     if (contact.lookusData) {
@@ -5467,4 +5467,5 @@ function optimizePromptForNovelAI(text) {
 
     return processed;
 }
+
 

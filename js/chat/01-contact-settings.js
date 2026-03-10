@@ -508,6 +508,7 @@ function handleSaveContact() {
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + name,
         activeReplyEnabled: false,
         activeReplyInterval: 60,
+        calendarAwareEnabled: true,
         autoItineraryEnabled: false,
         autoItineraryInterval: 10,
         messagesSinceLastItinerary: 0,
@@ -1463,6 +1464,7 @@ function openChatSettings() {
     document.getElementById('chat-setting-show-thought').checked = contact.showThought || false;
     document.getElementById('chat-setting-thought-visible').checked = contact.thoughtVisible || false;
     document.getElementById('chat-setting-real-time-visible').checked = contact.realTimeVisible || false;
+    document.getElementById('chat-setting-calendar-aware').checked = contact.calendarAwareEnabled !== false;
 
     const thoughtStyleSelect = document.getElementById('chat-setting-thought-style');
     const thoughtPetPanel = document.getElementById('chat-setting-thought-pet-panel');
@@ -2034,6 +2036,7 @@ function handleSaveChatSettings() {
     const showThought = document.getElementById('chat-setting-show-thought').checked;
     const thoughtVisible = document.getElementById('chat-setting-thought-visible').checked;
     const realTimeVisible = document.getElementById('chat-setting-real-time-visible').checked;
+    const calendarAwareEnabled = document.getElementById('chat-setting-calendar-aware').checked;
     const thoughtDisplayModeRaw = document.getElementById('chat-setting-thought-style')
         ? document.getElementById('chat-setting-thought-style').value
         : 'title';
@@ -2090,6 +2093,7 @@ function handleSaveChatSettings() {
     contact.showThought = showThought;
     contact.thoughtVisible = thoughtVisible;
     contact.realTimeVisible = realTimeVisible;
+    contact.calendarAwareEnabled = calendarAwareEnabled;
     contact.thoughtDisplayMode = thoughtDisplayMode;
     contact.thoughtPetSize = thoughtPetSize;
     contact.thoughtPetPosition = normalizeThoughtPetPositionSetting(contact.thoughtPetPosition);
@@ -2231,3 +2235,4 @@ function handleSaveChatSettings() {
 }
 
 // --- 聊天界面功能 ---
+
