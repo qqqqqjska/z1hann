@@ -1941,6 +1941,11 @@ function parseMixedAiResponse(content) {
 
     const pushSanitizedText = (rawText, options = {}) => {
         const atomic = !!options.atomic;
+        const recoveredItems = recoverContextRecordItems(rawText);
+        if (recoveredItems.length > 0) {
+            recoveredItems.forEach(item => results.push(item));
+            return;
+        }
         const sanitized = extractVisibleControlData(rawText);
 
         sanitized.thoughtTexts.forEach(thoughtText => {
@@ -2533,6 +2538,8 @@ function extractVisibleControlData(rawText) {
         return ' ';
     });
 
+    working = working.replace(/\[context_record\s+[^\]]+\]/gi, ' ');
+
     const cleanedLines = [];
     for (const line of working.split('\n')) {
         const trimmed = line.trim();
@@ -2562,6 +2569,79 @@ function extractVisibleControlData(rawText) {
     };
 }
 
+function extractContextRecordSegments(rawText) {
+    const source = String(rawText || '').replace(/\r/g, '');
+    const regex = /\[context_record\s+([^\]]+)\]/gi;
+    const markers = [];
+    let match;
+
+    while ((match = regex.exec(source)) !== null) {
+        markers.push({
+            start: match.index,
+            end: regex.lastIndex,
+            attrs: parseBracketAttributes(match[1])
+        });
+    }
+
+    if (markers.length === 0) return [];
+
+    return markers.map((marker, index) => {
+        const nextStart = index + 1 < markers.length ? markers[index + 1].start : source.length;
+        const rawSegment = source.slice(marker.end, nextStart)
+            .replace(/^\s*[\]\"'`’”）】>]+/, '')
+            .trim();
+
+        return {
+            msgId: marker.attrs.msg_id || '',
+            timestamp: marker.attrs.timestamp ? Number(marker.attrs.timestamp) : null,
+            role: marker.attrs.role || '',
+            type: marker.attrs.type || 'text',
+            content: rawSegment
+        };
+    });
+}
+
+function recoverContextRecordItems(rawText) {
+    const segments = extractContextRecordSegments(rawText);
+    if (segments.length === 0) return [];
+
+    const items = [];
+    segments.forEach(segment => {
+        const normalizedType = normalizeAiSchemaType(segment.type);
+        const sanitized = extractVisibleControlData(segment.content);
+
+        sanitized.thoughtTexts.forEach(thoughtText => {
+            if (thoughtText) {
+                items.push({ type: 'thought_state', displayText: thoughtText });
+            }
+        });
+
+        sanitized.stickerNames.forEach(stickerName => {
+            if (stickerName) {
+                items.push({ type: 'sticker_message', sticker: stickerName });
+            }
+        });
+
+        const cleanText = String(sanitized.cleanText || '').trim();
+        if (!cleanText) return;
+
+        if (normalizedType === 'sticker_message') {
+            items.push({ type: 'sticker_message', sticker: cleanText });
+            return;
+        }
+
+        items.push({
+            type: 'text_message',
+            content: cleanText,
+            sourceContextRecord: true,
+            sourceMsgId: segment.msgId,
+            sourceTimestamp: segment.timestamp,
+            sourceRecordType: normalizedType
+        });
+    });
+
+    return items;
+}
 function resolveStickerAssetForContact(contact, stickerQuery) {
     const query = String(stickerQuery || '').trim();
     if (!query || !window.iphoneSimState || !Array.isArray(window.iphoneSimState.stickerCategories)) return null;
@@ -2691,6 +2771,61 @@ window.sanitizeChatHistoryForRender = function(contactId) {
         ? window.iphoneSimState.contacts.find(c => c.id === contactId)
         : null;
     let changed = false;
+
+    for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i];
+        if (!msg || msg.role !== 'assistant' || typeof msg.content !== 'string' || !msg.content.includes('[context_record')) continue;
+
+        const recoveredItems = recoverContextRecordItems(msg.content);
+        if (recoveredItems.length === 0) continue;
+
+        const splitMessages = [];
+        const baseTime = Number.isFinite(Number(msg.time)) ? Number(msg.time) : Date.now();
+        let hasAttachedReply = false;
+
+        recoveredItems.forEach((item, itemIndex) => {
+            const recoveredType = normalizeAiSchemaType(item.type);
+            if (recoveredType === 'sticker_message') {
+                const stickerAsset = resolveStickerAssetForContact(contact, item.sticker || item.content || '');
+                if (stickerAsset) {
+                    splitMessages.push({
+                        id: `${baseTime}${Math.random().toString(36).slice(2, 8)}`,
+                        time: baseTime + itemIndex,
+                        role: 'assistant',
+                        content: stickerAsset.url,
+                        type: 'sticker',
+                        description: stickerAsset.desc || item.sticker || item.content || '',
+                        replyTo: null
+                    });
+                }
+                return;
+            }
+
+            const recoveredText = String(item.content || '').trim();
+            if (!recoveredText) return;
+
+            const replyTo = !hasAttachedReply && msg.replyTo ? msg.replyTo : null;
+            splitMessages.push({
+                id: `${baseTime}${Math.random().toString(36).slice(2, 8)}`,
+                time: baseTime + itemIndex,
+                role: 'assistant',
+                content: recoveredText,
+                type: 'text',
+                replyTo: replyTo
+            });
+            if (replyTo) {
+                hasAttachedReply = true;
+            }
+        });
+
+        if (splitMessages.length > 0) {
+            if (msg.thought) {
+                splitMessages[splitMessages.length - 1].thought = msg.thought;
+            }
+            history.splice(i, 1, ...splitMessages);
+            changed = true;
+        }
+    }
 
     history.forEach(msg => {
         if (!msg || msg.role !== 'assistant' || typeof msg.content !== 'string') return;
@@ -3953,6 +4088,28 @@ ${contact.showThought ? '- **强制执行**：请务必输出角色的【可展�
 
             if (normalizedType === 'quote_reply') {
                 const resolvedQuote = resolveQuoteReplyTarget(history, item, contact, { allowContentFallback: false });
+                const recoveredQuoteItems = recoverContextRecordItems(item.replyContent || '');
+                if (recoveredQuoteItems.length > 0) {
+                    let hasAttachedReply = false;
+                    recoveredQuoteItems.forEach(recoveredItem => {
+                        const recoveredType = normalizeAiSchemaType(recoveredItem.type);
+                        if (recoveredType === 'sticker_message') {
+                            messagesList.push({ type: '表情包', content: recoveredItem.sticker || recoveredItem.content || '' });
+                            return;
+                        }
+                        const recoveredText = String(recoveredItem.content || '').trim();
+                        if (!recoveredText) {
+                            return;
+                        }
+                        const replyTo = !hasAttachedReply && resolvedQuote && resolvedQuote.replyTo ? resolvedQuote.replyTo : null;
+                        messagesList.push({ type: '消息', content: recoveredText, replyTo });
+                        if (replyTo) {
+                            hasAttachedReply = true;
+                        }
+                    });
+                    continue;
+                }
+
                 const quoteText = extractVisibleControlData(item.replyContent || '').cleanText;
                 if (!quoteText) {
                     continue;
