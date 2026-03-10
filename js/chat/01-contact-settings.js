@@ -763,6 +763,92 @@ function formatLastMsgPreview(lastMsg) {
     return truncatePreview(fallback || '[消息]');
 }
 
+function formatContactListTimeLabel(timestamp) {
+    const time = Number(timestamp);
+    if (!Number.isFinite(time) || time <= 0) return '';
+    const date = new Date(time);
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+}
+
+function getLastRenderableChatMessage(contactId) {
+    const history = window.iphoneSimState && window.iphoneSimState.chatHistory
+        ? window.iphoneSimState.chatHistory[contactId]
+        : null;
+    if (!Array.isArray(history) || history.length === 0) return null;
+
+    for (let index = history.length - 1; index >= 0; index--) {
+        const msg = history[index];
+        if (shouldHideChatSyncMsg(msg)) continue;
+        return msg;
+    }
+
+    return null;
+}
+
+function getSortedContactsForCurrentGroup(filterGroup = (window.iphoneSimState && window.iphoneSimState.currentContactGroup) || 'all') {
+    const contacts = window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts)
+        ? [...window.iphoneSimState.contacts]
+        : [];
+
+    const filteredContacts = filterGroup === 'all'
+        ? contacts
+        : contacts.filter(contact => contact.group === filterGroup);
+
+    filteredContacts.sort((contactA, contactB) => {
+        if (contactA.isPinned && !contactB.isPinned) return -1;
+        if (!contactA.isPinned && contactB.isPinned) return 1;
+
+        const lastTimeA = getLastRenderableChatMessage(contactA.id);
+        const lastTimeB = getLastRenderableChatMessage(contactB.id);
+        return Number(lastTimeB && lastTimeB.time) - Number(lastTimeA && lastTimeA.time);
+    });
+
+    return filteredContacts;
+}
+
+function isElementVisibleInScrollViewport(element, container) {
+    if (!element || !container) return false;
+    const elementRect = element.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    return elementRect.bottom > containerRect.top && elementRect.top < containerRect.bottom;
+}
+
+window.getWechatListScreenShareSnapshot = function() {
+    const activeTab = document.querySelector('#wechat-app .wechat-tab-item.active')?.dataset?.tab || 'contacts';
+    const list = document.getElementById('contact-list');
+    let items = [];
+
+    if (list) {
+        const renderedItems = Array.from(list.querySelectorAll('.contact-item'));
+        const visibleItems = renderedItems.filter(item => isElementVisibleInScrollViewport(item, list));
+        const sourceItems = (visibleItems.length > 0 ? visibleItems : renderedItems).slice(0, 8);
+
+        items = sourceItems.map(item => ({
+            name: (item.querySelector('.contact-name')?.textContent || '').trim(),
+            preview: (item.querySelector('.contact-msg-preview')?.textContent || '[消息]').trim() || '[消息]',
+            time: (item.querySelector('.contact-time')?.textContent || '').trim(),
+            pinned: item.classList.contains('pinned')
+        })).filter(item => item.name);
+    }
+
+    if (items.length === 0) {
+        items = getSortedContactsForCurrentGroup().slice(0, 8).map(contact => {
+            const lastMsg = getLastRenderableChatMessage(contact.id);
+            return {
+                name: contact.remark || contact.nickname || contact.name || '联系人',
+                preview: formatLastMsgPreview(lastMsg) || '[消息]',
+                time: formatContactListTimeLabel(lastMsg && lastMsg.time),
+                pinned: !!contact.isPinned
+            };
+        });
+    }
+
+    return {
+        activeTab,
+        items
+    };
+};
+
 function renderContactList(filterGroup = 'all') {
     const isSwitchingGroup = window.iphoneSimState.currentContactGroup !== filterGroup;
     window.iphoneSimState.currentContactGroup = filterGroup;

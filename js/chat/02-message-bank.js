@@ -265,6 +265,153 @@ function renderThoughtEntryUI(contactId = window.iphoneSimState.currentChatConta
 
 window.renderThoughtEntryUI = renderThoughtEntryUI;
 
+function truncateScreenShareChatText(text, maxLength = 140) {
+    const normalized = typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
+    if (!normalized) return '';
+    if (normalized.length <= maxLength) return normalized;
+    if (maxLength <= 1) return '…';
+    return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function normalizeScreenShareMessageType(msg) {
+    const rawType = String((msg && msg.type) || 'text').toLowerCase();
+    if (rawType === 'virtual_image') return 'image';
+    if (rawType === 'html') return 'text';
+    return rawType;
+}
+
+function getScreenShareReplyPreview(replyTo) {
+    if (!replyTo || typeof replyTo !== 'object') return '';
+    const replyName = String(replyTo.name || '消息').trim() || '消息';
+    const replyContent = truncateScreenShareChatText(String(replyTo.content || '').trim(), 80) || '[消息]';
+    return `${replyName}: ${replyContent}`;
+}
+
+function getScreenShareVisibleTextContent(msg) {
+    if (!msg) return '';
+    let content = typeof msg.content === 'string' ? msg.content : '';
+    content = content.replace(/<hidden_img>.*?<\/hidden_img>/g, '').trim();
+
+    if (msg.role !== 'user' && content.includes('ACTION:')) {
+        content = content
+            .split('\n')
+            .filter(line => !line.trim().startsWith('ACTION:'))
+            .join('\n')
+            .trim();
+    }
+
+    if (!content) return '';
+
+    if (typeof isLikelyHtmlPayload === 'function' && isLikelyHtmlPayload(content)) {
+        const title = typeof extractHtmlTitle === 'function' ? extractHtmlTitle(content) : '';
+        return title ? `[HTML] ${title}` : '[HTML消息]';
+    }
+
+    const plainText = typeof stripHtmlToText === 'function' ? stripHtmlToText(content) : content;
+    return truncateScreenShareChatText(plainText || '[消息]');
+}
+
+function getScreenShareChatMessageText(msg) {
+    const messageType = normalizeScreenShareMessageType(msg);
+    switch (messageType) {
+        case 'text':
+        case 'description':
+            return getScreenShareVisibleTextContent(msg) || '[消息]';
+        case 'voice': {
+            let voiceData = null;
+            try {
+                voiceData = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+            } catch (error) {
+                voiceData = null;
+            }
+            const duration = Number(voiceData && voiceData.duration);
+            const durationText = Number.isFinite(duration) && duration > 0 ? `${duration}秒` : '';
+            const transcript = truncateScreenShareChatText(String((voiceData && voiceData.text) || '').trim(), 90);
+            if (transcript && durationText) return `[语音 ${durationText}] ${transcript}`;
+            if (transcript) return `[语音] ${transcript}`;
+            if (durationText) return `[语音 ${durationText}]`;
+            return '[语音]';
+        }
+        case 'image': {
+            const desc = truncateScreenShareChatText(String(msg && msg.description || '').trim(), 90);
+            return desc ? `[图片] ${desc}` : '[图片]';
+        }
+        case 'sticker': {
+            const desc = truncateScreenShareChatText(String(msg && msg.description || '').trim(), 90);
+            return desc ? `[表情包] ${desc}` : '[表情包]';
+        }
+        default: {
+            const preview = typeof formatLastMsgPreview === 'function' ? formatLastMsgPreview(msg) : '[消息]';
+            if (preview && preview !== '[消息]') return preview;
+            return getScreenShareVisibleTextContent(msg) || '[消息]';
+        }
+    }
+}
+
+function isChatMessageVisibleInViewport(element, container) {
+    if (!element || !container) return false;
+    const elementRect = element.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    return elementRect.bottom > containerRect.top && elementRect.top < containerRect.bottom;
+}
+
+function shouldIncludeInWechatChatScreenShare(msg) {
+    if (!msg || msg._hiddenBySanitizer || shouldHideChatSyncMsg(msg)) return false;
+    if (msg.role === 'system') return false;
+    if (normalizeScreenShareMessageType(msg) === 'voice_call_text') return false;
+    if (typeof msg.content === 'string' && msg.content.startsWith('(用户发布了 iCity 日记:')) return false;
+    return true;
+}
+
+window.getWechatChatScreenShareSnapshot = function() {
+    const state = window.iphoneSimState;
+    const contactId = state && state.currentChatContactId;
+    if (!contactId) return null;
+
+    const contact = Array.isArray(state && state.contacts)
+        ? state.contacts.find(item => String(item.id) === String(contactId))
+        : null;
+    const history = state && state.chatHistory ? (state.chatHistory[contactId] || []) : [];
+    const historyMap = new Map(history.map(msg => [String(msg.id || ''), msg]));
+    const container = document.getElementById('chat-messages');
+    let items = [];
+
+    if (container) {
+        const renderedMessages = Array.from(container.querySelectorAll('.chat-message')).filter(el => !el.classList.contains('system'));
+        const visibleMessages = renderedMessages.filter(el => isChatMessageVisibleInViewport(el, container));
+        const sourceMessages = (visibleMessages.length > 0 ? visibleMessages : renderedMessages).slice(-8);
+
+        items = sourceMessages.map(element => {
+            const msg = historyMap.get(String(element.dataset.msgId || ''));
+            if (!shouldIncludeInWechatChatScreenShare(msg)) return null;
+            return {
+                side: msg.role === 'user' ? 'user' : 'other',
+                type: normalizeScreenShareMessageType(msg),
+                text: getScreenShareChatMessageText(msg),
+                replyPreview: getScreenShareReplyPreview(msg.replyTo)
+            };
+        }).filter(Boolean);
+    }
+
+    if (items.length === 0) {
+        items = history
+            .filter(msg => shouldIncludeInWechatChatScreenShare(msg))
+            .slice(-8)
+            .map(msg => ({
+                side: msg.role === 'user' ? 'user' : 'other',
+                type: normalizeScreenShareMessageType(msg),
+                text: getScreenShareChatMessageText(msg),
+                replyPreview: getScreenShareReplyPreview(msg.replyTo)
+            }));
+    }
+
+    return {
+        contactId,
+        contactName: (contact && (contact.remark || contact.nickname || contact.name)) || '联系人',
+        items
+    };
+};
+
 function renderChatHistory(contactId, preserveScroll = false) {
     if (typeof window.sanitizeChatHistoryForRender === 'function') {
         const sanitized = window.sanitizeChatHistoryForRender(contactId);

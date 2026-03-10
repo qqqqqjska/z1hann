@@ -1,4 +1,4 @@
-// Screen Share Simulation Logic
+﻿// Screen Share Simulation Logic
 
 window.isScreenSharing = false;
 window.isFloatingChatGenerating = false;
@@ -382,6 +382,7 @@ const CANONICAL_SCREEN_TARGET_ALIASES = {
     '通讯录': ['通讯录', '联系人列表', 'contacts'],
     '聊天列表': ['聊天列表', '消息列表', '列表'],
     '朋友圈': ['朋友圈'],
+    '聊天头像': ['聊天头像', '头像', 'avatar', 'profile', 'profilepicture', 'profilepic', 'pfp', 'contactavatar'],
     'Albums': ['albums', 'albumstab', '相簿', '相簿页', '相簿列表', '相册列表', 'albums页', 'albumlist'],
     '退出照片': ['退出照片', '关闭照片', '关闭图片', '退出图片', '关闭当前照片', 'closephoto', 'closephotodetail'],
     '收藏照片': ['收藏照片', '收藏这张照片', '点爱心', '点击爱心', '爱心', '喜欢这张照片', 'favoritephoto', 'favorite', 'likephoto'],
@@ -684,8 +685,10 @@ function resolveScreenNavigationIntent(targetDesc, context) {
     }
 
     const contactRef = resolveContactReferenceFromText(targetDesc, context);
-    const isChatIntent = textHasAnyKeyword(normalizedText, ['聊天', '对话', '消息', '私聊', '聊天页'])
-        || (!!contactRef.contact && getContactNameVariants(contactRef.contact).some(variant => variant.normalized === normalizedText));
+    const hasExplicitChatKeyword = textHasAnyKeyword(normalizedText, ['聊天', '对话', '消息', '私聊', '聊天页']);
+    const isExactContactNameIntent = !!contactRef.contact
+        && getContactNameVariants(contactRef.contact).some(variant => variant.normalized === normalizedText);
+    const isChatIntent = hasExplicitChatKeyword;
     const isProfileIntent = textHasAnyKeyword(normalizedText, ['资料', '主页', '个人页', '名片', '资料卡', '信息页']);
     const isMomentsIntent = normalizedText.includes('朋友圈') || normalizedText.includes('个人动态');
 
@@ -699,6 +702,28 @@ function resolveScreenNavigationIntent(targetDesc, context) {
 
     if (contactRef.contact && isProfileIntent) {
         return { type: 'contact_profile', contact: contactRef.contact };
+    }
+
+    if (contactRef.contact && isExactContactNameIntent) {
+        if (context.page === SCREEN_PAGE.CHAT_LIST) {
+            return { type: 'contact_chat', contact: contactRef.contact };
+        }
+
+        if (context.page === SCREEN_PAGE.CONTACT_CHAT) {
+            const currentContact = getCurrentContextContact(context);
+            if (isSameContact(currentContact, contactRef.contact)) {
+                return { type: 'contact_profile', contact: contactRef.contact };
+            }
+            return { type: 'contact_chat', contact: contactRef.contact };
+        }
+
+        if (
+            context.page === SCREEN_PAGE.MOMENTS_FEED
+            || context.page === SCREEN_PAGE.PERSONAL_MOMENTS
+            || context.page === SCREEN_PAGE.PROFILE
+        ) {
+            return { type: 'contact_profile', contact: contactRef.contact };
+        }
     }
 
     if (contactRef.contact && isChatIntent) {
@@ -2122,6 +2147,56 @@ function buildAlbumScreenShareMultimodalContent(snapshot) {
     return content.length > 1 ? content : null;
 }
 
+function sanitizeScreenShareSummaryValue(value, maxLength = 120) {
+    const normalized = String(value || '')
+        .replace(/\s+/g, ' ')
+        .replace(/[|]+/g, '/')
+        .trim();
+    if (!normalized) return '';
+    if (normalized.length <= maxLength) return normalized;
+    if (maxLength <= 1) return '…';
+    return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function getWechatListScreenShareSummaryText(snapshot) {
+    if (!snapshot) return '';
+    const items = Array.isArray(snapshot.items) ? snapshot.items.slice(0, 8) : [];
+    if (!items.length) {
+        return 'WeChat is on chat_list | visibleChats=0';
+    }
+
+    const itemText = items.map((item, index) => {
+        const parts = [`${index + 1}. ${sanitizeScreenShareSummaryValue(item.name || '联系人', 40)}`];
+        if (item.pinned) parts.push('(pinned)');
+        if (item.preview) parts.push(`preview=${sanitizeScreenShareSummaryValue(item.preview, 80)}`);
+        if (item.time) parts.push(`time=${sanitizeScreenShareSummaryValue(item.time, 16)}`);
+        return parts.join(' ');
+    }).join(' ; ');
+
+    return `WeChat is on chat_list | visibleChats=${items.length} | items=${itemText}`;
+}
+
+function getWechatChatScreenShareSummaryText(snapshot) {
+    if (!snapshot) return '';
+    const items = Array.isArray(snapshot.items) ? snapshot.items.slice(0, 8) : [];
+    const contactName = sanitizeScreenShareSummaryValue(snapshot.contactName || '联系人', 40) || '联系人';
+    if (!items.length) {
+        return `WeChat is on contact_chat | contact=${contactName} | visibleMessages=0`;
+    }
+
+    const itemText = items.map((item, index) => {
+        const parts = [
+            `${index + 1}. ${sanitizeScreenShareSummaryValue(item.side || 'other', 12)}`,
+            `type=${sanitizeScreenShareSummaryValue(item.type || 'text', 18)}`
+        ];
+        if (item.text) parts.push(`text=${sanitizeScreenShareSummaryValue(item.text, 120)}`);
+        if (item.replyPreview) parts.push(`reply=${sanitizeScreenShareSummaryValue(item.replyPreview, 80)}`);
+        return parts.join(' | ');
+    }).join(' ; ');
+
+    return `WeChat is on contact_chat | contact=${contactName} | visibleMessages=${items.length} | messages=${itemText}`;
+}
+
 window.getScreenShareAiContextMessages = function() {
     if (!window.isScreenSharing) {
         console.log('[ScreenShare Debug] skipped context build: screen share inactive');
@@ -2129,60 +2204,131 @@ window.getScreenShareAiContextMessages = function() {
     }
 
     const context = getScreenNavigationContext();
-    if (!context || context.page !== SCREEN_PAGE.ALBUM_APP) {
-        console.log('[ScreenShare Debug] skipped context build: album app not active', {
-            context
+    if (!context) {
+        console.log('[ScreenShare Debug] skipped context build: navigation context missing');
+        return null;
+    }
+
+    if (context.page === SCREEN_PAGE.ALBUM_APP) {
+        if (typeof window.getAlbumScreenShareSnapshot !== 'function') {
+            console.log('[ScreenShare Debug] skipped context build: snapshot provider missing');
+            return null;
+        }
+
+        const snapshot = window.getAlbumScreenShareSnapshot();
+        if (!snapshot) {
+            console.log('[ScreenShare Debug] skipped context build: snapshot empty');
+            return null;
+        }
+
+        const summaryText = getAlbumScreenShareSummaryText(snapshot);
+        const multimodalContent = buildAlbumScreenShareMultimodalContent(snapshot);
+        const imageUrlParts = Array.isArray(multimodalContent)
+            ? multimodalContent.filter(part => part && part.type === 'image_url')
+            : [];
+
+        console.log('[ScreenShare Debug] built album context', {
+            page: context.page,
+            view: snapshot.view || null,
+            title: snapshot.title || null,
+            activeAlbumName: snapshot.activeAlbumName || null,
+            itemCount: Array.isArray(snapshot.items) ? snapshot.items.length : 0,
+            imageUrlCount: imageUrlParts.length,
+            summaryText: summaryText || null,
+            items: Array.isArray(snapshot.items)
+                ? snapshot.items.map(item => ({
+                    position: item.position || null,
+                    kind: item.kind || null,
+                    src: normalizeScreenShareImageUrl(item.src || item.thumb || null) || null,
+                    location: item.location || null,
+                    datetime: item.datetime || null,
+                    albumName: item.albumName || null,
+                    isPrivate: item.isPrivate === true,
+                    count: typeof item.count === 'number' ? item.count : null
+                }))
+                : []
         });
-        return null;
-    }
-    if (typeof window.getAlbumScreenShareSnapshot !== 'function') {
-        console.log('[ScreenShare Debug] skipped context build: snapshot provider missing');
-        return null;
+
+        if (!summaryText && !multimodalContent) {
+            console.log('[ScreenShare Debug] skipped context build: no usable summary or multimodal content');
+            return null;
+        }
+
+        return {
+            summaryText,
+            multimodalContent
+        };
     }
 
-    const snapshot = window.getAlbumScreenShareSnapshot();
-    if (!snapshot) {
-        console.log('[ScreenShare Debug] skipped context build: snapshot empty');
-        return null;
+    if (context.page === SCREEN_PAGE.CHAT_LIST) {
+        if (typeof window.getWechatListScreenShareSnapshot !== 'function') {
+            console.log('[ScreenShare Debug] skipped context build: wechat list snapshot provider missing');
+            return null;
+        }
+
+        const snapshot = window.getWechatListScreenShareSnapshot();
+        if (!snapshot) {
+            console.log('[ScreenShare Debug] skipped context build: wechat list snapshot empty');
+            return null;
+        }
+
+        const summaryText = getWechatListScreenShareSummaryText(snapshot);
+        console.log('[ScreenShare Debug] built wechat list context', {
+            page: context.page,
+            activeTab: snapshot.activeTab || null,
+            itemCount: Array.isArray(snapshot.items) ? snapshot.items.length : 0,
+            summaryText: summaryText || null,
+            items: Array.isArray(snapshot.items) ? snapshot.items : []
+        });
+
+        if (!summaryText) {
+            console.log('[ScreenShare Debug] skipped context build: wechat list summary empty');
+            return null;
+        }
+
+        return {
+            summaryText,
+            multimodalContent: null
+        };
     }
 
-    const summaryText = getAlbumScreenShareSummaryText(snapshot);
-    const multimodalContent = buildAlbumScreenShareMultimodalContent(snapshot);
-    const imageUrlParts = Array.isArray(multimodalContent)
-        ? multimodalContent.filter(part => part && part.type === 'image_url')
-        : [];
+    if (context.page === SCREEN_PAGE.CONTACT_CHAT) {
+        if (typeof window.getWechatChatScreenShareSnapshot !== 'function') {
+            console.log('[ScreenShare Debug] skipped context build: wechat chat snapshot provider missing');
+            return null;
+        }
 
-    console.log('[ScreenShare Debug] built album context', {
-        page: context.page,
-        view: snapshot.view || null,
-        title: snapshot.title || null,
-        activeAlbumName: snapshot.activeAlbumName || null,
-        itemCount: Array.isArray(snapshot.items) ? snapshot.items.length : 0,
-        imageUrlCount: imageUrlParts.length,
-        summaryText: summaryText || null,
-        items: Array.isArray(snapshot.items)
-            ? snapshot.items.map(item => ({
-                position: item.position || null,
-                kind: item.kind || null,
-                src: normalizeScreenShareImageUrl(item.src || item.thumb || null) || null,
-                location: item.location || null,
-                datetime: item.datetime || null,
-                albumName: item.albumName || null,
-                isPrivate: item.isPrivate === true,
-                count: typeof item.count === 'number' ? item.count : null
-            }))
-            : []
+        const snapshot = window.getWechatChatScreenShareSnapshot();
+        if (!snapshot) {
+            console.log('[ScreenShare Debug] skipped context build: wechat chat snapshot empty');
+            return null;
+        }
+
+        const summaryText = getWechatChatScreenShareSummaryText(snapshot);
+        console.log('[ScreenShare Debug] built wechat chat context', {
+            page: context.page,
+            contactId: snapshot.contactId || null,
+            contactName: snapshot.contactName || null,
+            itemCount: Array.isArray(snapshot.items) ? snapshot.items.length : 0,
+            summaryText: summaryText || null,
+            items: Array.isArray(snapshot.items) ? snapshot.items : []
+        });
+
+        if (!summaryText) {
+            console.log('[ScreenShare Debug] skipped context build: wechat chat summary empty');
+            return null;
+        }
+
+        return {
+            summaryText,
+            multimodalContent: null
+        };
+    }
+
+    console.log('[ScreenShare Debug] skipped context build: unsupported page', {
+        context
     });
-
-    if (!summaryText && !multimodalContent) {
-        console.log('[ScreenShare Debug] skipped context build: no usable summary or multimodal content');
-        return null;
-    }
-
-    return {
-        summaryText,
-        multimodalContent
-    };
+    return null;
 }
 
 function makeDraggable(element, handle) {
