@@ -1,0 +1,303 @@
+/* ============================================================
+   自定义聊天气泡样式 - Chat Bubble Custom CSS
+   仿 WhatsApp / 图片参考 风格
+   
+   气泡圆角逻辑说明：
+   - 使用 CSS 相邻选择器 (+) 和 (~) 实现分组圆角效果
+   - 每组消息的「第一条」「中间条」「最后一条」「独立一条」
+     各自有不同的圆角形状，左右两侧镜像对称
+   ============================================================ */
+
+
+/* ============================================================
+   一、基础气泡样式（覆盖所有左/右气泡的默认外观）
+   ============================================================ */
+
+/* 整体消息行的布局（假设 HTML 结构使用了通用的消息 wrapper） */
+.chat-message {
+    display: flex;
+    margin: 1px 0; /* 同一发送方消息之间间距很小 */
+}
+
+/* 不同发送方之间增加额外间距 */
+.chat-message.other + .chat-message.user,
+.chat-message.user  + .chat-message.other {
+    margin-top: 8px;
+}
+
+/* ── 接收方（左侧，白色气泡）── */
+.chat-message.other .message-content {
+    background-color: #ffffff !important;
+    color: #1a1a1a !important;
+    position: relative !important;
+    display: inline-block !important;
+    max-width: 100% !important;
+    padding: 8px 10px 8px 10px !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+    word-break: break-word !important;
+
+    /* 默认四角全部大圆角（单独一条时的样子） */
+    border-radius: 18px 18px 18px 18px !important;
+    /* 即: top-left  top-right  bottom-right  bottom-left */
+}
+
+/* ── 发送方（右侧，淡黄色气泡）── */
+.chat-message.user .message-content {
+    background-color: #f5e6a3 !important; /* 参考图片的淡黄色 */
+    color: #1a1a1a !important;
+    position: relative !important;
+    display: inline-block !important;
+    max-width: 72% !important;
+    padding: 8px 10px 24px 10px !important; /* 底部留出时间戳 + 对钩图标空间 */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+    word-break: break-word !important;
+
+    /* 默��四角全部大圆角（单独一条时的样子） */
+    border-radius: 18px 18px 18px 18px !important;
+}
+
+
+/* ============================================================
+   二、接收方气泡圆角逻辑（左侧，白色）
+   
+   规则：左侧气泡只有「靠近发送方」的一侧（左侧）圆角会变化
+   
+   ┌────��────────────────────────────────────────────────┐
+   │ 「第一条」（下面还有同方向消息）：                     │
+   │   左上角 → 小 4px（靠近"发送方"那侧，显得紧凑连续）  │
+   │   其他三角 → 18px                                    │
+   ├─────────────────────────────────────────────────────┤
+   │ 「中间条」（上下都有同方向消息）：                     │
+   │   左上角 → 4px                                      │
+   │   左下角 → 4px           d                       │
+   │   右上/右下 → 18px                                  │
+   ├─────────────────────────────────────────────────────┤
+   │ 「最后一条」（上面有同方向消息，下面没有）：            │
+   │   左下角 → 4px                                      │
+   │   其他三角 → 18px                                    │
+   ├──────────────────────────────────────��──────────────┤
+   │ 「单独一条」（上下都没有同方向消息）：                  │
+   │   四角全大 → 18px（默认样式，已在基础样式中定义）      │
+   └─────────────────────────────────────────────────────┘
+   ============================================================ */
+
+/* 
+   「第一条」接收方消息：
+   条件：它后面紧跟着另一条接收方消息（说明它不是最后一条）
+   → 左上角变小
+*/
+.chat-message.other:has(+ .chat-message.other) .message-content {
+    border-radius: 18px 18px 18px 4px !important;
+    /*            TL   TR   BR   BL  */
+}
+
+/* 
+   「中间条」接收方消息：
+   条件：前面有接收方消息 AND 后面也有接收方消息
+   → 左上角 + 左下角都变小
+*/
+.chat-message.other + .chat-message.other:has(+ .chat-message.other) .message-content {
+    border-radius: 4px 18px 18px 4px !important;
+    /*            TL   TR   BR   BL  */
+}
+
+/* 
+   「最后一条」接收方消息：
+   条件：前面有接收方消息，但自己后面没有接收方消息
+   → 左下角变小
+*/
+.chat-message.other + .chat-message.other .message-content {
+    border-radius: 4px 18px 18px 4px !important;
+    /*            TL   TR   BR   BL  */
+}
+
+/*
+   NOTE: 上面两条规则有重叠，需要用更精确的选择器覆盖。
+   用 :has() 检测「后面还有没有同方向消息」：
+   
+   - 「中间条」= 前面有 other + 后面也有 other → TL=4, BL=4
+   - 「最后一条」= 前面有 other + 后面没有 other → TL=4, BL=18
+   
+   由于上面已写了后面有other的情况，再单独覆盖最后一条：
+*/
+.chat-message.other + .chat-message.other:not(:has(+ .chat-message.other)) .message-content {
+    border-radius: 4px 18px 18px 18px !important;
+    /*            TL   TR   BR   BL  */
+    /* 最后一条：左上小、左下恢复大 */
+}
+
+
+/* ============================================================
+   三、发送方气泡圆角逻辑（右侧，淡黄色）
+   
+   规则：右侧气泡只有「靠近发送方」的一侧（右侧）圆角会变化
+   
+   ┌─────────────────────────────────────────────────────┐
+   │ 「第一条」：右上角 → 4px，其他 → 18px               │
+   │ 「中间条」：右上 + 右下 → 4px，其他 → 18px          │
+   │ 「最后一条」：右下 → 4px，其他 → 18px               │
+   │ 「单独一条」：四角���大 18px（默认）                   │
+   └─────────────────────────────────────────────────────┘
+   ============================================================ */
+
+/* 「第一条」发送方消息 */
+.chat-message.user:has(+ .chat-message.user) .message-content {
+    border-radius: 18px 18px 4px 18px !important;
+    /*            TL   TR   BR   BL  */
+}
+
+/* 「中间条」发送方消息 */
+.chat-message.user + .chat-message.user:has(+ .chat-message.user) .message-content {
+    border-radius: 18px 4px 4px 18px !important;
+    /*            TL   TR   BR   BL  */
+}
+
+/* 「最后一条」（前有 user，后无 user） */
+.chat-message.user + .chat-message.user .message-content {
+    border-radius: 18px 4px 4px 18px !important;
+    /*            TL   TR   BR   BL  */
+}
+
+/* 精确覆盖最后一条发送方消息 */
+.chat-message.user + .chat-message.user:not(:has(+ .chat-message.user)) .message-content {
+    border-radius: 18px 4px 18px 18px !important;
+    /*            TL   TR   BR   BL  */
+    /* 最后一条：右上小、右下恢复大 */
+}
+
+
+/* ============================================================
+   四、时间戳样式
+   
+   时间戳格式说明（由 JS 控制，CSS 只负责显示样式）：
+   请确保你的 JS 渲染时间时使用 12 小时制格式，例如：
+     new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+   这样会输出 "3:24 PM" / "9:05 AM" 形式
+   ============================================================ */
+
+/* ── 接收方时间戳：跟在消息文字右侧，气泡内部 ── */
+.chat-message.other .message-time {
+    font-size: 11px !important;
+    color: #a0a0a0 !important;          /* 浅灰色，气泡内低调显示 */
+    margin-left: 6px !important;
+    white-space: nowrap !important;
+    display: inline !important;
+    vertical-align: baseline !important;
+    letter-spacing: 0.2px !important;
+}
+
+/* ── 发送方时间戳：绝对定位在气泡内右下角，紧靠对钩左侧 ── */
+.chat-message.user .message-time {
+    font-size: 11px !important;
+    color: #8a7d55 !important;          /* 暖棕/金色调，配合淡黄气泡背景 */
+    position: absolute !important;
+    bottom: 6px !important;             /* 距气泡底部 6px */
+    right: 30px !important;             /* 距右侧 30px：为对钩图标（18px）留出间距 */
+    white-space: nowrap !important;
+    letter-spacing: 0.2px !important;
+    line-height: 1 !important;
+}
+
+
+/* ============================================================
+   五、❗ 已读对钩图标配置区域 ❗
+   
+   对钩图标放置在：发送方气泡的「右下角」
+   使用 ::after 伪元素实现
+   
+   ============================================================ */
+
+.chat-message.user .message-content::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    bottom: 5px !important;  /* 距气泡底部距离 */
+    right: 8px !important;   /* 距气泡右侧距离 */
+    width: 18px !important;  /* 对钩图标宽度（可按需调整） */
+    height: 13px !important; /* 对钩图标高度（可按需调整） */
+    background-size: contain !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    z-index: 10 !important;
+
+    /* ╔══════════════════════════════════════════════════════════╗
+       ║  ❗❗❗ 在下面这行填入你的「已读对钩」图片 URL ❗❗❗       ║
+       ║                                                          ║
+       ║  例如：background-image: url('https://你的图片链接');    ║
+       ║    或  background-image: url('./icons/checkmark.png');   ║
+       ║                                                          ║
+       ║  图片应为透明背景的双勾（✓✓）图标                        ║
+       ║  参考图片中是深灰色/橙色的双勾                            ║
+       ╚══════════════════════════════════════════════════════════╝ */
+    background-image: url('在此处填入你的对钩图标URL') !important;
+}
+
+
+/* ============================================================
+   六、兼容降级方案（若浏览器不支持 :has() 选择器）
+   
+   如果你的目标浏览器不支持 CSS :has()，请改用 JavaScript
+   在消息渲染时为每条消息手动添加以下 class：
+   
+   - .is-first   → 该组的第一条消息
+   - .is-middle  → 该组的中间消息（可多条）
+   - .is-last    → 该组的最后一条消息
+   - .is-solo    → 单独一条（上下无同组消息）
+   
+   ============================================================ */
+
+/* ── 接收方降级 class 版本（左侧白色气泡）── */
+
+/* 第一条：左上角小 */
+.chat-message.other.is-first .message-content {
+    border-radius: 4px 18px 18px 18px !important;
+}
+
+/* 中间条：左上 + 左下都小 */
+.chat-message.other.is-middle .message-content {
+    border-radius: 4px 18px 18px 4px !important;
+}
+
+/* 最后一条：左下角小 */
+.chat-message.other.is-last .message-content {
+    border-radius: 18px 18px 18px 4px !important;
+}
+
+/* 单独一条：四角全大（默认已覆盖，这里明确写出） */
+.chat-message.other.is-solo .message-content {
+    border-radius: 18px 18px 18px 18px !important;
+}
+
+
+/* ── 发送方降级 class 版本（右侧淡黄气泡）── */
+
+/* 第一条：右上角小 */
+.chat-message.user.is-first .message-content {
+    border-radius: 18px 4px 18px 18px !important;
+}
+
+/* 中间条：右上 + 右下都小 */
+.chat-message.user.is-middle .message-content {
+    border-radius: 18px 4px 4px 18px !important;
+}
+
+/* 最后一条：右下角小 */
+.chat-message.user.is-last .message-content {
+    border-radius: 18px 18px 4px 18px !important;
+}
+
+/* 单独一条：四角全大 */
+.chat-message.user.is-solo .message-content {
+    border-radius: 18px 18px 18px 18px !important;
+}
+
+
+/* ============================================================
+   七、滚动容器 & 整体背景（可选，配合图片粉色背景）
+   ============================================================ */
+
+/* 如需复现图片中的粉色背景，在聊天区域容器上加此样式 */
+/* .chat-container {
+    background-color: #f9e8eb;
+} */
+

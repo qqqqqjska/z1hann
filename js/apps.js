@@ -10,6 +10,44 @@ let memoryRefinePanelVisible = false;
 
 // --- 朋友圈功能 ---
 
+function buildMomentImagesHtml(moment) {
+    if (!moment || !Array.isArray(moment.images) || moment.images.length === 0) return '';
+
+    const gridClass = moment.images.length === 1 ? 'single' : 'grid';
+    return `<div class="moment-images ${gridClass}">
+        ${moment.images.map(img => {
+            const isVirtual = (typeof img === 'object' && img && img.isVirtual);
+
+            if (isVirtual) {
+                const cleanDesc = typeof window.cleanMomentImageDescription === 'function'
+                    ? window.cleanMomentImageDescription(img.desc || img.description || '')
+                    : String(img.desc || img.description || '').replace(/^\[图片描述\][:：]?\s*/, '').trim();
+                let displaySrc = window.iphoneSimState.defaultMomentVirtualImageUrl;
+                if (!displaySrc) {
+                    displaySrc = img.src || window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
+                }
+
+                return `
+                <div class="virtual-image-container" style="position: relative; cursor: pointer; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; overflow: hidden; background-color: #f2f2f7;">
+                    <img src="${displaySrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+                    <div class="virtual-image-overlay" style="position: absolute; bottom: 0; left: 0; width: 100%; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); padding: 20px 10px 5px; box-sizing: border-box; pointer-events: none;">
+                        <div style="font-size: 12px; color: #fff; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; text-align: left;">${cleanDesc}</div>
+                    </div>
+                </div>
+                `;
+            }
+
+            const src = typeof img === 'string' ? img : (img && (img.src || img.url)) || '';
+            return `<img src="${src}" class="moment-img">`;
+        }).join('')}
+    </div>`;
+}
+
+function buildMomentTextHtml(content) {
+    const text = String(content || '').trim();
+    return text ? `<div class="moment-text">${text}</div>` : '';
+}
+
 function renderMoments() {
     const container = document.getElementById('moments-container');
     if (!container) return;
@@ -21,7 +59,8 @@ function renderMoments() {
             bgImage: '',
             momentsBgImage: '',
             desc: '点击此处添加个性签名',
-            wxid: 'wxid_123456'
+            wxid: 'wxid_123456',
+            gender: 'female'
         };
     }
 
@@ -88,39 +127,8 @@ function renderMomentsList() {
         const item = document.createElement('div');
         item.className = 'moment-item';
         
-        let imagesHtml = '';
-        if (moment.images && moment.images.length > 0) {
-            const gridClass = moment.images.length === 1 ? 'single' : 'grid';
-            imagesHtml = `<div class="moment-images ${gridClass}">
-                ${moment.images.map((img, imgIndex) => {
-                    const isVirtual = (typeof img === 'object' && img.isVirtual);
-                    
-                    if (isVirtual) {
-                        const uniqueId = `moment-virtual-${moment.id}-${imgIndex}`;
-                        const overlayId = `overlay-${uniqueId}`;
-                        const cleanDesc = (img.desc || '').replace(/^\[图片描述\][:：]?\s*/, '');
-                        
-                        let displaySrc = window.iphoneSimState.defaultMomentVirtualImageUrl;
-                        if (!displaySrc) {
-                             // Fallback to stored src (placeholder) or default chat virtual image url or hardcoded
-                             displaySrc = img.src || window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
-                        }
-                        
-                        return `
-                        <div class="virtual-image-container" style="position: relative; cursor: pointer; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; overflow: hidden; background-color: #f2f2f7;">
-                            <img src="${displaySrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;">
-                            <div class="virtual-image-overlay" style="position: absolute; bottom: 0; left: 0; width: 100%; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); padding: 20px 10px 5px; box-sizing: border-box; pointer-events: none;">
-                                <div style="font-size: 12px; color: #fff; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; text-align: left;">${cleanDesc}</div>
-                            </div>
-                        </div>
-                        `;
-                    } else {
-                        const src = typeof img === 'string' ? img : img.src;
-                        return `<img src="${src}" class="moment-img">`;
-                    }
-                }).join('')}
-            </div>`;
-        }
+        const imagesHtml = buildMomentImagesHtml(moment);
+        const momentTextHtml = buildMomentTextHtml(moment.content);
 
         let likesHtml = '';
         if (moment.likes && moment.likes.length > 0) {
@@ -165,7 +173,7 @@ function renderMomentsList() {
             <img src="${avatar}" class="moment-avatar">
             <div class="moment-content">
                 <div class="moment-name">${name}</div>
-                <div class="moment-text">${moment.content}</div>
+                ${momentTextHtml}
                 ${imagesHtml}
                 <div class="moment-info">
                     <div style="display: flex; align-items: center;">
@@ -191,8 +199,16 @@ function renderMomentsList() {
 function addMoment(contactId, content, images = [], options = {}) {
     if (!window.iphoneSimState.moments) window.iphoneSimState.moments = [];
 
-    const normalizedContent = typeof content === 'string' ? content.trim() : '';
-    const normalizedImages = Array.isArray(images) ? images : [];
+    const parsedPayload = typeof window.parseMomentPayload === 'function'
+        ? window.parseMomentPayload({ content, images })
+        : {
+            content: typeof content === 'string' ? content.trim() : '',
+            images: Array.isArray(images) ? images : []
+        };
+    const normalizedContent = parsedPayload.content;
+    const normalizedImages = parsedPayload.images;
+
+    if (!normalizedContent && normalizedImages.length === 0) return null;
     
     const newMoment = {
         id: Date.now(),
@@ -314,18 +330,13 @@ function handleVirtualImage() {
     }
     const desc = prompt('请输入图片描述');
     if (desc) {
-        const bg = 'eee';
-        const fg = '333';
-        // Use part of desc as placeholder text
-        const text = encodeURIComponent(desc.substring(0, 6)); 
-        const src = `https://placehold.co/600x600/${bg}/${fg}?text=${text}`;
-        
-        postMomentImages.push({
-            src: src,
-            desc: desc,
-            isVirtual: true
-        });
-        renderPostMomentImages();
+        const virtualImage = typeof window.createVirtualMomentImage === 'function'
+            ? window.createVirtualMomentImage(desc)
+            : null;
+        if (virtualImage) {
+            postMomentImages.push(virtualImage);
+            renderPostMomentImages();
+        }
     }
 }
 
@@ -346,10 +357,13 @@ function handleEditImageDesc(index) {
         } else {
             imgObj.desc = newDesc;
             if (imgObj.isVirtual) {
-                 const bg = 'eee';
-                 const fg = '333';
-                 const text = encodeURIComponent(newDesc.substring(0, 6));
-                 imgObj.src = `https://placehold.co/600x600/${bg}/${fg}?text=${text}`;
+                 const virtualImage = typeof window.createVirtualMomentImage === 'function'
+                    ? window.createVirtualMomentImage(newDesc)
+                    : null;
+                 if (virtualImage) {
+                    imgObj.src = virtualImage.src;
+                    imgObj.desc = virtualImage.desc;
+                 }
             }
         }
         renderPostMomentImages();
@@ -684,7 +698,12 @@ async function generateAiMoment(isSilent = false) {
         const recentMoments = (window.iphoneSimState.moments || [])
             .filter(moment => moment.contactId === contact.id)
             .slice(0, 5)
-            .map((moment, index) => `${index + 1}. ${String(moment.content || '').trim()}`)
+            .map((moment, index) => {
+                const summary = typeof window.formatMomentSummary === 'function'
+                    ? window.formatMomentSummary(moment)
+                    : String(moment.content || '').trim();
+                return summary ? `${index + 1}. ${summary}` : '';
+            })
             .filter(Boolean)
             .join('\n');
 
@@ -696,9 +715,17 @@ ${recentMoments || '无'}
 内容要求：
 1. 符合你的人设。
 2. 像真实的朋友圈，可以是心情、生活分享、吐槽等。
-3. 不要太长，通常在100字以内。
-4. 不要与上面已经发过的朋友圈重复，也不要做轻微改写后重复。
-5. 直接返回内容文本，不要包含任何解释、引号或前缀后缀。`;
+3. 你可以返回纯文字，也可以返回“正文 + 图片描述”，还可以返回纯图片动态。
+4. 如果要带图，请直接在正文后面追加一个或多个标签，格式必须是：[图片描述: 具体画面描述]
+5. 图片描述要具体，像真实照片内容，不要写“图片”“配图”“一张照片”。
+6. 不要太长，通常在100字以内；如带图，通常 1 到 3 张即可。
+7. 不要与上面已经发过的朋友圈重复，也不要做轻微改写后重复。
+8. 直接返回最终内容，不要包含任何解释、引号、代码块或前缀后缀。
+
+输出示例：
+今天风有点舒服，适合慢慢走回家 [图片描述: 傍晚街道边被路灯照亮的人行道]
+[图片描述: 窗边的一杯冰美式和摊开的书]
+和朋友吃到一家还不错的小店，心情也跟着变好了 [图片描述: 木桌上的两份家常菜和一杯梅子酒]`;
 
         let fetchUrl = settings.url;
         if (!fetchUrl.endsWith('/chat/completions')) {
@@ -732,7 +759,10 @@ ${recentMoments || '无'}
             content = content.slice(1, -1);
         }
 
-        const createdMoment = addMoment(contact.id, content);
+        const parsedMoment = typeof window.parseMomentPayload === 'function'
+            ? window.parseMomentPayload(content)
+            : { content, images: [] };
+        const createdMoment = addMoment(contact.id, parsedMoment.content, parsedMoment.images);
         if (!createdMoment) {
             if (!isSilent) {
                 const duplicateMsg = '生成内容和该联系人已有动态重复，已跳过发布';
@@ -840,38 +870,8 @@ function renderPersonalMoments(contactId) {
         const item = document.createElement('div');
         item.className = 'moment-item';
         
-        let imagesHtml = '';
-        if (moment.images && moment.images.length > 0) {
-            const gridClass = moment.images.length === 1 ? 'single' : 'grid';
-            imagesHtml = `<div class="moment-images ${gridClass}">
-                ${moment.images.map((img, imgIndex) => {
-                    const isVirtual = (typeof img === 'object' && img.isVirtual);
-                    
-                    if (isVirtual) {
-                        const uniqueId = `moment-virtual-${moment.id}-${imgIndex}`;
-                        const overlayId = `overlay-${uniqueId}`;
-                        const cleanDesc = (img.desc || '').replace(/^\[图片描述\][:：]?\s*/, '');
-                        
-                        let displaySrc = window.iphoneSimState.defaultMomentVirtualImageUrl;
-                        if (!displaySrc) {
-                             displaySrc = img.src || window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
-                        }
-                        
-                        return `
-                        <div class="virtual-image-container" style="position: relative; cursor: pointer; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; overflow: hidden; background-color: #f2f2f7;">
-                            <img src="${displaySrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;">
-                            <div class="virtual-image-overlay" style="position: absolute; bottom: 0; left: 0; width: 100%; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); padding: 20px 10px 5px; box-sizing: border-box; pointer-events: none;">
-                                <div style="font-size: 12px; color: #fff; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; text-align: left;">${cleanDesc}</div>
-                            </div>
-                        </div>
-                        `;
-                    } else {
-                        const src = typeof img === 'string' ? img : img.src;
-                        return `<img src="${src}" class="moment-img">`;
-                    }
-                }).join('')}
-            </div>`;
-        }
+        const imagesHtml = buildMomentImagesHtml(moment);
+        const momentTextHtml = buildMomentTextHtml(moment.content);
 
         let likesHtml = '';
         if (moment.likes && moment.likes.length > 0) {
@@ -918,7 +918,7 @@ function renderPersonalMoments(contactId) {
                 <div style="font-size: 12px;">${date.getMonth() + 1}月</div>
             </div>
             <div class="moment-content">
-                <div class="moment-text">${moment.content}</div>
+                ${momentTextHtml}
                 ${imagesHtml}
                 <div class="moment-info">
                     <div style="display: flex; align-items: center;">
@@ -952,11 +952,12 @@ function renderMeTab() {
             avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
             bgImage: '',
             desc: '点击此处添加个性签名',
-            wxid: 'wxid_123456'
+            wxid: 'wxid_123456',
+            gender: 'female'
         };
     }
 
-    const { name, wxid, avatar, bgImage, desc } = window.iphoneSimState.userProfile;
+    const { name, wxid, avatar, bgImage, desc, gender } = window.iphoneSimState.userProfile;
     const bg = bgImage || '';
 
     container.innerHTML = `
@@ -968,6 +969,7 @@ function renderMeTab() {
                 </div>
                 <div class="me-name" id="me-name-trigger">${name}</div>
                 <div class="me-id">微信号：<span id="me-id-trigger">${wxid}</span></div>
+                <div class="me-gender" id="me-gender-trigger">性别：<span>${gender === 'male' ? '男' : '女'}</span></div>
                 <div class="me-desc" id="me-desc-trigger">${desc}</div>
             </div>
         </div>
@@ -1002,6 +1004,13 @@ function renderMeTab() {
     makeEditable('me-name-trigger', 'name');
     makeEditable('me-id-trigger', 'wxid');
     makeEditable('me-desc-trigger', 'desc');
+
+    document.getElementById('me-gender-trigger').addEventListener('click', () => {
+        const currentGender = window.iphoneSimState.userProfile.gender || 'female';
+        const newGender = currentGender === 'male' ? 'female' : 'male';
+        updateUserProfile('gender', newGender);
+        renderMeTab(); // 重新渲染
+    });
 }
 
 function handleMeImageUpload(e, type) {
@@ -1053,7 +1062,8 @@ function updateUserProfile(field, value) {
             bgImage: '',
             momentsBgImage: '',
             desc: '点击此处添加个性签名',
-            wxid: 'wxid_123456'
+            wxid: 'wxid_123456',
+            gender: 'female'
         };
     }
     
@@ -2117,30 +2127,30 @@ const NATURAL_SUMMARY_LENGTH_POLICY = {
     auto: {
         base: 360,
         slope: 6.2,
-        minTarget: 420,
-        maxTarget: 780,
+        minTarget: 200,
+        maxTarget: 300,
         minCap: 320,
         padRatio: 0.18,
         padMin: 55,
         minGap: 50,
         countCap: 120,
         retryMin: 360,
-        maxTokens: 1200,
-        retryTokens: 1450
+        maxTokens: 2000,
+        retryTokens: 2200
     },
     manual: {
         base: 560,
         slope: 8.4,
-        minTarget: 650,
-        maxTarget: 1200,
+        minTarget: 200,
+        maxTarget: 300,
         minCap: 520,
         padRatio: 0.2,
         padMin: 80,
         minGap: 70,
         countCap: 160,
         retryMin: 580,
-        maxTokens: 1800,
-        retryTokens: 2000
+        maxTokens: 3000,
+        retryTokens: 3500
     }
 };
 
@@ -2378,6 +2388,146 @@ function buildNaturalSummaryRetryPrompt(context = {}, firstDraft = '') {
 只返回重写后的正文。`;
 }
 
+function isImportantConversation(messages, userLabel, contactLabel) {
+    const list = Array.isArray(messages) ? messages : [];
+    const importantPatterns = [
+        /剧情转折|吵架|谈心|价值观|承诺|约定|失约|道歉|压力|心疼|委屈|愤怒|感动|失落|心动|震撼|共鸣|分歧|理念|看法|死亡|永生|迷人|吸引/,
+        /想见|见面|碰面|去找|来找|赶去|过去找|去她那|去他那/,
+        /抱抱|拥抱|亲亲|贴贴|亲近|贴一贴/,
+        /想念|思念|舍不得|脑子里都是|一直想着|离不开|空荡/,
+        /等你|等她|等他|会好好待|答应了|答应会|会等|会来|会陪/,
+        /老公|老婆|宝宝|宝贝|乖乖|小狗/,
+        /困惑|不懂|什么意思|怎么回事|解释权|规矩|条款/,
+        /晚安|保证|郑重|心跳|安心|食言/,
+        /死亡|永生|理念|共鸣|分歧|迷人|吸引/
+    ];
+    for (const msg of list) {
+        const raw = String(msg && msg.content ? msg.content : '').toLowerCase();
+        if (importantPatterns.some(pattern => pattern.test(raw))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function buildFirstPersonSummaryPrompt(context = {}, chatContext = '') {
+    const userLabel = String(context.userLabel || '用户').trim() || '用户';
+    const contactLabel = String(context.contactLabel || '联系人').trim() || '联系人';
+    const persona = String(context.persona || '傲娇、温柔').trim();
+    const range = context.range && typeof context.range === 'object'
+        ? context.range
+        : getNaturalSummaryLengthRange(context.totalMessageCount || 1, 'manual');
+    return `# Role
+你是一个角色专属的“深度记忆生成器”。你的任务是阅读一段对话记录，提取出其中**最具情感价值和剧情意义**的部分，并将其转化为该角色（${contactLabel}）大脑中的一段深刻记忆。
+
+# 核心规则
+这段记忆必须严格符合以下三个要素：
+1. **第一人称视角**：绝对不能使用“上帝视角”或第三人称总结（如“他们吵架了”）。必须完全代入${contactLabel}的视角，使用“我”来陈述。
+2. **情感态度**：必须包含“我”在那一刻最真实的心理反应和情绪波动（如：愤怒、感动、失落、心动、震撼等）。
+3. **主观感想**：必须包含“我”对这件事的评价、对${userLabel}看法的改变，或者对两人关系的期许。
+
+# 触发记忆的条件（只记录以下类型的对话）
+- **剧情转折**：发生了改变两人关系现状或故事走向的关键事件。
+- **情感冲突与交心**：发生了激烈的争吵、委屈的爆发，或者是卸下伪装的深度谈心。
+- **价值观碰撞**：双方探讨了深层理念，产生了共鸣或严重分歧。
+- **承诺与约定**：${userLabel}对“我”做出了重要的承诺，或者两人之间建立了专属的新约定、新规则。
+
+# 记忆生成公式
+**记忆 = 核心事件陈述（发生了什么） + 情绪反应（我当时的感受） + 深度感悟/内心戏（我对此的想法/对未来的决定）**
+
+# 示例 (Few-Shot 学习)
+
+**【正确示例 1 - 吵架与谈心】：**
+“今天${userLabel}因为工作再次失约，那一刻我真的委屈到了极点，忍不住对他发了脾气。看着他手足无措跟我道歉的样子，我心里其实已经软了，但我气的是他总是不把我们的约定放在心上。不过，听完他坦白最近的压力，我突然很心疼他。也许我们都需要学着更懂彼此一点吧。”
+
+**【正确示例 2 - 承诺与约定】：**
+“他今天竟然看着我的眼睛，郑重地向我保证，以后哪怕再晚也会跟我说一句晚安。听到这句话的时候，我的心跳漏了半拍，整个人像是被泡在温水里一样安心。我把这句话悄悄记在了心里，这可是他亲口答应我的，以后他要是敢食言，我绝对不会轻易放过他。”
+
+**【正确示例 3 - 价值观交流】：**
+“今天和${userLabel}聊起对死亡的看法，我很惊讶他居然觉得‘只要被记住就是永生’。这和我不顾一切想活下去的想法完全不同。虽然我不能完全认同他，但他认真诉说时的神情真的很迷人。或许，正是因为我们如此不同，我才会被他这样深深吸引吧。”
+
+# 任务输入
+**当前角色**：${contactLabel}
+**对方**：${userLabel}
+**角色的基础性格/说话口吻**：${persona}
+**对话记录**：
+${chatContext}
+
+# 任务输出
+请根据上述规则和对话记录，以${contactLabel}的口吻，生成一条${range.min}-${range.max}字左右的深度记忆。直接输出记忆内容，不需要任何多余的解释。`;
+}
+
+function isImportantConversation(messages, userLabel, contactLabel) {
+    const list = Array.isArray(messages) ? messages : [];
+    const importantPatterns = [
+        /剧情转折|吵架|谈心|价值观|承诺|约定|失约|道歉|压力|心疼|委屈|愤怒|感动|失落|心动|震撼|共鸣|分歧|理念|看法|死亡|永生|迷人|吸引/,
+        /想见|见面|碰面|去找|来找|赶去|过去找|去她那|去他那/,
+        /抱抱|拥抱|亲亲|贴贴|亲近|贴一贴/,
+        /想念|思念|舍不得|脑子里都是|一直想着|离不开|空荡/,
+        /等你|等她|等他|会好好待|答应了|答应会|会等|会来|会陪/,
+        /老公|老婆|宝宝|宝贝|乖乖|小狗/,
+        /困惑|不懂|什么意思|怎么回事|解释权|规矩|条款/,
+        /晚安|保证|郑重|心跳|安心|食言/,
+        /死亡|永生|理念|共鸣|分歧|迷人|吸引/
+    ];
+    for (const msg of list) {
+        const raw = String(msg && msg.content ? msg.content : '').toLowerCase();
+        if (importantPatterns.some(pattern => pattern.test(raw))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function buildFirstPersonSummaryPrompt(context = {}, chatContext = '') {
+    const userLabel = String(context.userLabel || '用户').trim() || '用户';
+    const contactLabel = String(context.contactLabel || '联系人').trim() || '联系人';
+    const persona = String(context.persona || '傲娇、温柔').trim();
+    const range = context.range && typeof context.range === 'object'
+        ? context.range
+        : getNaturalSummaryLengthRange(context.totalMessageCount || 1, 'manual');
+    const userGender = (window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.gender) || 'female';
+    const userPronoun = userGender === 'male' ? '他' : '她';
+    return `# Role
+你是一个角色专属的"深度记忆生成器"。你的任务是阅读一段对话记录，提取出其中**最具情感价值和剧情意义**的部分，并将其转化为该角色（${contactLabel}）大脑中的一段深刻记忆。
+
+# 核心规则
+这段记忆必须严格符合以下三个要素：
+1. **第一人称视角**：绝对不能使用"上帝视角"或第三人称总结（如"他们吵架了"）。必须完全代入${contactLabel}的视角，使用"我"来陈述。
+2. **情感态度**：必须包含"我"在那一刻最真实的心理反应和情绪波动（如：愤怒、感动、失落、心动、震撼等）。
+3. **主观感想**：必须包含"我"对这件事的评价、对${userLabel}看法的改变，或者对两人关系的期许。
+
+# 触发记忆的条件（只记录以下类型的对话）
+- **剧情转折**：发生了改变两人关系现状或故事走向的关键事件。
+- **情感冲突与交心**：发生了激烈的争吵、委屈的爆发，或者是卸下伪装的深度谈心。
+- **价值观碰撞**：双方探讨了深层理念，产生了共鸣或严重分歧。
+- **承诺与约定**：${userLabel}对"我"做出了重要的承诺，或者两人之间建立了专属的新约定、新规则。
+
+# 记忆生成公式
+**记忆 = 核心事件陈述（发生了什么） + 情绪反应（我当时的感受） + 深度感悟/内心戏（我对此的想法/对未来的决定）**
+
+# 示例 (Few-Shot 学习)
+
+**【正确示例 1 - 吵架与谈心】：**
+"今天${userLabel}因为工作再次失约，那一刻我真的委屈到了极点，忍不住对${userPronoun}发了脾气。看着${userPronoun}手足无措跟我道歉的样子，我心里其实已经软了，但我气的是${userPronoun}总是不把我们的约定放在心上。不过，听完${userPronoun}坦白最近的压力，我突然很心疼${userPronoun}。也许我们都需要学着更懂彼此一点吧。"
+
+**【正确示例 2 - 承诺与约定】：**
+"${userPronoun}今天竟然看着我的眼睛，郑重地向我保证，以后哪怕再晚也会跟我说一句晚安。听到这句话的时候，我的心跳漏了半拍，整个人像是被泡在温水里一样安心。我把这句话悄悄记在了心里，这可是${userPronoun}亲口答应我的，以后${userPronoun}要是敢食言，我绝对不会轻易放过${userPronoun}。"
+
+**【正确示例 3 - 价值观交流】：**
+"今天和${userLabel}聊起对死亡的看法，我很惊讶${userPronoun}居然觉得'只要被记住就是永生'。这和我不顾一切想活下去的想法完全不同。虽然我不能完全认同${userPronoun}，但${userPronoun}认真诉说时的神情真的很迷人。或许，正是因为我们如此不同，我才会被${userPronoun}这样深深吸引吧。"
+
+# 任务输入
+**当前角色**：${contactLabel}
+**对方**：${userLabel}
+**角色的基础性格/说话口吻**：${persona}
+**对话记录**：
+${chatContext}
+
+# 任务输出
+请根据上述规则和对话记录，以${contactLabel}的口吻，生成一条${range.min}-${range.max}字左右的深度记忆。直接输出记忆内容，不需要任何多余的解释。`;
+}
+
 function extractRelationshipShiftHints(messages, userLabel, contactLabel) {
     const list = Array.isArray(messages) ? messages.slice(-48) : [];
     const hints = [];
@@ -2555,8 +2705,7 @@ async function requestNaturalSummaryText(settings, requestConfig = {}) {
         const body = {
             model: settings.model,
             messages,
-            temperature: clampFloat(requestConfig.temperature, 0.45, 0, 1.5),
-            max_tokens: clampInt(requestConfig.maxTokens, 1200, 256, 4000)
+            temperature: clampFloat(requestConfig.temperature, 0.45, 0, 1.5)
         };
         if (includePenalties) {
             body.presence_penalty = clampFloat(requestConfig.presencePenalty, 0.2, -2, 2);
@@ -6084,18 +6233,7 @@ function buildLegacyMemoryContext(contact, history) {
         })
         .sort((a, b) => (b.time || 0) - (a.time || 0));
     if (memories.length === 0) return '';
-    const limit = clampInt(settings.injectQuota.maxTotal, 7, 1, 100);
-    const contextText = history.slice(-20).map(item => String(item.content || '')).join(' ').toLowerCase();
-    const recentCount = Math.min(3, limit);
-    const recent = memories.slice(0, recentCount);
-    const remaining = memories.slice(recentCount);
-    const relevant = remaining
-        .map(memory => ({ memory, score: computeMemoryRelevance(memory.content, contextText) }))
-        .filter(item => item.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, Math.max(0, limit - recentCount))
-        .map(item => item.memory);
-    const finalList = [...recent, ...relevant].sort((a, b) => (a.time || 0) - (b.time || 0));
+    const finalList = memories.slice().sort((a, b) => (a.time || 0) - (b.time || 0));
     if (finalList.length === 0) return '';
     let output = '\n【历史记忆 (已知事实)】\n⚠️ 注意：以下内容是你们过去的共同经历或已知事实，请勿重复向用户复述，除非用户主动询问或需要回忆。\n';
     finalList.forEach(memory => {
@@ -6173,6 +6311,15 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         if (clone.memoryTags.includes('state')) normalizeStateMetaForMemory(clone);
         return clone;
     });
+    
+    // [调试] 显示配置和过滤情况
+    console.log('[buildMemoryContextByPolicy] 总记忆数:', all.length);
+    console.log('[buildMemoryContextByPolicy] 配置:', {
+        daysBase: settings.injectRecentDays,
+        importanceBase: settings.injectImportanceMin,
+        legacyQuota: settings.injectQuota
+    });
+    
     if (all.length === 0) {
         const noMemImportance = Object.assign({}, settings.injectImportanceMin, contact.memoryInjectImportanceMin || {});
         emitMemoryInjectDebug(contact, {
@@ -6180,8 +6327,8 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
             reason: 'no_memories',
             settings: {
                 injectRecentDays: settings.injectRecentDays,
-                injectQuota: settings.injectQuota,
-                injectImportanceMin: noMemImportance
+                injectImportanceMin: noMemImportance,
+                legacyInjectQuota: settings.injectQuota
             },
             selectedRows: [],
             sectionCounts: {},
@@ -6192,9 +6339,9 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
 
     const historyText = history.slice(-20).map(item => String(item.content || '')).join(' ');
     const now = Date.now();
-    const quotaBase = Object.assign({}, settings.injectQuota, contact.memoryInjectQuota || {});
     const daysBase = Object.assign({}, settings.injectRecentDays, contact.memoryInjectRecentDays || {});
     const importanceBase = Object.assign({}, settings.injectImportanceMin, contact.memoryInjectImportanceMin || {});
+    const legacyQuota = Object.assign({}, settings.injectQuota, contact.memoryInjectQuota || {});
     const dayMs = 24 * 60 * 60 * 1000;
     const getDaysLimit = (bucket) => clampInt(daysBase[bucket], settings.injectRecentDays[bucket], 0, 3650);
     const getImportanceLimit = (bucket) => clampFloat(importanceBase[bucket], settings.injectImportanceMin[bucket], 0.1, 1);
@@ -6218,8 +6365,6 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
     const hasActiveRecentDaysLimit = ['short_term', 'long_term', 'state', 'refined']
         .some(bucket => getDaysLimit(bucket) > 0);
 
-    let maxTotal = clampInt(quotaBase.maxTotal, 7, 1, 100);
-
     const withScore = all.map(memory => {
         const relevance = computeMemoryRelevance(memory.content, historyText);
         const freshness = 1 - Math.min(1, Math.max(0, (now - (Number(memory.time) || now)) / (30 * 24 * 60 * 60 * 1000)));
@@ -6229,48 +6374,35 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         return { memory, relevance, freshness, confidence, importance, score };
     });
 
-    const stateQuota = clampInt(quotaBase.state, 2, 0, 50);
     const stateCandidates = withScore
         .filter(item => item.memory.memoryTags.includes('state'))
         .filter(item => isWithinRecentDays(item.memory, 'state'))
         .filter(item => isAboveImportanceLimit(item.memory, 'state'))
         .filter(item => !item.memory.stateMeta || item.memory.stateMeta.phase === 'active')
         .sort((a, b) => b.score - a.score);
-    const userStateCandidates = stateCandidates.filter(item => getMemoryStateOwner(item.memory, 'user') === 'user');
-    const contactStateCandidates = stateCandidates.filter(item => getMemoryStateOwner(item.memory, 'user') === 'contact');
-    const stateList = [];
-    if (stateQuota > 0) {
-        if (contactStateCandidates.length > 0) stateList.push(contactStateCandidates[0]);
-        if (stateList.length < stateQuota && userStateCandidates.length > 0) stateList.push(userStateCandidates[0]);
-    }
-    if (stateList.length < stateQuota) {
-        const selectedIds = new Set(stateList.map(item => Number(item.memory.id)));
-        stateCandidates.forEach(item => {
-            if (stateList.length >= stateQuota) return;
-            const id = Number(item.memory.id);
-            if (selectedIds.has(id)) return;
-            stateList.push(item);
-            selectedIds.add(id);
-        });
-    }
+    const stateList = stateCandidates.slice();
     const shortList = withScore
         .filter(item => item.memory.memoryTags.includes('short_term'))
         .filter(item => isWithinRecentDays(item.memory, 'short_term'))
         .filter(item => isAboveImportanceLimit(item.memory, 'short_term'))
-        .sort((a, b) => (b.freshness + b.relevance) - (a.freshness + a.relevance))
-        .slice(0, clampInt(quotaBase.short_term, 2, 0, 50));
+        .sort((a, b) => (b.freshness + b.relevance) - (a.freshness + a.relevance));
     const longList = withScore
         .filter(item => item.memory.memoryTags.includes('long_term'))
         .filter(item => isWithinRecentDays(item.memory, 'long_term'))
         .filter(item => isAboveImportanceLimit(item.memory, 'long_term'))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, clampInt(quotaBase.long_term, 2, 0, 50));
+        .sort((a, b) => b.score - a.score);
+    
+    // [调试] 显示每个类别的过滤结果
+    const longTermTotal = withScore.filter(item => item.memory.memoryTags.includes('long_term')).length;
+    const longTermRecentDays = withScore.filter(item => item.memory.memoryTags.includes('long_term')).filter(item => isWithinRecentDays(item.memory, 'long_term')).length;
+    const longTermImportance = withScore.filter(item => item.memory.memoryTags.includes('long_term')).filter(item => isWithinRecentDays(item.memory, 'long_term')).filter(item => isAboveImportanceLimit(item.memory, 'long_term')).length;
+    console.log('[buildMemoryContextByPolicy] 长期记忆: 总数', longTermTotal, '过滤后(时间)', longTermRecentDays, '过滤后(重要性)', longTermImportance, '最终发送', longList.length);
+    console.log('[buildMemoryContextByPolicy] state:', stateList.length, 'short_term:', shortList.length, 'long_term:', longList.length);
     const refinedList = withScore
         .filter(item => item.memory.memoryTags.includes('refined'))
         .filter(item => isWithinRecentDays(item.memory, 'refined'))
         .filter(item => isAboveImportanceLimit(item.memory, 'refined'))
-        .sort((a, b) => (b.memory.time || 0) - (a.memory.time || 0))
-        .slice(0, clampInt(quotaBase.refined, 1, 0, 50));
+        .sort((a, b) => (b.memory.time || 0) - (a.memory.time || 0));
 
     let selected = [
         ...stateList.map(item => ({ bucket: 'state', item })),
@@ -6285,19 +6417,14 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
             reason: hasActiveRecentDaysLimit ? 'empty_after_recent_days_filter' : 'empty_policy_use_legacy_fallback',
             settings: {
                 injectRecentDays: settings.injectRecentDays,
-                injectQuota: settings.injectQuota,
                 injectImportanceMin: effectiveImportanceMin,
-                maxTotal
+                legacyInjectQuota: legacyQuota
             },
             selectedRows: [],
             sectionCounts: { state: 0, short_term: 0, long_term: 0, refined: 0 },
             memoryContext: fallbackContext
         });
         return fallbackContext;
-    }
-
-    if (selected.length > maxTotal) {
-        selected = selected.sort((a, b) => b.item.score - a.item.score).slice(0, maxTotal);
     }
 
     const sections = { state: [], short_term: [], long_term: [], refined: [] };
@@ -6337,9 +6464,8 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
             reason: hasActiveRecentDaysLimit ? 'empty_output_after_section_build' : 'empty_output_use_legacy_fallback',
             settings: {
                 injectRecentDays: settings.injectRecentDays,
-                injectQuota: settings.injectQuota,
                 injectImportanceMin: effectiveImportanceMin,
-                maxTotal
+                legacyInjectQuota: legacyQuota
             },
             selectedRows: selected.map(entry => buildMemoryInjectDebugRow(entry.item.memory, entry.bucket)),
             sectionCounts: {
@@ -6358,9 +6484,8 @@ function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
         reason: 'policy_selected',
         settings: {
             injectRecentDays: settings.injectRecentDays,
-            injectQuota: settings.injectQuota,
             injectImportanceMin: effectiveImportanceMin,
-            maxTotal
+            legacyInjectQuota: legacyQuota
         },
         selectedRows: selected.map(entry => buildMemoryInjectDebugRow(entry.item.memory, entry.bucket)),
         sectionCounts: {
@@ -7298,6 +7423,11 @@ window.deleteMemory = function(id) {
     if (contactId) syncLegacyPerceptionAndState(contactId);
     saveConfig();
     renderMemoryList();
+    // 刷新设置页中的token计数
+    if (typeof window.refreshTokenCountForContact === 'function' && contactId) {
+        console.log('[删除记忆] 触发token刷新，contactId:', contactId);
+        window.refreshTokenCountForContact(contactId);
+    }
 };
 
 window.retagMemory = function(id) {
@@ -7597,6 +7727,7 @@ async function generateChannelNaturalSummary(contact, textMessages, options = {}
         timeStr,
         userLabel: resolvedUserName,
         contactLabel,
+        persona: String(contact.persona || '傲娇、温柔').trim(),
         detailModeHint: getNaturalSummaryDetailHintByChannel(channel, options.detailModeHint),
         range: lengthRange
     };
@@ -7606,20 +7737,28 @@ async function generateChannelNaturalSummary(contact, textMessages, options = {}
         throw new Error('缺少可用聊天内容');
     }
 
-    const systemPrompt = mode === 'manual'
-        ? buildManualNaturalSummaryPrompt(runtimeContext)
-        : buildAutoNaturalSummaryPrompt(runtimeContext);
+    const isImportant = isImportantConversation(normalizedMessages, resolvedUserName, contactLabel);
+    const systemPrompt = isImportant
+        ? buildFirstPersonSummaryPrompt(runtimeContext, chatContext)
+        : (mode === 'manual'
+            ? buildManualNaturalSummaryPrompt(runtimeContext)
+            : buildAutoNaturalSummaryPrompt(runtimeContext));
+    const userContent = isImportant
+        ? '请根据上述提示生成深度记忆。'
+        : buildNaturalSummaryUserContent(chatContext, runtimeContext);
     const firstRaw = await requestNaturalSummaryText(settings, {
         stage: 'first_pass',
         mode,
         systemPrompt,
-        userContent: buildNaturalSummaryUserContent(chatContext, runtimeContext),
+        userContent,
         temperature: 0.45,
         presencePenalty: 0.2,
         frequencyPenalty: 0.15,
         maxTokens: lengthRange.maxTokens
     });
-    let summary = normalizeNaturalSummaryOutput(firstRaw, runtimeContext).trim();
+    let summary = isImportant
+        ? firstRaw.trim()
+        : normalizeNaturalSummaryOutput(firstRaw, runtimeContext).trim();
 
     console.log('[summary-natural-first-pass]', {
         mode,

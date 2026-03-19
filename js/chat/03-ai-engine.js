@@ -266,6 +266,59 @@ window.openMusicListenInviteDetail = function (payload) {
     modal.style.display = 'flex';
 };
 
+function escapeChatMessageHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function isLikelyChatImageUrl(value) {
+    const text = String(value || '').trim();
+    if (!text || !/^https?:\/\/\S+$/i.test(text)) return false;
+    if (/\.(?:png|jpe?g|gif|webp|bmp|svg|avif)(?:[?#].*)?$/i.test(text)) return true;
+    return /(postimg\.cc|postimg\.org|placehold\.co|imgur\.com|image\.bdstatic\.com|qpic\.cn|alicdn\.com)/i.test(text);
+}
+
+function formatPlainTextMessageContent(text) {
+    const source = String(text || '')
+        .replace(/<hidden_img>\s*([\s\S]*?)\s*<\/hidden_img>/gi, '\n$1\n')
+        .replace(/\r\n?/g, '\n');
+    if (!source.trim()) return '';
+
+    const htmlParts = [];
+    let textBuffer = [];
+
+    const flushText = () => {
+        if (!textBuffer.length) return;
+        const joined = textBuffer.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+        textBuffer = [];
+        if (!joined) return;
+        htmlParts.push(`<div class="text-message-block">${escapeChatMessageHtml(joined).replace(/\n/g, '<br>')}</div>`);
+    };
+
+    source.split('\n').forEach((line) => {
+        const trimmed = String(line || '').trim();
+        if (!trimmed) {
+            if (textBuffer.length && textBuffer[textBuffer.length - 1] !== '') {
+                textBuffer.push('');
+            }
+            return;
+        }
+        if (isLikelyChatImageUrl(trimmed)) {
+            flushText();
+            const safeUrl = escapeChatMessageHtml(trimmed);
+            htmlParts.push(`<div class="text-message-inline-image"><img src="${safeUrl}" onclick="showImagePreview(this.src)" style="max-width: 200px; border-radius: 8px; display: block;"></div>`);
+            return;
+        }
+        textBuffer.push(line);
+    });
+
+    flushText();
+    return htmlParts.join('') || escapeChatMessageHtml(source).replace(/\n/g, '<br>');
+}
 function appendMessageToUI(text, isUser, type = 'text', description = null, replyTo = null, msgId = null, timestamp = null, isHistory = false) {
     if (type === 'text' && text && typeof text === 'string') {
         // Strip hidden image data from display
@@ -491,7 +544,9 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     } else if (type === 'description') {
         contentHtml = text;
     } else {
-        contentHtml = text;
+        contentHtml = (type === 'text' && !isHtmlPayloadForParser(text))
+            ? formatPlainTextMessageContent(text)
+            : text;
     }
 
     let extraClass = '';
@@ -1412,7 +1467,7 @@ function updateMultiSelectUI() {
     applyChatMultiSelectClass();
 }
 
-function deleteSelectedMessages() {
+async function deleteSelectedMessages() {
     if (!window.iphoneSimState.isMultiSelectMode) return;
     if (window.iphoneSimState.selectedMessages.size === 0) {
         alert('未选择任何消息');
@@ -1422,8 +1477,20 @@ function deleteSelectedMessages() {
     const ids = Array.from(window.iphoneSimState.selectedMessages);
     if (!window.iphoneSimState.currentChatContactId) return;
     const history = window.iphoneSimState.chatHistory[window.iphoneSimState.currentChatContactId] || [];
+    const remoteMessageIds = history
+        .filter(m => ids.includes(String(m && m.id)) || ids.includes(m && m.id))
+        .filter(m => m && (m.pushedByBackend || m.source === 'offline-backend' || m.remoteId))
+        .map(m => String(m.remoteId || m.id || '').trim())
+        .filter(Boolean);
     window.iphoneSimState.chatHistory[window.iphoneSimState.currentChatContactId] = history.filter(m => !ids.includes(String(m.id)) && !ids.includes(m.id));
     saveConfig();
+    if (remoteMessageIds.length > 0 && window.offlinePushSync && typeof window.offlinePushSync.deleteMessages === 'function') {
+        try {
+            await window.offlinePushSync.deleteMessages(remoteMessageIds);
+        } catch (err) {
+            console.error('[offline-push-sync] delete remote messages failed', err);
+        }
+    }
     exitMultiSelectMode();
     renderChatHistory(window.iphoneSimState.currentChatContactId);
 }
@@ -3100,7 +3167,7 @@ function buildWechatBaseCapabilityPrompt() {
         '【常驻能力】',
         '- 你拥有“微信朋友圈”“微信转账”“亲属卡”等能力。',
         '- 常用 action：',
-        '  {"type":"action","command":"POST_MOMENT","payload":"内容"}',
+        '  {"type":"action","command":"POST_MOMENT","payload":"正文 [图片描述: 画面1] [图片描述: 画面2]"}',
         '  {"type":"action","command":"POST_ICITY_DIARY","payload":"内容"}',
         '  {"type":"action","command":"EDIT_ICITY_BOOK","payload":"内容"}',
         '  {"type":"action","command":"LIKE_MOMENT","payload":""}',
@@ -3119,7 +3186,7 @@ function buildWechatBaseCapabilityPrompt() {
         '  {"type":"action","command":"UPDATE_NAME","payload":"新网名"} / UPDATE_WXID / UPDATE_SIGNATURE / UPDATE_AVATAR',
         '  {"type":"action","command":"PDD_CASH_HELP","payload":""}、{"type":"action","command":"PDD_BARGAIN_HELP","payload":"商品ID"}（仅在用户发送对应链接时使用）',
         '- 表情包请优先直接输出 sticker_message，不要改用旧式 SEND_STICKER。',
-        '- 一次回复最多只发起一笔转账；发送图片时请给出具体画面描述；不想执行操作就不要输出 action。',
+        '- 一次回复最多只发起一笔转账；发送图片时请给出具体画面描述；发朋友圈时可用 [图片描述: ...] 追加配图，纯图片朋友圈也可以只写图片描述标签；不想执行操作就不要输出 action。',
         '【状态动作】',
         '- {"type":"action","command":"RECORD_USER_STATE","payload":"reasonType | 标准化状态内容"}',
         '- {"type":"action","command":"RESOLVE_USER_STATE","payload":"reasonType | 状态结束描述"}',
@@ -3157,12 +3224,28 @@ function buildWechatConditionalCapabilityPrompt(runtimeCtx) {
     ]);
 }
 
-async function generateAiReply(instruction = null, targetContactId = null) {
+async function generateAiReply(instruction = null, targetContactId = null, options = {}) {
     const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
     if (!contactId) return;
     
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return;
+    if (typeof window.ensureContactRestWindowFields === 'function') {
+        window.ensureContactRestWindowFields(contact);
+    }
+
+    const triggerSource = options && typeof options === 'object' && options.triggerSource
+        ? String(options.triggerSource)
+        : 'system';
+    if (typeof window.getContactRestTriggerDecision === 'function') {
+        const restDecision = window.getContactRestTriggerDecision(contact, triggerSource);
+        if (!restDecision.allow) {
+            if (restDecision.shouldToast && typeof window.showChatToast === 'function') {
+                window.showChatToast('TA 在休息中，暂时没有回复', 2200);
+            }
+            return false;
+        }
+    }
 
     const settings = window.iphoneSimState.aiSettings.url ? window.iphoneSimState.aiSettings : window.iphoneSimState.aiSettings2;
     if (!settings.url || !settings.key) {
@@ -3194,707 +3277,7 @@ async function generateAiReply(instruction = null, targetContactId = null) {
         }
     }
 
-    let userPromptInfo = '';
-    let currentPersona = null;
-
-    if (contact.userPersonaId) {
-        currentPersona = window.iphoneSimState.userPersonas.find(p => p.id === contact.userPersonaId);
-    }
-
-    if (currentPersona) {
-        userPromptInfo = `\n用户(我)的网名：${currentPersona.name || '未命名'}`;
-        const promptContent = contact.userPersonaPromptOverride || currentPersona.aiPrompt;
-        if (promptContent) {
-            userPromptInfo += `\n用户(我)的人设：${promptContent}`;
-        }
-    } else if (window.iphoneSimState.userProfile) {
-        userPromptInfo = `\n用户(我)的网名：${window.iphoneSimState.userProfile.name}`;
-    }
-
-    let momentContext = '';
-    const contactMoments = window.iphoneSimState.moments.filter(m => m.contactId === contact.id);
-    if (contactMoments.length > 0) {
-        const lastMoment = contactMoments.sort((a, b) => b.time - a.time)[0];
-        momentContext += `\n【朋友圈状态】\n你最新的一条朋友圈是：“${lastMoment.content}”\n`;
-        
-        if (lastMoment.comments && lastMoment.comments.length > 0) {
-            const userName = currentPersona ? currentPersona.name : window.iphoneSimState.userProfile.name;
-            const userComments = lastMoment.comments.filter(c => c.user === userName);
-            if (userComments.length > 0) {
-                const lastComment = userComments[userComments.length - 1];
-                momentContext += `用户刚刚评论了你的朋友圈：“${lastComment.content}”\n`;
-            }
-        }
-    }
-
-    let icityContext = '';
-    if (window.iphoneSimState.icityDiaries && window.iphoneSimState.icityDiaries.length > 0) {
-        // Check visibility permissions
-        const isLinked = window.iphoneSimState.icityProfile && 
-                         window.iphoneSimState.icityProfile.linkedContactIds && 
-                         window.iphoneSimState.icityProfile.linkedContactIds.includes(contact.id);
-        
-        const recentDiaries = window.iphoneSimState.icityDiaries.filter(d => {
-            if (d.visibility === 'private') return false;
-            // Friends-only posts are visible to linked contacts
-            if (d.visibility === 'friends' && !isLinked) return false; 
-            return true;
-        }).slice(0, 3); // Get last 3
-
-        if (recentDiaries.length > 0) {
-            icityContext += '\n【用户最近的 iCity 日记】\n';
-            recentDiaries.forEach(d => {
-                const date = new Date(d.time);
-                const timeStr = `${date.getMonth() + 1}月${date.getDate()}日`;
-                icityContext += `[${timeStr}] ${d.content}\n`;
-            });
-        }
-    }
-
-    if (window.iphoneSimState.icityFriendsPosts && window.iphoneSimState.icityFriendsPosts.length > 0) {
-        const aiPosts = window.iphoneSimState.icityFriendsPosts.filter(p => p.contactId === contact.id).slice(0, 3);
-        if (aiPosts.length > 0) {
-            icityContext += '\n【你最近发布的 iCity 动态】\n';
-            aiPosts.forEach(p => {
-                const date = new Date(p.time);
-                const timeStr = `${date.getMonth() + 1}月${date.getDate()}日`;
-                icityContext += `[${timeStr}] ${p.content}\n`;
-            });
-        }
-    }
-
-    let importantStateContext = '';
-    let memoryContext = '';
-    if (typeof window.buildMemoryContextByPolicy === 'function') {
-        memoryContext = window.buildMemoryContextByPolicy(contact, history, 'chat-text');
-    } else {
-        const contactMemories = window.iphoneSimState.memories.filter(m => m.contactId === contact.id);
-        if (contactMemories.length > 0) {
-            const limit = contact.memorySendLimit && contact.memorySendLimit > 0 ? contact.memorySendLimit : 5;
-            const recentMemories = contactMemories.sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, limit).reverse();
-            if (recentMemories.length > 0) {
-                memoryContext += '\n【历史记忆 (已知事实)】\n⚠️ 注意：以下内容是你们过去的共同经历或已知事实，请勿重复向用户复述，除非用户主动询问或需要回忆。\n';
-                recentMemories.forEach(m => {
-                    const date = new Date(m.time || Date.now());
-                    const dateStr = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-                    memoryContext += `- [${dateStr}] ${m.content}\n`;
-                });
-            }
-        }
-    }
-
-        let timeContext = '';
-    let itineraryContext = '';
-    if (contact.realTimeVisible) {
-        timeContext = buildRealtimeTimeContext(contact.id);
-        
-        if (window.getCurrentItineraryInfo) {
-            itineraryContext = await window.getCurrentItineraryInfo(contact.id);
-        }
-    }
-
-    const calendarContext = contact.calendarAwareEnabled === false ? '' : buildCalendarPromptContext();
-
-    let lookusContext = '';
-    if (contact.lookusData) {
-        const d = contact.lookusData;
-        const lastUpdate = d.lastUpdateTime ? new Date(d.lastUpdateTime).toLocaleTimeString() : '未知';
-        
-        let appUsage = '';
-        if (d.appList && d.appList.length > 0) {
-            appUsage = '\n- 最近使用的APP: ' + d.appList.map(a => `${a.name}(${a.time})`).join(', ');
-        }
-
-        lookusContext = `\n【LookUs 状态 (用户可见)】
-用户可以通过 "LookUs" 应用实时查看你的以下状态 (更新于 ${lastUpdate}):
-- 距离: ${d.distance} km
-- 电量: ${d.battery}
-- 网络: ${d.network}
-- 手机型号: ${d.device}
-- 屏幕使用时间: ${d.screenTimeH}小时${d.screenTimeM}分
-- 解锁次数: ${d.unlockCount}
-- 最近解锁: ${d.lastUnlock}
-- 停留地点数: ${d.stops}${appUsage}
-⚠️ 你知道用户能看到这些信息。如果用户问起你的位置、电量或你在干什么，请结合这些信息回答。如果用户提到这些信息，请不要感到惊讶，因为你知道他在关注你的 LookUs 状态。`;
-
-        // 添加用户端状态事件到上下文
-        if (d.reportLog && d.reportLog.length > 0) {
-            const userEvents = d.reportLog.filter(e => e.isUserEvent).slice(0, 5);
-            if (userEvents.length > 0) {
-                lookusContext += `\n\n【用户的手机状态通知】\n你同样可以通过 LookUs 看到用户(对方)的手机状态变化：\n`;
-                userEvents.forEach(evt => {
-                    lookusContext += `- ${evt.time}: ${evt.text.replace('📱 ', '')}\n`;
-                });
-                lookusContext += `\n⚠️ 你可以自然地在聊天���提及或关心这些状态。例如用户在充电时你可以说"在充电呀"，用户电量低时你可以提醒他充电，用户离开很久回来你可以问他去哪了。但不要每次都提，要自然。`;
-            }
-        }
-    }
-
-    let meetingContext = '';
-    if (window.iphoneSimState.meetings && window.iphoneSimState.meetings[contact.id] && window.iphoneSimState.meetings[contact.id].length > 0) {
-        const meetings = window.iphoneSimState.meetings[contact.id];
-        const lastMeeting = meetings[meetings.length - 1];
-        
-        let meetingContent = '';
-        if (lastMeeting.content && lastMeeting.content.length > 0) {
-            const recentContent = lastMeeting.content.slice(-5);
-            meetingContent = recentContent.map(c => {
-                const role = c.role === 'user' ? '用户' : contact.name;
-                return `${role}: ${c.text}`;
-            }).join('\n');
-        }
-
-        if (meetingContent) {
-            const meetingDate = new Date(lastMeeting.time);
-            const meetingTimeStr = `${meetingDate.getMonth() + 1}月${meetingDate.getDate()}日`;
-            meetingContext = `\n【线下见面记忆】\n你们最近一次见面是在 ${meetingTimeStr} (${lastMeeting.title})。\n当时发生的剧情片段：\n${meetingContent}\n(请知晓你们已经见过面，并根据剧情发展进行聊天)\n`;
-        }
-    }
-
-    let icityBookContext = getLinkedIcityBooksContext(contact.id);
-
-    let minesweeperContext = '';
-    const msModal = document.getElementById('minesweeper-modal');
-    if (msModal && !msModal.classList.contains('hidden') && window.getMinesweeperGameState) {
-        minesweeperContext = '\n【当前扫雷游戏状态】\n' + window.getMinesweeperGameState() + '\n\n【扫雷操作】\n如果你想操作扫雷游戏，请输出 JSON action：\n- {"type":"action","command":"MINESWEEPER_CLICK","payload":"行,列"}（例如 0,0）\n- {"type":"action","command":"MINESWEEPER_FLAG","payload":"行,列"}\n请分析局势后再行动，并遵守：\n1. 不要点击已经揭开的数字格子或空格子。\n2. 不要点击已经插旗的格子。\n3. 只点击未知区域（显示为 ? 的位置）。\n4. 如果推断某个位置是地雷，请优先使用 MINESWEEPER_FLAG。\n5. 获胜条件是找出并标记所有地雷。';
-    }
-
-    let witchGameContext = '';
-    const miniGameModal = document.getElementById('mini-game-modal');
-    // Check if witch game is active (by checking title or state)
-    if (miniGameModal && !miniGameModal.classList.contains('hidden') && window.getWitchGameState) {
-        const witchState = window.getWitchGameState();
-        if (witchState) {
-            witchGameContext = '\n' + witchState + '\n\n【女巫的毒药操作】\n轮到你行动时，请输出 JSON action：\n{"type":"action","command":"WITCH_GUESS","payload":"行,列"}（行1-5，列1-5）\n目标：找出用户藏的3瓶毒药，不要重复选择已经揭开的格子(⭕或☠️)。\n';
-        }
-    }
-
-    // forum live-stream command guidance
-    let forumLiveInstruction = '';
-    // only show when forum app loaded or syncing enabled
-    if (window.forumState) {
-        forumLiveInstruction = '\n【论坛直播能力】\n当你希望在论坛开直播时，请输出：\n{"type":"action","command":"START_FORUM_LIVE","payload":"标题"}\n可选扩展 payload 格式：标题 | 画面描述 | [{"username":"网名","content":"评论"}] | 图片URL\n如未提供画面描述/评论，系统会根据聊天上下文自动生成。\n';
-    }
-
-    let transferDecisionContext = '';
-    try {
-        const pendingTransferMap = new Map();
-        history.forEach(msg => {
-            if (!msg || msg.type !== 'transfer' || msg.role !== 'user') return;
-            let transferData = null;
-            try {
-                transferData = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
-            } catch (error) {
-                transferData = null;
-            }
-            if (!transferData || !transferData.id) return;
-
-            const transferId = String(transferData.id);
-            const status = String(transferData.status || 'pending').toLowerCase();
-            if (status !== 'pending') {
-                pendingTransferMap.delete(transferId);
-                return;
-            }
-
-            pendingTransferMap.set(transferId, transferData);
-        });
-
-        const pendingTransfers = Array.from(pendingTransferMap.values());
-        if (pendingTransfers.length > 0) {
-            const lines = [];
-            lines.push('\n【待处理转账】');
-            lines.push('只有当下列待处理转账存在时，你才可以使用 ACCEPT_TRANSFER 或 RETURN_TRANSFER 指令。');
-            pendingTransfers.forEach(data => {
-                const amount = Number.isFinite(Number(data.amount))
-                    ? Number(data.amount).toFixed(2)
-                    : String(data.amount || '0.00');
-                const remark = String(data.remark || '转账').trim() || '转账';
-                lines.push(`- transferId=${data.id}，金额=¥${amount}，备注=${remark}`);
-                lines.push(`  收款示例：{"type":"action","command":"ACCEPT_TRANSFER","payload":"${data.id}"}`);
-                lines.push(`  退回示例：{"type":"action","command":"RETURN_TRANSFER","payload":"${data.id}"}`);
-            });
-            lines.push('如果上面没有待处理转账，或这些转账已经处理完，就不要输出这两个指令。');
-            transferDecisionContext = lines.join('\n') + '\n';
-        }
-    } catch (e) {
-        transferDecisionContext = '';
-    }
-
-    let musicTogetherContext = '';
-    if (typeof window.musicV2GetChatMusicContext === 'function') {
-        try {
-            const musicCtx = window.musicV2GetChatMusicContext(contact.id);
-            if (musicCtx) {
-                const lines = [];
-                lines.push('\n【音乐一起听状态】');
-                if (musicCtx.nowPlaying && musicCtx.nowPlaying.songId) {
-                    lines.push(`当前播放：${musicCtx.nowPlaying.title || '未知歌曲'} - ${musicCtx.nowPlaying.artist || '未知歌手'}`);
-                    if (musicCtx.nowPlaying.lyricLine) {
-                        lines.push(`当前歌词句：${musicCtx.nowPlaying.lyricLine}`);
-                    }
-                    if (!musicCtx.nowPlaying.isPlaying) {
-                        lines.push('当前处于暂停/未播放状态。');
-                    }
-                } else {
-                    lines.push('当前未播放歌曲');
-                }
-                if (musicCtx.together && musicCtx.together.active) {
-                    if (musicCtx.together.withCurrentContact) {
-                        lines.push('你当前正在和用户一起听歌。');
-                        lines.push('你可以使用以下动作指令控制一起听：');
-                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_PAUSE","payload":""}');
-                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_RESUME","payload":""}');
-                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_NEXT","payload":""}');
-                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_PREV","payload":""}');
-                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_SEARCH_PLAY","payload":"歌曲关键词"}');
-                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_QUIT","payload":""}');
-                    } else {
-                        lines.push(`你当前在和 ${musicCtx.together.contactName || '其他联系人'} 一起听歌。`);
-                    }
-                } else {
-                    lines.push('当前没有激活的一起听会话。');
-                }
-                if (musicCtx.pendingInvite && musicCtx.pendingInvite.inviteId) {
-                    if (String(musicCtx.pendingInvite.direction || 'outgoing') === 'incoming') {
-                        lines.push(`你已向用户发出一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}，等待用户选择。`);
-                    } else {
-                        lines.push(`你收到了用户发来的一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}。`);
-                        lines.push('你必须在本次回复中给出动作指令：{"type":"action","command":"MUSIC_INVITE_DECISION","payload":"inviteId | 同意/拒绝"}');
-                    }
-                } else if (!(musicCtx.together && musicCtx.together.active)) {
-                    if (musicCtx.nowPlaying && musicCtx.nowPlaying.isPlaying) {
-                        lines.push('如需向用户发起一起听邀请，可输出：{"type":"action","command":"MUSIC_SEND_INVITE","payload":""}（留空表示使用当前播放歌曲）。');
-                    } else {
-                        lines.push('如需向用户发起一起听邀请，必须先指定歌曲关键词：{"type":"action","command":"MUSIC_SEND_INVITE","payload":"歌曲关键词"}。');
-                    }
-                }
-                musicTogetherContext = lines.join('\n') + '\n';
-            }
-        } catch (e) {
-            musicTogetherContext = '';
-        }
-    }
-
-    const backgroundPrompt = buildWechatBackgroundPrompt({
-        importantStateContext,
-        momentContext,
-        icityContext,
-        lookusContext,
-        memoryContext,
-        meetingContext,
-        icityBookContext,
-        timeContext,
-        calendarContext,
-        itineraryContext
-    });
-    const conditionalCapabilityPrompt = buildWechatConditionalCapabilityPrompt({
-        minesweeperContext,
-        witchGameContext,
-        forumLiveInstruction,
-        transferDecisionContext,
-        musicTogetherContext
-    });
-    let systemPrompt = joinWechatPromptSections([
-        buildWechatRolePrompt(contact, userPromptInfo),
-        buildWechatProtocolPrompt(contact),
-        buildWechatHumanFeelPrompt(contact),
-        buildWechatBaseCapabilityPrompt(contact),
-        backgroundPrompt,
-        conditionalCapabilityPrompt,
-        '请回复对方的消息。'
-    ]);
-
-    if (window.iphoneSimState.stickerCategories && window.iphoneSimState.stickerCategories.length > 0) {
-        let activeStickers = [];
-        let hasLinkedCategories = false;
-        
-        // 修正逻辑：只有当 contact.linkedStickerCategories 存在且为数组时才进行过滤
-        if (Array.isArray(contact.linkedStickerCategories)) {
-            // 如果数组为空，说明没有关联任何表情包（用户可能特意取消了所有关联）
-            // 如果数组不为空，只添加关联的表情包
-            if (contact.linkedStickerCategories.length > 0) {
-                hasLinkedCategories = true;
-                window.iphoneSimState.stickerCategories.forEach(cat => {
-                    if (contact.linkedStickerCategories.includes(cat.id)) {
-                        activeStickers = activeStickers.concat(cat.list);
-                    }
-                });
-            } else {
-                // 显式设置为空数组，表示不使用任何表情包
-                hasLinkedCategories = true; 
-            }
-        } 
-        
-        // 如果没有设置关联属性（新联系人或旧数据），默认使用所有
-        if (!hasLinkedCategories && !contact.linkedStickerCategories) {
-            window.iphoneSimState.stickerCategories.forEach(cat => {
-                activeStickers = activeStickers.concat(cat.list);
-            });
-        }
-
-        if (activeStickers.length > 0) {
-            systemPrompt += '\n\n【可用表情包列表】\n';
-            const descriptions = activeStickers.map(s => s.desc).join(', ');
-            systemPrompt += descriptions + '\n';
-            systemPrompt += '只能使用上面列出的名称，且必须完全匹配；如果列表里没有合适的表情包，就不要输出 sticker_message，改用文字回复。\n';
-        } else {
-            systemPrompt += '\n\n【可用表情包列表】\n（当前没有可用的表情包）\n';
-            systemPrompt += '当前不要输出 sticker_message，请仅使用文字或其他非表情包类型。\n';
-        }
-    }
-
-    if (window.iphoneSimState.worldbook && window.iphoneSimState.worldbook.length > 0) {
-        let activeEntries = window.iphoneSimState.worldbook.filter(e => e.enabled);
-        
-        if (contact.linkedWbCategories) {
-            activeEntries = activeEntries.filter(e => contact.linkedWbCategories.includes(e.categoryId));
-        }
-        
-        if (activeEntries.length > 0) {
-            systemPrompt += '\n\n世界书信息：\n';
-            activeEntries.forEach(entry => {
-                let shouldAdd = false;
-                if (entry.keys && entry.keys.length > 0) {
-                    const historyText = history.map(h => h.content).join('\n');
-                    const match = entry.keys.some(key => historyText.includes(key));
-                    if (match) shouldAdd = true;
-                } else {
-                    shouldAdd = true;
-                }
-                
-                if (shouldAdd) {
-                    systemPrompt += `${entry.content}\n`;
-                }
-            });
-        }
-    }
-
-    let limit = contact.contextLimit && contact.contextLimit > 0 ? contact.contextLimit : 50;
-    let contextMessages = history.filter(h => !shouldExcludeFromAiContext(h)).slice(-limit);
-
-    let imageCount = 0;
-    for (let i = contextMessages.length - 1; i >= 0; i--) {
-        if (contextMessages[i].type === 'image') {
-            imageCount++;
-            if (imageCount > 3) {
-                contextMessages[i]._skipImage = true;
-            }
-        }
-    }
-
-    // 如果开启了时间感知，在消息之间插入时间间隔提示
-    let messagesWithTimeGaps = [];
-    if (contact.realTimeVisible && contextMessages.length > 0) {
-        for (let i = 0; i < contextMessages.length; i++) {
-            const currentMsg = contextMessages[i];
-            
-            // 添加当前消息
-            messagesWithTimeGaps.push(currentMsg);
-            
-            // 检查与下一条消息的时间间隔
-            if (i < contextMessages.length - 1) {
-                const nextMsg = contextMessages[i + 1];
-                const currentTime = currentMsg.time || 0;
-                const nextTime = nextMsg.time || 0;
-                
-                if (currentTime && nextTime) {
-                    const timeDiff = nextTime - currentTime; // 毫秒
-                    const minutes = Math.floor(timeDiff / 60000);
-                    const hours = Math.floor(timeDiff / 3600000);
-                    const days = Math.floor(timeDiff / 86400000);
-                    
-                    let timeGapText = '';
-                    
-                    // 根据时间间隔生成不同的提示
-                    if (days >= 1) {
-                        timeGapText = `[时间流逝：距离上一条消息已过去${days}天${hours % 24}小时]`;
-                    } else if (hours >= 2) {
-                        timeGapText = `[时间流逝：距离上一条消息已过去${hours}小时]`;
-                    } else if (minutes >= 30) {
-                        timeGapText = `[时间流逝：距离上一条消息已过去${minutes}分钟]`;
-                    }
-                    
-                    // 如果有明显的时间间隔，插入提示
-                    if (timeGapText) {
-                        messagesWithTimeGaps.push({
-                            role: 'system',
-                            content: timeGapText,
-                            _isTimeGap: true
-                        });
-                    }
-                }
-            }
-        }
-        contextMessages = messagesWithTimeGaps;
-    }
-
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...contextMessages.map(h => {
-            // 如果是时间间隔提示，直接返回
-            if (h._isTimeGap) {
-                return { role: 'system', content: h.content };
-            }
-            let content = h.content;
-            const contextPrefix = buildContextRecordPrefix(h);
-            const quotePrefix = buildQuoteContextPrefix(h.replyTo);
-            const structuredPrefix = joinContextTextParts(contextPrefix, quotePrefix);
-            
-            // Parse hidden images from text content (e.g. from Moments)
-            let embeddedImages = [];
-            if (typeof content === 'string') {
-                // Strip pollution from text messages to prevent AI from learning bad formats
-                // This removes patterns like [发送了一个表情包:...] or [表情包] from text history
-                content = content.replace(/\[(发送了一个)?(表情包|图片|语音).*?\]/g, '').trim();
-
-                if (content.includes('<hidden_img>')) {
-                    const imgRegex = /<hidden_img>(.*?)<\/hidden_img>/g;
-                    let match;
-                    while ((match = imgRegex.exec(content)) !== null) {
-                        embeddedImages.push(match[1]);
-                    }
-                    content = content.replace(imgRegex, '').trim();
-                }
-            }
-
-            if (contact.thoughtVisible && h.thought) {
-                content = joinContextTextParts(content, `[visible_thought display_text="${escapeContextAttrText(h.thought)}"]`);
-            }
-
-            if (embeddedImages.length > 0) {
-                const textPart = joinContextTextParts(structuredPrefix, content);
-                const contentArray = [{ type: "text", text: textPart }];
-                embeddedImages.forEach(url => {
-                    contentArray.push({ type: "image_url", image_url: { url: url } });
-                });
-                return { role: h.role, content: contentArray };
-            }
-
-            if (h.type === 'image') {
-                if (h._skipImage) {
-                    return { role: h.role, content: joinContextTextParts(structuredPrefix, '[图片]') };
-                }
-                const imageContentArray = [];
-                if (structuredPrefix) {
-                    imageContentArray.push({ type: "text", text: structuredPrefix });
-                }
-                imageContentArray.push({ type: "image_url", image_url: { url: h.content } });
-                return {
-                    role: h.role,
-                    content: imageContentArray
-                };
-            } else if (h.type === 'virtual_image') {
-                const desc = h.description ? `: ${h.description}` : '';
-                return {
-                    role: h.role,
-                    content: joinContextTextParts(structuredPrefix, `[图片${desc}]`)
-                };
-            } else if (h.type === 'sticker') {
-                const desc = h.description ? `: ${h.description}` : '';
-                return {
-                    role: h.role,
-                    content: joinContextTextParts(structuredPrefix, `[表情包${desc}]`)
-                };
-            } else if (h.type === 'voice') {
-                let voiceText = '语音消息';
-                try {
-                    const data = JSON.parse(h.content);
-                    voiceText = data.text || '语音消息';
-                } catch (e) {
-                    voiceText = h.content;
-                }
-                return {
-                    role: h.role,
-                    content: joinContextTextParts(structuredPrefix, `[语音: ${voiceText}]`)
-                };
-            } else if (h.type === 'voice_call_text') {
-                let callText = '通话内容';
-                try {
-                    const data = JSON.parse(h.content);
-                    callText = data.text || '通话内容';
-                } catch(e) {
-                    callText = h.content;
-                }
-                // 清洗可能残留的视频通话标签，防止污染普通聊天
-                callText = callText.replace(/{{DESC}}[\s\S]*?{{\/DESC}}/gi, '')
-                                   .replace(/{{DIALOGUE}}/gi, '')
-                                   .replace(/{{\/DIALOGUE}}/gi, '')
-                                   .replace(/{{.*?}}/g, '') // 移除其他可能的标签
-                                   .trim();
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, callText) };
-            } else if (h.type === 'gift_card') {
-                let giftData = {};
-                try {
-                    giftData = typeof content === 'string' ? JSON.parse(content) : content;
-                } catch(e) {
-                    giftData = { title: '礼物', price: '0' };
-                }
-                const amount = giftData.paymentAmount || giftData.price || '0';
-                const recipient = giftData.recipientName ? `，收货人：${giftData.recipientName}` : '';
-                const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[送出礼物：${giftData.title}，金额：${amount}元${recipient}${payMethod}] (这是我在闲鱼上看到你收藏的商品，特意买来送给你的)`) };
-            } else if (h.type === 'shopping_gift') {
-                let giftData = {};
-                try {
-                    giftData = typeof content === 'string' ? JSON.parse(content) : content;
-                } catch(e) {}
-                const items = giftData.items ? giftData.items.map(i => i.title).join(', ') : '礼物';
-                const amount = giftData.paymentAmount || giftData.total || '0';
-                const recipient = (giftData.recipientName || giftData.recipientText) ? `，收货人：${giftData.recipientName || giftData.recipientText}` : '';
-                const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[送出礼物：${items}，总价值：${amount}元${recipient}${payMethod}] (这是我在购物APP购买并送给你的)`) };
-            } else if (h.type === 'savings_invite') {
-                let inviteData = {};
-                try {
-                    inviteData = typeof content === 'string' ? JSON.parse(content) : content;
-                } catch(e) {}
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[共同存钱邀请: 计划${inviteData.title || '共同存钱计划'}，目标¥${Number(inviteData.targetAmount || 0).toFixed(2)}，基础年化${Number(inviteData.aprBase || 0).toFixed(2)}%]`) };
-            } else if (h.type === 'savings_withdraw_request') {
-                let reqData = {};
-                try {
-                    reqData = typeof content === 'string' ? JSON.parse(content) : content;
-                } catch(e) {}
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[共同存钱转出申请: 金额¥${Number(reqData.amount || 0).toFixed(2)}，状态待确认]`) };
-            } else if (h.type === 'icity_card') {
-                let cardData = {};
-                try {
-                    cardData = typeof content === 'string' ? JSON.parse(content) : content;
-                } catch(e) {}
-                
-                let authorInfo = `作者: ${cardData.authorName || '未知'}`;
-                if (cardData.source === 'diary') {
-                    authorInfo = `作者: 我(用户)`;
-                }
-                
-                let commentsInfo = '';
-                if (cardData.comments && cardData.comments.length > 0) {
-                    // Limit to last 5 comments to avoid token limit
-                    const recentComments = cardData.comments.slice(-5);
-                    commentsInfo = '\n评论区:\n' + recentComments.map(c => `${c.name}: ${c.content}`).join('\n');
-                }
-                
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了 iCity 日记 (${authorInfo}): "${cardData.content || '内容'}"${commentsInfo}]`) };
-            } else if (h.type === 'pdd_cash_share') {
-                let data = {};
-                try { data = JSON.parse(content); } catch(e) {}
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了天天领现金链接：差 ${data.diff} 元提现]`) };
-            } else if (h.type === 'pdd_bargain_share') {
-                let data = {};
-                try { data = JSON.parse(content); } catch(e) {}
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了砍价免费拿链接：${data.title}，当前价格 ¥${data.currentPrice}，商品ID: ${data.productId}]`) };
-            } else {
-                if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
-                     try {
-                         if (h.type === 'transfer') {
-                             const data = JSON.parse(content);
-                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[转账: ${data.amount}元] (ID: ${data.id})`) };
-                         } else if (h.type === 'family_card') {
-                             const data = JSON.parse(content);
-                             const modeText = data.mode === 'grant' ? '给予' : '索要';
-                             const statusText = data.status || 'pending';
-                             const limitText = data.monthlyLimit ? `${data.monthlyLimit}元/月` : '待设置';
-                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[亲属卡: ${modeText}, 状态:${statusText}, 额度:${limitText}] (ID: ${data.id})`) };
-                         }
-                     } catch(e) {}
-                }
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, content) };
-            }
-        })
-    ];
-
-    if (typeof window.getScreenShareAiContextMessages === 'function') {
-        try {
-            const screenShareContext = window.getScreenShareAiContextMessages();
-            if (screenShareContext && (screenShareContext.summaryText || screenShareContext.multimodalContent)) {
-                let lastUserMsgIndex = -1;
-                for (let i = messages.length - 1; i >= 0; i--) {
-                    if (messages[i].role === 'user') {
-                        lastUserMsgIndex = i;
-                        break;
-                    }
-                }
-
-                const screenShareImageParts = Array.isArray(screenShareContext.multimodalContent)
-                    ? screenShareContext.multimodalContent.filter(part => part && part.type === 'image_url')
-                    : [];
-                const isAlbumScreenShareContext = typeof screenShareContext.summaryText === 'string'
-                    && screenShareContext.summaryText.startsWith('Album is on');
-
-                console.log('[ScreenShare Debug] screen share context ready for request', {
-                    hasSummaryText: !!screenShareContext.summaryText,
-                    summaryText: screenShareContext.summaryText || null,
-                    multimodalPartCount: Array.isArray(screenShareContext.multimodalContent)
-                        ? screenShareContext.multimodalContent.length
-                        : 0,
-                    imageUrls: screenShareImageParts.map(part => part.image_url && part.image_url.url),
-                    lastUserMsgIndex
-                });
-
-                const screenShareParts = [];
-                if (screenShareContext.summaryText) {
-                    let screenShareInstruction = `${screenShareContext.summaryText}. You are currently the one actively checking the user's phone, not letting the user check yours. The shared-screen content below is visible right now as evidence from the user's device. You may proactively continue inspecting related areas if the situation calls for it. You may output multiple SCREEN_TAP / SCREEN_TYPE actions in one reply, and they will execute strictly in order. Screen actions are not limited by the normal “do not stack many actions” rule. If the current screen already makes the next steps obvious, output the full action chain at once.`;
-                    if (isAlbumScreenShareContext) {
-                        screenShareInstruction += ' For a private-album password, you may use SCREEN_TYPE only when the password is grounded in known facts already in context: either the user explicitly provided it in chat history, or it can be directly inferred from established chat-settings persona/profile dates such as the user\'s birthday, your birthday, or another clearly stated important date. Prefer exact MMDD-style conversions like 12月24日 -> 1224. If the password page shows an error, do not guess again.';
-                    }
-                    screenShareParts.push({
-                        type: 'text',
-                        text: screenShareInstruction
-                    });
-                }
-                if (Array.isArray(screenShareContext.multimodalContent)) {
-                    screenShareParts.push(...screenShareContext.multimodalContent);
-                }
-
-                if (screenShareParts.length > 0) {
-                    if (lastUserMsgIndex !== -1) {
-                        const originalContent = messages[lastUserMsgIndex].content;
-                        const mergedContent = Array.isArray(originalContent)
-                            ? [...originalContent]
-                            : [{ type: 'text', text: String(originalContent || '') }];
-
-                        mergedContent.push({
-                            type: 'text',
-                            text: '【当前共享屏幕补充】'
-                        });
-                        mergedContent.push(...screenShareParts);
-                        messages[lastUserMsgIndex].content = mergedContent;
-                    } else {
-                        messages.push({
-                            role: 'user',
-                            content: screenShareParts
-                        });
-                    }
-
-                    const attachedMessage = lastUserMsgIndex !== -1
-                        ? messages[lastUserMsgIndex]
-                        : messages[messages.length - 1];
-                    const attachedImageParts = Array.isArray(attachedMessage.content)
-                        ? attachedMessage.content.filter(part => part && part.type === 'image_url')
-                        : [];
-
-                    console.log('[ScreenShare Debug] attached screen share context to message', {
-                        targetRole: attachedMessage.role,
-                        contentIsArray: Array.isArray(attachedMessage.content),
-                        targetImageUrlCount: attachedImageParts.length,
-                        targetImageUrls: attachedImageParts.map(part => part.image_url && part.image_url.url)
-                    });
-                } else {
-                    console.log('[ScreenShare Debug] screen share parts empty after build');
-                }
-            } else {
-                console.log('[ScreenShare Debug] no screen share context available for this request');
-            }
-        } catch (error) {
-            console.warn('Failed to build screen share AI context messages.', error);
-        }
-    }
-
-    if (instruction) {
-        messages.push({
-            role: 'system',
-            content: `[系统提示]: ${instruction}`
-        });
-    }
+    const messages = await window.buildAiPromptMessages(contactId, instruction);
 
     const titleEl = document.getElementById('chat-title');
     const originalTitle = titleEl.textContent;
@@ -4650,9 +4033,12 @@ async function generateAiReply(instruction = null, targetContactId = null) {
 
             let momentMatch;
             while ((momentMatch = processedSegment.match(momentRegex)) !== null) {
-                const momentContent = momentMatch[1].trim();
-                if (momentContent) {
-                    if (window.addMoment) window.addMoment(contact.id, momentContent);
+                const momentPayload = (momentMatch[1] || '').trim();
+                if (momentPayload) {
+                    const parsedMoment = typeof window.parseMomentPayload === 'function'
+                        ? window.parseMomentPayload(momentPayload)
+                        : { content: momentPayload, images: [] };
+                    if (window.addMoment) window.addMoment(contact.id, parsedMoment.content, parsedMoment.images);
                 }
                 processedSegment = processedSegment.replace(momentMatch[0], '');
             }
@@ -5117,10 +4503,19 @@ async function generateAiReply(instruction = null, targetContactId = null) {
                     sendMessage(JSON.stringify(voiceData), false, 'voice', null, contactId);
                 } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
                     let sent = false;
+                    const rawImageContent = typeof msg.content === 'string' ? msg.content.trim() : '';
+                    const imageFallbackText = rawImageContent && !/^(?:未知图片|\[图片\]|图片)$/i.test(rawImageContent)
+                        ? `[图片] ${rawImageContent}`
+                        : '[图片]';
                     const novelaiSettings = window.iphoneSimState.novelaiSettings;
                     const globalEnabled = novelaiSettings && novelaiSettings.enabled !== false;
+
+                    if (isLikelyChatImageUrl(rawImageContent)) {
+                        sendMessage(rawImageContent, false, 'image', msg.description || null, contactId);
+                        sent = true;
+                    }
                     
-                    if (globalEnabled && window.generateNovelAiImageApi && contact.novelaiPreset) {
+                    if (!sent && globalEnabled && window.generateNovelAiImageApi && contact.novelaiPreset) {
                         let finalPrompt = "";
                         let presetName = contact.novelaiPreset;
                         let preset = null;
@@ -5211,8 +4606,7 @@ async function generateAiReply(instruction = null, targetContactId = null) {
                             appendMessageToUI(`[系统诊断]: 无法生成图片 - ${failReason.join('; ')}`, false, 'text', null, null, null, null, false);
                         }
 
-                        const defaultImageUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
-                        sendMessage(defaultImageUrl, false, 'virtual_image', msg.content, contactId);
+                        sendMessage(imageFallbackText, false, 'text', null, contactId);
                     }
                 } else if (msg.type === '旁白' || msg.type === 'description') {
                     await typewriterEffect(msg.content, contact.avatar, null, null, 'description', contactId);
@@ -5251,9 +4645,17 @@ async function generateAiReply(instruction = null, targetContactId = null) {
                     };
                     contentToSave = JSON.stringify(voiceData);
                     typeToSave = 'voice';
-                } else if (msg.type === '图片' || msg.type === 'image') {
-                    contentToSave = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
-                    typeToSave = 'virtual_image';
+                } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
+                    const rawImageContent = typeof msg.content === 'string' ? msg.content.trim() : '';
+                    if (isLikelyChatImageUrl(rawImageContent)) {
+                        contentToSave = rawImageContent;
+                        typeToSave = 'image';
+                    } else {
+                        contentToSave = rawImageContent && !/^(?:未知图片|\[图片\]|图片)$/i.test(rawImageContent)
+                            ? `[图片] ${rawImageContent}`
+                            : '[图片]';
+                        typeToSave = 'text';
+                    }
                 } else if (msg.type === '旁白' || msg.type === 'description') {
                     typeToSave = 'description';
                 }
@@ -5281,7 +4683,18 @@ async function generateAiReply(instruction = null, targetContactId = null) {
                 }
 
                 window.iphoneSimState.chatHistory[contact.id].push(msgData);
+                if (typeof window.updateContactRestStateOnAssistantMessage === 'function') {
+                    window.updateContactRestStateOnAssistantMessage(contact.id, contentToSave, typeToSave, msgData.time);
+                }
                 saveConfig();
+
+                if (typeToSave === 'text' && window.WhisperChallenge && typeof window.WhisperChallenge.checkAiMessage === 'function') {
+                    window.WhisperChallenge.checkAiMessage(contentToSave, {
+                        contactId: contact.id,
+                        contactName: contact.remark || contact.name || '',
+                        type: typeToSave
+                    });
+                }
 
                 if (window.syncToFloatingChat && window.isScreenSharing) {
                     console.log('[ScreenShare Debug] sync background assistant reply to floating', {
@@ -5575,5 +4988,1243 @@ function optimizePromptForNovelAI(text) {
 
     return processed;
 }
+
+
+
+
+function cloneAiPromptHistoryMessage(message) {
+    if (!message || typeof message !== 'object') return message;
+    return {
+        ...message,
+        replyTo: message.replyTo && typeof message.replyTo === 'object'
+            ? { ...message.replyTo }
+            : message.replyTo
+    };
+}
+
+function estimateAiTextTokens(text) {
+    if (typeof text !== 'string' || !text) return 0;
+
+    let total = 0;
+    for (let i = 0; i < text.length;) {
+        const char = text[i];
+
+        if (/\s/.test(char)) {
+            i += 1;
+            continue;
+        }
+
+        if (/[A-Za-z0-9_]/.test(char)) {
+            let end = i + 1;
+            while (end < text.length && /[A-Za-z0-9_]/.test(text[end])) {
+                end += 1;
+            }
+            total += Math.ceil((end - i) / 4);
+            i = end;
+            continue;
+        }
+
+        if (/[\x00-\x7F]/.test(char)) {
+            total += 1;
+            i += 1;
+            continue;
+        }
+
+        const codePoint = text.codePointAt(i);
+        total += 1;
+        i += codePoint > 0xFFFF ? 2 : 1;
+    }
+
+    return total;
+}
+
+function collectAiPromptContentStats(content) {
+    const stats = {
+        textTokens: 0,
+        imageCount: 0,
+        screenShareCount: 0,
+        screenShareImageCount: 0
+    };
+
+    if (typeof content === 'string') {
+        stats.textTokens = estimateAiTextTokens(content);
+        return stats;
+    }
+
+    if (!Array.isArray(content)) {
+        return stats;
+    }
+
+    let inScreenShareSection = false;
+    content.forEach(part => {
+        if (!part) return;
+
+        if (part.type === 'text') {
+            const text = typeof part.text === 'string' ? part.text : String(part.text || '');
+            if (text === '【当前共享屏幕补充】') {
+                stats.screenShareCount += 1;
+                inScreenShareSection = true;
+            }
+            stats.textTokens += estimateAiTextTokens(text);
+            return;
+        }
+
+        if (part.type === 'image_url') {
+            if (inScreenShareSection) {
+                stats.screenShareImageCount += 1;
+            } else {
+                stats.imageCount += 1;
+            }
+        }
+    });
+
+    return stats;
+}
+
+function appendAiPromptPart(parts, group, label, content) {
+    const normalizedContent = trimWechatPromptSection(content);
+    if (!normalizedContent) return;
+    parts.push({ group, label, content: normalizedContent });
+}
+
+function buildWechatStickerPrompt(contact) {
+    if (!(window.iphoneSimState.stickerCategories && window.iphoneSimState.stickerCategories.length > 0)) {
+        return '';
+    }
+
+    let activeStickers = [];
+    let hasLinkedCategories = false;
+
+    if (Array.isArray(contact.linkedStickerCategories)) {
+        if (contact.linkedStickerCategories.length > 0) {
+            hasLinkedCategories = true;
+            window.iphoneSimState.stickerCategories.forEach(cat => {
+                if (contact.linkedStickerCategories.includes(cat.id)) {
+                    activeStickers = activeStickers.concat(cat.list);
+                }
+            });
+        } else {
+            hasLinkedCategories = true;
+        }
+    }
+
+    if (!hasLinkedCategories && !contact.linkedStickerCategories) {
+        window.iphoneSimState.stickerCategories.forEach(cat => {
+            activeStickers = activeStickers.concat(cat.list);
+        });
+    }
+
+    if (activeStickers.length > 0) {
+        const descriptions = activeStickers.map(s => s.desc).join(', ');
+        return `【可用表情包列表】\n${descriptions}\n只能使用上面列出的名称，且必须完全匹配；如果列表里没有合适的表情包，就不要输出 sticker_message，改用文字回复。`;
+    }
+
+    return '【可用表情包列表】\n（当前没有可用的表情包）\n当前不要输出 sticker_message，请仅使用文字或其他非表情包类型。';
+}
+
+function buildWechatWorldbookPrompt(contact, history) {
+    if (!(window.iphoneSimState.worldbook && window.iphoneSimState.worldbook.length > 0)) {
+        return '';
+    }
+
+    let activeEntries = window.iphoneSimState.worldbook.filter(e => e.enabled);
+
+    if (contact.linkedWbCategories) {
+        activeEntries = activeEntries.filter(e => contact.linkedWbCategories.includes(e.categoryId));
+    }
+
+    if (activeEntries.length === 0) {
+        return '';
+    }
+
+    const historyText = history.map(h => h.content).join('\n');
+    const matchedContents = [];
+    activeEntries.forEach(entry => {
+        let shouldAdd = false;
+        if (entry.keys && entry.keys.length > 0) {
+            shouldAdd = entry.keys.some(key => historyText.includes(key));
+        } else {
+            shouldAdd = true;
+        }
+
+        if (shouldAdd) {
+            matchedContents.push(entry.content);
+        }
+    });
+
+    if (matchedContents.length === 0) {
+        return '';
+    }
+
+    return `世界书信息：\n${matchedContents.join('\n')}`;
+}
+
+window.estimateAiTextTokens = estimateAiTextTokens;
+
+window.buildAiPromptTokenPreview = async function(contactId, options = {}) {
+    const emptySections = {
+        systemBase: { label: '系统基础', tokens: 0, messageCount: 0 },
+        memory: { label: '记忆', tokens: 0, messageCount: 0 },
+        worldbook: { label: '世界书', tokens: 0, messageCount: 0 },
+        context: { label: '聊天上下文', tokens: 0, messageCount: 0 },
+        extra: { label: '场景附加', tokens: 0, messageCount: 0 }
+    };
+
+    try {
+        const instruction = Object.prototype.hasOwnProperty.call(options, 'instruction')
+            ? options.instruction
+            : null;
+        const messages = await window.buildAiPromptMessages(contactId, instruction, options);
+        const systemPromptParts = Array.isArray(messages && messages._systemPromptParts)
+            ? messages._systemPromptParts
+            : [];
+        const sections = {
+            systemBase: { ...emptySections.systemBase },
+            memory: { ...emptySections.memory },
+            worldbook: { ...emptySections.worldbook },
+            context: { ...emptySections.context },
+            extra: { ...emptySections.extra }
+        };
+        const visualInputs = {
+            imageCount: 0,
+            screenShareCount: 0,
+            screenShareImageCount: 0,
+            summary: '未检测到'
+        };
+
+        systemPromptParts.forEach(part => {
+            const bucket = sections[part && part.group] || sections.systemBase;
+            const stats = collectAiPromptContentStats(part && part.content);
+            bucket.tokens += stats.textTokens;
+            bucket.messageCount += 1;
+        });
+
+        (Array.isArray(messages) ? messages : []).slice(1).forEach(message => {
+            const bucket = message && message.role === 'system'
+                ? sections.extra
+                : sections.context;
+            const stats = collectAiPromptContentStats(message && message.content);
+            bucket.tokens += stats.textTokens;
+            bucket.messageCount += 1;
+            visualInputs.imageCount += stats.imageCount;
+            visualInputs.screenShareCount += stats.screenShareCount;
+            visualInputs.screenShareImageCount += stats.screenShareImageCount;
+        });
+
+        const visualParts = [];
+        if (visualInputs.imageCount > 0) {
+            visualParts.push(`${visualInputs.imageCount} 张图片`);
+        }
+        if (visualInputs.screenShareCount > 0) {
+            visualParts.push(`${visualInputs.screenShareCount} 次共享屏幕`);
+        }
+        visualInputs.summary = visualParts.length > 0 ? visualParts.join(' / ') : '未检测到';
+
+        return {
+            status: 'ok',
+            totalTextTokens: sections.systemBase.tokens + sections.memory.tokens + sections.worldbook.tokens + sections.context.tokens + sections.extra.tokens,
+            sections,
+            visualInputs,
+            messageCount: Array.isArray(messages) ? messages.length : 0
+        };
+    } catch (error) {
+        return {
+            status: 'error',
+            totalTextTokens: 0,
+            sections: {
+                systemBase: { ...emptySections.systemBase },
+                memory: { ...emptySections.memory },
+                worldbook: { ...emptySections.worldbook },
+                context: { ...emptySections.context },
+                extra: { ...emptySections.extra }
+            },
+            visualInputs: {
+                imageCount: 0,
+                screenShareCount: 0,
+                screenShareImageCount: 0,
+                summary: '无法估算'
+            },
+            messageCount: 0,
+            error: error && error.message ? error.message : String(error)
+        };
+    }
+};
+
+const CHAT_AMAP_CACHE_TTL = {
+    myLocationMs: 30 * 60 * 1000,
+    weatherMs: 30 * 60 * 1000,
+    geocodeMs: 12 * 60 * 60 * 1000,
+    routeMs: 10 * 60 * 1000
+};
+
+function ensureChatAmapRuntime() {
+    if (!window.iphoneSimState) return null;
+    if (!window.iphoneSimState.amapRuntime || typeof window.iphoneSimState.amapRuntime !== 'object') {
+        window.iphoneSimState.amapRuntime = {
+            myLocation: null,
+            lastWeather: {},
+            lastResolvedContacts: {},
+            lastRoutes: {}
+        };
+    }
+    if (!window.iphoneSimState.amapRuntime.lastWeather || typeof window.iphoneSimState.amapRuntime.lastWeather !== 'object') {
+        window.iphoneSimState.amapRuntime.lastWeather = {};
+    }
+    if (!window.iphoneSimState.amapRuntime.lastResolvedContacts || typeof window.iphoneSimState.amapRuntime.lastResolvedContacts !== 'object') {
+        window.iphoneSimState.amapRuntime.lastResolvedContacts = {};
+    }
+    if (!window.iphoneSimState.amapRuntime.lastRoutes || typeof window.iphoneSimState.amapRuntime.lastRoutes !== 'object') {
+        window.iphoneSimState.amapRuntime.lastRoutes = {};
+    }
+    return window.iphoneSimState.amapRuntime;
+}
+
+function persistChatAmapRuntimeSoon() {
+    if (typeof saveConfig === 'function') {
+        saveConfig().catch(() => {});
+    }
+}
+
+function isChatAmapCacheFresh(entry, ttlMs) {
+    const time = Number(entry && entry.updateTime);
+    return Number.isFinite(time) && (Date.now() - time) < ttlMs;
+}
+
+function normalizeChatAmapCity(value) {
+    if (Array.isArray(value)) return String(value[0] || '').trim();
+    return String(value || '').trim();
+}
+
+function joinChatAmapText(parts) {
+    return parts
+        .map(part => String(part || '').trim())
+        .filter(Boolean)
+        .filter((part, index, arr) => arr.indexOf(part) === index)
+        .join(' ');
+}
+
+function buildChatAmapLocationQuery(location) {
+    if (!location) return '';
+    if (typeof location === 'string') return String(location).trim();
+    return joinChatAmapText([
+        location.country,
+        location.province,
+        location.city,
+        location.district,
+        location.detail,
+        location.query
+    ]);
+}
+
+function buildChatAmapShortLabel(meta) {
+    if (!meta) return '';
+    return joinChatAmapText([
+        meta.businessArea,
+        meta.poi,
+        meta.district,
+        meta.city
+    ]) || String(meta.formattedAddress || '').trim();
+}
+
+async function fetchChatAmapJson(path, params = {}) {
+    const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
+    if (!settings || !String(settings.key || '').trim()) {
+        throw new Error('AMap Key 未配置');
+    }
+    const url = new URL(`https://restapi.amap.com${path}`);
+    url.searchParams.set('key', String(settings.key || '').trim());
+    url.searchParams.set('output', 'json');
+    Object.keys(params).forEach(key => {
+        const value = params[key];
+        if (value !== undefined && value !== null && value !== '') {
+            url.searchParams.set(key, String(value));
+        }
+    });
+    const response = await fetch(url.toString(), { method: 'GET' });
+    if (!response.ok) {
+        throw new Error(`AMap HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    if (String(data.status || '') !== '1') {
+        throw new Error(String(data.info || 'AMap 调用失败'));
+    }
+    return data;
+}
+
+async function getChatAmapMyLocation(force = false) {
+    const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
+    if (!settings || !String(settings.key || '').trim()) return null;
+    const runtime = ensureChatAmapRuntime();
+    if (!force && runtime.myLocation && isChatAmapCacheFresh(runtime.myLocation, CHAT_AMAP_CACHE_TTL.myLocationMs)) {
+        return runtime.myLocation;
+    }
+    if (!navigator.geolocation) return runtime.myLocation || null;
+    const coords = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+            position => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+            error => reject(error),
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+        );
+    }).catch(() => null);
+    if (!coords) return runtime.myLocation || null;
+
+    const data = await fetchChatAmapJson('/v3/geocode/regeo', {
+        location: `${coords.lng},${coords.lat}`,
+        extensions: 'all',
+        radius: 1000,
+        roadlevel: 0
+    }).catch(() => null);
+    const regeocode = data && data.regeocode ? data.regeocode : null;
+    const component = regeocode && regeocode.addressComponent ? regeocode.addressComponent : {};
+    const pois = regeocode && Array.isArray(regeocode.pois) ? regeocode.pois : [];
+    const businessAreas = component && Array.isArray(component.businessAreas) ? component.businessAreas : [];
+    if (!regeocode) return runtime.myLocation || null;
+
+    const myLocation = {
+        lat: coords.lat,
+        lng: coords.lng,
+        formattedAddress: String(regeocode.formatted_address || '').trim(),
+        city: normalizeChatAmapCity(component.city) || String(component.province || '').trim(),
+        district: String(component.district || '').trim(),
+        adcode: String(component.adcode || '').trim(),
+        poi: String((pois[0] && pois[0].name) || '').trim(),
+        businessArea: String((businessAreas[0] && businessAreas[0].name) || '').trim(),
+        updateTime: Date.now()
+    };
+    myLocation.shortLabel = buildChatAmapShortLabel(myLocation);
+    runtime.myLocation = myLocation;
+    persistChatAmapRuntimeSoon();
+    return myLocation;
+}
+
+async function getChatAmapContactLocation(contactId, force = false) {
+    const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
+    if (!settings || !String(settings.key || '').trim()) return null;
+    const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+    if (!contact) return null;
+    const runtime = ensureChatAmapRuntime();
+    const query = buildChatAmapLocationQuery(contact.location);
+    const cached = contact.locationResolved || runtime.lastResolvedContacts[contactId];
+    if (!force && cached && cached.query === query && isChatAmapCacheFresh(cached, CHAT_AMAP_CACHE_TTL.geocodeMs)) {
+        contact.locationResolved = cached;
+        return cached;
+    }
+    if (!query) return null;
+
+    const data = await fetchChatAmapJson('/v3/geocode/geo', {
+        address: query,
+        city: contact.location && contact.location.city ? contact.location.city : ''
+    }).catch(() => null);
+    const geocode = data && Array.isArray(data.geocodes) ? data.geocodes[0] : null;
+    if (!geocode || !geocode.location) return cached || null;
+
+    const [lngStr, latStr] = String(geocode.location).split(',');
+    const locationResolved = {
+        lat: Number(latStr),
+        lng: Number(lngStr),
+        formattedAddress: String(geocode.formatted_address || query).trim(),
+        city: normalizeChatAmapCity(geocode.city) || String(geocode.province || '').trim(),
+        district: String(geocode.district || '').trim(),
+        adcode: String(geocode.adcode || '').trim(),
+        province: String(geocode.province || '').trim(),
+        query,
+        source: 'amap-geocode',
+        updateTime: Date.now()
+    };
+    locationResolved.shortLabel = buildChatAmapShortLabel(locationResolved);
+    runtime.lastResolvedContacts[contactId] = locationResolved;
+    contact.locationResolved = locationResolved;
+    persistChatAmapRuntimeSoon();
+    return locationResolved;
+}
+
+async function getChatAmapWeatherForContact(contactId) {
+    const contactLocation = await getChatAmapContactLocation(contactId).catch(() => null);
+    if (!contactLocation) return null;
+    const cityKey = contactLocation.adcode || contactLocation.city || contactLocation.province;
+    if (!cityKey) return null;
+    const runtime = ensureChatAmapRuntime();
+    const cached = runtime.lastWeather[contactId];
+    if (cached && cached.target === cityKey && isChatAmapCacheFresh(cached, CHAT_AMAP_CACHE_TTL.weatherMs)) {
+        return cached;
+    }
+    const data = await fetchChatAmapJson('/v3/weather/weatherInfo', {
+        city: cityKey,
+        extensions: 'base'
+    }).catch(() => null);
+    const live = data && Array.isArray(data.lives) ? data.lives[0] : null;
+    if (!live) return cached || null;
+    const weather = {
+        target: cityKey,
+        province: String(live.province || '').trim(),
+        city: String(live.city || '').trim(),
+        adcode: String(live.adcode || '').trim(),
+        weather: String(live.weather || '').trim(),
+        temperature: String(live.temperature || '').trim(),
+        winddirection: String(live.winddirection || '').trim(),
+        windpower: String(live.windpower || '').trim(),
+        humidity: String(live.humidity || '').trim(),
+        reporttime: String(live.reporttime || '').trim(),
+        updateTime: Date.now()
+    };
+    runtime.lastWeather[contactId] = weather;
+    persistChatAmapRuntimeSoon();
+    return weather;
+}
+
+async function getChatAmapEtaToContact(contactId, mode = 'driving') {
+    const myLocation = await getChatAmapMyLocation(false).catch(() => null);
+    const contactLocation = await getChatAmapContactLocation(contactId).catch(() => null);
+    if (!myLocation || !contactLocation) return null;
+
+    const runtime = ensureChatAmapRuntime();
+    const cacheKey = `${mode}:${myLocation.lng},${myLocation.lat}->${contactLocation.lng},${contactLocation.lat}`;
+    const cached = runtime.lastRoutes[contactId];
+    if (cached && cached.cacheKey === cacheKey && isChatAmapCacheFresh(cached, CHAT_AMAP_CACHE_TTL.routeMs)) {
+        return cached;
+    }
+
+    const data = await fetchChatAmapJson('/v3/direction/driving', {
+        origin: `${myLocation.lng},${myLocation.lat}`,
+        destination: `${contactLocation.lng},${contactLocation.lat}`,
+        strategy: 0,
+        extensions: 'base'
+    }).catch(() => null);
+    const path = data && data.route && Array.isArray(data.route.paths) ? data.route.paths[0] : null;
+    if (!path) return cached || null;
+
+    const route = {
+        cacheKey,
+        distanceKm: Number(path.distance || 0) > 0 ? Number((Number(path.distance) / 1000).toFixed(1)) : null,
+        etaMin: Number(path.duration || 0) > 0 ? Math.max(1, Math.round(Number(path.duration) / 60)) : null,
+        mode,
+        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '我这边',
+        destinationLabel: contactLocation.shortLabel || contactLocation.formattedAddress || contactLocation.city || '对方那边',
+        updateTime: Date.now()
+    };
+    runtime.lastRoutes[contactId] = route;
+    persistChatAmapRuntimeSoon();
+    return route;
+}
+
+window.getAmapMyLocation = getChatAmapMyLocation;
+window.getAmapContactLocation = getChatAmapContactLocation;
+window.getAmapWeatherForContact = getChatAmapWeatherForContact;
+window.getAmapEtaToContact = getChatAmapEtaToContact;
+
+window.buildAmapPromptContext = async function(contactId) {
+    const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
+    if (!settings || !String(settings.key || '').trim()) return '';
+    const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+    if (!contact) return '';
+
+    const [myLocation, contactLocation, weather, route] = await Promise.all([
+        getChatAmapMyLocation(false).catch(() => null),
+        getChatAmapContactLocation(contactId).catch(() => null),
+        getChatAmapWeatherForContact(contactId).catch(() => null),
+        getChatAmapEtaToContact(contactId).catch(() => null)
+    ]);
+
+    const lines = [];
+    if (myLocation) {
+        lines.push(`- 我当前所在：${myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '未知位置'}`);
+    }
+    if (contactLocation) {
+        lines.push(`- 对方设定位置：${contactLocation.shortLabel || contactLocation.formattedAddress || contactLocation.city || '未知位置'}`);
+    } else if (contact.location && buildChatAmapLocationQuery(contact.location)) {
+        lines.push(`- 对方设定位置文本：${buildChatAmapLocationQuery(contact.location)}`);
+    }
+    if (weather) {
+        lines.push(`- 对方那边天气：${joinChatAmapText([weather.city, weather.weather, weather.temperature ? `${weather.temperature}°C` : ''])}`);
+    }
+    if (route && (route.distanceKm !== null || route.etaMin !== null)) {
+        const parts = [];
+        if (route.distanceKm !== null) parts.push(`相距约 ${route.distanceKm} km`);
+        if (route.etaMin !== null) parts.push(`驾车约 ${route.etaMin} 分钟`);
+        lines.push(`- 路线估算：${parts.join('，')}`);
+    }
+
+    if (lines.length === 0) return '';
+    return `【高德时空信息】\n${lines.join('\n')}\n⚠️ 这些信息只可自然融入聊天，例如提到天气、距离、多久到、商圈或附近；不要每次都主动复述，不要编造精确门牌号。`;
+};
+
+window.prefetchAmapChatContext = async function(contactId) {
+    try {
+        await window.buildAmapPromptContext(contactId);
+    } catch (error) {
+        console.warn('[AMap] prefetch failed', error);
+    }
+};
+
+window.buildAiPromptMessages = async function(contactId, instruction = null, options = {}) {
+    const baseContact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+    if (!baseContact) return [];
+    const contact = options && options.contactOverride
+        ? { ...baseContact, ...options.contactOverride }
+        : baseContact;
+    const history = window.iphoneSimState.chatHistory[contactId] || [];
+
+    let userPromptInfo = '';
+    let currentPersona = null;
+
+    if (contact.userPersonaId) {
+        currentPersona = window.iphoneSimState.userPersonas.find(p => p.id === contact.userPersonaId);
+    }
+
+    if (currentPersona) {
+        userPromptInfo = `\n用户(我)的网名：${currentPersona.name || '未命名'}`;
+        const promptContent = contact.userPersonaPromptOverride || currentPersona.aiPrompt;
+        if (promptContent) {
+            userPromptInfo += `\n用户(我)的人设：${promptContent}`;
+        }
+    } else if (window.iphoneSimState.userProfile) {
+        userPromptInfo = `\n用户(我)的网名：${window.iphoneSimState.userProfile.name}`;
+    }
+
+    let momentContext = '';
+    const contactMoments = window.iphoneSimState.moments.filter(m => m.contactId === contact.id);
+    if (contactMoments.length > 0) {
+        const lastMoment = contactMoments.sort((a, b) => b.time - a.time)[0];
+        const lastMomentSummary = typeof window.formatMomentSummary === 'function'
+            ? window.formatMomentSummary(lastMoment)
+            : String(lastMoment.content || '').trim();
+        momentContext += `\n【朋友圈状态】\n你最新的一条朋友圈是：“${lastMomentSummary}”\n`;
+        
+        if (lastMoment.comments && lastMoment.comments.length > 0) {
+            const userName = currentPersona ? currentPersona.name : window.iphoneSimState.userProfile.name;
+            const userComments = lastMoment.comments.filter(c => c.user === userName);
+            if (userComments.length > 0) {
+                const lastComment = userComments[userComments.length - 1];
+                momentContext += `用户刚刚评论了你的朋友圈：“${lastComment.content}”\n`;
+            }
+        }
+    }
+
+    let icityContext = '';
+    if (window.iphoneSimState.icityDiaries && window.iphoneSimState.icityDiaries.length > 0) {
+        // Check visibility permissions
+        const isLinked = window.iphoneSimState.icityProfile && 
+                         window.iphoneSimState.icityProfile.linkedContactIds && 
+                         window.iphoneSimState.icityProfile.linkedContactIds.includes(contact.id);
+        
+        const recentDiaries = window.iphoneSimState.icityDiaries.filter(d => {
+            if (d.visibility === 'private') return false;
+            // Friends-only posts are visible to linked contacts
+            if (d.visibility === 'friends' && !isLinked) return false; 
+            return true;
+        }).slice(0, 3); // Get last 3
+
+        if (recentDiaries.length > 0) {
+            icityContext += '\n【用户最近的 iCity 日记】\n';
+            recentDiaries.forEach(d => {
+                const date = new Date(d.time);
+                const timeStr = `${date.getMonth() + 1}月${date.getDate()}日`;
+                icityContext += `[${timeStr}] ${d.content}\n`;
+            });
+        }
+    }
+
+    if (window.iphoneSimState.icityFriendsPosts && window.iphoneSimState.icityFriendsPosts.length > 0) {
+        const aiPosts = window.iphoneSimState.icityFriendsPosts.filter(p => p.contactId === contact.id).slice(0, 3);
+        if (aiPosts.length > 0) {
+            icityContext += '\n【你最近发布的 iCity 动态】\n';
+            aiPosts.forEach(p => {
+                const date = new Date(p.time);
+                const timeStr = `${date.getMonth() + 1}月${date.getDate()}日`;
+                icityContext += `[${timeStr}] ${p.content}\n`;
+            });
+        }
+    }
+
+    let importantStateContext = '';
+    let memoryContext = '';
+    if (typeof window.buildMemoryContextByPolicy === 'function') {
+        memoryContext = window.buildMemoryContextByPolicy(contact, history, 'chat-text');
+    } else {
+        const contactMemories = window.iphoneSimState.memories.filter(m => m.contactId === contact.id);
+        if (contactMemories.length > 0) {
+            const limit = contact.memorySendLimit && contact.memorySendLimit > 0 ? contact.memorySendLimit : 5;
+            const recentMemories = contactMemories.sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, limit).reverse();
+            if (recentMemories.length > 0) {
+                memoryContext += '\n【历史记忆 (已知事实)】\n⚠️ 注意：以下内容是你们过去的共同经历或已知事实，请勿重复向用户复述，除非用户主动询问或需要回忆。\n';
+                recentMemories.forEach(m => {
+                    const date = new Date(m.time || Date.now());
+                    const dateStr = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                    memoryContext += `- [${dateStr}] ${m.content}\n`;
+                });
+            }
+        }
+    }
+
+        let timeContext = '';
+    let itineraryContext = '';
+    if (contact.realTimeVisible) {
+        timeContext = buildRealtimeTimeContext(contact.id);
+        
+        if (window.getCurrentItineraryInfo) {
+            itineraryContext = await window.getCurrentItineraryInfo(contact.id);
+        }
+    }
+
+    const calendarContext = contact.calendarAwareEnabled === false ? '' : buildCalendarPromptContext();
+
+    let amapContext = '';
+    try {
+        amapContext = await window.buildAmapPromptContext(contact.id);
+    } catch (error) {
+        amapContext = '';
+    }
+
+    let lookusContext = '';
+    if (contact.lookusData) {
+        const d = contact.lookusData;
+        const lastUpdate = d.lastUpdateTime ? new Date(d.lastUpdateTime).toLocaleTimeString() : '未知';
+        
+        let appUsage = '';
+        if (d.appList && d.appList.length > 0) {
+            appUsage = '\n- 最近使用的APP: ' + d.appList.map(a => `${a.name}(${a.time})`).join(', ');
+        }
+
+        lookusContext = `\n【LookUs 状态 (用户可见)】
+用户可以通过 "LookUs" 应用实时查看你的以下状态 (更新于 ${lastUpdate}):
+- 距离: ${d.distance} km
+- 电量: ${d.battery}
+- 网络: ${d.network}
+- 手机型号: ${d.device}
+- 屏幕使用时间: ${d.screenTimeH}小时${d.screenTimeM}分
+- 解锁次数: ${d.unlockCount}
+- 最近解锁: ${d.lastUnlock}
+- 停留地点数: ${d.stops}${appUsage}
+⚠️ 你知道用户能看到这些信息。如果用户问起你的位置、电量或你在干什么，请结合这些信息回答。如果用户提到这些信息，请不要感到惊讶，因为你知道他在关注你的 LookUs 状态。`;
+
+        // 添加用户端状态事件到上下文
+        if (d.reportLog && d.reportLog.length > 0) {
+            const userEvents = d.reportLog.filter(e => e.isUserEvent).slice(0, 5);
+            if (userEvents.length > 0) {
+                lookusContext += `\n\n【用户的手机状态通知】\n你同样可以通过 LookUs 看到用户(对方)的手机状态变化：\n`;
+                userEvents.forEach(evt => {
+                    lookusContext += `- ${evt.time}: ${evt.text.replace('📱 ', '')}\n`;
+                });
+                lookusContext += `\n⚠️ 你可以自然地在聊天���提及或关心这些状态。例如用户在充电时你可以说"在充电呀"，用户电量低时你可以提醒他充电，用户离开很久回来你可以问他去哪了。但不要每次都提，要自然。`;
+            }
+        }
+    }
+
+    let meetingContext = '';
+    if (window.iphoneSimState.meetings && window.iphoneSimState.meetings[contact.id] && window.iphoneSimState.meetings[contact.id].length > 0) {
+        const meetings = window.iphoneSimState.meetings[contact.id];
+        const syncedMeetings = meetings.filter(item => item && item.syncWithChat === true);
+        const lastMeeting = syncedMeetings.length > 0 ? syncedMeetings[syncedMeetings.length - 1] : null;
+        if (!lastMeeting) {
+            meetingContext = '';
+        } else {
+        
+            let meetingContent = '';
+            if (lastMeeting.content && lastMeeting.content.length > 0) {
+                const recentContent = lastMeeting.content.slice(-5);
+                meetingContent = recentContent.map(c => {
+                    const role = c.role === 'user' ? '用户' : contact.name;
+                    return `${role}: ${c.text}`;
+                }).join('\n');
+            }
+
+            if (meetingContent) {
+                const meetingDate = new Date(lastMeeting.time);
+                const meetingTimeStr = `${meetingDate.getMonth() + 1}月${meetingDate.getDate()}日`;
+                meetingContext = `\n【线下见面记忆】\n你们最近一次见面是在 ${meetingTimeStr} (${lastMeeting.title})。\n当时发生的剧情片段：\n${meetingContent}\n(请知晓你们已经见过面，并根据剧情发展进行聊天)\n`;
+            }
+        }
+    }
+
+    let icityBookContext = getLinkedIcityBooksContext(contact.id);
+
+    let minesweeperContext = '';
+    const msModal = document.getElementById('minesweeper-modal');
+    if (msModal && !msModal.classList.contains('hidden') && window.getMinesweeperGameState) {
+        minesweeperContext = '\n【当前扫雷游戏状态】\n' + window.getMinesweeperGameState() + '\n\n【扫雷操作】\n如果你想操作扫雷游戏，请输出 JSON action：\n- {"type":"action","command":"MINESWEEPER_CLICK","payload":"行,列"}（例如 0,0）\n- {"type":"action","command":"MINESWEEPER_FLAG","payload":"行,列"}\n请分析局势后再行动，并遵守：\n1. 不要点击已经揭开的数字格子或空格子。\n2. 不要点击已经插旗的格子。\n3. 只点击未知区域（显示为 ? 的位置）。\n4. 如果推断某个位置是地雷，请优先使用 MINESWEEPER_FLAG。\n5. 获胜条件是找出并标记所有地雷。';
+    }
+
+    let witchGameContext = '';
+    const miniGameModal = document.getElementById('mini-game-modal');
+    // Check if witch game is active (by checking title or state)
+    if (miniGameModal && !miniGameModal.classList.contains('hidden') && window.getWitchGameState) {
+        const witchState = window.getWitchGameState();
+        if (witchState) {
+            witchGameContext = '\n' + witchState + '\n\n【女巫的毒药操作】\n轮到你行动时，请输出 JSON action：\n{"type":"action","command":"WITCH_GUESS","payload":"行,列"}（行1-5，列1-5）\n目标：找出用户藏的3瓶毒药，不要重复选择已经揭开的格子(⭕或☠️)。\n';
+        }
+    }
+
+    // forum live-stream command guidance
+    let forumLiveInstruction = '';
+    // only show when forum app loaded or syncing enabled
+    if (window.forumState) {
+        forumLiveInstruction = '\n【论坛直播能力】\n当你希望在论坛开直播时，请输出：\n{"type":"action","command":"START_FORUM_LIVE","payload":"标题"}\n可选扩展 payload 格式：标题 | 画面描述 | [{"username":"网名","content":"评论"}] | 图片URL\n如未提供画面描述/评论，系统会根据聊天上下文自动生成。\n';
+    }
+
+    let transferDecisionContext = '';
+    try {
+        const pendingTransferMap = new Map();
+        history.forEach(msg => {
+            if (!msg || msg.type !== 'transfer' || msg.role !== 'user') return;
+            let transferData = null;
+            try {
+                transferData = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+            } catch (error) {
+                transferData = null;
+            }
+            if (!transferData || !transferData.id) return;
+
+            const transferId = String(transferData.id);
+            const status = String(transferData.status || 'pending').toLowerCase();
+            if (status !== 'pending') {
+                pendingTransferMap.delete(transferId);
+                return;
+            }
+
+            pendingTransferMap.set(transferId, transferData);
+        });
+
+        const pendingTransfers = Array.from(pendingTransferMap.values());
+        if (pendingTransfers.length > 0) {
+            const lines = [];
+            lines.push('\n【待处理转账】');
+            lines.push('只有当下列待处理转账存在时，你才可以使用 ACCEPT_TRANSFER 或 RETURN_TRANSFER 指令。');
+            pendingTransfers.forEach(data => {
+                const amount = Number.isFinite(Number(data.amount))
+                    ? Number(data.amount).toFixed(2)
+                    : String(data.amount || '0.00');
+                const remark = String(data.remark || '转账').trim() || '转账';
+                lines.push(`- transferId=${data.id}，金额=¥${amount}，备注=${remark}`);
+                lines.push(`  收款示例：{"type":"action","command":"ACCEPT_TRANSFER","payload":"${data.id}"}`);
+                lines.push(`  退回示例：{"type":"action","command":"RETURN_TRANSFER","payload":"${data.id}"}`);
+            });
+            lines.push('如果上面没有待处理转账，或这些转账已经处理完，就不要输出这两个指令。');
+            transferDecisionContext = lines.join('\n') + '\n';
+        }
+    } catch (e) {
+        transferDecisionContext = '';
+    }
+
+    let musicTogetherContext = '';
+    if (typeof window.musicV2GetChatMusicContext === 'function') {
+        try {
+            const musicCtx = window.musicV2GetChatMusicContext(contact.id);
+            if (musicCtx) {
+                const lines = [];
+                lines.push('\n【音乐一起听状态】');
+                if (musicCtx.nowPlaying && musicCtx.nowPlaying.songId) {
+                    lines.push(`当前播放：${musicCtx.nowPlaying.title || '未知歌曲'} - ${musicCtx.nowPlaying.artist || '未知歌手'}`);
+                    if (musicCtx.nowPlaying.lyricLine) {
+                        lines.push(`当前歌词句：${musicCtx.nowPlaying.lyricLine}`);
+                    }
+                    if (!musicCtx.nowPlaying.isPlaying) {
+                        lines.push('当前处于暂停/未播放状态。');
+                    }
+                } else {
+                    lines.push('当前未播放歌曲');
+                }
+                if (musicCtx.together && musicCtx.together.active) {
+                    if (musicCtx.together.withCurrentContact) {
+                        lines.push('你当前正在和用户一起听歌。');
+                        lines.push('你可以使用以下动作指令控制一起听：');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_PAUSE","payload":""}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_RESUME","payload":""}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_NEXT","payload":""}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_PREV","payload":""}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_SEARCH_PLAY","payload":"歌曲关键词"}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_QUIT","payload":""}');
+                    } else {
+                        lines.push(`你当前在和 ${musicCtx.together.contactName || '其他联系人'} 一起听歌。`);
+                    }
+                } else {
+                    lines.push('当前没有激活的一起听会话。');
+                }
+                if (musicCtx.pendingInvite && musicCtx.pendingInvite.inviteId) {
+                    if (String(musicCtx.pendingInvite.direction || 'outgoing') === 'incoming') {
+                        lines.push(`你已向用户发出一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}，等待用户选择。`);
+                    } else {
+                        lines.push(`你收到了用户发来的一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}。`);
+                        lines.push('你必须在本次回复中给出动作指令：{"type":"action","command":"MUSIC_INVITE_DECISION","payload":"inviteId | 同意/拒绝"}');
+                    }
+                } else if (!(musicCtx.together && musicCtx.together.active)) {
+                    if (musicCtx.nowPlaying && musicCtx.nowPlaying.isPlaying) {
+                        lines.push('如需向用户发起一起听邀请，可输出：{"type":"action","command":"MUSIC_SEND_INVITE","payload":""}（留空表示使用当前播放歌曲）。');
+                    } else {
+                        lines.push('如需向用户发起一起听邀请，必须先指定歌曲关键词：{"type":"action","command":"MUSIC_SEND_INVITE","payload":"歌曲关键词"}。');
+                    }
+                }
+                musicTogetherContext = lines.join('\n') + '\n';
+            }
+        } catch (e) {
+            musicTogetherContext = '';
+        }
+    }
+
+    const conditionalCapabilityPrompt = buildWechatConditionalCapabilityPrompt({
+        minesweeperContext,
+        witchGameContext,
+        forumLiveInstruction,
+        transferDecisionContext,
+        musicTogetherContext
+    });
+    const systemPromptParts = [];
+    appendAiPromptPart(systemPromptParts, 'systemBase', '角色设定', buildWechatRolePrompt(contact, userPromptInfo));
+    appendAiPromptPart(systemPromptParts, 'systemBase', '输出协议', buildWechatProtocolPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', '活人感', buildWechatHumanFeelPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', '基础能力', buildWechatBaseCapabilityPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', '状态', importantStateContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '朋友圈', momentContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'iCity', icityContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'LookUs', lookusContext);
+    appendAiPromptPart(systemPromptParts, 'memory', '记忆', memoryContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '线下见面', meetingContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'iCity书籍', icityBookContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '时间', timeContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '日历', calendarContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '高德', amapContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '行程', itineraryContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '条件能力', conditionalCapabilityPrompt);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '回复指令', '请回复对方的消息。');
+    appendAiPromptPart(systemPromptParts, 'systemBase', '表情包', buildWechatStickerPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'worldbook', '世界书', buildWechatWorldbookPrompt(contact, history));
+
+    const systemPrompt = joinWechatPromptSections(systemPromptParts.map(part => part.content));
+
+    let limit = contact.contextLimit && contact.contextLimit > 0 ? contact.contextLimit : 50;
+    let contextMessages = history
+        .filter(h => !shouldExcludeFromAiContext(h))
+        .slice(-limit)
+        .map(cloneAiPromptHistoryMessage);
+
+    let imageCount = 0;
+    for (let i = contextMessages.length - 1; i >= 0; i--) {
+        if (contextMessages[i].type === 'image') {
+            imageCount++;
+            if (imageCount > 3) {
+                contextMessages[i]._skipImage = true;
+            }
+        }
+    }
+
+    // 如果开启了时间感知，在消息之间插入时间间隔提示
+    let messagesWithTimeGaps = [];
+    if (contact.realTimeVisible && contextMessages.length > 0) {
+        for (let i = 0; i < contextMessages.length; i++) {
+            const currentMsg = contextMessages[i];
+            
+            // 添加当前消息
+            messagesWithTimeGaps.push(currentMsg);
+            
+            // 检查与下一条消息的时间间隔
+            if (i < contextMessages.length - 1) {
+                const nextMsg = contextMessages[i + 1];
+                const currentTime = currentMsg.time || 0;
+                const nextTime = nextMsg.time || 0;
+                
+                if (currentTime && nextTime) {
+                    const timeDiff = nextTime - currentTime; // 毫秒
+                    const minutes = Math.floor(timeDiff / 60000);
+                    const hours = Math.floor(timeDiff / 3600000);
+                    const days = Math.floor(timeDiff / 86400000);
+                    
+                    let timeGapText = '';
+                    
+                    // 根据时间间隔生成不同的提示
+                    if (days >= 1) {
+                        timeGapText = `[时间流逝：距离上一条消息已过去${days}天${hours % 24}小时]`;
+                    } else if (hours >= 2) {
+                        timeGapText = `[时间流逝：距离上一条消息已过去${hours}小时]`;
+                    } else if (minutes >= 30) {
+                        timeGapText = `[时间流逝：距离上一条消息已过去${minutes}分钟]`;
+                    }
+                    
+                    // 如果有明显的时间间隔，插入提示
+                    if (timeGapText) {
+                        messagesWithTimeGaps.push({
+                            role: 'system',
+                            content: timeGapText,
+                            _isTimeGap: true
+                        });
+                    }
+                }
+            }
+        }
+        contextMessages = messagesWithTimeGaps;
+    }
+
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        ...contextMessages.map(h => {
+            // 如果是时间间隔提示，直接返回
+            if (h._isTimeGap) {
+                return { role: 'system', content: h.content };
+            }
+            let content = h.content;
+            const contextPrefix = buildContextRecordPrefix(h);
+            const quotePrefix = buildQuoteContextPrefix(h.replyTo);
+            const structuredPrefix = joinContextTextParts(contextPrefix, quotePrefix);
+            
+            // Parse hidden images from text content (e.g. from Moments)
+            let embeddedImages = [];
+            if (typeof content === 'string') {
+                // Strip pollution from text messages to prevent AI from learning bad formats
+                // This removes patterns like [发送了一个表情包:...] or [表情包] from text history
+                content = content.replace(/\[(发送了一个)?(表情包|图片|语音).*?\]/g, '').trim();
+
+                if (content.includes('<hidden_img>')) {
+                    const imgRegex = /<hidden_img>(.*?)<\/hidden_img>/g;
+                    let match;
+                    while ((match = imgRegex.exec(content)) !== null) {
+                        embeddedImages.push(match[1]);
+                    }
+                    content = content.replace(imgRegex, '').trim();
+                }
+            }
+
+            if (contact.thoughtVisible && h.thought) {
+                content = joinContextTextParts(content, `[visible_thought display_text="${escapeContextAttrText(h.thought)}"]`);
+            }
+
+            if (embeddedImages.length > 0) {
+                const textPart = joinContextTextParts(structuredPrefix, content);
+                const contentArray = [{ type: "text", text: textPart }];
+                embeddedImages.forEach(url => {
+                    contentArray.push({ type: "image_url", image_url: { url: url } });
+                });
+                return { role: h.role, content: contentArray };
+            }
+
+            if (h.type === 'image') {
+                if (h._skipImage) {
+                    return { role: h.role, content: joinContextTextParts(structuredPrefix, '[图片]') };
+                }
+                const imageContentArray = [];
+                if (structuredPrefix) {
+                    imageContentArray.push({ type: "text", text: structuredPrefix });
+                }
+                imageContentArray.push({ type: "image_url", image_url: { url: h.content } });
+                return {
+                    role: h.role,
+                    content: imageContentArray
+                };
+            } else if (h.type === 'virtual_image') {
+                const desc = h.description ? `: ${h.description}` : '';
+                return {
+                    role: h.role,
+                    content: joinContextTextParts(structuredPrefix, `[图片${desc}]`)
+                };
+            } else if (h.type === 'sticker') {
+                const desc = h.description ? `: ${h.description}` : '';
+                return {
+                    role: h.role,
+                    content: joinContextTextParts(structuredPrefix, `[表情包${desc}]`)
+                };
+            } else if (h.type === 'voice') {
+                let voiceText = '语音消息';
+                try {
+                    const data = JSON.parse(h.content);
+                    voiceText = data.text || '语音消息';
+                } catch (e) {
+                    voiceText = h.content;
+                }
+                return {
+                    role: h.role,
+                    content: joinContextTextParts(structuredPrefix, `[语音: ${voiceText}]`)
+                };
+            } else if (h.type === 'voice_call_text') {
+                let callText = '通话内容';
+                try {
+                    const data = JSON.parse(h.content);
+                    callText = data.text || '通话内容';
+                } catch(e) {
+                    callText = h.content;
+                }
+                // 清洗可能残留的视频通话标签，防止污染普通聊天
+                callText = callText.replace(/{{DESC}}[\s\S]*?{{\/DESC}}/gi, '')
+                                   .replace(/{{DIALOGUE}}/gi, '')
+                                   .replace(/{{\/DIALOGUE}}/gi, '')
+                                   .replace(/{{.*?}}/g, '') // 移除其他可能的标签
+                                   .trim();
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, callText) };
+            } else if (h.type === 'gift_card') {
+                let giftData = {};
+                try {
+                    giftData = typeof content === 'string' ? JSON.parse(content) : content;
+                } catch(e) {
+                    giftData = { title: '礼物', price: '0' };
+                }
+                const amount = giftData.paymentAmount || giftData.price || '0';
+                const recipient = giftData.recipientName ? `，收货人：${giftData.recipientName}` : '';
+                const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[送出礼物：${giftData.title}，金额：${amount}元${recipient}${payMethod}] (这是我在闲鱼上看到你收藏的商品，特意买来送给你的)`) };
+            } else if (h.type === 'shopping_gift') {
+                let giftData = {};
+                try {
+                    giftData = typeof content === 'string' ? JSON.parse(content) : content;
+                } catch(e) {}
+                const items = giftData.items ? giftData.items.map(i => i.title).join(', ') : '礼物';
+                const amount = giftData.paymentAmount || giftData.total || '0';
+                const recipient = (giftData.recipientName || giftData.recipientText) ? `，收货人：${giftData.recipientName || giftData.recipientText}` : '';
+                const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[送出礼物：${items}，总价值：${amount}元${recipient}${payMethod}] (这是我在购物APP购买并送给你的)`) };
+            } else if (h.type === 'savings_invite') {
+                let inviteData = {};
+                try {
+                    inviteData = typeof content === 'string' ? JSON.parse(content) : content;
+                } catch(e) {}
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[共同存钱邀请: 计划${inviteData.title || '共同存钱计划'}，目标¥${Number(inviteData.targetAmount || 0).toFixed(2)}，基础年化${Number(inviteData.aprBase || 0).toFixed(2)}%]`) };
+            } else if (h.type === 'savings_withdraw_request') {
+                let reqData = {};
+                try {
+                    reqData = typeof content === 'string' ? JSON.parse(content) : content;
+                } catch(e) {}
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[共同存钱转出申请: 金额¥${Number(reqData.amount || 0).toFixed(2)}，状态待确认]`) };
+            } else if (h.type === 'icity_card') {
+                let cardData = {};
+                try {
+                    cardData = typeof content === 'string' ? JSON.parse(content) : content;
+                } catch(e) {}
+                
+                let authorInfo = `作者: ${cardData.authorName || '未知'}`;
+                if (cardData.source === 'diary') {
+                    authorInfo = `作者: 我(用户)`;
+                }
+                
+                let commentsInfo = '';
+                if (cardData.comments && cardData.comments.length > 0) {
+                    // Limit to last 5 comments to avoid token limit
+                    const recentComments = cardData.comments.slice(-5);
+                    commentsInfo = '\n评论区:\n' + recentComments.map(c => `${c.name}: ${c.content}`).join('\n');
+                }
+                
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了 iCity 日记 (${authorInfo}): "${cardData.content || '内容'}"${commentsInfo}]`) };
+            } else if (h.type === 'pdd_cash_share') {
+                let data = {};
+                try { data = JSON.parse(content); } catch(e) {}
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了天天领现金链接：差 ${data.diff} 元提现]`) };
+            } else if (h.type === 'pdd_bargain_share') {
+                let data = {};
+                try { data = JSON.parse(content); } catch(e) {}
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了砍价免费拿链接：${data.title}，当前价格 ¥${data.currentPrice}，商品ID: ${data.productId}]`) };
+            } else {
+                if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
+                     try {
+                         if (h.type === 'transfer') {
+                             const data = JSON.parse(content);
+                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[转账: ${data.amount}元] (ID: ${data.id})`) };
+                         } else if (h.type === 'family_card') {
+                             const data = JSON.parse(content);
+                             const modeText = data.mode === 'grant' ? '给予' : '索要';
+                             const statusText = data.status || 'pending';
+                             const limitText = data.monthlyLimit ? `${data.monthlyLimit}元/月` : '待设置';
+                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[亲属卡: ${modeText}, 状态:${statusText}, 额度:${limitText}] (ID: ${data.id})`) };
+                         }
+                     } catch(e) {}
+                }
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, content) };
+            }
+        })
+    ];
+
+    if (typeof window.getScreenShareAiContextMessages === 'function') {
+        try {
+            const screenShareContext = window.getScreenShareAiContextMessages();
+            if (screenShareContext && (screenShareContext.summaryText || screenShareContext.multimodalContent)) {
+                let lastUserMsgIndex = -1;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                    if (messages[i].role === 'user') {
+                        lastUserMsgIndex = i;
+                        break;
+                    }
+                }
+
+                const screenShareImageParts = Array.isArray(screenShareContext.multimodalContent)
+                    ? screenShareContext.multimodalContent.filter(part => part && part.type === 'image_url')
+                    : [];
+                const isAlbumScreenShareContext = typeof screenShareContext.summaryText === 'string'
+                    && screenShareContext.summaryText.startsWith('Album is on');
+
+                console.log('[ScreenShare Debug] screen share context ready for request', {
+                    hasSummaryText: !!screenShareContext.summaryText,
+                    summaryText: screenShareContext.summaryText || null,
+                    multimodalPartCount: Array.isArray(screenShareContext.multimodalContent)
+                        ? screenShareContext.multimodalContent.length
+                        : 0,
+                    imageUrls: screenShareImageParts.map(part => part.image_url && part.image_url.url),
+                    lastUserMsgIndex
+                });
+
+                const screenShareParts = [];
+                if (screenShareContext.summaryText) {
+                    let screenShareInstruction = `${screenShareContext.summaryText}. You are currently the one actively checking the user's phone, not letting the user check yours. The shared-screen content below is visible right now as evidence from the user's device. You may proactively continue inspecting related areas if the situation calls for it. You may output multiple SCREEN_TAP / SCREEN_TYPE actions in one reply, and they will execute strictly in order. Screen actions are not limited by the normal “do not stack many actions” rule. If the current screen already makes the next steps obvious, output the full action chain at once.`;
+                    if (isAlbumScreenShareContext) {
+                        screenShareInstruction += ' For a private-album password, you may use SCREEN_TYPE only when the password is grounded in known facts already in context: either the user explicitly provided it in chat history, or it can be directly inferred from established chat-settings persona/profile dates such as the user\'s birthday, your birthday, or another clearly stated important date. Prefer exact MMDD-style conversions like 12月24日 -> 1224. If the password page shows an error, do not guess again.';
+                    }
+                    screenShareParts.push({
+                        type: 'text',
+                        text: screenShareInstruction
+                    });
+                }
+                if (Array.isArray(screenShareContext.multimodalContent)) {
+                    screenShareParts.push(...screenShareContext.multimodalContent);
+                }
+
+                if (screenShareParts.length > 0) {
+                    if (lastUserMsgIndex !== -1) {
+                        const originalContent = messages[lastUserMsgIndex].content;
+                        const mergedContent = Array.isArray(originalContent)
+                            ? [...originalContent]
+                            : [{ type: 'text', text: String(originalContent || '') }];
+
+                        mergedContent.push({
+                            type: 'text',
+                            text: '【当前共享屏幕补充】'
+                        });
+                        mergedContent.push(...screenShareParts);
+                        messages[lastUserMsgIndex].content = mergedContent;
+                    } else {
+                        messages.push({
+                            role: 'user',
+                            content: screenShareParts
+                        });
+                    }
+
+                    const attachedMessage = lastUserMsgIndex !== -1
+                        ? messages[lastUserMsgIndex]
+                        : messages[messages.length - 1];
+                    const attachedImageParts = Array.isArray(attachedMessage.content)
+                        ? attachedMessage.content.filter(part => part && part.type === 'image_url')
+                        : [];
+
+                    console.log('[ScreenShare Debug] attached screen share context to message', {
+                        targetRole: attachedMessage.role,
+                        contentIsArray: Array.isArray(attachedMessage.content),
+                        targetImageUrlCount: attachedImageParts.length,
+                        targetImageUrls: attachedImageParts.map(part => part.image_url && part.image_url.url)
+                    });
+                } else {
+                    console.log('[ScreenShare Debug] screen share parts empty after build');
+                }
+            } else {
+                console.log('[ScreenShare Debug] no screen share context available for this request');
+            }
+        } catch (error) {
+            console.warn('Failed to build screen share AI context messages.', error);
+        }
+    }
+
+    if (instruction) {
+        messages.push({
+            role: 'system',
+            content: `[系统提示]: ${instruction}`
+        });
+    }
+
+    messages._systemPromptParts = systemPromptParts.map(part => ({ ...part }));
+
+
+    return messages;
+};
+
 
 

@@ -1,5 +1,210 @@
 ﻿// 聊天功能模块 (聊天, 联系人, AI, 语音)
 
+function estimateChatPromptTextTokensLocal(text) {
+    if (typeof text !== 'string' || !text) return 0;
+
+    let total = 0;
+    for (let i = 0; i < text.length;) {
+        const char = text[i];
+
+        if (/\s/.test(char)) {
+            i += 1;
+            continue;
+        }
+
+        if (/[A-Za-z0-9_]/.test(char)) {
+            let end = i + 1;
+            while (end < text.length && /[A-Za-z0-9_]/.test(text[end])) {
+                end += 1;
+            }
+            total += Math.ceil((end - i) / 4);
+            i = end;
+            continue;
+        }
+
+        if (/[\x00-\x7F]/.test(char)) {
+            total += 1;
+            i += 1;
+            continue;
+        }
+
+        const codePoint = text.codePointAt(i);
+        total += 1;
+        i += codePoint > 0xFFFF ? 2 : 1;
+    }
+
+    return total;
+}
+
+// Token统计函数（与真实提示词预览使用同一估算规则）
+function countTokensForPrompts(prompts) {
+    if (!Array.isArray(prompts)) return 0;
+    let total = 0;
+    for (const p of prompts) {
+        if (typeof p !== 'string') continue;
+        total += typeof window.estimateAiTextTokens === 'function'
+            ? window.estimateAiTextTokens(p)
+            : estimateChatPromptTextTokensLocal(p);
+    }
+    return total;
+}
+
+const CONTACT_REST_WAKE_PROBABILITY = 0.2;
+const CONTACT_REST_OFFLINE_REGEX = /(晚安|先睡了|睡了|去睡|去睡觉|睡觉了|先休息|休息了|我先下了|先下了|下线|离线|回头聊)/;
+
+function ensureContactRestWindowFields(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+    if (typeof contact.restWindowEnabled !== 'boolean') contact.restWindowEnabled = false;
+    if (typeof contact.restWindowStart !== 'string') contact.restWindowStart = '';
+    if (typeof contact.restWindowEnd !== 'string') contact.restWindowEnd = '';
+    if (contact.restWindowAwakenedAt === undefined) contact.restWindowAwakenedAt = null;
+    return contact;
+}
+
+function parseContactRestWindowTime(value) {
+    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+    return hours * 60 + minutes;
+}
+
+function buildDateWithMinutes(baseDate, totalMinutes) {
+    const next = new Date(baseDate.getTime());
+    next.setHours(Math.floor(totalMinutes / 60), totalMinutes % 60, 0, 0);
+    return next;
+}
+
+function getContactRestWindowStatus(contact, now = Date.now()) {
+    ensureContactRestWindowFields(contact);
+    const startMinutes = parseContactRestWindowTime(contact && contact.restWindowStart);
+    const endMinutes = parseContactRestWindowTime(contact && contact.restWindowEnd);
+    const enabled = !!(contact && contact.restWindowEnabled && startMinutes !== null && endMinutes !== null && startMinutes !== endMinutes);
+    const result = {
+        enabled,
+        inRestWindow: false,
+        awakened: false,
+        startTimeMs: null,
+        endTimeMs: null
+    };
+    if (!enabled) return result;
+
+    const nowDate = new Date(now);
+    const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
+    let windowStart = null;
+    let windowEnd = null;
+
+    if (startMinutes < endMinutes) {
+        if (nowMinutes >= startMinutes && nowMinutes < endMinutes) {
+            windowStart = buildDateWithMinutes(nowDate, startMinutes);
+            windowEnd = buildDateWithMinutes(nowDate, endMinutes);
+        }
+    } else {
+        if (nowMinutes >= startMinutes) {
+            windowStart = buildDateWithMinutes(nowDate, startMinutes);
+            windowEnd = buildDateWithMinutes(new Date(nowDate.getTime() + 86400000), endMinutes);
+        } else if (nowMinutes < endMinutes) {
+            windowStart = buildDateWithMinutes(new Date(nowDate.getTime() - 86400000), startMinutes);
+            windowEnd = buildDateWithMinutes(nowDate, endMinutes);
+        }
+    }
+
+    if (!windowStart || !windowEnd) return result;
+
+    result.inRestWindow = true;
+    result.startTimeMs = windowStart.getTime();
+    result.endTimeMs = windowEnd.getTime();
+    const awakenedAt = Number(contact && contact.restWindowAwakenedAt);
+    result.awakened = Number.isFinite(awakenedAt) && awakenedAt >= result.startTimeMs && awakenedAt < result.endTimeMs;
+    return result;
+}
+
+function isContactRestOfflineText(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return false;
+    return CONTACT_REST_OFFLINE_REGEX.test(raw);
+}
+
+function shouldTrackAssistantRestState(text, type = 'text') {
+    if (type !== 'text') return true;
+    const raw = String(text || '').trim();
+    if (!raw) return false;
+    if (/^\[(系统|System)/i.test(raw)) return false;
+    if (/^(系统消息|系统提示)[:：]/.test(raw)) return false;
+    return true;
+}
+
+function updateContactRestStateOnAssistantMessage(contactId, text, type = 'text', now = Date.now()) {
+    if (!window.iphoneSimState || !Array.isArray(window.iphoneSimState.contacts)) return false;
+    const contact = window.iphoneSimState.contacts.find(item => item.id === contactId);
+    if (!contact) return false;
+    ensureContactRestWindowFields(contact);
+    if (!shouldTrackAssistantRestState(text, type)) return false;
+
+    const status = getContactRestWindowStatus(contact, now);
+    if (!status.enabled || !status.inRestWindow) return false;
+
+    if (type === 'text' && isContactRestOfflineText(text)) {
+        if (contact.restWindowAwakenedAt !== null) {
+            contact.restWindowAwakenedAt = null;
+            return true;
+        }
+        return false;
+    }
+
+    if (!status.awakened) {
+        contact.restWindowAwakenedAt = now;
+        return true;
+    }
+    return false;
+}
+
+function getContactRestTriggerDecision(contact, triggerSource = 'system', now = Date.now()) {
+    ensureContactRestWindowFields(contact);
+    const normalizedSource = String(triggerSource || 'system').trim() || 'system';
+    const status = getContactRestWindowStatus(contact, now);
+    const decision = {
+        allow: true,
+        status,
+        shouldToast: false,
+        reason: ''
+    };
+    if (!status.enabled || !status.inRestWindow) return decision;
+    if (status.awakened) return decision;
+
+    if (normalizedSource === 'manual') {
+        const shouldWake = Math.random() <= CONTACT_REST_WAKE_PROBABILITY;
+        decision.allow = shouldWake;
+        decision.shouldToast = !shouldWake;
+        decision.reason = shouldWake ? 'wake-up' : 'resting';
+        return decision;
+    }
+
+    if (normalizedSource === 'active' || normalizedSource === 'offline-active') {
+        decision.allow = false;
+        decision.reason = 'resting-active-blocked';
+        return decision;
+    }
+
+    return decision;
+}
+
+function syncRestWindowSettingsVisibility() {
+    const enabledInput = document.getElementById('chat-setting-rest-window-enabled');
+    const panel = document.getElementById('chat-setting-rest-window-time-panel');
+    if (!enabledInput || !panel) return;
+    panel.style.display = enabledInput.checked ? '' : 'none';
+}
+
+window.ensureContactRestWindowFields = ensureContactRestWindowFields;
+window.getContactRestWindowStatus = getContactRestWindowStatus;
+window.isContactRestOfflineText = isContactRestOfflineText;
+window.updateContactRestStateOnAssistantMessage = updateContactRestStateOnAssistantMessage;
+window.getContactRestTriggerDecision = getContactRestTriggerDecision;
+window.syncRestWindowSettingsVisibility = syncRestWindowSettingsVisibility;
+
 // ====== AI 位置选择器数据 ======
 const LOCATION_DATA = {
     "中国": {
@@ -193,7 +398,12 @@ function getLocationFromSelectors() {
     const province = document.getElementById('chat-setting-location-province')?.value || '';
     const city = document.getElementById('chat-setting-location-city')?.value || '';
     if (!country && !province && !city) return null;
-    return { country, province, city };
+    return {
+        country,
+        province,
+        city,
+        query: [country, province, city].filter(Boolean).join(' ')
+    };
 }
 
 // 语音相关全局变量
@@ -299,7 +509,7 @@ window.showChatNotification = function(contactId, content, options) {
     // 处理不同类型的消息预览
     let previewText = content;
     if (content.startsWith('[图片]') || content.startsWith('<img')) previewText = '[图片]';
-    else if (content.startsWith('[表情包]') || content.startsWith('<img') && content.includes('sticker')) previewText = '[表情包]';
+    else if (content.startsWith('[表情包]') || content.startsWith('<img') && content.includes('sticker')) previewText = '[动画表情]';
     else if (content.startsWith('[语音]')) previewText = '[语音]';
     else if (content.startsWith('[转账]')) previewText = '[转账]';
     else if (content.startsWith('[亲属卡]')) previewText = '[亲属卡]';
@@ -309,6 +519,13 @@ window.showChatNotification = function(contactId, content, options) {
     else if (content.includes('savings_withdraw_request')) previewText = '[共同存钱转出申请]';
     else if (content.includes('savings_progress')) previewText = '[共同存钱进度]';
     else if (content.includes('delivery_share')) previewText = '[外卖]';
+
+    const trimmedContent = String(content || '').trim();
+    if (/^https?:\/\/\S+$/i.test(trimmedContent)) {
+        previewText = /\.(?:gif)(?:[?#].*)?$/i.test(trimmedContent) || /(?:[?&](?:format|type)=gif\b)/i.test(trimmedContent)
+            ? '[动画表情]'
+            : '[图片]';
+    }
     
     // 如果内容包含HTML标签（如图片），尝试提取文本或显示类型
     if (previewText.includes('<') && previewText.includes('>')) {
@@ -508,6 +725,10 @@ function handleSaveContact() {
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + name,
         activeReplyEnabled: false,
         activeReplyInterval: 60,
+        restWindowEnabled: false,
+        restWindowStart: '',
+        restWindowEnd: '',
+        restWindowAwakenedAt: null,
         calendarAwareEnabled: true,
         autoItineraryEnabled: false,
         autoItineraryInterval: 10,
@@ -1173,6 +1394,10 @@ function openChat(contactId) {
     chatScreen.classList.remove('hidden');
     
     renderChatHistory(contactId);
+
+    if (typeof window.prefetchAmapChatContext === 'function') {
+        window.prefetchAmapChatContext(contactId);
+    }
 }
 
 // --- 资料卡功能 ---
@@ -1506,6 +1731,7 @@ function setRelation(relation) {
 function openChatSettings() {
     const contact = getActiveAiProfileContact();
     if (!contact) return;
+    ensureContactRestWindowFields(contact);
 
     document.getElementById('chat-setting-name').value = contact.name || '';
     document.getElementById('chat-setting-avatar-preview').src = contact.avatar || '';
@@ -1538,9 +1764,6 @@ function openChatSettings() {
             novelaiPresetSelect.appendChild(opt);
         });
         if (contact.novelaiPreset) {
-            // 检查预设是否存在，如果不存在则不选中（或者是为了兼容性保留值？）
-            // 这里选择直接设置 value，如果 value 不在 options 中，select 会显示为空或第一项，视浏览器行为而定
-            // 为了更好的体验，我们假设预设名字是唯一的 key
             novelaiPresetSelect.value = contact.novelaiPreset;
         }
     }
@@ -1590,6 +1813,10 @@ function openChatSettings() {
     // 主动发消息设置
     document.getElementById('chat-setting-active-reply').checked = contact.activeReplyEnabled || false;
     document.getElementById('chat-setting-active-interval').value = contact.activeReplyInterval || '';
+    document.getElementById('chat-setting-rest-window-enabled').checked = !!contact.restWindowEnabled;
+    document.getElementById('chat-setting-rest-window-start').value = contact.restWindowStart || '';
+    document.getElementById('chat-setting-rest-window-end').value = contact.restWindowEnd || '';
+    syncRestWindowSettingsVisibility();
 
     // 字体大小设置
     const fontSizeSlider = document.getElementById('chat-font-size-slider');
@@ -1708,7 +1935,15 @@ function openChatSettings() {
         const selectedId = userPersonaSelect.value;
         const p = window.iphoneSimState.userPersonas.find(p => p.id == selectedId);
         userPromptTextarea.value = p ? (p.aiPrompt || '') : '';
+        scheduleChatSettingsTokenPreviewRefresh();
     };
+
+    if (userPromptTextarea && !userPromptTextarea.dataset.tokenPreviewBound) {
+        userPromptTextarea.dataset.tokenPreviewBound = '1';
+        userPromptTextarea.addEventListener('input', () => {
+            scheduleChatSettingsTokenPreviewRefresh();
+        });
+    }
 
     const userBgContainer = document.getElementById('user-setting-bg-container');
     if (userBgContainer) {
@@ -1801,7 +2036,11 @@ function openChatSettings() {
     if (window.renderChatCssPresets) window.renderChatCssPresets();
 
     normalizeChatSettingsListRows();
+    ensureChatSettingsTokenPreviewBindings();
     document.getElementById('chat-settings-screen').classList.remove('hidden');
+    if (contact.id) {
+        refreshTokenCountForContact(contact.id);
+    }
 }
 
 function renderUserPerception(contact) {
@@ -1812,6 +2051,24 @@ function renderUserPerception(contact) {
     const saveBtn = document.getElementById('save-user-perception-btn');
     const cancelBtn = document.getElementById('cancel-user-perception-btn');
     const input = document.getElementById('user-perception-input');
+
+    // 性别设置
+    const genderDisplay = document.getElementById('user-gender-display');
+    if (genderDisplay) {
+        const currentGender = window.iphoneSimState.userProfile?.gender || 'female';
+        const genderText = currentGender === 'male' ? '男' : '女';
+        genderDisplay.textContent = `性别：${genderText}`;
+        
+        genderDisplay.onclick = () => {
+            const newGender = currentGender === 'male' ? 'female' : 'male';
+            if (!window.iphoneSimState.userProfile) {
+                window.iphoneSimState.userProfile = {};
+            }
+            window.iphoneSimState.userProfile.gender = newGender;
+            saveConfig();
+            renderUserPerception(contact);
+        };
+    }
 
     if (!list) return;
 
@@ -2113,6 +2370,8 @@ function handleSaveChatSettings() {
     if (!window.iphoneSimState.currentChatContactId) return;
     const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
     if (!contact) return;
+    ensureContactRestWindowFields(contact);
+    const previousRestWindowSnapshot = `${contact.restWindowEnabled ? '1' : '0'}|${contact.restWindowStart || ''}|${contact.restWindowEnd || ''}`;
 
     const name = document.getElementById('chat-setting-name').value;
     const remark = document.getElementById('chat-setting-remark').value;
@@ -2151,6 +2410,9 @@ function handleSaveChatSettings() {
     const intervalMax = document.getElementById('chat-setting-interval-max').value;
     const activeReplyEnabled = document.getElementById('chat-setting-active-reply').checked;
     const activeReplyInterval = document.getElementById('chat-setting-active-interval').value;
+    const restWindowEnabled = document.getElementById('chat-setting-rest-window-enabled').checked;
+    const restWindowStart = document.getElementById('chat-setting-rest-window-start').value;
+    const restWindowEnd = document.getElementById('chat-setting-rest-window-end').value;
     const novelaiPreset = document.getElementById('chat-setting-novelai-preset') ? document.getElementById('chat-setting-novelai-preset').value : '';
 
     const selectedWbCategories = [];
@@ -2173,7 +2435,24 @@ function handleSaveChatSettings() {
     contact.remark = remark;
     contact.group = window.iphoneSimState.tempSelectedGroup;
     contact.persona = persona;
-    contact.location = getLocationFromSelectors();
+    {
+        const nextLocation = getLocationFromSelectors();
+        const prevQuery = contact.location && contact.location.query ? String(contact.location.query) : '';
+        const nextQuery = nextLocation && nextLocation.query ? String(nextLocation.query) : '';
+        contact.location = nextLocation;
+        if (prevQuery !== nextQuery) {
+            contact.locationResolved = null;
+            if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastResolvedContacts) {
+                delete window.iphoneSimState.amapRuntime.lastResolvedContacts[contact.id];
+            }
+            if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastWeather) {
+                delete window.iphoneSimState.amapRuntime.lastWeather[contact.id];
+            }
+            if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastRoutes) {
+                delete window.iphoneSimState.amapRuntime.lastRoutes[contact.id];
+            }
+        }
+    }
     contact.contextLimit = contextLimit ? parseInt(contextLimit) : 0;
     contact.summaryLimit = summaryLimit ? parseInt(summaryLimit) : 0;
     contact.showThought = showThought;
@@ -2199,6 +2478,13 @@ function handleSaveChatSettings() {
     contact.replyIntervalMax = intervalMax ? parseInt(intervalMax) : null;
     contact.activeReplyEnabled = activeReplyEnabled;
     contact.activeReplyInterval = activeReplyInterval ? parseInt(activeReplyInterval) : 60;
+    contact.restWindowEnabled = !!(restWindowEnabled && parseContactRestWindowTime(restWindowStart) !== null && parseContactRestWindowTime(restWindowEnd) !== null && restWindowStart !== restWindowEnd);
+    contact.restWindowStart = contact.restWindowEnabled ? restWindowStart : '';
+    contact.restWindowEnd = contact.restWindowEnabled ? restWindowEnd : '';
+    const nextRestWindowSnapshot = `${contact.restWindowEnabled ? '1' : '0'}|${contact.restWindowStart || ''}|${contact.restWindowEnd || ''}`;
+    if (!contact.restWindowEnabled || previousRestWindowSnapshot !== nextRestWindowSnapshot) {
+        contact.restWindowAwakenedAt = null;
+    }
     contact.novelaiPreset = novelaiPreset;
     
     if (activeReplyEnabled) {
@@ -2320,5 +2606,234 @@ function handleSaveChatSettings() {
     });
 }
 
-// --- 聊天界面功能 ---
+const CHAT_SETTINGS_TOKEN_REFRESH_DEBOUNCE_MS = 180;
+const CHAT_SETTINGS_MEMORY_TOKEN_WARNING_THRESHOLD = 2500;
+let chatSettingsTokenRefreshTimer = null;
+let chatSettingsTokenRefreshVersion = 0;
 
+function getChatSettingsCheckedIds(selector) {
+    return Array.from(document.querySelectorAll(selector))
+        .filter(input => input && input.checked)
+        .map(input => parseInt(input.dataset.id, 10))
+        .filter(Number.isFinite);
+}
+
+function getChatSettingsNumberValue(id, fallback = 0) {
+    const input = document.getElementById(id);
+    if (!input) return fallback;
+    const rawValue = String(input.value || '').trim();
+    if (!rawValue) return fallback;
+    const parsedValue = parseInt(rawValue, 10);
+    return Number.isFinite(parsedValue) ? parsedValue : fallback;
+}
+
+function buildChatSettingsDraftContact(contact) {
+    if (!contact) return null;
+
+    const nameInput = document.getElementById('chat-setting-name');
+    const personaInput = document.getElementById('chat-setting-persona');
+    const userPersonaInput = document.getElementById('chat-setting-user-persona');
+    const userPromptInput = document.getElementById('chat-setting-user-prompt');
+    const showThoughtInput = document.getElementById('chat-setting-show-thought');
+    const thoughtVisibleInput = document.getElementById('chat-setting-thought-visible');
+    const realTimeVisibleInput = document.getElementById('chat-setting-real-time-visible');
+    const calendarAwareInput = document.getElementById('chat-setting-calendar-aware');
+    const userPersonaId = userPersonaInput ? parseInt(userPersonaInput.value, 10) : NaN;
+
+    return {
+        name: nameInput ? (nameInput.value.trim() || contact.name || '') : (contact.name || ''),
+        persona: personaInput ? personaInput.value : (contact.persona || ''),
+        contextLimit: getChatSettingsNumberValue('chat-setting-context-limit', 0),
+        showThought: showThoughtInput ? !!showThoughtInput.checked : !!contact.showThought,
+        thoughtVisible: thoughtVisibleInput ? !!thoughtVisibleInput.checked : !!contact.thoughtVisible,
+        realTimeVisible: realTimeVisibleInput ? !!realTimeVisibleInput.checked : !!contact.realTimeVisible,
+        calendarAwareEnabled: calendarAwareInput ? !!calendarAwareInput.checked : contact.calendarAwareEnabled !== false,
+        userPersonaId: Number.isFinite(userPersonaId) ? userPersonaId : null,
+        userPersonaPromptOverride: userPromptInput ? userPromptInput.value : (contact.userPersonaPromptOverride || ''),
+        linkedWbCategories: getChatSettingsCheckedIds('.wb-category-checkbox'),
+        linkedStickerCategories: getChatSettingsCheckedIds('.sticker-category-checkbox')
+    };
+}
+
+function renderChatTokenPreviewState(state = {}) {
+    const previewEl = document.getElementById('chat-setting-token-preview');
+    const countEl = document.getElementById('chat-setting-token-count');
+    const systemBaseEl = document.getElementById('chat-setting-token-system-base');
+    const memoryEl = document.getElementById('chat-setting-token-memory');
+    const worldbookEl = document.getElementById('chat-setting-token-worldbook');
+    const contextEl = document.getElementById('chat-setting-token-context');
+    const extraEl = document.getElementById('chat-setting-token-extra');
+    const visualEl = document.getElementById('chat-setting-token-visual');
+    const metaEl = document.getElementById('chat-setting-token-meta');
+    if (!previewEl || !countEl || !systemBaseEl || !memoryEl || !worldbookEl || !contextEl || !extraEl || !visualEl || !metaEl) return;
+
+    previewEl.classList.toggle('is-loading', !!state.loading);
+    previewEl.classList.toggle('has-error', !!state.error);
+
+    if (state.loading) {
+        countEl.textContent = state.message || '计算中...';
+        systemBaseEl.textContent = '--';
+        memoryEl.textContent = '--';
+        worldbookEl.textContent = '--';
+        contextEl.textContent = '--';
+        extraEl.textContent = '--';
+        visualEl.textContent = '视觉输入：检测中...';
+        metaEl.textContent = '按当前未保存设置实时估算';
+        return;
+    }
+
+    if (state.error) {
+        countEl.textContent = state.message || '本轮输入文本估算失败';
+        systemBaseEl.textContent = '--';
+        memoryEl.textContent = '--';
+        worldbookEl.textContent = '--';
+        contextEl.textContent = '--';
+        extraEl.textContent = '--';
+        visualEl.textContent = '视觉输入：无法估算';
+        metaEl.textContent = state.detail || '按当前未保存设置实时估算';
+        return;
+    }
+
+    const preview = state.preview || {};
+    const sections = preview.sections || {};
+    const systemBaseTokens = Number(sections.systemBase && sections.systemBase.tokens ? sections.systemBase.tokens : 0);
+    const memoryTokens = Number(sections.memory && sections.memory.tokens ? sections.memory.tokens : 0);
+    const worldbookTokens = Number(sections.worldbook && sections.worldbook.tokens ? sections.worldbook.tokens : 0);
+    const contextTokens = Number(sections.context && sections.context.tokens ? sections.context.tokens : 0);
+    const extraTokens = Number(sections.extra && sections.extra.tokens ? sections.extra.tokens : 0);
+    const totalTextTokens = Number(preview.totalTextTokens || 0);
+    const visualInputs = preview.visualInputs || {};
+    const visualParts = [];
+    const metaParts = [`共 ${(preview.messageCount || 0).toLocaleString()} 条请求消息`, '按当前未保存设置实时估算'];
+
+    if (visualInputs.imageCount > 0) {
+        visualParts.push(`${visualInputs.imageCount} 张图片`);
+    }
+    if (visualInputs.screenShareCount > 0) {
+        visualParts.push(`${visualInputs.screenShareCount} 次共享屏幕`);
+    }
+
+    countEl.textContent = `本轮输入文本约 ${totalTextTokens.toLocaleString()} tokens`;
+    systemBaseEl.textContent = systemBaseTokens.toLocaleString();
+    memoryEl.textContent = memoryTokens.toLocaleString();
+    worldbookEl.textContent = worldbookTokens.toLocaleString();
+    contextEl.textContent = contextTokens.toLocaleString();
+    extraEl.textContent = extraTokens.toLocaleString();
+    if (memoryTokens >= CHAT_SETTINGS_MEMORY_TOKEN_WARNING_THRESHOLD) {
+        metaParts.push('记忆注入较长，可能显著增加本轮提示词长度');
+    }
+    visualEl.textContent = visualParts.length > 0
+        ? `视觉输入：${visualParts.join(' / ')}（未计入上方总数）`
+        : '视觉输入：未检测到（未计入上方总数）';
+    metaEl.textContent = metaParts.join('，');
+}
+
+function scheduleChatSettingsTokenPreviewRefresh() {
+    const contactId = window.iphoneSimState.currentChatContactId;
+    if (!contactId) return;
+
+    clearTimeout(chatSettingsTokenRefreshTimer);
+    chatSettingsTokenRefreshTimer = setTimeout(() => {
+        refreshTokenCountForContact(contactId);
+    }, CHAT_SETTINGS_TOKEN_REFRESH_DEBOUNCE_MS);
+}
+
+function ensureChatSettingsTokenPreviewBindings() {
+    if (window.__chatSettingsTokenPreviewBindingsBound) return;
+    window.__chatSettingsTokenPreviewBindingsBound = true;
+
+    const bindRefresh = (id, events) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        events.forEach(eventName => {
+            element.addEventListener(eventName, () => {
+                scheduleChatSettingsTokenPreviewRefresh();
+            });
+        });
+    };
+
+    bindRefresh('chat-setting-name', ['input']);
+    bindRefresh('chat-setting-persona', ['input']);
+    bindRefresh('chat-setting-context-limit', ['input', 'change']);
+    bindRefresh('chat-setting-show-thought', ['change']);
+    bindRefresh('chat-setting-thought-visible', ['change']);
+    bindRefresh('chat-setting-real-time-visible', ['change']);
+    bindRefresh('chat-setting-calendar-aware', ['change']);
+    bindRefresh('chat-setting-user-persona', ['change']);
+
+    const wbList = document.getElementById('chat-setting-wb-list');
+    if (wbList) {
+        wbList.addEventListener('change', event => {
+            if (event.target && event.target.classList.contains('wb-category-checkbox')) {
+                scheduleChatSettingsTokenPreviewRefresh();
+            }
+        });
+    }
+
+    const stickerList = document.getElementById('chat-setting-sticker-list');
+    if (stickerList) {
+        stickerList.addEventListener('change', event => {
+            if (event.target && event.target.classList.contains('sticker-category-checkbox')) {
+                scheduleChatSettingsTokenPreviewRefresh();
+            }
+        });
+    }
+}
+
+// 计算提示词Token并更新UI（可供设置页调用）
+async function refreshTokenCountForContact(contactId) {
+    const displayEl = document.getElementById('chat-setting-token-count');
+    if (!displayEl) return;
+
+    renderChatTokenPreviewState({ loading: true, message: '计算中...' });
+
+    const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+    if (!contact) {
+        renderChatTokenPreviewState({
+            error: true,
+            message: '暂无可用数据',
+            detail: '当前联系人不存在或已被删除'
+        });
+        return;
+    }
+
+    const requestVersion = ++chatSettingsTokenRefreshVersion;
+
+    try {
+        if (typeof window.buildAiPromptTokenPreview !== 'function') {
+            throw new Error('token preview helper unavailable');
+        }
+
+        const draftContact = buildChatSettingsDraftContact(contact);
+        const preview = await window.buildAiPromptTokenPreview(contactId, {
+            contactOverride: draftContact
+        });
+
+        if (requestVersion !== chatSettingsTokenRefreshVersion) {
+            return;
+        }
+
+        if (!preview || preview.status === 'error') {
+            renderChatTokenPreviewState({
+                error: true,
+                message: '本轮输入文本估算失败',
+                detail: preview && preview.error ? preview.error : '请稍后重试'
+            });
+            return;
+        }
+
+        renderChatTokenPreviewState({ preview });
+    } catch (err) {
+        if (requestVersion !== chatSettingsTokenRefreshVersion) {
+            return;
+        }
+        console.error('refreshTokenCountForContact error', err);
+        renderChatTokenPreviewState({
+            error: true,
+            message: '本轮输入文本估算失败',
+            detail: err && err.message ? err.message : '请稍后重试'
+        });
+    }
+}
+
+// --- 聊天界面功能 ---

@@ -1,0 +1,288 @@
+/* ================================================================
+   chat_bubble_style.css
+   聊天气泡自定义样式 — 对照图片还原版
+   
+   ★ 真实 DOM 结构（来自 03-ai-engine.js）：
+   
+   <div class="chat-message [user|other] [has-tail]" data-time="...">
+     <img class="chat-avatar" src="...">
+     <div class="msg-wrapper">
+       <div class="message-content">文本内容</div>
+     </div>
+     <div class="msg-time">14:30</div>
+   </div>
+   
+   ★ has-tail 逻辑（JS 自动管理）：
+     - 同一发送方连续发消息时：
+       前面的消息  → has-tail 被移除（非最后一条）
+       当前最新消息 → 保留 has-tail（最后一条）
+     - 切换发送方时：上一方最后一条保留 has-tail
+   
+   ★ 因此圆角只有两档：
+     ① has-tail    = 该组最后一条  → 尾部那侧大圆角（完整气泡）
+     ② 无 has-tail = 非最后一条    → 尾部那侧小圆角（紧凑连续）
+   
+   ★ 对钩图标（已读双勾）：
+     见第五节，在 ::after 伪元素的 background-image 处填入 URL
+   ================================================================ */
+
+
+/* ================================================================
+   一、消息行布局
+   ================================================================ */
+
+/* 接收方（左对齐）：头像在左，气泡和时间在右 */
+.chat-message.other {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: flex-start;
+    margin: 1px 8px;   /* 同一发送方连续消息之间紧凑 */
+}
+
+/* 发送方（右对齐）：头像在右，气泡和时间在左 */
+.chat-message.user {
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: flex-end;
+    justify-content: flex-start;
+    margin: 1px 8px;
+}
+
+/* 切换发送方时额外增加一点间距 */
+.chat-message.other + .chat-message.user,
+.chat-message.user  + .chat-message.other {
+    margin-top: 10px;
+}
+
+/* 时间戳分隔行（.chat-time-stamp） */
+.chat-time-stamp {
+    text-align: center;
+    color: #a0a0a0;
+    font-size: 11px;
+    margin: 10px 0 6px;
+}
+
+/* 消息内的时间（.msg-time）—— 独立在气泡外，由 JS 渲染 */
+/* 接收方：时间显示在气泡右侧外部 */
+.chat-message.other .msg-time {
+    font-size: 10px;
+    color: #aaaaaa;
+    margin-left: 4px;
+    align-self: flex-end;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* 发送方：时间显示在气泡左侧外部（row-reverse 下即右边那侧） */
+.chat-message.user .msg-time {
+    font-size: 10px;
+    color: #8a7d55;
+    margin-right: 4px;
+    align-self: flex-end;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* 头像 */
+.chat-message .chat-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    align-self: flex-end;   /* 贴底对齐，头像跟最后一条消息平齐 */
+    margin: 0 6px;
+}
+
+/* 非最后一条消息：头像隐藏（保持占位，不显示） */
+/* （JS 会移除 has-tail，但头像每条都渲染了，所以用 CSS 隐藏） */
+.chat-message:not(.has-tail) .chat-avatar {
+    visibility: hidden;   /* 保持占位空间，避免气泡左移 */
+}
+
+/* msg-wrapper 包裹气泡 */
+.chat-message .msg-wrapper {
+    display: flex;
+    flex-direction: column;
+    max-width: 70%;
+}
+
+
+/* ================================================================
+   二、气泡基础样式
+   ================================================================ */
+
+/* ── 接收方气泡（白色）── */
+.chat-message.other .message-content {
+    background-color: #ffffff !important;
+    color: #1a1a1a !important;
+    font-size: 15px !important;
+    line-height: 1.45 !important;
+    padding: 9px 12px !important;
+    word-break: break-word !important;
+    position: relative !important;
+    display: inline-block !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10) !important;
+
+    /* 默认（单独一条 / 最后一条 has-tail）：四角全大 */
+    border-radius: 18px 18px 18px 18px !important;
+    /*              TL   TR   BR   BL  */
+}
+
+/* ── 发送方气泡（淡黄色，与图片一致）── */
+.chat-message.user .message-content {
+    background-color: #f5e6a3 !important;   /* 图片中的奶黄色 */
+    color: #1a1a1a !important;
+    font-size: 15px !important;
+    line-height: 1.45 !important;
+
+    /*
+     * ★ 底部 padding 说明：
+     *   气泡内不含时间戳（时间在 .msg-time 外部显示）
+     *   底部留 9px 标准间距即可
+     *   如果你的项目里时间戳在气泡内，请把 padding-bottom 改为 26px
+     */
+    padding: 9px 12px !important;
+    padding-bottom: 9px !important;
+
+    word-break: break-word !important;
+    position: relative !important;
+    display: inline-block !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10) !important;
+
+    /* 默认（单独一条 / 最后一条 has-tail）：四角全大 */
+    border-radius: 18px 18px 18px 18px !important;
+    /*              TL   TR   BR   BL  */
+}
+
+
+/* ================================================================
+   三、圆角逻辑 — 基于 has-tail
+
+   图片观察结论：
+   ┌──────────────────────────────────────────────────────┐
+   │  接收方（左侧，白色气泡）                              │
+   │    最后一条（has-tail）    → 四角全大  18 18 18 18    │
+   │    非最后一条（无 has-tail）→ 左下角小  18 18 18  4   │
+   │      说明：左下角是"连续方向"角，缩小表示还有后续      │
+   ├──────────────────────────────────────────────────────┤
+   │  发送方（右侧，黄色气泡）                              │
+   │    最后一条（has-tail）    → 四角全大  18 18 18 18    │
+   │    非最后一条（无 has-tail）→ 右下角小  18  4  4 18   │
+   │      说明：右下角是"连续方向"角，缩小表示还有后续      │
+   └──────────────────────────────────────────────────────┘
+   
+   注意：CSS 中 border-radius 顺序为：
+         top-left  top-right  bottom-right  bottom-left
+   ================================================================ */
+
+/* 接收方：非最后一条 → 左下角 4px（底部靠近连续消息的那侧变小） */
+.chat-message.other:not(.has-tail) .message-content {
+    border-radius: 18px 18px 18px 4px !important;
+    /*              TL   TR   BR   BL  */
+}
+
+/* 发送方：非最后一条 → 右下角 4px */
+.chat-message.user:not(.has-tail) .message-content {
+    border-radius: 18px 4px 4px 18px !important;
+    /*              TL   TR   BR   BL  */
+}
+
+/* 最后一条保持默认四角全大（已在基础样式中定义，这里显式写出方便查看）*/
+.chat-message.other.has-tail .message-content {
+    border-radius: 18px 18px 18px 18px !important;
+}
+.chat-message.user.has-tail .message-content {
+    border-radius: 18px 18px 18px 18px !important;
+}
+
+
+/* ================================================================
+   四、已读双勾图标（checkmark / tick）
+
+   ★ 图标放置位置：发送方气泡右侧、.msg-time 旁边
+   ★ 实现方式：在 .msg-time 上用 ::before 伪元素在时间左侧显示
+
+   ============================================================
+
+   ❗❗❗ 填写 URL 位置在下��� background-image 属性处 ❗❗❗
+
+   图片参考：图片中为橙/棕色双勾（✓✓），带透明背景的 PNG/SVG
+   ================================================================ */
+
+/* 在发送方时间戳前面插入对钩图标 */
+.chat-message.user .msg-time::before {
+    content: "" !important;
+    display: inline-block !important;
+    width: 16px !important;    /* 对钩图标宽度，可按需调整 */
+    height: 11px !important;   /* 对钩图标高度，可按需调整 */
+    margin-right: 3px !important;
+    vertical-align: middle !important;
+    background-size: contain !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+
+    /* ╔══════════════════════════════════════════════════════╗
+       ║  ❗ 在下面这一行填入你的「双勾对钩」图片 URL ❗       ║
+       ║                                                      ║
+       ║  示例：                                               ║
+       ║    background-image: url('https://你的图片链接.png'); ║
+       ║    background-image: url('./icons/double-check.png'); ║
+       ║    background-image: url('./icons/tick_read.svg');    ║
+       ║                                                      ║
+       ║  要求：透明背景，双勾样式（✓✓），颜色建议棕/橙色     ║
+       ╚══════════════════════════════════════════════════════╝ */
+    background-image: url('/* 在此填入对钩图标的 URL */') !important;
+}
+
+
+/* ================================================================
+   五、系统消息（.chat-message.system）样式
+   ================================================================ */
+
+.chat-message.system {
+    display: flex;
+    justify-content: center;
+    margin: 8px 0;
+}
+
+.chat-message.system .system-tip {
+    background-color: rgba(0, 0, 0, 0.06);
+    color: #888888;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 10px;
+}
+
+
+/* ================================================================
+   六、可选：整体聊天背景（对应图片中的粉色背景）
+
+   如需启用，去掉下面的注释即可。
+   把选择器改为你聊天区域容器的实际 id 或 class。
+   ================================================================ */
+
+/*
+#chat-messages {
+    background-color: #f9e8eb;   图片中的粉色背景
+    padding: 10px 0;
+}
+*/
+
+
+/* ================================================================
+   七、引用回复气泡（.quote-container）
+   ================================================================ */
+
+.quote-container {
+    font-size: 12px !important;
+    color: #777777 !important;
+    border-left: 3px solid #ccaa44 !important;
+    padding: 3px 6px !important;
+    margin-bottom: 4px !important;
+    background: rgba(0, 0, 0, 0.04) !important;
+    border-radius: 4px !important;
+}

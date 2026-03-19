@@ -27,7 +27,9 @@
     <link rel="manifest" href="manifest.json">
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&display=swap">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/whisper_challenge_palette.css">
     <link rel="stylesheet" href="css/chat_tail_style.css">
     <link rel="stylesheet" href="css/image_refresh.css">
     <link rel="stylesheet" href="css/forum_style.css">
@@ -46,6 +48,7 @@
     <link rel="stylesheet" href="css/chat_ui_v1_overrides.css">
     <link rel="stylesheet" href="css/screen_share.css">
     <link rel="stylesheet" href="css/calendar_app.css">
+    <link rel="stylesheet" href="css/garden_app.css?v=20">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -587,6 +590,44 @@
 
                 <div class="option-card">
                     <div class="option-header">
+                        <span class="option-label">离线消息</span>
+                    </div>
+                    <div class="option-header">
+                        <span class="option-label" style="font-size: 14px; font-weight: 400;">启用离线消息同步</span>
+                        <label>
+                            <input type="checkbox" id="offline-push-enabled-toggle" class="toggle-input">
+                            <div class="toggle-switch"></div>
+                        </label>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="offline-push-api-base-url" placeholder="后端地址，例如 Cloudflare Worker 或其他后端网址">
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="offline-push-user-id" placeholder="用户 ID，例如 user-001">
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="offline-push-vapid-public-key" placeholder="VAPID 公钥（当前可先留空）">
+                    </div>
+                    <div class="option-header">
+                        <span class="option-label" style="font-size: 14px; font-weight: 400;">停用本地轮询避免重复</span>
+                        <label>
+                            <input type="checkbox" id="offline-push-disable-local-toggle" class="toggle-input">
+                            <div class="toggle-switch"></div>
+                        </label>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
+                        <button class="btn-secondary" id="offline-push-save-btn">保存配置</button>
+                        <button class="btn-secondary" id="offline-push-enable-btn">启用并授权</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
+                        <button class="btn-secondary" id="offline-push-sync-btn">立即同步</button>
+                        <button class="btn-secondary" id="offline-push-health-btn">测试后端</button>
+                    </div>
+                    <div id="offline-push-status" style="margin-top:12px; font-size:12px; color:#666; line-height:1.5; word-break:break-word;">未配置离线消息</div>
+                </div>
+
+                <div class="option-card">
+                    <div class="option-header">
                         <span class="option-label">数据管理</span>
                     </div>
                     <div class="option-header">
@@ -813,6 +854,40 @@
                             </div>
                             <div class="list-item">
                                 <div class="list-content column">
+                                    <label>本轮提示词 Token 概览</label>
+                                    <div id="chat-setting-token-preview" class="chat-token-preview is-loading">
+                                        <div class="chat-token-preview-main">
+                                            <strong id="chat-setting-token-count" class="chat-token-preview-count">计算中...</strong>
+                                        </div>
+                                        <div class="chat-token-preview-breakdown">
+                                            <div class="chat-token-preview-item">
+                                                <span>系统基础</span>
+                                                <strong id="chat-setting-token-system-base">--</strong>
+                                            </div>
+                                            <div class="chat-token-preview-item">
+                                                <span>记忆</span>
+                                                <strong id="chat-setting-token-memory">--</strong>
+                                            </div>
+                                            <div class="chat-token-preview-item">
+                                                <span>世界书</span>
+                                                <strong id="chat-setting-token-worldbook">--</strong>
+                                            </div>
+                                            <div class="chat-token-preview-item">
+                                                <span>聊天上下文</span>
+                                                <strong id="chat-setting-token-context">--</strong>
+                                            </div>
+                                            <div class="chat-token-preview-item">
+                                                <span>场景附加</span>
+                                                <strong id="chat-setting-token-extra">--</strong>
+                                            </div>
+                                        </div>
+                                        <div id="chat-setting-token-visual" class="chat-token-preview-visual">视觉输入：检测中...</div>
+                                        <div id="chat-setting-token-meta" class="chat-token-preview-meta">按当前未保存设置实时估算</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="list-item">
+                                <div class="list-content column">
                                     <label>自动总结触发条数 (0为关闭)</label>
                                     <input type="number" id="chat-setting-summary-limit" placeholder="默认关闭" min="0">
                                 </div>
@@ -830,6 +905,25 @@
                                 <div class="list-content column">
                                     <label>主动发消息间隔 (秒)</label>
                                     <input type="number" id="chat-setting-active-interval" placeholder="例如: 60" min="5">
+                                </div>
+                            </div>
+                            <div class="list-item">
+                                <div class="list-content">
+                                    <label>休息时间段</label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="chat-setting-rest-window-enabled">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="list-item" id="chat-setting-rest-window-time-panel" style="display: none;">
+                                <div class="list-content column">
+                                    <label>休息时间（跨天也生效）</label>
+                                    <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
+                                        <input type="time" id="chat-setting-rest-window-start" style="flex: 1; min-width: 0;">
+                                        <span style="color: #8e8e93; flex-shrink: 0;">到</span>
+                                        <input type="time" id="chat-setting-rest-window-end" style="flex: 1; min-width: 0;">
+                                    </div>
                                 </div>
                             </div>
                             <div class="list-item">
@@ -989,6 +1083,14 @@
 
                             <!-- 分隔线 -->
                             <div style="width: 90%; height: 1px; background-color: #eee; margin: 20px 0;"></div>
+
+                            <!-- 性别设置 -->
+                            <div style="width: 100%; padding: 0 20px; margin-bottom: 20px;">
+                                <div style="font-size: 13px; color: #6d6d72; margin-bottom: 10px; text-align: left; font-weight: 500;">性别</div>
+                                <div id="user-gender-display" style="width: 100%; cursor: pointer; padding: 10px; background-color: #f9f9f9; border-radius: 8px; text-align: center; font-size: 16px; color: #333;">
+                                    性别：女
+                                </div>
+                            </div>
 
                             <!-- TA眼中的我 -->
                             <div style="width: 100%; padding: 0 20px;">
@@ -1537,9 +1639,718 @@
                     </div>
                 </div>
             </div>
+
         </div>
 
-        <!-- AI 资料卡全屏页 -->
+        <div id="garden-app" class="app-screen hidden" style="z-index: 185; background-color: #fefce8;">
+            <div class="app-header garden-app-header">
+                <button id="close-garden-app" class="back-btn"><i class="fas fa-chevron-left"></i> 返回</button>
+                <div class="garden-app-title-wrap">
+                    <div class="garden-app-title-avatar">🐾</div>
+                    <div class="garden-app-title-text">萌宠相伴的家</div>
+                </div>
+                <div class="garden-app-header-actions">
+                    <button id="garden-toggle-panel-btn" class="garden-app-header-btn" type="button" aria-label="打开家园编辑面板">
+                        <i class="fas fa-paw"></i>
+                    </button>
+                    <button id="garden-save-btn" class="garden-app-header-btn garden-app-save-btn" type="button">
+                        <i class="fas fa-check"></i>
+                        <span>保存</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="garden-pet-adoption-overlay" class="hidden" aria-hidden="true">
+                <button id="garden-pet-adoption-close" type="button" aria-label="关闭领养页面">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div id="garden-pet-adoption-root"></div>
+            </div>
+
+            <div id="garden-pet-care-overlay" class="hidden" aria-hidden="true">
+                <button id="garden-pet-care-close" type="button" aria-label="关闭养宠页面">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div id="garden-pet-care-root"></div>
+            </div>
+
+            <div id="garden-rogue-strip" class="garden-rogue-strip">
+                <button class="garden-rogue-strip-main" data-rogue-open-panel type="button">
+                    <div class="garden-rogue-strip-head">
+                        <span class="garden-rogue-strip-title">丰收远征</span>
+                        <span id="garden-rogue-stage" class="garden-rogue-strip-pill">未开始</span>
+                        <span id="garden-rogue-cards" class="garden-rogue-strip-pill">遗物 0 / 士气 3</span>
+                    </div>
+                    <div id="garden-rogue-goal" class="garden-rogue-strip-goal">选择起始流派，进入 3 幕分支地图。</div>
+                    <div id="garden-rogue-order" class="garden-rogue-strip-order">局内独立经济 · 精英与 Boss 会给高稀有奖励</div>
+                </button>
+                <button id="garden-home-tutorial-reopen" class="garden-home-tutorial-reopen" data-home-tutorial-open type="button">教程</button>
+                <div id="garden-home-tutorial-card" class="garden-home-tutorial-card" aria-label="家园新手教程" hidden>
+                    <button class="garden-home-tutorial-close" data-home-tutorial-close type="button" aria-label="关闭教程">
+                        <i class="ri-close-line"></i>
+                    </button>
+                    <div class="garden-home-tutorial-title">远征教程</div>
+                    <div class="garden-home-tutorial-item">1. 先点“开始远征”，选择一个起始流派后开局。</div>
+                    <div class="garden-home-tutorial-item">2. 每一幕有多层分支路线，每层只选 1 个节点推进。</div>
+                    <div class="garden-home-tutorial-item">3. 普通节点每清 2 个，会触发一次三选一遗物奖励。</div>
+                    <div class="garden-home-tutorial-item">4. 农场和牧场负责囤原料，厨房负责加工，市场和 Boss 负责兑现 build。</div>
+                    <div class="garden-home-tutorial-item">5. 当前任务看顶部第二行；第三行会告诉你这样做的价值和思路。</div>
+                    <div class="garden-home-tutorial-tip">提示：如果当前没有节点可进，再点一次“开心小农场/继续远征”会直接弹出下一层选路。</div>
+                </div>
+            </div>
+
+            <div class="garden-app-body-shell">
+                <div class="garden-app-view-stack">
+                    <section class="garden-app-view active" data-garden-view="home">
+                        <div id="garden-editor-host" class="garden-editor-host"></div>
+                    </section>
+
+                    <section class="garden-app-view garden-activities-view" data-garden-view="activities">
+                        <div class="garden-activities-screen">
+                            <div class="garden-activities-bg-blob garden-activities-blob-1"></div>
+                            <div class="garden-activities-bg-blob garden-activities-blob-2"></div>
+                            <header class="garden-activities-header garden-activities-glass">
+                                <div class="garden-activities-header-left">
+                                    <button class="garden-activities-back-btn" data-garden-action="back-home" type="button" aria-label="back home">
+                                        <i class="ph-bold ph-caret-left"></i>
+                                    </button>
+                                    <span>&#27963;&#21160;&#20013;&#24515;</span>
+                                </div>
+                                <button class="garden-activities-search-btn" data-garden-action="search-activities" type="button">
+                                    <i class="ph-bold ph-magnifying-glass"></i>
+                                    <span>&#25628;&#32034;</span>
+                                </button>
+                            </header>
+                            <div class="garden-activities-tabs-container">
+                                <div class="garden-activities-tabs" aria-label="activities categories">
+                                    <button class="garden-activities-tab is-active" type="button" data-activities-tab="all"><i class="ph-fill ph-star"></i><span>&#20840;&#37096;&#25512;&#33616;</span></button>
+                                    <button class="garden-activities-tab" type="button" data-activities-tab="casual"><i class="ph-fill ph-puzzle-piece"></i><span>&#20241;&#38386;&#30410;&#26234;</span></button>
+                                    <button class="garden-activities-tab" type="button" data-activities-tab="multiplayer"><i class="ph-fill ph-users-three"></i><span>&#22810;&#20154;&#20114;&#21160;</span></button>
+                                    <button class="garden-activities-tab" type="button" data-activities-tab="adventure"><i class="ph-fill ph-rocket"></i><span>&#21160;&#20316;&#20882;&#38505;</span></button>
+                                </div>
+                            </div>
+                            <div class="garden-activities-banner">
+                                <i class="ph-fill ph-sparkle garden-activities-banner-deco-1"></i>
+                                <i class="ph-fill ph-game-controller garden-activities-banner-deco-2"></i>
+                                <div class="garden-activities-banner-content">
+                                    <div class="garden-activities-banner-tag">&#21608;&#26411;&#38480;&#26102;</div>
+                                    <div class="garden-activities-banner-title">&#22799;&#26085;&#27700;&#20223;&#22823;&#20316;&#25112; &#128166;</div>
+                                </div>
+                            </div>
+                            <div class="garden-activities-game-list">
+                                <div class="garden-activities-card is-highlight" data-activities-card="draw">
+                                    <div class="garden-activities-icon is-draw"><i class="ph-fill ph-palette"></i></div>
+                                    <div class="garden-activities-info">
+                                        <div class="garden-activities-title">&#20320;&#30011;&#25105;&#29468;</div>
+                                        <div class="garden-activities-desc">&#21457;&#25381;&#24819;&#35937;&#21147;&#65292;&#30475;&#35841;&#25165;&#26159;&#28789;&#39746;&#30011;&#25163;&#65281;</div>
+                                        <div class="garden-activities-stats"><i class="ph-bold ph-fire"></i><span>1.2w &#33804;&#21451;&#22312;&#29609;</span></div>
+                                    </div>
+                                    <button class="garden-activities-play-btn" type="button" aria-label="play draw"><i class="ph-bold ph-play"></i></button>
+                                </div>
+                                <div class="garden-activities-card" data-activities-card="whisper">
+                                    <div class="garden-activities-icon is-whisper"><i class="ph-fill ph-chat-centered-text"></i></div>
+                                    <div class="garden-activities-info">
+                                        <div class="garden-activities-title">&#35825;&#23548;&#35745;&#21010;</div>
+                                        <div class="garden-activities-desc">&#25361;&#36873;&#30446;&#26631;&#32852;&#31995;&#20154;&#65292;&#22312;&#32842;&#22825;&#20013;&#24341;&#23548; TA &#20027;&#21160;&#35828;&#20986;&#25351;&#23450;&#30446;&#26631;&#35789;&#12290;</div>
+                                        <div class="garden-activities-stats"><i class="ph-bold ph-fire"></i><span>&#31192;&#23494;&#25361;&#25112; &#183; &#28857;&#20987;&#24320;&#22987;</span></div>
+                                    </div>
+                                    <button class="garden-activities-play-btn" type="button" aria-label="play whisper challenge"><i class="ph-bold ph-play"></i></button>
+                                </div>
+                                <div class="garden-activities-card" data-activities-card="space">
+                                    <div class="garden-activities-icon is-space"><i class="ph-fill ph-rocket-launch"></i></div>
+                                    <div class="garden-activities-info">
+                                        <div class="garden-activities-title">&#26143;&#38469;&#25506;&#38505;&#23478;</div>
+                                        <div class="garden-activities-desc">&#39550;&#39542;&#39134;&#33337;&#22312;&#23431;&#23449;&#20013;&#25910;&#38598;&#26143;&#26143;&#30862;&#29255;&#12290;</div>
+                                        <div class="garden-activities-stats"><i class="ph-bold ph-users"></i><span>5200 &#33804;&#21451;&#22312;&#29609;</span></div>
+                                    </div>
+                                    <button class="garden-activities-play-btn" type="button" aria-label="play space"><i class="ph-bold ph-play"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="garden-app-view garden-app-placeholder-view" data-garden-view="inventory">
+                        <div class="garden-placeholder-card">
+                            <div class="garden-placeholder-icon"><i class="fas fa-box-open"></i></div>
+                            <h3>仓库</h3>
+                            <p>家园仓库正在整理中，后续会把已拥有的家具和主题都放到这里。</p>
+                        </div>
+                    </section>
+
+                    <section class="garden-app-view garden-storage-view" data-garden-view="gallery">
+                        <div class="garden-storage-screen">
+                            <div class="garden-storage-top-bar">
+                                <button class="garden-storage-exit-btn" data-storage-action="exit" type="button" aria-label="退出仓库并返回主屏幕">
+                                    <i class="ri-arrow-left-line"></i>
+                                </button>
+                                <div class="garden-storage-title">📦 仓库</div>
+                            </div>
+
+                            <div class="garden-storage-area">
+                                <div id="garden-storage-order-card" class="garden-storage-order-card"></div>
+                                <div class="garden-storage-tabs" role="tablist" aria-label="仓库分类">
+                                    <button class="garden-storage-tab active" data-storage-tab="crops" type="button">作物</button>
+                                    <button class="garden-storage-tab" data-storage-tab="products" type="button">畜产</button>
+                                    <button class="garden-storage-tab" data-storage-tab="cooked" type="button">熟食</button>
+                                </div>
+
+                                <div class="garden-storage-grid" id="garden-storage-grid">
+                                    <!-- storage items rendered by JS -->
+                                </div>
+
+                                <div id="garden-storage-sell-sheet" class="garden-storage-sell-sheet" aria-hidden="true">
+                                    <button id="garden-storage-sell-backdrop" class="garden-storage-sell-backdrop" data-storage-sell-action="cancel" type="button" aria-label="关闭售卖弹层"></button>
+                                    <div class="garden-storage-sell-panel">
+                                        <div class="garden-storage-sell-handle"></div>
+                                        <div class="garden-storage-sell-head">
+                                            <div class="garden-storage-sell-item-meta">
+                                                <div id="garden-storage-sell-icon" class="garden-storage-sell-icon">🌾</div>
+                                                <div class="garden-storage-sell-item-copy">
+                                                    <div id="garden-storage-sell-name" class="garden-storage-sell-name">小麦</div>
+                                                    <div id="garden-storage-sell-stock" class="garden-storage-sell-stock">当前持有 0</div>
+                                                </div>
+                                            </div>
+                                            <div id="garden-storage-sell-price" class="garden-storage-sell-price">单价 20 金币</div>
+                                        </div>
+                                        <div class="garden-storage-sell-qty-row">
+                                            <span class="garden-storage-sell-label">售卖数量</span>
+                                            <div class="garden-storage-sell-stepper">
+                                                <button data-storage-sell-step="-1" type="button">-</button>
+                                                <span id="garden-storage-sell-qty">1</span>
+                                                <button data-storage-sell-step="1" type="button">+</button>
+                                                <button data-storage-sell-step="all" type="button">全部</button>
+                                            </div>
+                                        </div>
+                                        <div class="garden-storage-sell-total-row">
+                                            <span>合计金币</span>
+                                            <strong id="garden-storage-sell-total">20 金币</strong>
+                                        </div>
+                                        <div class="garden-storage-sell-actions">
+                                            <button class="is-cancel" data-storage-sell-action="cancel" type="button">取消</button>
+                                            <button id="garden-storage-sell-confirm" class="is-confirm" data-storage-sell-action="confirm" type="button">确认售卖</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="garden-app-view garden-app-placeholder-view" data-garden-view="profile">
+                        <div class="garden-placeholder-card">
+                            <div class="garden-placeholder-icon"><i class="fas fa-user"></i></div>
+                            <h3>我的</h3>
+                            <p>个人页稍后补充，这里会预留给家园资料、成就和偏好设置。</p>
+                        </div>
+                    </section>
+                </div>
+
+                <nav class="garden-bottom-nav" aria-label="家园底部导航">
+                    <button class="garden-bottom-nav-btn active" data-garden-view="home" type="button">
+                        <i class="fas fa-house"></i>
+                        <span>家园</span>
+                    </button>
+                    <button class="garden-bottom-nav-btn" data-garden-view="activities" type="button">
+                        <i class="fas fa-gamepad"></i>
+                        <span>仓库</span>
+                    </button>
+                    <button class="garden-bottom-nav-btn" data-garden-view="gallery" type="button">
+                        <i class="fas fa-box-open"></i>
+                        <span>仓库</span>
+                    </button>
+                    <button class="garden-bottom-nav-btn" data-garden-view="profile" type="button">
+                        <i class="fas fa-user"></i>
+                        <span>我的</span>
+                    </button>
+                </nav>
+
+                <div id="garden-home-entry-menu" class="garden-home-entry-menu" aria-hidden="true">
+                    <button class="garden-home-entry-menu-backdrop" data-garden-home-entry-close="true" type="button" aria-label="关闭家园区域菜单"></button>
+                    <div class="garden-home-entry-menu-panel" role="dialog" aria-label="选择进入家园区域">
+                        <div class="garden-home-entry-menu-handle"></div>
+                        <div class="garden-home-entry-menu-head">
+                            <div class="garden-home-entry-menu-title">选择家园区域</div>
+                            <div class="garden-home-entry-menu-subtitle">在小家页再次点击底栏“家园”即可快速切换</div>
+                        </div>
+                        <div class="garden-home-entry-menu-grid">
+                            <button class="garden-home-entry-menu-item is-current" data-garden-home-entry="home" type="button">
+                                <span class="garden-home-entry-menu-item-icon is-home"><i class="fas fa-house"></i></span>
+                                <span class="garden-home-entry-menu-item-copy">
+                                    <span class="garden-home-entry-menu-item-title">小家</span>
+                                    <span class="garden-home-entry-menu-item-desc">回到温馨小窝</span>
+                                </span>
+                                <span class="garden-home-entry-menu-item-badge">当前</span>
+                            </button>
+                            <button class="garden-home-entry-menu-item" data-garden-home-entry="farm" type="button">
+                                <span class="garden-home-entry-menu-item-icon is-farm"><i class="fas fa-seedling"></i></span>
+                                <span class="garden-home-entry-menu-item-copy">
+                                    <span class="garden-home-entry-menu-item-title">农场</span>
+                                    <span class="garden-home-entry-menu-item-desc">种植作物与收获</span>
+                                </span>
+                                <span class="garden-home-entry-menu-item-badge">前往</span>
+                            </button>
+                            <button class="garden-home-entry-menu-item" data-garden-home-entry="pasture" type="button">
+                                <span class="garden-home-entry-menu-item-icon is-pasture"><i class="fas fa-cow"></i></span>
+                                <span class="garden-home-entry-menu-item-copy">
+                                    <span class="garden-home-entry-menu-item-title">牧场</span>
+                                    <span class="garden-home-entry-menu-item-desc">照料动物与产出</span>
+                                </span>
+                                <span class="garden-home-entry-menu-item-badge">前往</span>
+                            </button>
+                            <button class="garden-home-entry-menu-item" data-garden-home-entry="kitchen" type="button">
+                                <span class="garden-home-entry-menu-item-icon is-kitchen"><i class="fas fa-utensils"></i></span>
+                                <span class="garden-home-entry-menu-item-copy">
+                                    <span class="garden-home-entry-menu-item-title">厨房</span>
+                                    <span class="garden-home-entry-menu-item-desc">烹饪料理与加工</span>
+                                </span>
+                                <span class="garden-home-entry-menu-item-badge">前往</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="garden-farm-screen" class="garden-farm-screen" aria-hidden="true">
+                    <div class="garden-farm-world">
+                        <div class="garden-farm-cloud garden-farm-cloud-1"></div>
+                        <div class="garden-farm-cloud garden-farm-cloud-2"></div>
+
+                        <div class="garden-farm-top-bar">
+                            <button class="garden-farm-user-stats" data-mini-mission-toggle="farm" type="button" aria-label="展开农场任务指引">
+                                <div class="garden-farm-stat-item"><i class="ri-copper-coin-fill garden-farm-coin-icon"></i><span id="garden-farm-coins">100</span></div>
+                                <div class="garden-farm-stat-item"><i class="ri-star-smile-fill garden-farm-level-icon"></i><span id="garden-farm-level">1</span>级</div>
+                                <div class="garden-farm-stat-item"><i class="ri-flashlight-fill garden-farm-level-icon"></i><span id="garden-farm-ap">0</span>/<span id="garden-farm-ap-max">0</span></div>
+                            </button>
+                            <button id="garden-farm-buff-chip" class="garden-rogue-buff-chip" type="button" hidden>增益</button>
+                            <button id="garden-farm-close-btn" class="garden-farm-close-btn" type="button" aria-label="退出农场并返回家园">
+                                <i class="ri-close-line"></i>
+                            </button>
+                        </div>
+
+                        <div class="garden-farm-area">
+                            <div class="garden-farm-grid" id="garden-farm-grid"></div>
+                        </div>
+
+                        <div id="garden-farm-mission" class="garden-mini-mission garden-mini-mission-top" hidden>
+                            <div class="garden-mini-mission-head">
+                                <div id="garden-farm-mission-title" class="garden-mini-mission-title">当前任务</div>
+                                <button class="garden-mini-mission-toggle" data-mini-mission-toggle="farm" type="button">收起</button>
+                            </div>
+                            <div class="garden-mini-mission-body">
+                                <div id="garden-farm-mission-progress" class="garden-mini-mission-progress"></div>
+                                <div id="garden-farm-mission-action" class="garden-mini-mission-action"></div>
+                            </div>
+                        </div>
+
+                        <button id="garden-farm-buff-summary" class="garden-rogue-buff-summary" type="button" hidden>
+                            <span class="garden-rogue-buff-summary-label">当前增益</span>
+                            <span id="garden-farm-buff-summary-text" class="garden-rogue-buff-summary-text">暂无增益</span>
+                        </button>
+
+                        <div class="garden-farm-bottom-panel">
+                            <div class="garden-farm-inventory-panel" id="garden-farm-seed-panel">
+                                <div id="garden-farm-panel-title" class="garden-farm-inventory-title">种子背包</div>
+                                <div class="garden-farm-seed-list" id="garden-farm-seed-list"></div>
+                            </div>
+
+                            <div class="garden-farm-toolbar">
+                                <button class="garden-farm-tool-btn" data-farm-tool="plant" type="button">
+                                    <i class="ri-seedling-fill garden-farm-tool-icon"></i>
+                                    <span class="garden-farm-tool-name">播种</span>
+                                </button>
+                                <button class="garden-farm-tool-btn" data-farm-tool="water" type="button">
+                                    <i class="ri-drop-fill garden-farm-tool-icon"></i>
+                                    <span class="garden-farm-tool-name">浇水</span>
+                                </button>
+                                <button class="garden-farm-tool-btn" data-farm-tool="harvest" type="button">
+                                    <i class="ri-shopping-basket-2-fill garden-farm-tool-icon"></i>
+                                    <span class="garden-farm-tool-name">收获</span>
+                                </button>
+                                <button class="garden-farm-tool-btn" data-farm-tool="shovel" type="button">
+                                    <i class="ri-drag-move-fill garden-farm-tool-icon garden-farm-tool-icon-shovel"></i>
+                                    <span class="garden-farm-tool-name">铲除</span>
+                                </button>
+                                <button class="garden-farm-tool-btn" data-farm-tool="tool" type="button">
+                                    <i class="ri-flask-fill garden-farm-tool-icon"></i>
+                                    <span class="garden-farm-tool-name">道具</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="garden-farm-toast" id="garden-farm-toast">提示信息</div>
+                    </div>
+                </div>
+
+            
+            <div id="garden-pasture-screen" class="garden-pasture-screen" aria-hidden="true">
+                <div class="garden-pasture-world">
+                    <div class="garden-pasture-sun"></div>
+                    <div class="garden-pasture-cloud garden-pasture-cloud-1"></div>
+                    <div class="garden-pasture-cloud garden-pasture-cloud-2"></div>
+
+                    <div class="garden-pasture-top-bar">
+                        <button class="garden-pasture-user-stats" data-mini-mission-toggle="pasture" type="button" aria-label="展开牧场任务指引">
+                            <div class="garden-pasture-stat-item"><i class="ri-copper-coin-fill garden-pasture-coin-icon"></i><span id="garden-pasture-coins">150</span></div>
+                            <div class="garden-pasture-stat-item"><i class="ri-star-smile-fill garden-pasture-level-icon"></i><span id="garden-pasture-exp">Lv.2</span></div>
+                        </button>
+                        <button id="garden-pasture-buff-chip" class="garden-rogue-buff-chip" type="button" hidden>增益</button>
+                        <button id="garden-pasture-close-btn" class="garden-pasture-close-btn" type="button" aria-label="退出牧场并返回家园">
+                            <i class="ri-close-line"></i>
+                        </button>
+                    </div>
+
+                    <div class="garden-pasture-container" id="garden-pasture-field"></div>
+
+                    <div id="garden-pasture-mission" class="garden-mini-mission garden-mini-mission-top" hidden>
+                        <div class="garden-mini-mission-head">
+                            <div id="garden-pasture-mission-title" class="garden-mini-mission-title">当前任务</div>
+                            <button class="garden-mini-mission-toggle" data-mini-mission-toggle="pasture" type="button">收起</button>
+                        </div>
+                        <div class="garden-mini-mission-body">
+                            <div id="garden-pasture-mission-progress" class="garden-mini-mission-progress"></div>
+                            <div id="garden-pasture-mission-action" class="garden-mini-mission-action"></div>
+                        </div>
+                    </div>
+
+                    <button id="garden-pasture-buff-summary" class="garden-rogue-buff-summary" type="button" hidden>
+                        <span class="garden-rogue-buff-summary-label">当前增益</span>
+                        <span id="garden-pasture-buff-summary-text" class="garden-rogue-buff-summary-text">暂无增益</span>
+                    </button>
+
+                    <div class="garden-pasture-bottom-panel">
+                        <div class="garden-pasture-shop-panel" id="garden-pasture-shop-panel">
+                            <button class="garden-pasture-shop-item" data-pasture-animal="chicken" type="button">
+                                <div class="garden-pasture-shop-icon">🐥</div>
+                                <div class="garden-pasture-shop-name">小鸡</div>
+                                <div class="garden-pasture-shop-price"><i class="ri-copper-coin-fill"></i>20</div>
+                            </button>
+                            <button class="garden-pasture-shop-item" data-pasture-animal="pig" type="button">
+                                <div class="garden-pasture-shop-icon">🐷</div>
+                                <div class="garden-pasture-shop-name">小猪</div>
+                                <div class="garden-pasture-shop-price"><i class="ri-copper-coin-fill"></i>50</div>
+                            </button>
+                            <button class="garden-pasture-shop-item" data-pasture-animal="sheep" type="button">
+                                <div class="garden-pasture-shop-icon">🐑</div>
+                                <div class="garden-pasture-shop-name">小羊</div>
+                                <div class="garden-pasture-shop-price"><i class="ri-copper-coin-fill"></i>80</div>
+                            </button>
+                            <button class="garden-pasture-shop-item" data-pasture-animal="cow" type="button">
+                                <div class="garden-pasture-shop-icon">🐮</div>
+                                <div class="garden-pasture-shop-name">小牛</div>
+                                <div class="garden-pasture-shop-price"><i class="ri-copper-coin-fill"></i>120</div>
+                            </button>
+                        </div>
+
+                        <div class="garden-pasture-toolbar">
+                            <button class="garden-pasture-tool-btn active" data-pasture-tool="pointer" type="button">
+                                <i class="ri-cursor-fill garden-pasture-tool-icon"></i><span class="garden-pasture-tool-name">选择</span>
+                            </button>
+                            <button class="garden-pasture-tool-btn" data-pasture-tool="feed" type="button">
+                                <i class="ri-restaurant-2-fill garden-pasture-tool-icon"></i><span class="garden-pasture-tool-name">喂食</span>
+                            </button>
+                            <button class="garden-pasture-tool-btn" data-pasture-tool="harvest" type="button">
+                                <i class="ri-shopping-basket-2-fill garden-pasture-tool-icon"></i><span class="garden-pasture-tool-name">收获</span>
+                            </button>
+                            <button class="garden-pasture-tool-btn" data-pasture-tool="shop" type="button">
+                                <i class="ri-store-2-fill garden-pasture-tool-icon"></i><span class="garden-pasture-tool-name">买幼崽</span>
+                            </button>
+                            <button class="garden-pasture-tool-btn" data-pasture-tool="tool" type="button">
+                                <i class="ri-magic-fill garden-pasture-tool-icon"></i><span class="garden-pasture-tool-name">道具</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="garden-pasture-toast" id="garden-pasture-toast">提示信息</div>
+                </div>
+            </div>
+            <div id="garden-kitchen-screen" class="garden-kitchen-screen" aria-hidden="true">
+                <div class="garden-kitchen-world">
+                    <div class="garden-kitchen-top-bar">
+                        <div class="garden-kitchen-title-row">
+                            <button class="garden-kitchen-title" data-mini-mission-toggle="kitchen" type="button" aria-label="展开厨房任务指引">🍳 厨房</button>
+                            <button id="garden-kitchen-buff-chip" class="garden-rogue-buff-chip garden-rogue-buff-chip-kitchen" type="button" hidden>增益</button>
+                        </div>
+                        <button id="garden-kitchen-close-btn" class="garden-kitchen-close-btn" type="button" aria-label="退出厨房并返回家园">
+                            <i class="ri-close-line"></i>
+                        </button>
+                    </div>
+
+                    <button id="garden-kitchen-skip-btn" class="garden-kitchen-skip-btn" data-kitchen-skip-rogue type="button" hidden>当前节点没有可做料理，跳过厨房节点</button>
+
+                    <div class="garden-kitchen-area" id="garden-kitchen-area">
+                        <div class="garden-kitchen-recipe-card" data-kitchen-recipe="bread">
+                            <div class="garden-kitchen-recipe-icon">🍞</div>
+                            <div class="garden-kitchen-recipe-info">
+                                <div class="garden-kitchen-recipe-name">香喷喷面包</div>
+                                <div class="garden-kitchen-recipe-reqs"><span>🌾 小麦 x2</span><span>🥚 鸡蛋 x1</span></div>
+                            </div>
+                            <button class="garden-kitchen-cook-btn" data-kitchen-cook="bread" type="button">烹饪</button>
+                        </div>
+
+                        <div class="garden-kitchen-recipe-card" data-kitchen-recipe="cake">
+                            <div class="garden-kitchen-recipe-icon">🍰</div>
+                            <div class="garden-kitchen-recipe-info">
+                                <div class="garden-kitchen-recipe-name">美味蛋糕</div>
+                                <div class="garden-kitchen-recipe-reqs"><span>🌾 小麦 x3</span><span>🥛 牛奶 x1</span></div>
+                            </div>
+                            <button class="garden-kitchen-cook-btn" data-kitchen-cook="cake" type="button">烹饪</button>
+                        </div>
+
+                        <div class="garden-kitchen-recipe-card" data-kitchen-recipe="salad">
+                            <div class="garden-kitchen-recipe-icon">🥗</div>
+                            <div class="garden-kitchen-recipe-info">
+                                <div class="garden-kitchen-recipe-name">田园沙拉</div>
+                                <div class="garden-kitchen-recipe-reqs"><span>🍅 番茄 x2</span><span>🥕 胡萝卜 x1</span></div>
+                            </div>
+                            <button class="garden-kitchen-cook-btn" data-kitchen-cook="salad" type="button">烹饪</button>
+                        </div>
+
+                        <div class="garden-kitchen-recipe-card" data-kitchen-recipe="pizza">
+                            <div class="garden-kitchen-recipe-icon">🍕</div>
+                            <div class="garden-kitchen-recipe-info">
+                                <div class="garden-kitchen-recipe-name">农家披萨</div>
+                                <div class="garden-kitchen-recipe-reqs"><span>🌾 小麦 x3</span><span>🍅 番茄 x2</span><span>🥓 猪肉 x1</span></div>
+                            </div>
+                            <button class="garden-kitchen-cook-btn" data-kitchen-cook="pizza" type="button">烹饪</button>
+                        </div>
+
+                        <div class="garden-kitchen-recipe-card" data-kitchen-recipe="taco">
+                            <div class="garden-kitchen-recipe-icon">🌮</div>
+                            <div class="garden-kitchen-recipe-info">
+                                <div class="garden-kitchen-recipe-name">烤肉卷饼</div>
+                                <div class="garden-kitchen-recipe-reqs"><span>🌾 小麦 x2</span><span>🥓 猪肉 x2</span></div>
+                            </div>
+                            <button class="garden-kitchen-cook-btn" data-kitchen-cook="taco" type="button">烹饪</button>
+                        </div>
+
+                        <div class="garden-kitchen-recipe-card" data-kitchen-recipe="icecream">
+                            <div class="garden-kitchen-recipe-icon">🍨</div>
+                            <div class="garden-kitchen-recipe-info">
+                                <div class="garden-kitchen-recipe-name">奶香冰淇淋</div>
+                                <div class="garden-kitchen-recipe-reqs"><span>🥛 牛奶 x2</span><span>🥚 鸡蛋 x1</span></div>
+                            </div>
+                            <button class="garden-kitchen-cook-btn" data-kitchen-cook="icecream" type="button">烹饪</button>
+                        </div>
+
+                        <div class="garden-kitchen-recipe-card" data-kitchen-recipe="stirfry">
+                            <div class="garden-kitchen-recipe-icon">🥘</div>
+                            <div class="garden-kitchen-recipe-info">
+                                <div class="garden-kitchen-recipe-name">营养炖菜</div>
+                                <div class="garden-kitchen-recipe-reqs"><span>🥕 胡萝卜 x2</span><span>🥩 猪肉 x1</span></div>
+                            </div>
+                            <button class="garden-kitchen-cook-btn" data-kitchen-cook="stirfry" type="button">烹饪</button>
+                        </div>
+                    </div>
+
+                    <div id="garden-kitchen-mission" class="garden-mini-mission garden-mini-mission-top" hidden>
+                        <div class="garden-mini-mission-head">
+                            <div id="garden-kitchen-mission-title" class="garden-mini-mission-title">当前任务</div>
+                            <button class="garden-mini-mission-toggle" data-mini-mission-toggle="kitchen" type="button">收起</button>
+                        </div>
+                        <div class="garden-mini-mission-body">
+                            <div id="garden-kitchen-mission-progress" class="garden-mini-mission-progress"></div>
+                            <div id="garden-kitchen-mission-action" class="garden-mini-mission-action"></div>
+                        </div>
+                    </div>
+
+                    <button id="garden-kitchen-buff-summary" class="garden-rogue-buff-summary garden-rogue-buff-summary-kitchen" type="button" hidden>
+                        <span class="garden-rogue-buff-summary-label">当前增益</span>
+                        <span id="garden-kitchen-buff-summary-text" class="garden-rogue-buff-summary-text">暂无增益</span>
+                    </button>
+
+                    <div id="garden-kitchen-tool-panel" class="garden-kitchen-tool-panel" hidden>
+                        <div class="garden-kitchen-tool-panel-head">
+                            <div class="garden-kitchen-tool-panel-title">局内道具</div>
+                            <button class="garden-kitchen-tool-panel-close" data-kitchen-tool-panel-close="true" type="button">收起</button>
+                        </div>
+                        <div id="garden-kitchen-tool-list" class="garden-kitchen-tool-list"></div>
+                    </div>
+
+                    <div id="garden-kitchen-overlay" class="garden-kitchen-overlay">
+                        <div id="garden-kitchen-qte-hint" class="garden-kitchen-qte-hint">看准时机，点击屏幕任意位置！</div>
+                        <div id="garden-kitchen-qte-container" class="garden-kitchen-qte-container">
+                            <div id="garden-kitchen-qte-dial" class="garden-kitchen-qte-dial"></div>
+                            <div class="garden-kitchen-qte-center"></div>
+                            <div id="garden-kitchen-qte-pointer" class="garden-kitchen-qte-pointer"></div>
+                        </div>
+                    </div>
+
+                    <div id="garden-kitchen-toast" class="garden-kitchen-toast"></div>
+                </div>
+            </div>
+
+            <div id="garden-rogue-panel" class="garden-rogue-panel" aria-hidden="true">
+                <button class="garden-rogue-panel-backdrop" data-rogue-close-panel="true" type="button" aria-label="关闭本轮进度"></button>
+                <div class="garden-rogue-panel-sheet" role="dialog" aria-label="丰收远征面板">
+                    <div class="garden-rogue-panel-handle"></div>
+                    <div class="garden-rogue-panel-head">
+                        <div>
+                            <div class="garden-rogue-panel-title">丰收远征</div>
+                            <div class="garden-rogue-panel-subtitle">分支地图 · 强 build · 重度工坊成长</div>
+                        </div>
+                        <button class="garden-rogue-panel-close" data-rogue-close-panel="true" type="button" aria-label="关闭本轮进度">
+                            <i class="ri-close-line"></i>
+                        </button>
+                    </div>
+                    <div class="garden-rogue-panel-section">
+                        <div class="garden-rogue-panel-label">当前地图</div>
+                        <div id="garden-rogue-panel-stage" class="garden-rogue-panel-value">请选择起始流派</div>
+                    </div>
+                    <div class="garden-rogue-panel-section">
+                        <div class="garden-rogue-panel-label">当前目标</div>
+                        <div id="garden-rogue-panel-goal" class="garden-rogue-panel-value">完成节点、拿遗物、通过 3 幕并击败最终 Boss。</div>
+                    </div>
+                    <div class="garden-rogue-panel-section">
+                        <div class="garden-rogue-panel-label">已获遗物 / 祝福</div>
+                        <div id="garden-rogue-panel-cards" class="garden-rogue-panel-cards"></div>
+                    </div>
+                    <div class="garden-rogue-panel-section">
+                        <div class="garden-rogue-panel-label">当前节点 / 订单</div>
+                        <div id="garden-rogue-panel-order" class="garden-rogue-panel-order"></div>
+                    </div>
+                    <div class="garden-rogue-panel-section">
+                        <div class="garden-rogue-panel-label">远征面板</div>
+                        <div class="garden-rogue-tutorial">
+                            <div class="garden-rogue-tutorial-item">1. 开局选择流派，然后在每幕分支地图中选路推进。</div>
+                            <div class="garden-rogue-tutorial-item">2. 普通节点每清 2 个会触发一次三选一遗物草案。</div>
+                            <div class="garden-rogue-tutorial-item">3. 精英和 Boss 会给高稀有奖励，并强力影响后续 build。</div>
+                            <div class="garden-rogue-tutorial-item">4. 本模式经济独立，结算时再把奖励带回普通家园。</div>
+                        </div>
+                        <div class="garden-rogue-panel-actions">
+                            <button id="garden-rogue-start-run" class="garden-rogue-panel-primary" type="button" data-rogue-action="open-start">开始远征</button>
+                            <button id="garden-rogue-open-storage" class="garden-rogue-panel-secondary" type="button" data-rogue-action="open-storage">打开仓库</button>
+                            <button id="garden-rogue-open-workshop" class="garden-rogue-panel-secondary" type="button" data-rogue-action="open-workshop">工坊成长</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="garden-rogue-offer" class="garden-rogue-offer" aria-hidden="true">
+                <div class="garden-rogue-offer-mask"></div>
+                <div class="garden-rogue-offer-card" role="dialog" aria-label="远征奖励弹层">
+                    <div class="garden-rogue-offer-badge">三选一</div>
+                    <div id="garden-rogue-offer-title" class="garden-rogue-offer-title">远征奖励</div>
+                    <div id="garden-rogue-offer-desc" class="garden-rogue-offer-desc">选择起始流派、遗物或事件选项</div>
+                    <div id="garden-rogue-offer-choices" class="garden-rogue-offer-choices"></div>
+                </div>
+            </div>
+
+            <div id="garden-rogue-intro" class="garden-rogue-offer" aria-hidden="true">
+                <div class="garden-rogue-offer-mask"></div>
+                <div class="garden-rogue-offer-card garden-rogue-intro-card" role="dialog" aria-label="远征开局说明">
+                    <div class="garden-rogue-offer-badge">开局简报</div>
+                    <div id="garden-rogue-intro-title" class="garden-rogue-offer-title">本局目标说明</div>
+                    <div id="garden-rogue-intro-desc" class="garden-rogue-offer-desc">看完再开局，会更清楚这把该怎么打。</div>
+                    <div id="garden-rogue-intro-body" class="garden-rogue-intro-body"></div>
+                    <div class="garden-rogue-panel-actions">
+                        <button id="garden-rogue-intro-confirm" class="garden-rogue-panel-primary" data-rogue-intro-confirm="true" type="button">开始本局</button>
+                        <button id="garden-rogue-intro-cancel" class="garden-rogue-panel-secondary" data-rogue-intro-cancel="true" type="button">返回</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="garden-rogue-buff-panel" class="garden-rogue-panel" aria-hidden="true">
+                <button class="garden-rogue-panel-backdrop" data-rogue-buff-close="true" type="button" aria-label="关闭增益面板"></button>
+                <div class="garden-rogue-panel-sheet" role="dialog" aria-label="当前增益详情">
+                    <div class="garden-rogue-panel-handle"></div>
+                    <div class="garden-rogue-panel-head">
+                        <div>
+                            <div class="garden-rogue-panel-title">当前增益</div>
+                            <div class="garden-rogue-panel-subtitle">遗物、祝福、主动道具与临时效果</div>
+                        </div>
+                        <button class="garden-rogue-panel-close" data-rogue-buff-close="true" type="button" aria-label="关闭增益面板">
+                            <i class="ri-close-line"></i>
+                        </button>
+                    </div>
+                    <div id="garden-rogue-buff-panel-list" class="garden-rogue-buff-panel-list"></div>
+                </div>
+            </div>
+
+            <div id="garden-rogue-workshop" class="garden-rogue-panel" aria-hidden="true">
+                <button class="garden-rogue-panel-backdrop" data-rogue-workshop-close="true" type="button" aria-label="关闭工坊"></button>
+                <div class="garden-rogue-panel-sheet" role="dialog" aria-label="丰收远征工坊">
+                    <div class="garden-rogue-panel-handle"></div>
+                    <div class="garden-rogue-panel-head">
+                        <div>
+                            <div class="garden-rogue-panel-title">远征工坊</div>
+                            <div class="garden-rogue-panel-subtitle">用远征徽章强化开局、路线、遗物和结算。</div>
+                        </div>
+                        <button class="garden-rogue-panel-close" data-rogue-workshop-close="true" type="button" aria-label="关闭工坊">
+                            <i class="ri-close-line"></i>
+                        </button>
+                    </div>
+                    <div class="garden-rogue-panel-section">
+                        <div class="garden-rogue-panel-label">远征徽章</div>
+                        <div id="garden-rogue-workshop-currency" class="garden-rogue-panel-value">0</div>
+                    </div>
+                    <div class="garden-rogue-panel-section">
+                        <div class="garden-rogue-panel-label">成长路线</div>
+                        <div id="garden-rogue-workshop-list" class="garden-rogue-workshop-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="garden-flora-screen" class="garden-flora-screen" aria-hidden="true">
+                <div id="garden-flora-app" class="garden-flora-app garden-flora-bg-healthy">
+                    <div class="garden-flora-header-nav">
+                        <button id="garden-flora-back" class="garden-flora-icon-btn" type="button" aria-label="&#36820;&#22238;&#23478;&#22253;">
+                            <i class="ph ph-caret-left"></i>
+                        </button>
+                        <div class="garden-flora-brand">BOTANICAL</div>
+                        <div class="garden-flora-icon-btn" aria-hidden="true">
+                            <i class="ph ph-plant"></i>
+                        </div>
+                    </div>
+
+                    <div class="garden-flora-stage">
+                        <div class="garden-flora-state-toggle" aria-label="&#32511;&#26893;&#29366;&#24577;&#20999;&#25442;">
+                            <button class="garden-flora-toggle-btn" data-flora-state="blooming" type="button">&#30427;&#24320;</button>
+                            <button class="garden-flora-toggle-btn is-active" data-flora-state="healthy" type="button">&#20581;&#24247;</button>
+                            <button class="garden-flora-toggle-btn" data-flora-state="withering" type="button">&#32570;&#27700;</button>
+                            <button class="garden-flora-toggle-btn" data-flora-state="withered" type="button">&#26543;&#33806;</button>
+                        </div>
+
+                        <div id="garden-flora-art-plant" class="garden-flora-art-plant garden-flora-state-healthy">
+                            <div id="garden-flora-particles" class="garden-flora-particle-system">
+                                <div class="garden-flora-particle" style="left: 20%; animation-delay: 0s;">&#10024;</div>
+                                <div class="garden-flora-particle" style="left: 70%; animation-delay: 1.5s;">&#127807;</div>
+                                <div class="garden-flora-particle" style="left: 45%; animation-delay: 0.8s;">&#127793;</div>
+                            </div>
+                            <div class="garden-flora-art-flower"></div>
+                            <div class="garden-flora-art-leaf garden-flora-l1"></div>
+                            <div class="garden-flora-art-leaf garden-flora-l2"></div>
+                            <div class="garden-flora-art-leaf garden-flora-l3"></div>
+                            <div class="garden-flora-art-leaf garden-flora-l4"></div>
+                            <div class="garden-flora-art-stem"></div>
+                            <div class="garden-flora-art-pot"></div>
+                        </div>
+                    </div>
+
+                    <div class="garden-flora-log-container">
+                        <div class="garden-flora-log-indicator"></div>
+
+                        <div class="garden-flora-typographic-header">
+                            <div class="garden-flora-typo-eng">Care Journal</div>
+                            <h2 class="garden-flora-typo-zh">&#20859;&#25252;&#26085;&#35760;</h2>
+                        </div>
+
+                        <div id="garden-flora-log-content">
+                            <div class="garden-flora-msg">
+                                <div class="garden-flora-msg-time">10:42</div>
+                                <div class="garden-flora-msg-bubble is-positive">
+                                    <i class="ph-fill ph-smiley"></i>TA &#21018;&#21018;&#22238;&#20102;&#20320;&#19968;&#21477;&#8220;&#21704;&#21704;&#21704;&#21704;&#8221;&#65292;&#32511;&#26893;&#21560;&#25910;&#21040;&#20102;&#24555;&#20048;&#20859;&#20998;&#12290;
+                                </div>
+                            </div>
+                            <div class="garden-flora-msg">
+                                <div class="garden-flora-msg-time">09:15</div>
+                                <div class="garden-flora-msg-bubble">
+                                    <i class="ph-fill ph-cloud-rain" style="color: #5ac8fa;"></i>&#20170;&#22825;&#35760;&#24471;&#20063;&#26469;&#27975;&#27975;&#27700;&#65292;&#38506;&#23427;&#35828;&#35828;&#35805;&#12290;
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div id="ai-profile-screen" class="sub-screen hidden" style="z-index: 170; background-color: #fff;">
             <div class="app-header transparent-header" id="ai-profile-header">
                 <button id="close-ai-profile" class="back-btn" style="color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5);"><i class="fas fa-chevron-left"></i></button>
@@ -1950,22 +2761,32 @@
         </div>
                 <!-- ================= 见面功能 HTML 开始 ================= -->
         <!-- 1. 见面记录列表页 -->
-        <div id="meetings-screen" class="sub-screen hidden" style="z-index: 180; background-color: #f2f2f7; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-            <div class="app-header">
-                <button id="close-meetings-screen" class="back-btn"><i class="fas fa-chevron-left"></i> 返回</button>
-                <h3>见面记录</h3>
-                <div class="header-actions" style="display: flex; gap: 8px;">
-                    <button id="meeting-theme-btn" class="wechat-icon-btn"><i class="fas fa-palette"></i></button>
-                    <button id="meeting-style-btn" class="wechat-icon-btn"><i class="fas fa-pen-nib"></i></button>
-                    <button id="new-meeting-btn" class="wechat-icon-btn"><i class="fas fa-plus"></i></button>
+        <div id="meetings-screen" class="sub-screen hidden" style="z-index: 180; background-color: #fdfdfc; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+            <div class="meetings-v2-header" style="padding:60px 24px 20px;display:flex;align-items:flex-end;justify-content:space-between;background:#fdfdfc;">
+                <div class="meetings-v2-header-left" style="display:flex;flex-direction:column;gap:4px;">
+                    <div class="meetings-v2-back-btn" style="color:#888;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:10px;letter-spacing:4px;text-transform:uppercase;line-height:1;user-select:none;">ARCHIVE</div>
+                    <h3 id="close-meetings-screen" class="meetings-v2-title" role="button" tabindex="0" style="margin:0;color:#111;font-size:28px;line-height:1.08;font-style:italic;font-weight:500;font-family:'Palatino Linotype','Book Antiqua',Palatino,'Times New Roman',serif;cursor:pointer;display:inline-block;">Memories</h3>
+                </div>
+                <div class="meetings-v2-header-actions" style="display:flex;align-items:center;gap:6px;transform:translateY(4px);border:0.5px solid #e0e0e0;border-radius:30px;padding:4px 8px;background:rgba(255,255,255,.6);box-shadow:0 4px 15px rgba(0,0,0,.03);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);">
+                    <button id="meeting-theme-btn" class="meetings-v2-icon-btn" aria-label="见面美化" style="font-size:16px;color:#777;background:none;border:none;padding:6px;display:flex;align-items:center;justify-content:center;border-radius:50%;"><i class="ri-sparkling-line"></i></button>
+                    <span class="meetings-v2-action-divider" style="width:1px;height:12px;background:#ddd;"></span>
+                    <button id="meeting-style-btn" class="meetings-v2-icon-btn" aria-label="文风设置" style="font-size:16px;color:#777;background:none;border:none;padding:6px;display:flex;align-items:center;justify-content:center;border-radius:50%;"><i class="ri-bookmark-line"></i></button>
+                    <span class="meetings-v2-action-divider" style="width:1px;height:12px;background:#ddd;"></span>
+                    <button id="meeting-select-btn" class="meetings-v2-icon-btn" aria-label="选择删除" style="font-size:16px;color:#777;background:none;border:none;padding:6px;display:flex;align-items:center;justify-content:center;border-radius:50%;"><i class="ri-menu-line"></i></button>
                 </div>
             </div>
-            <div class="app-body" style="padding-bottom: 20px;">
-                <div id="meetings-list" class="ios-list-group" style="margin-top: 10px; background: transparent;">
+            <div class="meetings-v2-body" style="flex:1;min-height:0;overflow-y:auto;padding:10px 24px 40px;display:flex;flex-direction:column;">
+                <div id="meetings-list" class="meetings-v2-list" style="display:flex;flex-direction:column;">
                     <!-- 列表项 -->
                 </div>
-                <div class="empty-state" id="meetings-empty" style="display: none; text-align: center; color: #999; margin-top: 50px;">
-                    还没有见面记录，点击右上角 + 开始
+                <div class="empty-state meetings-v2-empty" id="meetings-empty" style="display:none;margin:auto 0;padding:48px 0;text-align:center;color:#999;">
+                    <div class="meetings-v2-empty-title" style="color:#222;font-size:20px;font-weight:600;margin-bottom:8px;">No memories yet</div>
+                    <div class="meetings-v2-empty-text" style="font-size:14px;line-height:1.7;">点击右上角开始创建新的章节记录</div>
+                </div>
+                <div class="meetings-v2-footer" style="margin-top:30px;display:flex;justify-content:center;padding-bottom:20px;">
+                    <button id="meetings-footer-new-btn" class="meetings-v2-new-btn" style="height:52px;min-width:260px;padding:0 32px;border-radius:999px;border:1.2px solid #111;background:transparent;color:#111;display:inline-flex;align-items:center;justify-content:center;gap:14px;font-size:14px;letter-spacing:2px;font-weight:500;">
+                        <i class="fas fa-plus"></i><span>NEW CHAPTER</span>
+                    </button>
                 </div>
             </div>
             
@@ -2146,31 +2967,42 @@
         </div>
 
         <!-- 2. 线下见面详情页 -->
-        <div id="meeting-detail-screen" class="sub-screen hidden" style="z-index: 190; background-color: #f5f5f5; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-            <div class="app-header transparent-header" style="background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);">
-                <button id="end-meeting-btn" class="back-btn" style="color: #FF3B30;">
-                    <img id="meeting-end-icon" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkYzQjMwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTkgMjFIMWMtMS4xIDAtMi0uOS0yLTJWMWMwLTEuMS45LTIgMi0yaDhNMjEgMTJsLTUtNW01IDVsLTUgNW01LTVoLTEzIi8+PC9zdmc+" style="width: 20px; height: 20px; object-fit: contain; margin-right: 5px;"> 结束
+        <div id="meeting-detail-screen" class="sub-screen hidden" style="z-index: 190; background-color: #fdfdfc; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+            <div class="meeting-editorial-header" style="position:absolute;top:0;left:0;right:0;height:108px;padding:44px 28px 0;display:flex;align-items:center;justify-content:space-between;z-index:10;background:linear-gradient(to bottom, rgba(253,253,252,0.96) 40%, rgba(253,253,252,0));">
+                <button id="end-meeting-btn" class="meeting-editorial-icon-btn" style="font-size:22px;color:#222;background:none;border:none;padding:0;display:flex;align-items:center;justify-content:center;width:28px;height:28px;">
+                    <img id="meeting-end-icon" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMTExMTExIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTYgNkwxOCAxOCIvPjxwYXRoIGQ9Ik0xOCA2TDYgMTgiLz48L3N2Zz4=" style="width: 22px; height: 22px; object-fit: contain;">
                 </button>
-                <h3 id="meeting-detail-title">线下见面</h3>
-                <div style="width: 60px;"></div>
+                <div class="meeting-editorial-title-wrap" style="text-align:center;">
+                    <div class="meeting-editorial-deco" style="font-size:9px;color:#5d6f8c;font-family:-apple-system,sans-serif;letter-spacing:4px;text-transform:uppercase;">Offline Meeting</div>
+                    <h3 id="meeting-detail-title" style="margin:4px 0 0;font-size:20px;font-style:italic;color:#111;font-weight:500;font-family:'Palatino Linotype','Book Antiqua',Palatino,'Times New Roman',serif;">线下见面</h3>
+                </div>
+                <button id="meeting-detail-style-btn" class="meeting-editorial-icon-btn" style="font-size:22px;color:#111;background:none;border:none;padding:0;display:flex;align-items:center;justify-content:center;width:32px;height:32px;">
+                    <img alt="style" style="width:28px;height:28px;object-fit:contain;" src="https://i.postimg.cc/bJY5N3yC/%E6%97%A0%E6%A0%87%E9%A2%98117_20260315030202.png">
+                </button>
             </div>
             
-            <div class="meeting-body" id="meeting-card-container" style="flex: 1; overflow-y: auto; padding: 20px; padding-bottom: 100px;">
+            <div class="meeting-body meeting-editorial-body" id="meeting-card-container" style="flex:1;overflow-y:auto;padding:138px 36px 136px;display:flex;flex-direction:column;gap:42px;">
                 <!-- 卡片内容 -->
             </div>
 
-                        <!-- 底部输入栏 (修改版：输入框在左，生成按钮在右) -->
-            <div class="meeting-input-area" id="meeting-input-area">
-                <!-- 输入框 -->
-                <textarea id="meeting-input" placeholder="输入动作或语言，按回车发送..."></textarea>
+            <div class="meeting-input-area meeting-editorial-input-area" id="meeting-input-area" style="position:absolute;left:28px;right:28px;bottom:28px;z-index:10;">
+                <div class="meeting-editorial-pill" style="display:flex;align-items:center;gap:8px;padding:4px 6px 4px 16px;background:rgba(255,255,255,0.88);border:0.5px solid rgba(0,0,0,0.08);border-radius:26px;box-shadow:0 10px 30px rgba(0,0,0,0.06);backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);min-height:42px;">
+                    <textarea id="meeting-input" placeholder="写下剧情片段…" style="flex:1;height:24px;min-height:24px;max-height:24px;border:none;outline:none;background:transparent;font-size:15px;line-height:24px;resize:none;overflow:hidden;padding:0;margin:0;font-style:italic;color:#333;display:block;"></textarea>
+                    <button id="meeting-detail-magic-btn" class="meeting-editorial-pill-ghost" title="剧情建议" style="width:36px;height:36px;border-radius:18px;background:#fff url('https://i.postimg.cc/FRF6sDr8/%E6%97%A0%E6%A0%87%E9%A2%98118_20260315030347.png') center/cover no-repeat;color:#111;border:0.5px solid #ccc;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;overflow:hidden;">
+                    </button>
+                    <button id="meeting-ai-continue-btn" class="meeting-icon-btn" title="续写剧情" style="width:36px;height:36px;border-radius:18px;background:#111 url('https://i.postimg.cc/HxWNsBYF/%E6%97%A0%E6%A0%87%E9%A2%98119_20260315030439.png') center/cover no-repeat;color:#fff;border:none;display:flex;align-items:center;justify-content:center;box-shadow:none;flex-shrink:0;padding:0;overflow:hidden;">
+                    </button>
+                </div>
                 
-                <!-- AI续写按钮 (魔法棒) -->
-                <button id="meeting-ai-continue-btn" class="meeting-icon-btn" title="AI续写 (让剧情继续)">
-                    <img id="meeting-continue-icon" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTE1IDRWMiIvPjxwYXRoIGQ9Ik0xNSAxNnYtMiIvPjxwYXRoIGQ9Ik04IDloMiIvPjxwYXRoIGQ9Ik0yMCA5aDIiLz48cGF0aCBkPSJNMTcuOCAxMS44TDE5IDEzIi8+PHBhdGggZD0iTTEwLjYgNi42TDEyIDgiLz48cGF0aCBkPSJNNC44IDExLjhMNiAxMyIvPjxwYXRoIGQ9Ik0xMiA0LjhMMTAuNiA2Ii8+PHBhdGggZD0iTTE5IDQuOEwxNy44IDYiLz48cGF0aCBkPSJNMTIgMTMuMkw0LjggMjAuNGEyLjggMi44IDAgMCAwIDQgNEwxNiAxNy4yIi8+PC9zdmc+" style="width: 24px; height: 24px; object-fit: contain;">
-                </button>
-                
-                <!-- 原发送按钮 (隐藏，逻辑保留) -->
                 <button id="meeting-send-btn" style="display:none;"></button>
+            </div>
+
+            <div id="meeting-action-suggestion-menu" class="forum-gift-menu" style="height:auto;max-height:62vh;z-index:211;">
+                <div class="forum-gift-menu-header">
+                    <h4 style="font-size:18px;font-weight:700;color:#1c1c1e;">剧情建议</h4>
+                    <button id="close-meeting-action-suggestion-menu" style="background:rgba(0,0,0,0.05);border:none;width:30px;height:30px;border-radius:50%;font-size:14px;font-weight:bold;cursor:pointer;color:#1c1c1e;">✕</button>
+                </div>
+                <div id="meeting-action-suggestion-list" style="padding-bottom:10px;"></div>
             </div>
 
             <!-- 见面剧情编辑弹窗 -->
@@ -3143,7 +3975,7 @@
                                     <input type="number" id="modal-memory-days-refined" min="0">
                                 </div>
                             </div>
-                            <div class="memory-setting-hint">例如“状态=7”表示只带入最近7天内的状态记忆。状态本身若未提到结束，会保持进行中。</div>
+                            <div class="memory-setting-hint">例如“状态=7”表示只带入最近7天内的状态记忆。状态本身若未提到结束，会保持进行中。满足这里时间条件的记忆会继续参与发送。</div>
                         </div>
                         <div class="setting-group">
                             <label>发送门槛：重要性至少达到（0.1-1.0）</label>
@@ -3165,12 +3997,12 @@
                                     <input type="number" id="modal-memory-importance-refined" min="0.1" max="1" step="0.01">
                                 </div>
                             </div>
-                            <div class="memory-setting-hint">仅发送“重要性 >= 该门槛”的记忆给 AI。建议先用 0.5，再按效果调高或调低。</div>
+                            <div class="memory-setting-hint">仅发送“重要性 >= 该门槛”的记忆给 AI。满足时间与重要性条件的记忆会全部发送给 AI。建议先用 0.5，再按效果调高或调低。</div>
                         </div>
                         <div class="setting-group">
                             <label>相似内容合并强度（越高越严格）</label>
                             <input type="number" id="modal-memory-dedupe-threshold" min="0.3" max="0.99" step="0.01">
-                            <div class="memory-setting-hint">推荐 0.7~0.85，避免重复记忆越积越多。</div>
+                            <div class="memory-setting-hint">推荐 0.7~0.85，避免重复记忆越积越多。当前不再按条数截断，而是把筛选后的记忆全部发送。</div>
                         </div>
                         <button id="save-memory-settings-btn" class="ios-btn-block">保存</button>
                     </div>
@@ -6581,6 +7413,111 @@
         </div>
     </div>
 
+    <div id="whisper-challenge-app" class="app-screen hidden whisper-ui-app-shell">
+        <div class="whisper-ui-app">
+            <div class="whisper-ui-header-nav">
+                <button id="whisper-challenge-back" class="whisper-ui-icon-btn" aria-label="返回主屏幕">
+                    <i class="ph ph-caret-left"></i>
+                </button>
+                <button id="whisper-challenge-restart" class="whisper-ui-icon-btn" aria-label="重开当前挑战">
+                    <i class="ph ph-arrow-clockwise"></i>
+                </button>
+            </div>
+
+            <div class="whisper-ui-body">
+                <div class="whisper-ui-typographic-header">
+                    <div class="whisper-ui-typo-eng">Whisper Game</div>
+                    <h1 class="whisper-ui-typo-zh">✧ 秘密小测试 ✧</h1>
+                </div>
+
+                <div class="whisper-ui-glass-card whisper-ui-mission-card">
+                    <div class="whisper-ui-card-top">
+                        <div id="whisper-challenge-mission-code" class="whisper-ui-tag-pill">MISSION 001</div>
+                        <div id="whisper-challenge-status-pill" class="whisper-ui-status-pill is-idle">未开始</div>
+                    </div>
+
+                    <div id="whisper-challenge-mission-title" class="whisper-ui-mission-title">试探边界</div>
+                    <div id="whisper-challenge-mission-text" class="whisper-ui-mission-text">
+                        在接下来的聊天里，悄悄引导 TA 说出「笨蛋」。
+                    </div>
+
+                    <div class="whisper-ui-meta-grid">
+                        <div class="whisper-ui-meta-block">
+                            <span>目标词</span>
+                            <strong id="whisper-challenge-target-word">笨蛋</strong>
+                        </div>
+                        <div class="whisper-ui-meta-block">
+                            <span>难度</span>
+                            <strong id="whisper-challenge-difficulty">新手</strong>
+                        </div>
+                        <div class="whisper-ui-meta-block">
+                            <span>关卡</span>
+                            <strong id="whisper-challenge-level">第 1 关</strong>
+                        </div>
+                    </div>
+
+                    <div class="whisper-ui-contact-box">
+                        <div class="whisper-ui-contact-head">
+                            <span>执行对象</span>
+                            <strong id="whisper-challenge-contact-name">未指定</strong>
+                        </div>
+                        <div class="whisper-ui-contact-select-wrap">
+                            <i class="ph-fill ph-user-circle whisper-ui-contact-select-icon"></i>
+                            <select id="whisper-challenge-contact-select" class="whisper-ui-contact-select" aria-label="选择挑战联系人">
+                                <option value="">暂无联系人</option>
+                            </select>
+                        </div>
+                        <div id="whisper-challenge-contact-help" class="whisper-ui-contact-help">
+                            请选择你要去诱导的联系人。
+                        </div>
+                    </div>
+
+                    <div class="whisper-ui-rule-box">
+                        <i class="ph-fill ph-info whisper-ui-rule-icon"></i>
+                        <div class="whisper-ui-rule-content">
+                            <strong>✦ 嘘...不能说的词 ✦</strong>
+                            <div id="whisper-challenge-forbidden-list" class="whisper-ui-chip-list">
+                                <span class="whisper-ui-chip">傻</span>
+                                <span class="whisper-ui-chip">蠢</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="whisper-ui-progress-wrap">
+                        <div class="whisper-ui-progress-head">
+                            <span id="whisper-challenge-status-text">开始挑战后开始倒计时</span>
+                            <span id="whisper-challenge-countdown-text">10:00</span>
+                        </div>
+                        <div class="whisper-ui-progress-track">
+                            <div id="whisper-challenge-progress-bar" class="whisper-ui-progress-bar"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="whisper-ui-actions">
+                    <button id="whisper-challenge-start-btn" class="whisper-ui-action-button whisper-ui-action-primary">
+                        <i class="ph-fill ph-target"></i>
+                        <span>开始挑战</span>
+                    </button>
+                    <button id="whisper-challenge-go-btn" class="whisper-ui-action-button whisper-ui-action-secondary">
+                        <i class="ph-fill ph-paper-plane-tilt"></i>
+                        <span>出发去聊天 ♡</span>
+                    </button>
+                </div>
+
+                <div class="whisper-ui-section-title">
+                    <span>✦ 往期回忆 ✦</span>
+                    <i class="ph ph-faders"></i>
+                </div>
+
+                <div id="whisper-challenge-history-empty" class="whisper-ui-empty-state">
+                    暂无挑战记录，完成一次任务后会显示在这里。
+                </div>
+                <div id="whisper-challenge-history-list"></div>
+            </div>
+        </div>
+    </div>
+
     <div id="family-card-detail-modal" class="modal hidden" style="z-index: 320; align-items: center;">
         <div class="modal-content">
             <div class="modal-header">
@@ -6660,6 +7597,8 @@
     <script src="js/meeting.js"></script>
     <script src="js/apps.js"></script>
     <script src="js/icity.js"></script>
+    <script src="js/garden_app.js?v=10"></script>
+    <script src="js/mood_flora.js"></script>
     <script src="js/home.js"></script>
     <script src="js/calendar_app.js"></script>
     <script src="js/music_app_screen.js"></script>
@@ -6669,6 +7608,7 @@
     <script src="js/chat/03-ai-engine.js"></script>
     <script src="js/chat/04-media-init.js"></script>
     <script src="js/chat/05-addressbook-friends.js"></script>
+    <script src="js/offline_push_sync.js"></script>
     <script src="js/shopping.js"></script>
     <script src="js/forum.js"></script>
     <script src="js/games.js"></script>
@@ -6676,9 +7616,11 @@
     <script src="js/lookus.js"></script>
     <script src="js/novelai.js"></script>
     <script src="js/settings_v3.js"></script>
+    <script src="js/offline_push_settings_ui.js"></script>
     <script src="js/album.js"></script>
     <script src="js/screen_share.js"></script>
     <script src="js/changelog.js"></script>
+    <script src="js/whisper_challenge.js"></script>
 <!-- 在 index.html 中找到 <!-- 编辑记忆弹窗 --> 附近，添加以下代码 -->
 
             <!-- 编辑消息弹窗 -->
@@ -6970,4 +7912,8 @@
 
 </body>
 </html>
+
+
+
+
 

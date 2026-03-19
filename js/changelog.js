@@ -1,23 +1,25 @@
-/**
+﻿/**
  * 更新日志弹窗配置
  * 每次更新时：
- * 1. 修改 CHANGELOG_VERSION （修改后所有用户会再次看到弹窗）
+ * 1. 修改 CHANGELOG_VERSION（修改后所有用户会再次看到弹窗）
  * 2. 修改 CHANGELOG_CONTENT 里的更新内容
  */
 
-const CHANGELOG_VERSION = 'v1.0.2'; // 修改这个版本号来让弹窗再次显示
+const CHANGELOG_VERSION = 'v1.0.3'; // 修改这个版本号来让弹窗再次显示
 const CHANGELOG_CONTENT = `
     <h2 style="margin-top: 0; margin-bottom: 15px; text-align: center; color: #333;">更新日志</h2>
     <div style="font-size: 14px; color: #666; margin-bottom: 15px;">版本: ${CHANGELOG_VERSION}</div>
     <div style="width: 100%; aspect-ratio: 1 / 1; overflow: hidden; border-radius: 8px; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; background: #f5f5f5;">
-    <img src="https://i.postimg.cc/25Hvq8WG/IMG-6801.jpg" alt="更新图片" style="max-width: 100%; height: auto; object-fit: contain; display: block;">
+        <img src="https://i.postimg.cc/0yFjXpfZ/IMG_6893.jpg" alt="更新图片" style="max-width: 100%; height: auto; object-fit: contain; display: block;">
     </div>
-    <div style="font-size: 15px; color: #444; line-height: 1.6;">
-        <ul style="padding-left: 20px; margin: 0;">
-            <li style="margin-bottom: 8px;">小美亚检测到你上班上学玩手机很累，给你带来了今天的更新</li>
-            <li style="margin-bottom: 8px;">新增屏幕共享功能在聊天功能菜单中，还没具体测试有bug上报zz！</li>
-            <li style="margin-bottom: 8px;">新增日历应用在第二页，日历页面下方三个点按钮可以添加日程，课程表页面点击右上角可以导入课程表的json文件，文件格式我会发在群文件</li>
-            <li style="margin-bottom: 8px;">(✧∇✧)</li>
+    <div style="font-size: 15px; color: #444; line-height: 1.7;">
+        <ul style="padding-left: 22px; margin: 0; display: flex; flex-direction: column; gap: 10px;">
+            <li style="margin-bottom: 0; word-break: break-word;">激活码改成用设备码一机一码，qq带设备码找我</li>
+            <li style="margin-bottom: 0; word-break: break-word;">新增家园系统，底栏第一个按钮可以去别的地方，顶栏头像可以选择联系人和设置动图，点击联系人形象可以摸头喂食和派遣</li>
+            <li style="margin-bottom: 0; word-break: break-word;">新增查看token数，在聊天设置页面</li>
+            <li style="margin-bottom: 0; word-break: break-word;">新增离线时触发主动发消息功能，但是我没测试多个联系人使用时会不会有bug，需要用render部署一下，有需要的qq找我我来教</li>
+            <li style="margin-bottom: 0; word-break: break-word;">修改了一下见面的ui和之前的bug，之前的自定义css可能会用不了了</li>
+            <li style="margin-bottom: 0; word-break: break-word;">音乐的退出按钮图片可以点那个铃铛按钮自定义了，然后之前的音乐接口失效了换了一下</li>
         </ul>
     </div>
     <div style="margin-top: 20px; text-align: center;">
@@ -26,16 +28,14 @@ const CHANGELOG_CONTENT = `
 `;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 检查本地存储中是否已经有该版本的已读记录
     const hasSeenChangelog = localStorage.getItem(`changelog_seen_${CHANGELOG_VERSION}`);
-    
+
     if (!hasSeenChangelog) {
         showChangelogPopup();
     }
 });
 
 function showChangelogPopup() {
-    // 创建遮罩层
     const overlay = document.createElement('div');
     overlay.id = 'changelog-overlay';
     overlay.style.cssText = `
@@ -53,21 +53,24 @@ function showChangelogPopup() {
         transition: opacity 0.3s ease;
     `;
 
-    // 创建弹窗容器
     const popup = document.createElement('div');
     popup.style.cssText = `
         background: #fff;
         border-radius: 16px;
-        width: 80%;
-        max-width: 320px;
+        width: 88%;
+        max-width: 340px;
+        max-height: 82vh;
         padding: 24px;
         position: relative;
         box-shadow: 0 10px 25px rgba(0,0,0,0.2);
         transform: scale(0.9);
         transition: transform 0.3s ease;
+        overflow-y: auto;
+        box-sizing: border-box;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
     `;
 
-    // 创建关闭按钮 (右上角 X)
     const closeBtn = document.createElement('button');
     closeBtn.innerHTML = '&times;';
     closeBtn.style.cssText = `
@@ -82,8 +85,7 @@ function showChangelogPopup() {
         padding: 0;
         line-height: 1;
     `;
-    
-    // 关闭弹窗的函数
+
     const closePopup = () => {
         overlay.style.opacity = '0';
         popup.style.transform = 'scale(0.9)';
@@ -92,30 +94,25 @@ function showChangelogPopup() {
                 document.body.removeChild(overlay);
             }
         }, 300);
-        // 记录该版本已读
         localStorage.setItem(`changelog_seen_${CHANGELOG_VERSION}`, 'true');
     };
 
     closeBtn.onclick = closePopup;
 
-    // 创建内容区
     const contentDiv = document.createElement('div');
     contentDiv.innerHTML = CHANGELOG_CONTENT;
 
-    // 组装并添加到页面
     popup.appendChild(closeBtn);
     popup.appendChild(contentDiv);
     overlay.appendChild(popup);
     document.body.appendChild(overlay);
 
-    // 绑定 "我知道了" 按钮的点击事件
     setTimeout(() => {
         const okBtn = document.getElementById('changelog-ok-btn');
         if (okBtn) {
             okBtn.onclick = closePopup;
         }
-        
-        // 动画显示
+
         overlay.style.opacity = '1';
         popup.style.transform = 'scale(1)';
     }, 10);

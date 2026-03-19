@@ -905,13 +905,14 @@
     };
 
     const MUSIC_V2_DEFAULT_COVER = 'https://placehold.co/300x300/e5e7eb/111827?text=Music';
-    const MUSIC_V2_SEARCH_PRIMARY = 'https://163api.qijieya.cn/cloudsearch';
-    const MUSIC_V2_SEARCH_FALLBACK = 'https://163api.qijieya.cn/search';
-    const MUSIC_V2_METING_API = 'https://api.qijieya.cn/meting/';
-    const MUSIC_V2_BUGPK_API = 'https://api.bugpk.com/api/163_music';
-    const MUSIC_V2_LYRIC_API = 'https://163api.qijieya.cn/lyric';
-    const MUSIC_V2_PLAYLIST_DETAIL_API = 'https://163api.qijieya.cn/playlist/detail';
-    const MUSIC_V2_PLAYLIST_TRACK_ALL_API = 'https://163api.qijieya.cn/playlist/track/all';
+    const MUSIC_V2_DEFAULT_BACK_BUTTON_IMAGE = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80';
+    const MUSIC_V2_API_BASE = 'https://zm.armoe.cn';
+    const MUSIC_V2_SEARCH_PRIMARY = MUSIC_V2_API_BASE + '/cloudsearch';
+    const MUSIC_V2_SEARCH_FALLBACK = MUSIC_V2_API_BASE + '/search';
+    const MUSIC_V2_SONG_URL_API = MUSIC_V2_API_BASE + '/song/url/v1';
+    const MUSIC_V2_LYRIC_API = MUSIC_V2_API_BASE + '/lyric';
+    const MUSIC_V2_PLAYLIST_DETAIL_API = MUSIC_V2_API_BASE + '/playlist/detail';
+    const MUSIC_V2_PLAYLIST_TRACK_ALL_API = MUSIC_V2_API_BASE + '/playlist/track/all';
     const MUSIC_V2_IMPORT_PAGE_LIMIT = 100;
     const MUSIC_V2_IMPORT_MAX_PAGES = 60;
     const MUSIC_V2_PLAY_COMPLETE_RATIO_THRESHOLD = 0.9;
@@ -1478,6 +1479,7 @@
         if (typeof music.title !== 'string' || !music.title) music.title = 'Happy Together';
         if (typeof music.artist !== 'string' || !music.artist) music.artist = 'Maximillian';
         if (typeof music.cover !== 'string' || !music.cover) music.cover = MUSIC_V2_DEFAULT_COVER;
+        if (typeof music.backButtonImage !== 'string') music.backButtonImage = '';
         if (typeof music.src !== 'string') music.src = '';
         if (!Array.isArray(music.lyricsData)) music.lyricsData = [];
         if (typeof music.lyricsFile !== 'string') music.lyricsFile = '';
@@ -1635,6 +1637,79 @@
         musicV2EnsureGamificationModel(music);
         musicV2SyncLegacyPlaylist(music);
         if (typeof saveConfig === 'function') saveConfig();
+    }
+
+    function musicV2GetBackButtonImage() {
+        const music = musicV2EnsureModel();
+        const imageUrl = String(music.backButtonImage || '').trim();
+        return imageUrl || MUSIC_V2_DEFAULT_BACK_BUTTON_IMAGE;
+    }
+
+    function musicV2ApplyBackButtonImage(rootArg) {
+        const root = rootArg || musicV2Runtime.root || getMusicRoot();
+        if (!root) return;
+        const profilePic = root.querySelector('.profile-pic');
+        if (!profilePic) return;
+        const imageUrl = musicV2GetBackButtonImage();
+        profilePic.style.backgroundImage = 'url("' + imageUrl.replace(/"/g, '\\"') + '")';
+        profilePic.style.backgroundPosition = 'center';
+        profilePic.style.backgroundSize = 'cover';
+        profilePic.style.backgroundRepeat = 'no-repeat';
+    }
+
+    function musicV2SyncBackButtonPanel() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const preview = root.querySelector('#music-v2-back-button-preview');
+        const urlInput = root.querySelector('#music-v2-back-button-url');
+        const currentValue = String(musicV2EnsureModel().backButtonImage || '').trim();
+        const imageUrl = musicV2GetBackButtonImage();
+        if (preview) {
+            preview.style.backgroundImage = 'url("' + imageUrl.replace(/"/g, '\\"') + '")';
+            preview.style.backgroundPosition = 'center';
+            preview.style.backgroundSize = 'cover';
+            preview.style.backgroundRepeat = 'no-repeat';
+        }
+        if (urlInput) {
+            urlInput.value = currentValue && !/^data:/i.test(currentValue) ? currentValue : '';
+        }
+    }
+
+    function musicV2ShowBackButtonPanel() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const mask = root.querySelector('#music-v2-back-button-mask');
+        if (!mask) return;
+        musicV2SyncBackButtonPanel();
+        mask.classList.add('active');
+    }
+
+    function musicV2HideBackButtonPanel() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const mask = root.querySelector('#music-v2-back-button-mask');
+        if (mask) mask.classList.remove('active');
+    }
+
+    function musicV2SaveBackButtonImage(imageUrl) {
+        const music = musicV2EnsureModel();
+        music.backButtonImage = String(imageUrl || '').trim();
+        musicV2Persist();
+        musicV2ApplyBackButtonImage();
+        musicV2SyncBackButtonPanel();
+    }
+
+    function musicV2ValidateBackButtonUrl(imageUrl) {
+        const src = String(imageUrl || '').trim();
+        if (!src) return Promise.reject(new Error('empty_image_url'));
+        if (/^javascript:/i.test(src)) return Promise.reject(new Error('invalid_image_url'));
+        return new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(src);
+            image.onerror = () => reject(new Error('image_load_failed'));
+            image.referrerPolicy = 'no-referrer';
+            image.src = src;
+        });
     }
 
     function musicV2GetPlaylist(playlistId) {
@@ -3021,33 +3096,18 @@
         };
     }
 
-    function musicV2ParseMeting(data) {
-        const target = Array.isArray(data) ? data[0] : data;
-        if (!target || typeof target !== 'object') return null;
-        const src = target.url || target.src || '';
-        if (!src) return null;
-        return {
-            src: src,
-            cover: target.pic || target.cover || '',
-            provider: 'meting'
-        };
-    }
-
-    function musicV2ParseBugpk(data) {
+    function musicV2ParseSongUrl(data) {
         if (!data || typeof data !== 'object') return null;
-        let target = null;
-        if (Array.isArray(data.data) && data.data.length > 0) target = data.data[0];
-        else if (data.data && typeof data.data === 'object') target = data.data;
-        else if (Array.isArray(data.result) && data.result.length > 0) target = data.result[0];
-        else if (data.result && typeof data.result === 'object') target = data.result;
-        else target = data;
+        const target = Array.isArray(data.data) && data.data.length > 0
+            ? data.data[0]
+            : (Array.isArray(data.urls) && data.urls.length > 0 ? data.urls[0] : null);
         if (!target || typeof target !== 'object') return null;
-        const src = target.url || target.src || '';
+        const src = String(target.url || target.src || '').trim();
         if (!src) return null;
         return {
             src: src,
-            cover: target.pic || target.cover || '',
-            provider: 'bugpk'
+            cover: '',
+            provider: 'zm-armoe'
         };
     }
 
@@ -3068,15 +3128,13 @@
 
         let resolved = null;
         try {
-            const metingUrl = MUSIC_V2_METING_API + '?server=netease&type=song&id=' + encodeURIComponent(sid) + '&_t=' + Date.now();
-            resolved = musicV2ParseMeting(await musicV2FetchJson(metingUrl));
+            const songUrl = MUSIC_V2_SONG_URL_API
+                + '?id=' + encodeURIComponent(sid)
+                + '&level=standard'
+                + '&_t=' + Date.now();
+            resolved = musicV2ParseSongUrl(await musicV2FetchJson(songUrl));
         } catch (error) {
             resolved = null;
-        }
-
-        if (!resolved) {
-            const bugpkUrl = MUSIC_V2_BUGPK_API + '?ids=' + encodeURIComponent(sid) + '&level=standard&type=json&_t=' + Date.now();
-            resolved = musicV2ParseBugpk(await musicV2FetchJson(bugpkUrl));
         }
 
         if (!resolved || !resolved.src) throw new Error('resolve_failed');
@@ -4889,6 +4947,46 @@
             musicV2Search(input ? input.value : '');
             return;
         }
+        if (action === 'open-back-button-panel') {
+            musicV2ShowBackButtonPanel();
+            return;
+        }
+        if (action === 'close-back-button-panel') {
+            musicV2HideBackButtonPanel();
+            return;
+        }
+        if (action === 'choose-back-button-file') {
+            const input = root.querySelector('#music-v2-back-button-file');
+            if (!input) {
+                musicV2Toast('图片上传不可用');
+                return;
+            }
+            input.value = '';
+            input.click();
+            return;
+        }
+        if (action === 'apply-back-button-url') {
+            const input = root.querySelector('#music-v2-back-button-url');
+            const imageUrl = input ? String(input.value || '').trim() : '';
+            if (!imageUrl) {
+                musicV2Toast('请输入图片 URL');
+                return;
+            }
+            musicV2ValidateBackButtonUrl(imageUrl).then((validUrl) => {
+                musicV2SaveBackButtonImage(validUrl);
+                musicV2HideBackButtonPanel();
+                musicV2Toast('返回按钮图片已更新');
+            }).catch(() => {
+                musicV2Toast('图片 URL 无法加载');
+            });
+            return;
+        }
+        if (action === 'reset-back-button-image') {
+            musicV2SaveBackButtonImage('');
+            musicV2HideBackButtonPanel();
+            musicV2Toast('已恢复默认图片');
+            return;
+        }
         if (action === 'upload-playlist-cover') {
             const playlistId = actionNode.getAttribute('data-playlist-id') || musicV2Runtime.activePlaylistId;
             if (!playlistId) {
@@ -5723,6 +5821,38 @@
             .music-v2-modal-btn {
                 border: none; background: #e5e5ea; color: #000; border-radius: 12px; padding: 7px 10px; font-size: 12px;
             }
+            .music-v2-back-button-card {
+                width: min(100%, 360px);
+                max-width: 360px;
+                padding: 14px;
+            }
+            .music-v2-back-button-preview-wrap {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 14px;
+            }
+            .music-v2-back-button-preview {
+                width: 64px;
+                height: 64px;
+                border-radius: 50%;
+                border: 3px solid #fff;
+                box-shadow: 0 8px 18px rgba(0,0,0,0.08);
+                background: center / cover no-repeat #f2f2f7;
+            }
+            .music-v2-back-button-tip {
+                font-size: 12px;
+                line-height: 1.5;
+                color: var(--text-gray);
+                text-align: center;
+            }
+            .music-v2-back-button-actions {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+                margin-top: 10px;
+            }
             .music-v2-picker-item {
                 width: 100%; border: none; background: #fff; border-radius: 14px; padding: 8px;
                 display: flex; align-items: center; gap: 10px; margin-bottom: 8px; text-align: left;
@@ -5862,6 +5992,13 @@
 
     function musicV2EnsureFeatureNodes(root) {
         const body = root.querySelector('.music-v2-body') || root;
+        const bellBtn = root.querySelector('.top-bar .ri-notification-3-line');
+        if (bellBtn) {
+            bellBtn.classList.add('clickable');
+            bellBtn.setAttribute('data-musicv2-action', 'open-back-button-panel');
+            bellBtn.setAttribute('title', '更换左上角返回按钮图片');
+            bellBtn.setAttribute('aria-label', '更换左上角返回按钮图片');
+        }
         const songView = root.querySelector('#song-view');
         if (songView) {
             const ensureLyricsPanel = function (container, panelId, stateId, scrollId, listId) {
@@ -6073,6 +6210,27 @@
             body.appendChild(playlistMask);
         }
 
+        if (!root.querySelector('#music-v2-back-button-mask')) {
+            const backButtonMask = document.createElement('div');
+            backButtonMask.id = 'music-v2-back-button-mask';
+            backButtonMask.className = 'music-v2-modal-mask music-v2-summary-mask';
+            backButtonMask.innerHTML =
+                '<div class="music-v2-modal-card music-v2-back-button-card">' +
+                    '<div class="music-v2-modal-head"><span>更换返回按钮图片</span><button class="music-v2-modal-btn" data-musicv2-action="close-back-button-panel">关闭</button></div>' +
+                    '<div class="music-v2-back-button-preview-wrap">' +
+                        '<div id="music-v2-back-button-preview" class="music-v2-back-button-preview"></div>' +
+                        '<div class="music-v2-back-button-tip">点击铃铛后，可在这里上传本地图片或粘贴图片 URL 来替换左上角返回按钮图片。</div>' +
+                    '</div>' +
+                    '<div class="music-v2-create-row"><label>图片 URL</label><input id="music-v2-back-button-url" type="text" placeholder="粘贴图片链接，例如 https://example.com/avatar.png"></div>' +
+                    '<div class="music-v2-back-button-actions">' +
+                        '<button class="music-v2-modal-btn" data-musicv2-action="choose-back-button-file">本地上传</button>' +
+                        '<button class="music-v2-action-btn" data-musicv2-action="apply-back-button-url">使用 URL</button>' +
+                    '</div>' +
+                    '<button class="music-v2-modal-btn" data-musicv2-action="reset-back-button-image" style="width:100%; margin-top:10px;">恢复默认图片</button>' +
+                '</div>';
+            body.appendChild(backButtonMask);
+        }
+
         if (!root.querySelector('#music-v2-playlist-cover-file')) {
             const coverInput = document.createElement('input');
             coverInput.id = 'music-v2-playlist-cover-file';
@@ -6080,6 +6238,15 @@
             coverInput.accept = 'image/*';
             coverInput.style.display = 'none';
             body.appendChild(coverInput);
+        }
+
+        if (!root.querySelector('#music-v2-back-button-file')) {
+            const backButtonInput = document.createElement('input');
+            backButtonInput.id = 'music-v2-back-button-file';
+            backButtonInput.type = 'file';
+            backButtonInput.accept = 'image/*';
+            backButtonInput.style.display = 'none';
+            body.appendChild(backButtonInput);
         }
 
         const createFile = root.querySelector('#music-v2-create-cover-file');
@@ -6146,6 +6313,26 @@
             });
         }
 
+        const backButtonFile = root.querySelector('#music-v2-back-button-file');
+        if (backButtonFile && !backButtonFile.dataset.musicV2Bound) {
+            backButtonFile.dataset.musicV2Bound = '1';
+            backButtonFile.addEventListener('change', async (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                try {
+                    const imageDataUrl = String(await musicV2ReadDataUrl(file) || '');
+                    if (!imageDataUrl) throw new Error('empty_back_button_image');
+                    musicV2SaveBackButtonImage(imageDataUrl);
+                    musicV2HideBackButtonPanel();
+                    musicV2Toast('返回按钮图片已更新');
+                } catch (error) {
+                    musicV2Toast('图片读取失败');
+                } finally {
+                    backButtonFile.value = '';
+                }
+            });
+        }
+
         const importMask = root.querySelector('#music-v2-import-mask');
         if (importMask && !importMask.dataset.musicV2Bound) {
             importMask.dataset.musicV2Bound = '1';
@@ -6173,6 +6360,27 @@
                 if (e.target === currentPlaylistMask) {
                     musicV2HideCurrentPlaylistPanel();
                 }
+            });
+        }
+
+        const backButtonMask = root.querySelector('#music-v2-back-button-mask');
+        if (backButtonMask && !backButtonMask.dataset.musicV2Bound) {
+            backButtonMask.dataset.musicV2Bound = '1';
+            backButtonMask.addEventListener('click', (e) => {
+                if (e.target === backButtonMask) {
+                    musicV2HideBackButtonPanel();
+                }
+            });
+        }
+
+        const backButtonUrl = root.querySelector('#music-v2-back-button-url');
+        if (backButtonUrl && !backButtonUrl.dataset.musicV2Bound) {
+            backButtonUrl.dataset.musicV2Bound = '1';
+            backButtonUrl.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                if (e.cancelable) e.preventDefault();
+                const submitBtn = root.querySelector('[data-musicv2-action="apply-back-button-url"]');
+                if (submitBtn) submitBtn.click();
             });
         }
 
@@ -6492,6 +6700,8 @@
                 appScreen.classList.add('hidden');
             });
         }
+
+        musicV2ApplyBackButtonImage(root);
 
         musicV2InitFeatures(root);
     }

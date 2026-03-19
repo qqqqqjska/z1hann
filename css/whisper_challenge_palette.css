@@ -1,0 +1,116 @@
+﻿/* Whisper Challenge palette overrides (#D5EAE3 #F8F4E9 #FDD3D5 #775C55) */
+.whisper-ui-app-shell {
+    background: #f8f4e9;
+    background-image:
+        radial-gradient(circle at 12% 12%, rgba(213, 234, 227, 0.72) 0%, transparent 34%),
+        radial-gradient(circle at 88% 16%, rgba(253, 211, 213, 0.48) 0%, transparent 28%),
+        linear-gradient(180deg, #f8f4e9 0%, #f8f4e9 100%);
+}
+
+.whisper-ui-app {
+    --whisper-accent: #775c55;
+    --whisper-bg: #f8f4e9;
+    --whisper-text: #775c55;
+    --whisper-muted: rgba(119, 92, 85, 0.74);
+    --whisper-light-bg: #d5eae3;
+    --whisper-soft-bg: rgba(252, 250, 245, 0.94);
+    --whisper-pink: #fdd3d5;
+    --whisper-shadow: 0 12px 28px rgba(119, 92, 85, 0.1);
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
+}
+
+.whisper-ui-icon-btn {
+    border: 2px solid rgba(213, 234, 227, 0.95);
+    background: rgba(248, 244, 233, 0.9);
+}
+
+.whisper-ui-mission-card::before {
+    top: 56px;
+    right: 20px;
+    opacity: 0.36;
+    color: rgba(213, 234, 227, 0.95);
+    z-index: 0;
+}
+
+.whisper-ui-card-top,
+.whisper-ui-mission-title,
+.whisper-ui-mission-text,
+.whisper-ui-meta-grid,
+.whisper-ui-contact-box,
+.whisper-ui-rule-box,
+.whisper-ui-progress-wrap {
+    position: relative;
+    z-index: 1;
+}
+
+.whisper-ui-typo-zh {
+    text-shadow: 2px 2px 0 rgba(248, 244, 233, 0.9);
+}
+
+.whisper-ui-tag-pill,
+.whisper-ui-status-pill {
+    border-radius: 12px;
+}
+
+.whisper-ui-status-pill {
+    position: relative;
+    z-index: 2;
+}
+
+.whisper-ui-tag-pill {
+    transform: rotate(-1deg);
+}
+
+.whisper-ui-status-pill.is-idle {
+    background: #f8f4e9;
+}
+
+.whisper-ui-status-pill.is-active {
+    background: #d5eae3;
+}
+
+.whisper-ui-status-pill.is-success {
+    background: #d5eae3;
+}
+
+.whisper-ui-status-pill.is-fail {
+    background: #fdd3d5;
+}
+
+.whisper-ui-meta-block {
+    background: rgba(252, 250, 245, 0.9);
+}
+
+.whisper-ui-contact-box {
+    background: rgba(252, 250, 245, 0.88);
+    box-shadow: inset 0 1px 0 rgba(252, 250, 245, 0.92);
+}
+
+.whisper-ui-empty-state,
+.whisper-ui-history-card {
+    background: rgba(252, 250, 245, 0.9);
+}
+
+.whisper-ui-highlight {
+    background: var(--whisper-text);
+    color: #f8f4e9;
+}
+
+.whisper-ui-action-primary {
+    color: #f8f4e9;
+    background: #775c55;
+    border: 2px solid rgba(119, 92, 85, 0.3);
+    box-shadow: 0 6px 0 rgba(119, 92, 85, 0.58);
+}
+
+.whisper-ui-action-primary:active {
+    transform: translateY(6px) scale(0.98);
+    box-shadow: 0 0 0 rgba(119, 92, 85, 0.58);
+}
+
+.whisper-ui-action-secondary {
+    color: #775c55;
+    background: rgba(213, 234, 227, 0.75);
+    border: 2px solid rgba(213, 234, 227, 1);
+    box-shadow: 0 6px 14px rgba(119, 92, 85, 0.08);
+}

@@ -616,6 +616,13 @@ window.parseStartForumLivePayload = function(rawPayload) {
 function sendMessage(text, isUser, type = 'text', description = null, targetContactId = null) {
     const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
     if (!contactId) return null;
+
+    if (isUser && type === 'text' && window.WhisperChallenge && typeof window.WhisperChallenge.checkUserMessage === 'function') {
+        const whisperResult = window.WhisperChallenge.checkUserMessage(text, { contactId, type });
+        if (whisperResult && whisperResult.allowed === false) {
+            return null;
+        }
+    }
     
     if (!window.iphoneSimState.chatHistory[contactId]) {
         window.iphoneSimState.chatHistory[contactId] = [];
@@ -641,6 +648,13 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     }
     
     window.iphoneSimState.chatHistory[contactId].push(msg);
+    if (type === 'text' && window.FloraEngine && typeof window.FloraEngine.analyzeChat === 'function') {
+        window.FloraEngine.analyzeChat(text, !isUser, { contactId, type });
+    }
+    if (!isUser && type === 'text' && window.WhisperChallenge && typeof window.WhisperChallenge.checkAiMessage === 'function') {
+        window.WhisperChallenge.checkAiMessage(text, { contactId, type });
+    }
+
     if (!isUser && type === 'music_listen_invite' && typeof window.openMusicListenInvitePrompt === 'function') {
         try {
             const inviteData = typeof text === 'string' ? JSON.parse(text) : (text || {});
@@ -685,6 +699,9 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (contact) {
+        if (typeof window.ensureContactRestWindowFields === 'function') {
+            window.ensureContactRestWindowFields(contact);
+        }
         if (contact.autoItineraryEnabled) {
             if (typeof contact.messagesSinceLastItinerary !== 'number') {
                 contact.messagesSinceLastItinerary = 0;
@@ -699,6 +716,9 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
             }
         } else {
             contact.messagesSinceLastItinerary = 0;
+        }
+        if (!isUser && typeof window.updateContactRestStateOnAssistantMessage === 'function') {
+            window.updateContactRestStateOnAssistantMessage(contactId, text, type, msg.time);
         }
     }
 

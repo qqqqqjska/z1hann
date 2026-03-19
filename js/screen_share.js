@@ -123,7 +123,7 @@ function initScreenShare() {
 
         try {
             setFloatingChatGeneratingState(true, contactId);
-            await window.generateAiReply(null, contactId);
+            await window.generateAiReply(null, contactId, { triggerSource: 'manual' });
         } finally {
             setFloatingChatGeneratingState(false, contactId);
         }

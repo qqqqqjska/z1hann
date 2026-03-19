@@ -26,8 +26,9 @@ let homeScreenData = [
     
     // 其他 App (放在第4行: Index 12-15)
     { index: 24, type: 'app', name: 'icity', iconClass: 'fas fa-book', color: '#333', appId: 'icity-app' },
-    { index: 25, type: 'app', name: 'LookUS', iconClass: 'fas fa-eye', color: '#FF2D55', appId: 'lookus-app' },
+    { index: 25, type: 'app', name: '家园', iconClass: 'fas fa-house-chimney', color: '#F59E0B', appId: 'garden-app' },
     { index: 26, type: 'app', name: '日历', iconClass: 'fas fa-calendar-alt', color: '#FF3B30', appId: 'calendar-app' },
+    { index: 28, type: 'app', name: 'LookUS', iconClass: 'fas fa-eye', color: '#FF2D55', appId: 'lookus-app' },
     { index: 10, type: 'app', name: '微信', iconClass: 'fab fa-weixin', color: '#07C160', appId: 'wechat-app' },
     { index: 11, type: 'app', name: '世界书', iconClass: 'fas fa-globe', color: '#007AFF', appId: 'worldbook-app' },
     { index: 13, type: 'app', name: '银行', iconClass: 'fas fa-building-columns', color: '#1E66F5', appId: 'bank-app' },
@@ -62,6 +63,31 @@ function generateId() {
     return Math.random().toString(36).substr(2, 9);
 }
 
+function isSlotOccupied(slotIndex) {
+    return homeScreenData.some(item => {
+        const slots = getOccupiedSlots(item.index, item.size || '1x1');
+        return slots && slots.includes(slotIndex);
+    });
+}
+
+function findFirstAvailableSlot(preferredStart = 0, preferredEnd = SLOTS_PER_PAGE * totalPages, fallbackToWholeBoard = true) {
+    for (let i = preferredStart; i < preferredEnd; i++) {
+        if (!isSlotOccupied(i)) {
+            return i;
+        }
+    }
+
+    if (fallbackToWholeBoard) {
+        for (let i = 0; i < SLOTS_PER_PAGE * totalPages; i++) {
+            if (!isSlotOccupied(i)) {
+                return i;
+            }
+        }
+    }
+
+    return null;
+}
+
 function initGrid() {
     // 救援行动：先把系统组件搬回仓库，防止丢失
     systemWidgets.forEach(sysWidget => {
@@ -92,71 +118,55 @@ function initGrid() {
         });
     }
 
+    // 强制添加家园应用 (如果不存在)
+    if (!homeScreenData.some(item => item.appId === 'garden-app')) {
+        const targetIndex = findFirstAvailableSlot(25, SLOTS_PER_PAGE * 2);
+
+        if (targetIndex !== null) {
+            homeScreenData.push({
+                index: targetIndex,
+                type: 'app',
+                name: '家园',
+                iconClass: 'fas fa-house-chimney',
+                color: '#F59E0B',
+                appId: 'garden-app',
+                _internalId: generateId()
+            });
+        }
+    }
+
     // 强制添加 LookUS 应用 (如果不存在)
     if (!homeScreenData.some(item => item.appId === 'lookus-app')) {
-        // 查找空闲位置 (优先 index 25)
-        let targetIndex = 25;
-        const isOccupied = (idx) => homeScreenData.some(item => {
-            const slots = getOccupiedSlots(item.index, item.size || '1x1');
-            return slots && slots.includes(idx);
-        });
+        const targetIndex = findFirstAvailableSlot(28, SLOTS_PER_PAGE * 2);
 
-        if (isOccupied(targetIndex)) {
-            // 如果 13 被占用，寻找下一个空位
-            for (let i = 0; i < SLOTS_PER_PAGE * totalPages; i++) {
-                if (!isOccupied(i)) {
-                    targetIndex = i;
-                    break;
-                }
-            }
+        if (targetIndex !== null) {
+            homeScreenData.push({ 
+                index: targetIndex, 
+                type: 'app', 
+                name: 'LookUS', 
+                iconClass: 'fas fa-eye', 
+                color: '#FF2D55', 
+                appId: 'lookus-app',
+                _internalId: generateId()
+            });
         }
-
-        homeScreenData.push({ 
-            index: targetIndex, 
-            type: 'app', 
-            name: 'LookUS', 
-            iconClass: 'fas fa-eye', 
-            color: '#FF2D55', 
-            appId: 'lookus-app',
-            _internalId: generateId()
-        });
     }
 
     // 强制添加日历应用 (如果不存在)
     if (!homeScreenData.some(item => item.appId === 'calendar-app')) {
-        let targetIndex = 26;
-        const isOccupied = (idx) => homeScreenData.some(item => {
-            const slots = getOccupiedSlots(item.index, item.size || '1x1');
-            return slots && slots.includes(idx);
-        });
+        const targetIndex = findFirstAvailableSlot(26, SLOTS_PER_PAGE * 2);
 
-        if (isOccupied(targetIndex)) {
-            for (let i = 24; i < SLOTS_PER_PAGE * 2; i++) {
-                if (!isOccupied(i)) {
-                    targetIndex = i;
-                    break;
-                }
-            }
+        if (targetIndex !== null) {
+            homeScreenData.push({
+                index: targetIndex,
+                type: 'app',
+                name: '日历',
+                iconClass: 'fas fa-calendar-alt',
+                color: '#FF3B30',
+                appId: 'calendar-app',
+                _internalId: generateId()
+            });
         }
-
-        if (isOccupied(targetIndex)) {
-            for (let i = 0; i < SLOTS_PER_PAGE * totalPages; i++) {
-                if (!isOccupied(i)) {
-                    targetIndex = i;
-                    break;
-                }
-            }
-        }
-
-        homeScreenData.push({
-            index: targetIndex,
-            type: 'app',
-            name: '日历',
-            iconClass: 'fas fa-calendar-alt',
-            color: '#FF3B30',
-            appId: 'calendar-app',
-            _internalId: generateId()
-        });
     }
 
     // 强制添加银行应用 (如果不存在)
@@ -235,7 +245,7 @@ function initGrid() {
 }
 
 function checkAndShowUpdateModal() {
-    const currentVersion = '1.2'; // 布局版本号
+    const currentVersion = '1.3'; // 布局版本号
     const savedVersion = localStorage.getItem('layout_version');
     
     // 如果没有版本号或者版本号不匹配，显示弹窗
@@ -250,7 +260,7 @@ function checkAndShowUpdateModal() {
             <div style="font-size: 40px; margin-bottom: 15px;">📱</div>
             <h3 style="margin: 0 0 10px 0; font-size: 18px; font-weight: 600;">系统布局更新</h3>
             <p style="margin: 0 0 20px 0; color: #666; font-size: 14px; line-height: 1.5;">
-                桌面布局已更新（iCity 移至第二页）。<br>
+                桌面布局已更新（第二页新增了家园应用）。<br>
                 请点击下方按钮恢复默认布局以生效。
             </p>
             <div style="display: flex; flex-direction: column; gap: 10px;">
@@ -266,7 +276,8 @@ function checkAndShowUpdateModal() {
             // Partial Reset: Keep Page 1 (indices < 24), Reset Page 2 (indices >= 24)
             // Default Page 2 items
             const defaultPage2 = [
-                { index: 24, type: 'app', name: 'icity', iconClass: 'fas fa-book', color: '#333', appId: 'icity-app', _internalId: generateId() }
+                { index: 24, type: 'app', name: 'icity', iconClass: 'fas fa-book', color: '#333', appId: 'icity-app', _internalId: generateId() },
+                { index: 25, type: 'app', name: '家园', iconClass: 'fas fa-house-chimney', color: '#F59E0B', appId: 'garden-app', _internalId: generateId() }
             ];
             
             // Filter current data to keep only Page 1
@@ -1046,14 +1057,23 @@ function loadLayout() {
     try {
         const savedScreen = localStorage.getItem('myIOS_HomeScreen');
         const savedLib = localStorage.getItem('myIOS_Library');
+        let removedLegacyWhisperApp = false;
         if (savedScreen) {
             homeScreenData = JSON.parse(savedScreen);
+            if (Array.isArray(homeScreenData)) {
+                const filteredScreen = homeScreenData.filter(item => item && item.appId !== 'whisper-challenge-app');
+                removedLegacyWhisperApp = filteredScreen.length !== homeScreenData.length;
+                homeScreenData = filteredScreen;
+            }
             // 确保加载的数据有 ID
             homeScreenData.forEach(item => {
                 if (!item._internalId) item._internalId = generateId();
             });
         }
         if (savedLib) importedWidgets = JSON.parse(savedLib);
+        if (removedLegacyWhisperApp) {
+            localStorage.setItem('myIOS_HomeScreen', JSON.stringify(homeScreenData));
+        }
     } catch (e) { console.error("Load failed", e); }
 }
 

@@ -1,6 +1,66 @@
-// 见面功能模块
+﻿// 见面功能模块
 
 let currentEditingMeetingMsgIndex = null;
+let isMeetingSelectionMode = false;
+let selectedMeetingIds = new Set();
+
+function toRomanNumeral(number) {
+    const numerals = [
+        ['M', 1000], ['CM', 900], ['D', 500], ['CD', 400],
+        ['C', 100], ['XC', 90], ['L', 50], ['XL', 40],
+        ['X', 10], ['IX', 9], ['V', 5], ['IV', 4], ['I', 1]
+    ];
+
+    let remaining = Math.max(1, Number(number) || 1);
+    let result = '';
+
+    numerals.forEach(([symbol, value]) => {
+        while (remaining >= value) {
+            result += symbol;
+            remaining -= value;
+        }
+    });
+
+    return result;
+}
+
+function getMeetingChapterTitle(meeting, indexFromOldest) {
+    const chapterNumber = indexFromOldest + 1;
+    return `Chapter ${toRomanNumeral(chapterNumber)}`;
+}
+
+function getMeetingDateLabel(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const sameYear = date.getFullYear() === now.getFullYear();
+    const sameMonth = date.getMonth() === now.getMonth();
+    const sameDay = date.getDate() === now.getDate();
+
+    if (sameYear && sameMonth && sameDay) {
+        return 'TODAY';
+    }
+
+    const monthLabels = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    return `${monthLabels[date.getMonth()]} ${date.getDate()}`;
+}
+
+function getMeetingSummaryText(meeting) {
+    if (!meeting.content || meeting.content.length === 0) {
+        return '暂无内容';
+    }
+
+    const text = meeting.content
+        .map(entry => (entry && entry.text ? String(entry.text).trim() : ''))
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ');
+
+    if (!text) {
+        return '暂无内容';
+    }
+
+    return text.substring(0, 68) + (text.length > 68 ? '…' : '');
+}
 
 // 1. 打开见面列表页
 function openMeetingsScreen(contactId) {
@@ -32,6 +92,7 @@ function renderMeetingsList(contactId) {
     // 处理空状态
     if (meetings.length === 0) {
         if (emptyState) emptyState.style.display = 'flex';
+        updateMeetingSelectionUI();
         return;
     }
     if (emptyState) emptyState.style.display = 'none';
@@ -40,43 +101,130 @@ function renderMeetingsList(contactId) {
     [...meetings].reverse().forEach(meeting => {
         const item = document.createElement('div');
         item.className = 'meeting-item';
+        item.style.cursor = 'pointer';
+        item.dataset.meetingId = String(meeting.id);
         
-        const date = new Date(meeting.time);
-        const timeStr = `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+        const originalIndex = meetings.findIndex(m => m.id === meeting.id);
+        const chapterTitle = getMeetingChapterTitle(meeting, originalIndex);
+        const timeLabel = getMeetingDateLabel(meeting.time);
         
-        // 获取摘要
-        let summary = '暂无内容';
-        if (meeting.content && meeting.content.length > 0) {
-            const lastContent = meeting.content[meeting.content.length - 1];
-            summary = lastContent.text.substring(0, 20) + (lastContent.text.length > 20 ? '...' : '');
-        }
+        const summary = getMeetingSummaryText(meeting);
 
-        // HTML 结构：包含一个删除图标
+        // HTML 结构：按 demo 的 editorial 列表结构输出
         item.innerHTML = `
-            <div class="meeting-item-content" style="width: 100%;">
-                <div class="meeting-item-header">
-                    <span style="font-weight:600; color:#000;">${meeting.title || '未命名见面'}</span>
-                    <span style="font-size: 12px; color: #999;">${timeStr}</span>
+            <div class="meeting-item-content" style="width:100%;padding-right:${isMeetingSelectionMode ? '38px' : '0'};box-sizing:border-box;position:relative;">
+                <div class="meeting-item-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;width:100%;">
+                    <span class="meeting-item-title" style="font-size:18px;color:#111;font-weight:700;font-family:'Palatino Linotype','Book Antiqua',Palatino,'Times New Roman',serif;line-height:1.3;">${chapterTitle}</span>
+                    <span class="meeting-item-time" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:11px;color:#999;letter-spacing:.5px;white-space:nowrap;flex-shrink:0;">${timeLabel}</span>
                 </div>
-                <div class="meeting-item-summary" style="color: #666; font-size: 13px; margin-top: 4px;">${summary}</div>
+                <div class="meeting-item-summary" style="margin-top:8px;font-size:14px;color:#555;line-height:1.6;text-align:justify;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${summary}</div>
             </div>
-            <div class="meeting-delete-btn" title="删除记录">
-                <i class="fas fa-trash-alt"></i>
-            </div>
+            ${isMeetingSelectionMode ? `<div class="meeting-select-indicator" style="position:absolute;top:24px;right:0;display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid ${selectedMeetingIds.has(meeting.id) ? '#111' : '#cfcfcf'};border-radius:50%;background:${selectedMeetingIds.has(meeting.id) ? '#111' : '#fff'};color:#fff;z-index:2;transition:all .15s ease;">${selectedMeetingIds.has(meeting.id) ? '<i class="fas fa-check" style="font-size:11px;"></i>' : ''}</div>` : ''}
         `;
         
-        // 绑定点击跳转事件 (点击整个卡片)
-        item.addEventListener('click', () => openMeetingDetail(meeting.id));
+        item.addEventListener('click', () => {
+            if (isMeetingSelectionMode) {
+                if (selectedMeetingIds.has(meeting.id)) {
+                    selectedMeetingIds.delete(meeting.id);
+                } else {
+                    selectedMeetingIds.add(meeting.id);
+                }
+                updateMeetingSelectionIndicator(item, meeting.id);
+                updateMeetingSelectionUI();
+                return;
+            }
 
-        // 绑定删除事件 (只点击垃圾桶)
-        const deleteBtn = item.querySelector('.meeting-delete-btn');
-        deleteBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // 阻止冒泡，防止触发卡片点击
-            deleteMeeting(contactId, meeting.id);
+            openMeetingDetail(meeting.id);
         });
 
         list.appendChild(item);
     });
+
+    updateMeetingSelectionUI();
+}
+
+function updateMeetingSelectionIndicator(item, meetingId) {
+    if (!item) return;
+
+    let indicator = item.querySelector('.meeting-select-indicator');
+    const isSelected = selectedMeetingIds.has(meetingId);
+
+    if (!isMeetingSelectionMode) {
+        if (indicator) indicator.remove();
+        return;
+    }
+
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.className = 'meeting-select-indicator';
+        indicator.style.position = 'absolute';
+        indicator.style.top = '24px';
+        indicator.style.right = '0';
+        indicator.style.display = 'flex';
+        indicator.style.alignItems = 'center';
+        indicator.style.justifyContent = 'center';
+        indicator.style.width = '22px';
+        indicator.style.height = '22px';
+        indicator.style.borderRadius = '50%';
+        indicator.style.color = '#fff';
+        indicator.style.zIndex = '2';
+        indicator.style.transition = 'all .15s ease';
+        item.appendChild(indicator);
+    }
+
+    indicator.style.border = `1px solid ${isSelected ? '#111' : '#cfcfcf'}`;
+    indicator.style.background = isSelected ? '#111' : '#fff';
+    indicator.innerHTML = isSelected ? '<i class="fas fa-check" style="font-size:11px;"></i>' : '';
+}
+
+function updateMeetingSelectionUI() {
+    const selectBtn = document.getElementById('meeting-select-btn');
+    const footerNewMeetingBtn = document.getElementById('meetings-footer-new-btn');
+    if (selectBtn) {
+        const icon = selectBtn.querySelector('i');
+        selectBtn.setAttribute('aria-label', isMeetingSelectionMode ? '删除已选记录' : '进入多选模式');
+        selectBtn.style.color = isMeetingSelectionMode ? '#111' : '#777';
+        if (icon) {
+            icon.className = isMeetingSelectionMode
+                ? (selectedMeetingIds.size > 0 ? 'ri-delete-bin-line' : 'ri-check-line')
+                : 'ri-menu-line';
+        }
+    }
+
+    if (footerNewMeetingBtn) {
+        footerNewMeetingBtn.style.display = isMeetingSelectionMode ? 'none' : 'inline-flex';
+    }
+}
+
+function toggleMeetingSelectionMode() {
+    if (!window.iphoneSimState.currentChatContactId) return;
+
+    if (isMeetingSelectionMode && selectedMeetingIds.size > 0) {
+        const confirmed = confirm(`确定删除已选中的 ${selectedMeetingIds.size} 条见面记录吗？`);
+        if (!confirmed) return;
+
+        const contactId = window.iphoneSimState.currentChatContactId;
+        const meetings = window.iphoneSimState.meetings[contactId] || [];
+        window.iphoneSimState.meetings[contactId] = meetings.filter(meeting => !selectedMeetingIds.has(meeting.id));
+        selectedMeetingIds.clear();
+        isMeetingSelectionMode = false;
+        saveConfig();
+        renderMeetingsList(contactId);
+        return;
+    }
+
+    isMeetingSelectionMode = !isMeetingSelectionMode;
+    if (!isMeetingSelectionMode) {
+        selectedMeetingIds.clear();
+    }
+
+    const listItems = document.querySelectorAll('#meetings-list .meeting-item');
+    listItems.forEach(item => {
+        const meetingId = Number(item.dataset.meetingId);
+        updateMeetingSelectionIndicator(item, meetingId);
+    });
+
+    updateMeetingSelectionUI();
 }
 
 // 删除单条见面记录
@@ -185,7 +333,7 @@ function renderMeetingCards(meeting) {
 
     meeting.content.forEach((msg, index) => {
         const card = document.createElement('div');
-        card.className = 'meeting-card';
+        card.className = `meeting-card meeting-editorial-block ${msg.role === 'user' ? 'user' : 'ai'}`;
         
         let avatar = '';
         let name = '';
@@ -201,17 +349,24 @@ function renderMeetingCards(meeting) {
             roleClass = 'meeting-card-role-ai';
         }
 
+        const roleLabel = msg.role === 'user' ? 'YOU' : 'CHARACTER';
+
         card.innerHTML = `
-            <div class="meeting-card-header">
-                <img src="${avatar}" class="meeting-card-avatar">
-                <span class="meeting-card-name ${roleClass}">${name}</span>
+            <div class="meeting-editorial-role-tag ${roleClass}" style="font-family:-apple-system,sans-serif;font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:${msg.role === 'user' ? '#222' : '#b0b0b0'};display:flex;align-items:center;gap:10px;justify-content:${msg.role === 'user' ? 'flex-end' : 'flex-start'};">
+                ${msg.role === 'user' ? '' : '<span style="display:block;width:24px;height:1px;background:#ddd;"></span>'}
+                <span>${roleLabel}</span>
+                ${msg.role === 'user' ? '<span style="display:block;width:24px;height:1px;background:#222;"></span>' : ''}
             </div>
-            <div class="meeting-card-content">${msg.text}</div>
-            <div class="meeting-card-actions">
-                <img src="${editIconUrl}" class="meeting-action-icon" onclick="window.editMeetingMsg(${index})" title="编辑">
-                <img src="${deleteIconUrl}" class="meeting-action-icon danger" onclick="window.deleteMeetingMsg(${index})" title="删除">
+            <div class="meeting-card-content" style="font-size:16px;line-height:1.92;letter-spacing:.2px;color:${msg.role === 'user' ? '#666' : '#2c2c2c'};text-align:${msg.role === 'user' ? 'right' : 'justify'};font-style:${msg.role === 'user' ? 'italic' : 'normal'};">${formatMeetingStoryHtml(msg.text)}</div>
+            <div class="meeting-card-actions" style="position:absolute;top:0;${msg.role === 'user' ? 'left:0;padding-right:12px;' : 'right:0;padding-left:12px;'}display:flex;gap:16px;opacity:0;transition:opacity .25s;background:#fdfdfc;">
+                <img src="${editIconUrl}" class="meeting-action-icon" onclick="window.editMeetingMsg(${index})" title="编辑" style="width:15px;height:15px;object-fit:contain;opacity:.7;">
+                <img src="${deleteIconUrl}" class="meeting-action-icon danger" onclick="window.deleteMeetingMsg(${index})" title="删除" style="width:15px;height:15px;object-fit:contain;opacity:.7;">
             </div>
         `;
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        card.style.gap = '14px';
+        card.style.position = 'relative';
         container.appendChild(card);
     });
     
@@ -249,14 +404,159 @@ function handleSendMeetingText() {
             role: 'user',
             text: text
         });
+        meeting.suggestedActions = [];
         saveConfig();
         renderMeetingCards(meeting);
         
         // 重置输入框
         input.value = '';
-        input.style.height = 'auto'; 
+        input.style.height = '24px'; 
     }
 }
+
+function getCurrentMeetingRecord() {
+    if (!window.iphoneSimState.currentChatContactId || !window.iphoneSimState.currentMeetingId) return null;
+    const meetings = window.iphoneSimState.meetings[window.iphoneSimState.currentChatContactId] || [];
+    return meetings.find(m => m.id === window.iphoneSimState.currentMeetingId) || null;
+}
+
+function sanitizeMeetingSuggestionText(text) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    return normalized.length > 50 ? normalized.slice(0, 50) : normalized;
+}
+
+function escapeMeetingHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function splitMeetingStoryParagraphs(text) {
+    const source = String(text || '').replace(/\r\n/g, '\n').trim();
+    if (!source) return [];
+
+    const explicitParagraphs = source.split(/\n{2,}/).map(item => item.trim()).filter(Boolean);
+    if (explicitParagraphs.length >= 2) return explicitParagraphs;
+
+    const normalized = source.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+    const sentenceChunks = normalized.match(/[^。！？!?]+[。！？!?”』）)]*|[^。！？!?]+$/g) || [normalized];
+    const paragraphs = [];
+    let bucket = [];
+
+    sentenceChunks.forEach((sentence, index) => {
+        const cleanSentence = sentence.trim();
+        if (!cleanSentence) return;
+        bucket.push(cleanSentence);
+        const shouldBreak = bucket.length >= 3 || cleanSentence.length >= 42 || index === sentenceChunks.length - 1;
+        if (shouldBreak) {
+            paragraphs.push(bucket.join(''));
+            bucket = [];
+        }
+    });
+
+    return paragraphs.length > 0 ? paragraphs : [normalized];
+}
+
+function formatMeetingStoryHtml(text) {
+    const paragraphs = splitMeetingStoryParagraphs(text);
+    if (paragraphs.length === 0) return '';
+    return paragraphs.map(paragraph => `<p style="margin:0 0 1.15em 0;">${escapeMeetingHtml(paragraph)}</p>`).join('');
+}
+
+function buildMeetingSuggestionFallbacks(meeting) {
+    const contactId = window.iphoneSimState.currentChatContactId;
+    const contact = (window.iphoneSimState.contacts || []).find(item => item.id === contactId) || {};
+    const contactName = contact.name || '对方';
+    const history = Array.isArray(meeting && meeting.content) ? meeting.content : [];
+    const hasAiReply = history.some(item => item && item.role === 'ai' && item.text);
+    return [
+        sanitizeMeetingSuggestionText(hasAiReply ? `${contactName}抬眼看向你，语气放轻了一些，把眼前的气氛继续往更深处推。` : `${contactName}停顿了一瞬，指尖轻轻收紧，让这段剧情出现新的呼吸感。`),
+        sanitizeMeetingSuggestionText(`${contactName}像突然意识到了什么，目光沉下来，让原本平稳的气氛拐进新的转折。`),
+        sanitizeMeetingSuggestionText(`${contactName}忽然靠近了些，呼吸和体温都压了过来，让暧昧意味一点点变浓。`)
+    ];
+}
+
+function normalizeMeetingSuggestions(rawSuggestions, meeting) {
+    const fallbacks = buildMeetingSuggestionFallbacks(meeting);
+    const normalized = [];
+    const seen = new Set();
+    (Array.isArray(rawSuggestions) ? rawSuggestions : []).forEach(item => {
+        const text = sanitizeMeetingSuggestionText(item);
+        if (!text || seen.has(text)) return;
+        seen.add(text);
+        normalized.push(text);
+    });
+    for (let i = 0; i < fallbacks.length && normalized.length < 3; i += 1) {
+        const text = sanitizeMeetingSuggestionText(fallbacks[i]);
+        if (!text || seen.has(text)) continue;
+        seen.add(text);
+        normalized.push(text);
+    }
+    return normalized.slice(0, 3);
+}
+
+function parseMeetingAiResponse(rawText, meeting) {
+    const trimmed = String(rawText || '').trim();
+    if (!trimmed) return { reply: '', suggestions: buildMeetingSuggestionFallbacks(meeting) };
+
+    let content = trimmed.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
+    try {
+        const jsonStart = content.indexOf('{');
+        const jsonEnd = content.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd >= jsonStart) {
+            content = content.substring(jsonStart, jsonEnd + 1);
+        }
+        const parsed = JSON.parse(content);
+        return {
+            reply: String(parsed.reply || parsed.text || parsed.content || '').trim() || trimmed,
+            suggestions: normalizeMeetingSuggestions(parsed.suggestions, meeting)
+        };
+    } catch (e) {
+        return {
+            reply: trimmed,
+            suggestions: buildMeetingSuggestionFallbacks(meeting)
+        };
+    }
+}
+
+window.renderMeetingActionSuggestionMenu = function() {
+    const meeting = getCurrentMeetingRecord();
+    const list = document.getElementById('meeting-action-suggestion-list');
+    if (!list || !meeting) return;
+    const items = Array.isArray(meeting.suggestedActions) ? meeting.suggestedActions.filter(Boolean) : [];
+    if (items.length === 0) {
+        list.innerHTML = '<div style="padding:16px;color:#666;font-size:13px;line-height:1.5;">先输入一段剧情片段并点击一次“续写剧情”，系统会生成本轮的 3 条剧情推进建议。</div>';
+        return;
+    }
+    list.innerHTML = items.map((text, index) => `
+        <div class="create-menu-item" style="border-bottom:1px solid #f0f0f0;" onclick="window.pickMeetingActionSuggestion('${encodeURIComponent(text).replace(/'/g, '%27')}')">
+            <div class="create-menu-text" style="font-size:12px;color:#999;margin-bottom:4px;">${index === 0 ? '自然剧情行动' : index === 1 ? '转折剧情行动' : 'NSFW剧情行动'}</div>
+            <div class="create-menu-text" style="font-size:14px;line-height:1.45;">${text}</div>
+        </div>
+    `).join('');
+};
+
+window.toggleMeetingActionSuggestionMenu = function(forceOpen = null) {
+    const menu = document.getElementById('meeting-action-suggestion-menu');
+    if (!menu) return;
+    const shouldOpen = forceOpen === null ? !menu.classList.contains('active') : !!forceOpen;
+    menu.classList.toggle('active', shouldOpen);
+    if (shouldOpen) window.renderMeetingActionSuggestionMenu();
+};
+
+window.pickMeetingActionSuggestion = function(encodedText) {
+    const input = document.getElementById('meeting-input');
+    if (!input) return;
+    const text = decodeURIComponent(encodedText || '').trim();
+    if (!text) return;
+    input.value = text;
+    input.focus();
+    window.toggleMeetingActionSuggestionMenu(false);
+};
 
 // 7. 保存文风
 function saveMeetingStyle() {
@@ -584,25 +884,31 @@ function constructMeetingPrompt(contactId, newUserInput) {
     const meetings = window.iphoneSimState.meetings[contactId];
     const currentMeeting = meetings.find(m => m.id === meetingId);
     
-    // 获取线上聊天上下文
+    // 获取线上聊天背景摘要（不直接拼接聊天原文，避免串回消息语境）
     let chatContext = '';
     const chatHistory = window.iphoneSimState.chatHistory[contactId] || [];
     if (chatHistory.length > 0) {
-        // 取最近 15 条聊天记录
-        const recentChats = chatHistory.slice(-15);
-        chatContext = recentChats.map(msg => {
-            const role = msg.role === 'user' ? '用户' : contact.name;
-            let content = msg.content;
-            if (msg.type === 'image') content = '[图片]';
-            else if (msg.type === 'sticker') content = '[表情包]';
-            return `${role}: ${content}`;
+        const recentChats = chatHistory
+            .filter(msg => msg && msg.type !== 'system_event' && msg.content)
+            .slice(-12);
+        const userCount = recentChats.filter(msg => msg.role === 'user').length;
+        const contactCount = recentChats.filter(msg => msg.role !== 'user').length;
+        const latestFacts = recentChats.slice(-3).map(msg => {
+            let content = String(msg.content || '').trim();
+            if (content.length > 24) content = `${content.slice(0, 24)}…`;
+            return msg.role === 'user' ? `- 用户近期提过：${content}` : `- ${contact.name}近期表现为：${content}`;
         }).join('\n');
+        chatContext = [
+            `你与用户在线上已有一定互动基础。`,
+            `最近聊天中，用户主动表达约 ${userCount} 次，${contact.name}主动表达约 ${contactCount} 次。`,
+            latestFacts
+        ].filter(Boolean).join('\n');
     }
 
     // 基础设定
-    let prompt = `你现在是一个小说家，正在进行一场角色扮演描写。\n`;
+    let prompt = `你现在不是联系人本人，而是一个酒馆式 RP 的旁白写手 / 共创剧情引擎。\n`;
     prompt += `角色：${contact.name}。\n`;
-    prompt += `人设：${contact.persona || '无特定人设'}。\n`; // 修正：使用 persona 字段
+    prompt += `联系人设：${contact.persona || '无特定人设'}。\n`;
     
     // 添加用户人设
     if (contact.userPersonaPromptOverride) {
@@ -618,13 +924,21 @@ function constructMeetingPrompt(contactId, newUserInput) {
     prompt += `当前场景/文风/地点：${currentMeeting.style || '默认场景'}。\n\n`;
     
     if (chatContext) {
-        prompt += `【线上聊天背景】(你们之前的聊天记录，供参考)\n${chatContext}\n\n`;
+        prompt += `【关系背景摘要】(仅作人物关系和熟悉度参考，不代表当前仍在线上聊天)\n${chatContext}\n\n`;
     }
 
     prompt += `【规则】\n`;
-    prompt += `1. 请以第三人称视角描写，重点描写${contact.name}的神态、动作、语言以及环境氛围。\n`;
-    prompt += `2. 不要出现"用户："或"AI："这样的剧本格式，直接写正文。\n`;
-    prompt += `3. 沉浸在场景中，不要跳出人设。\n\n`;
+    prompt += `1. 这是一次线下见面的酒馆式 RP 共写，不是聊天软件对话。你不是${contact.name}本人，也不是在替他回复消息。\n`;
+    prompt += `2. 用户当前输入默认应被视为“设定补充、剧情素材、情境假设、关系假设、动作草稿、氛围关键词、片段化灵感”，优先作为世界设定或剧情条件处理，而不是直接当成角色已经说出口的话。\n`;
+    prompt += `3. 只有当用户输入本身明确带有说话标记、引号、明确台词动作，或上下文清楚要求“某角色把这句话说出口”时，你才能把其中部分内容落地为角色对白；否则默认不要把整段输入直接写成‘你用气声说出口’、‘你对他说’、‘你发给他’之类行为。\n`;
+    prompt += `4. 你的任务是把这些素材转化为“下一段剧情正文”，继续创作双方互动、场景氛围、心理活动、动作和环境变化，并优先表现“设定成立后会怎样”，而不是“用户说了这句话后对方怎么回”。\n`;
+    prompt += `5. 除非用户输入里明确出现手机、发消息、聊天框、收到消息等设定，否则不要主动把用户输入解释成角色之间的线上消息；除非用户明确要求说出口，否则也不要主动把输入解释成当面对白。\n`;
+    prompt += `6. 必须保持第三人称叙事和沉浸感，不要输出规则说明，不要分析用户，不要总结成提纲。\n`;
+    prompt += `7. 只返回 JSON，不要返回 Markdown，不要加代码块。\n`;
+    prompt += `8. JSON 格式固定为 {"reply":"下一段剧情正文","suggestions":["建议1","建议2","建议3"]}。\n`;
+    prompt += `9. reply 表示你写出的下一段剧情，不是对用户文本的“回复消息”。\n`;
+    prompt += `10. suggestions 必须恰好 3 条，每条不超过 50 个汉字，且必须写成“用户下一步可以继续喂给你”的第三人称剧情片段，明确写出角色名。不要写成“你可以回复”“你可以说”“他回你”这种消息建议。顺序固定为：最自然延续剧情 / 推动剧情转折 / 推向 NSFW。\n`;
+    prompt += `11. reply 默认分成 2 到 4 段，每段 1 到 4 句；动作、心理、环境变化或关键转折尽量另起一段，避免整段文字挤成一坨。\n\n`;
     
     prompt += `【剧情回顾】\n`;
     
@@ -632,14 +946,14 @@ function constructMeetingPrompt(contactId, newUserInput) {
     const recentContent = currentMeeting.content.slice(-10);
     recentContent.forEach(card => {
         if (card.role === 'user') {
-            prompt += `(用户动作/语言): ${card.text}\n`;
+            prompt += `【用户给出的剧情素材】${card.text}\n`;
         } else {
-            prompt += `(剧情发展): ${card.text}\n`;
+            prompt += `【你写出的上一段正文】${card.text}\n`;
         }
     });
 
     if (newUserInput) {
-        prompt += `(用户动作/语言): ${newUserInput}\n`;
+        prompt += `【用户刚追加的剧情素材】${newUserInput}\n`;
     }
 
     // 添加字数要求
@@ -647,10 +961,10 @@ function constructMeetingPrompt(contactId, newUserInput) {
     if (contact.meetingMinWords || contact.meetingMaxWords) {
         const min = contact.meetingMinWords || '50'; // 默认给个下限
         const max = contact.meetingMaxWords || '不限';
-        lengthInstruction = `\n【重要限制】\n请务必将回复字数严格控制在 ${min} 到 ${max} 字之间。不要过短也不要过长。\n`;
+        lengthInstruction = `\n【重要限制】\n请务必将剧情正文控制在 ${min} 到 ${max} 字之间。不要过短也不要过长。\n`;
     }
     
-    prompt += `\n请根据以上内容，续写接下来的剧情（描写${contact.name}的反应）。`;
+    prompt += `\n请根据以上内容，像酒馆 RP 一样继续创作“下一段剧情正文”。默认把用户输入当成设定或素材，而不是已经对${contact.name}说出口的话。除非用户明确要求落地成台词，否则优先写“这个设定成立后，现场气氛、关系、动作与心理如何变化”。并按指定 JSON 格式返回剧情正文与 3 条可继续喂给你的剧情片段建议。`;
     prompt += lengthInstruction; // 将字数限制放在最后，增强权重
     
     return prompt;
@@ -661,47 +975,54 @@ function constructMeetingPrompt(contactId, newUserInput) {
  */
 async function handleMeetingAI(type) {
     const inputEl = document.getElementById('meeting-input');
-    const userInput = inputEl.value.trim();
+    const draftInput = inputEl.value.trim();
     const contactId = window.iphoneSimState.currentChatContactId;
     const meetingId = window.iphoneSimState.currentMeetingId;
     const container = document.getElementById('meeting-card-container');
 
-    if (type === 'user' && !userInput) return;
-
     const meetings = window.iphoneSimState.meetings[contactId];
     const meeting = meetings.find(m => m.id === meetingId);
     if (!meeting) return;
+    if (meeting.isGeneratingAi) return;
 
-    // 1. 用户发送上屏 (如果是用户触发)
-    if (type === 'user') {
+    const lastUserStory = [...(meeting.content || [])].reverse().find(item => item && item.role === 'user' && String(item.text || '').trim());
+    const effectiveUserInput = draftInput || (lastUserStory ? String(lastUserStory.text || '').trim() : '');
+    if (!effectiveUserInput) {
+        inputEl.focus();
+        return;
+    }
+
+    meeting.isGeneratingAi = true;
+
+    // 1. 用户写入剧情片段并上屏
+    if (draftInput) {
         meeting.content.push({
             role: 'user',
-            text: userInput
+            text: draftInput
         });
         saveConfig();
-        renderMeetingCards(meeting); // 重绘显示用户消息
+        renderMeetingCards(meeting); // 重绘显示用户剧情片段
         inputEl.value = ''; 
         inputEl.style.height = 'auto';
     }
 
-    // 2. UI 准备：添加一个临时的 AI 卡片
+    // 2. UI 准备：添加一个临时的 AI 卡片（与新版详情页一致）
     const aiCard = document.createElement('div');
-    aiCard.className = 'meeting-card';
-    // 获取 AI 头像和名字
+    aiCard.className = 'meeting-card meeting-editorial-block ai';
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
-    const avatar = contact.avatar;
-    const name = contact.name;
-    
+
     aiCard.innerHTML = `
-        <div class="meeting-card-header">
-            <img src="${avatar}" class="meeting-card-avatar">
-            <span class="meeting-card-name meeting-card-role-ai">${name}</span>
+        <div class="meeting-editorial-role-tag meeting-card-role-ai" style="font-family:-apple-system,sans-serif;font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#b0b0b0;display:flex;align-items:center;gap:10px;justify-content:flex-start;">
+            <span style="display:block;width:24px;height:1px;background:#ddd;"></span>
+            <span>角色反应</span>
         </div>
-        <div class="meeting-card-content loading-dots">...</div>
-        <div class="meeting-card-actions">
-            <!-- 占位，生成完再显示操作按钮 -->
-        </div>
+        <div class="meeting-card-content loading-dots" style="font-size:16px;line-height:1.92;letter-spacing:.2px;color:#2c2c2c;text-align:justify;">......</div>
+        <div class="meeting-card-actions" style="position:absolute;top:0;right:0;padding-left:12px;display:flex;gap:16px;opacity:0;transition:opacity .25s;background:#fdfdfc;"></div>
     `;
+    aiCard.style.display = 'flex';
+    aiCard.style.flexDirection = 'column';
+    aiCard.style.gap = '14px';
+    aiCard.style.position = 'relative';
     container.appendChild(aiCard);
     
     // 滚动到底部
@@ -718,7 +1039,7 @@ async function handleMeetingAI(type) {
             throw new Error("请先在设置中配置 AI API");
         }
 
-        const fullPrompt = constructMeetingPrompt(contactId, type === 'user' ? userInput : null);
+        const fullPrompt = constructMeetingPrompt(contactId, effectiveUserInput);
         
         let fetchUrl = settings.url;
         if (!fetchUrl.endsWith('/chat/completions')) {
@@ -744,19 +1065,22 @@ async function handleMeetingAI(type) {
         if (!response.ok) throw new Error(response.statusText);
 
         const data = await response.json();
-        const finalTezt = data.choices[0].message.content.trim();
+        const rawResponse = data.choices[0].message.content.trim();
+        const parsedResult = parseMeetingAiResponse(rawResponse, meeting);
+        const finalTezt = parsedResult.reply;
         
         const contentEl = aiCard.querySelector('.meeting-card-content');
         
         // 移除 loading 样式并显示内容
         contentEl.classList.remove('loading-dots');
-        contentEl.innerText = finalTezt;
+        contentEl.innerHTML = formatMeetingStoryHtml(finalTezt);
         
         // 保存
         meeting.content.push({
             role: 'ai',
             text: finalTezt
         });
+        meeting.suggestedActions = normalizeMeetingSuggestions(parsedResult.suggestions, meeting);
         saveConfig();
         
         // 重新渲染以确保状态一致（添加操作按钮等）
@@ -768,6 +1092,7 @@ async function handleMeetingAI(type) {
         contentEl.classList.remove('loading-dots');
         contentEl.innerHTML = `<span style="color:red">生成失败: ${error.message}</span>`;
     } finally {
+        meeting.isGeneratingAi = false;
         if(continueBtn) continueBtn.disabled = false;
         inputEl.disabled = false;
         inputEl.focus(); 
@@ -777,7 +1102,7 @@ async function handleMeetingAI(type) {
 // 初始化监听器
 function setupMeetingListeners() {
     const closeMeetingsScreenBtn = document.getElementById('close-meetings-screen');
-    const newMeetingBtn = document.getElementById('new-meeting-btn');
+    const meetingSelectBtn = document.getElementById('meeting-select-btn');
     const meetingStyleBtn = document.getElementById('meeting-style-btn');
     const meetingStyleModal = document.getElementById('meeting-style-modal');
     const closeMeetingStyleBtn = document.getElementById('close-meeting-style');
@@ -792,7 +1117,9 @@ function setupMeetingListeners() {
         document.getElementById('meetings-screen').classList.add('hidden');
     });
 
-    if (newMeetingBtn) newMeetingBtn.addEventListener('click', createNewMeeting);
+    const footerNewMeetingBtn = document.getElementById('meetings-footer-new-btn');
+    if (footerNewMeetingBtn) footerNewMeetingBtn.addEventListener('click', createNewMeeting);
+    if (meetingSelectBtn) meetingSelectBtn.addEventListener('click', toggleMeetingSelectionMode);
 
     // 加载文风预设
     function loadMeetingStylePresets() {
@@ -945,17 +1272,21 @@ function setupMeetingListeners() {
     const endMeetingBtn = document.getElementById('end-meeting-btn');
     const meetingSendBtn = document.getElementById('meeting-send-btn');
     const meetingAiContinueBtn = document.getElementById('meeting-ai-continue-btn');
+    const meetingDetailStyleBtn = document.getElementById('meeting-detail-style-btn');
+    const meetingDetailMagicBtn = document.getElementById('meeting-detail-magic-btn');
+    const closeMeetingActionSuggestionMenuBtn = document.getElementById('close-meeting-action-suggestion-menu');
 
     if (endMeetingBtn) endMeetingBtn.addEventListener('click', endMeeting);
     if (meetingSendBtn) meetingSendBtn.addEventListener('click', handleSendMeetingText);
     if (meetingAiContinueBtn) meetingAiContinueBtn.addEventListener('click', () => handleMeetingAI('continue'));
+    if (meetingDetailStyleBtn) meetingDetailStyleBtn.addEventListener('click', () => meetingStyleModal.classList.remove('hidden'));
+    if (meetingDetailMagicBtn) meetingDetailMagicBtn.addEventListener('click', () => window.toggleMeetingActionSuggestionMenu());
+    if (closeMeetingActionSuggestionMenuBtn) closeMeetingActionSuggestionMenuBtn.addEventListener('click', () => window.toggleMeetingActionSuggestionMenu(false));
 
     const meetingInput = document.getElementById('meeting-input');
     if (meetingInput) {
         meetingInput.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = (this.scrollHeight) + 'px';
-            if(this.value === '') this.style.height = 'auto';
+            this.style.height = '24px';
         });
         
         meetingInput.addEventListener('keydown', function(e) {
@@ -1112,3 +1443,5 @@ function setupMeetingListeners() {
 if (window.appInitFunctions) {
     window.appInitFunctions.push(setupMeetingListeners);
 }
+
+
