@@ -1,4 +1,4 @@
-ï»¿// Screen Share Simulation Logic
+// Screen Share Simulation Logic
 
 window.isScreenSharing = false;
 window.isFloatingChatGenerating = false;
@@ -8,22 +8,22 @@ function getFloatingChatContactId() {
 }
 
 function getFloatingChatDisplayName(contactId = getFloatingChatContactId()) {
-    if (!(window.iphoneSimState && contactId)) return 'èŠå¤©';
+    if (!(window.iphoneSimState && contactId)) return 'ÁÄÌì';
     const contact = (window.iphoneSimState.contacts || []).find(item => String(item.id) === String(contactId));
-    if (!contact) return 'èŠå¤©';
-    return contact.remark || contact.nickname || contact.name || 'èŠå¤©';
+    if (!contact) return 'ÁÄÌì';
+    return contact.remark || contact.nickname || contact.name || 'ÁÄÌì';
 }
 
 function setFloatingChatTitle(text) {
     const titleEl = document.getElementById('fc-title-text');
     if (titleEl) {
-        titleEl.textContent = text || 'èŠå¤©';
+        titleEl.textContent = text || 'ÁÄÌì';
     }
 }
 
 function refreshFloatingChatTitle(contactId = getFloatingChatContactId()) {
     if (window.isFloatingChatGenerating) {
-        setFloatingChatTitle('æ­£åœ¨è¾“å…¥ä¸­...');
+        setFloatingChatTitle('ÕıÔÚÊäÈëÖĞ...');
         return;
     }
     setFloatingChatTitle(getFloatingChatDisplayName(contactId));
@@ -34,10 +34,10 @@ function setFloatingChatGeneratingState(isGenerating, contactId = getFloatingCha
     const sendBtn = document.getElementById('fc-send-btn');
     if (sendBtn) {
         sendBtn.disabled = !!isGenerating;
-        sendBtn.title = isGenerating ? 'æ­£åœ¨ç”Ÿæˆå›å¤' : 'ç”Ÿæˆå›å¤';
+        sendBtn.title = isGenerating ? 'ÕıÔÚÉú³É»Ø¸´' : 'Éú³É»Ø¸´';
     }
     if (isGenerating) {
-        setFloatingChatTitle('æ­£åœ¨è¾“å…¥ä¸­...');
+        setFloatingChatTitle('ÕıÔÚÊäÈëÖĞ...');
         return;
     }
     setFloatingChatTitle(getFloatingChatDisplayName(contactId));
@@ -108,7 +108,7 @@ function initScreenShare() {
         if (input && input.value.trim()) {
             input.focus();
             if (typeof window.showChatToast === 'function') {
-                window.showChatToast('å…ˆæŒ‰å›è½¦å‘é€ï¼Œå†ç‚¹è“è‰²æŒ‰é’®ç”Ÿæˆå›å¤', 2200);
+                window.showChatToast('ÏÈ°´»Ø³µ·¢ËÍ£¬ÔÙµãÀ¶É«°´Å¥Éú³É»Ø¸´', 2200);
             }
             return;
         }
@@ -166,7 +166,7 @@ window.startScreenShare = function() {
 
     const overlay = document.getElementById('screen-share-overlay');
     if (!overlay) {
-        alert('æœªæ‰¾åˆ°å±å¹•å…±äº«æµ®çª—');
+        alert('Î´ÕÒµ½ÆÁÄ»¹²Ïí¸¡´°');
         return;
     }
 
@@ -218,7 +218,7 @@ window.stopScreenShare = function() {
             id: Date.now() + Math.random().toString(36).substr(2, 9),
             time: Date.now(),
             role: 'system',
-            content: '[ç³»ç»Ÿ]: å±å¹•å…±äº«å·²ç»“æŸ', 
+            content: '[ÏµÍ³]: ÆÁÄ»¹²ÏíÒÑ½áÊø', 
             type: 'text'
         });
         if (window.saveConfig) window.saveConfig();
@@ -226,7 +226,7 @@ window.stopScreenShare = function() {
 
     window.screenShareContactId = null;
     setFloatingChatGeneratingState(false, null);
-    setFloatingChatTitle('èŠå¤©');
+    setFloatingChatTitle('ÁÄÌì');
 };
 
 function appendFloatingChatMessage(text, isUser, isSystem = false, type = 'text') {
@@ -268,12 +268,12 @@ function loadFloatingChatHistory() {
     const history = window.iphoneSimState.chatHistory[contactId] || [];
     const recent = history.slice(-10);
     recent.forEach(msg => {
-        if (msg.type === 'text' && msg.role !== 'system' && !String(msg.content || '').startsWith('[ç¼îˆå´µç»®ç¯¯:')) {
+        if (msg.type === 'text' && msg.role !== 'system' && !String(msg.content || '').startsWith('[ç»¯è¤ç²º]:')) {
             appendFloatingChatMessage(msg.content, msg.role === 'user', false, 'text');
         } else if (msg.type === 'image' || msg.type === 'sticker' || msg.type === 'virtual_image') {
             appendFloatingChatMessage(msg.content, msg.role === 'user', false, msg.type);
         } else if (msg.type === 'voice') {
-            appendFloatingChatMessage('[é å›¶åƒé“ç¦²', msg.role === 'user', false, 'text');
+            appendFloatingChatMessage('[ç’‡î…¢ç…¶]', msg.role === 'user', false, 'text');
         }
     });
 }
@@ -308,42 +308,43 @@ window.syncToFloatingChat = function(msg, sourceContactId = null) {
     let content = msg.content;
     let type = msg.type || 'text';
     if (type === 'voice') {
-        content = '[é å›¶åƒé“ç¦²';
+        content = '[ç’‡î…¢ç…¶]';
         type = 'text';
     }
 
-    if (!(msg.role === 'system' || String(content).startsWith('[ç¼îˆå´µç»®ç¯¯:'))) {
+    if (!(msg.role === 'system' || String(content).startsWith('[ç»¯è¤ç²º]:'))) {
         appendFloatingChatMessage(content, msg.role === 'user', false, type);
     }
 };
 
 const screenTargets = {
-    'å¾®ä¿¡': '[data-app-id="wechat-app"]',
-    'ç›¸å†Œ': '[data-app-id="album-app"]',
-    'æ‰‹æœº': '[data-app-id="phone-app"]',
-    'è´­ç‰©': '[data-app-id="shopping-app"]',
-    'è®ºå›': '[data-app-id="forum-app"]',
-    'è®¾ç½®': '[data-app-id="settings-app"]',
-    'åŠ¨æ€': '#wechat-app .wechat-tab-item[data-tab="moments"]',
-    'é€šè®¯å½•': '#wechat-app .wechat-tab-item[data-tab="addressbook"]',
-    'èŠå¤©åˆ—è¡¨': '#wechat-app .wechat-tab-item[data-tab="contacts"]',
-    'æœ‹å‹åœˆ': '#ai-moments-entry, #wechat-app .wechat-tab-item[data-tab="moments"]',
-    'è¿”å›': '.back-btn, #wechat-header-left-btn, #contacts-back-btn, #close-phone-app, #close-forum-app, #close-shopping-app, #close-ai-profile, #close-personal-moments',
-    'èŠå¤©å¤´åƒ': '#chat-screen .chat-avatar[onclick*="openAiProfile"]',
-    'èµ„æ–™é¡µæœ‹å‹åœˆ': '#ai-moments-entry',
-    'é€€å‡ºå¾®ä¿¡': '#contacts-back-btn',
-    'é€€å‡ºç›¸å†Œ': '#album-page-title.album-page-exit',
-    'é€€å‡ºè®ºå›': '#close-forum-app',
-    'é€€å‡ºè´­ç‰©': '#close-shopping-app',
-    'é€€å‡ºicity': '#close-icity-app, #icity-app button[onclick*="classList.add(\'hidden\')"]',
-    'é€€å‡ºæ‰‹æœº': '#close-phone-app',
-    'é€€å‡ºç…§ç‰‡': '#album-photo-close-btn',
-    'æ”¶è—ç…§ç‰‡': '#album-photo-favorite-btn',
+    'Î¢ĞÅ': '[data-app-id="wechat-app"]',
+    'Ïà²á': '[data-app-id="album-app"]',
+    'ÊÖ»ú': '[data-app-id="phone-app"]',
+    '¹ºÎï': '[data-app-id="shopping-app"]',
+    'ÂÛÌ³': '[data-app-id="forum-app"]',
+    'ÉèÖÃ': '[data-app-id="settings-app"]',
+    'Ô¤Éè': '[data-app-id="preset-app"]',
+    '¶¯Ì¬': '#wechat-app .wechat-tab-item[data-tab="moments"]',
+    'Í¨Ñ¶Â¼': '#wechat-app .wechat-tab-item[data-tab="addressbook"]',
+    'ÁÄÌìÁĞ±í': '#wechat-app .wechat-tab-item[data-tab="contacts"]',
+    'ÅóÓÑÈ¦': '#ai-moments-entry, #wechat-app .wechat-tab-item[data-tab="moments"]',
+    '·µ»Ø': '.back-btn, #wechat-header-left-btn, #contacts-back-btn, #close-phone-app, #close-forum-app, #close-shopping-app, #close-ai-profile, #close-personal-moments, #preset-exit-btn',
+    'ÁÄÌìÍ·Ïñ': '#chat-screen .chat-avatar[onclick*="openAiProfile"]',
+    '×ÊÁÏÒ³ÅóÓÑÈ¦': '#ai-moments-entry',
+    'ÍË³öÎ¢ĞÅ': '#contacts-back-btn',
+    'ÍË³öÏà²á': '#album-page-title.album-page-exit',
+    'ÍË³öÂÛÌ³': '#close-forum-app',
+    'ÍË³ö¹ºÎï': '#close-shopping-app',
+    'ÍË³öicity': '#close-icity-app, #icity-app button[onclick*="classList.add(\'hidden\')"]',
+    'ÍË³öÊÖ»ú': '#close-phone-app',
+    'ÍË³öÕÕÆ¬': '#album-photo-close-btn',
+    'ÊÕ²ØÕÕÆ¬': '#album-photo-favorite-btn',
     'Albums': '#album-tab-albums',
-    'å¯†ç è¾“å…¥æ¡†': '#album-privacy-password-input',
-    'ç¡®å®š': '#album-privacy-password-confirm',
-    'ä¸»å±å¹•': '.home-indicator',
-    'æ¡Œé¢': '.home-indicator'
+    'ÃÜÂëÊäÈë¿ò': '#album-privacy-password-input',
+    'È·¶¨': '#album-privacy-password-confirm',
+    'Ö÷ÆÁÄ»': '.home-indicator',
+    '×ÀÃæ': '.home-indicator'
 };
 
 const SCREEN_PAGE = {
@@ -363,33 +364,33 @@ const SCREEN_PAGE = {
 };
 
 const HIGH_LEVEL_APP_TARGETS = {
-    'album-app': 'ç›¸å†Œ',
+    'album-app': 'Ïà²á',
     'icity-app': 'iCity',
-    'forum-app': 'è®ºå›',
-    'shopping-app': 'è´­ç‰©'
+    'forum-app': 'ÂÛÌ³',
+    'shopping-app': '¹ºÎï'
 };
 
 const CANONICAL_SCREEN_TARGET_ALIASES = {
-    'è¿”å›': ['è¿”å›', 'åé€€', 'back'],
-    'å¾®ä¿¡': ['å¾®ä¿¡', 'wechat'],
-    'ç›¸å†Œ': ['ç›¸å†Œ', 'album'],
-    'æ‰‹æœº': ['æ‰‹æœº', 'æŸ¥æ‰‹æœº', 'phone'],
-    'è´­ç‰©': ['è´­ç‰©', 'shop', 'shopping'],
-    'è®ºå›': ['è®ºå›', 'forum'],
-    'iCity': ['icity', 'icityapp', 'icityåº”ç”¨'],
-    'è®¾ç½®': ['è®¾ç½®', 'settings'],
-    'åŠ¨æ€': ['åŠ¨æ€'],
-    'é€šè®¯å½•': ['é€šè®¯å½•', 'è”ç³»äººåˆ—è¡¨', 'contacts'],
-    'èŠå¤©åˆ—è¡¨': ['èŠå¤©åˆ—è¡¨', 'æ¶ˆæ¯åˆ—è¡¨', 'åˆ—è¡¨'],
-    'æœ‹å‹åœˆ': ['æœ‹å‹åœˆ'],
-    'èŠå¤©å¤´åƒ': ['èŠå¤©å¤´åƒ', 'å¤´åƒ', 'avatar', 'profile', 'profilepicture', 'profilepic', 'pfp', 'contactavatar'],
-    'Albums': ['albums', 'albumstab', 'ç›¸ç°¿', 'ç›¸ç°¿é¡µ', 'ç›¸ç°¿åˆ—è¡¨', 'ç›¸å†Œåˆ—è¡¨', 'albumsé¡µ', 'albumlist'],
-    'é€€å‡ºç…§ç‰‡': ['é€€å‡ºç…§ç‰‡', 'å…³é—­ç…§ç‰‡', 'å…³é—­å›¾ç‰‡', 'é€€å‡ºå›¾ç‰‡', 'å…³é—­å½“å‰ç…§ç‰‡', 'closephoto', 'closephotodetail'],
-    'æ”¶è—ç…§ç‰‡': ['æ”¶è—ç…§ç‰‡', 'æ”¶è—è¿™å¼ ç…§ç‰‡', 'ç‚¹çˆ±å¿ƒ', 'ç‚¹å‡»çˆ±å¿ƒ', 'çˆ±å¿ƒ', 'å–œæ¬¢è¿™å¼ ç…§ç‰‡', 'favoritephoto', 'favorite', 'likephoto'],
-    'ä¸‹ä¸€å¼ ç…§ç‰‡': ['ä¸‹ä¸€å¼ ç…§ç‰‡', 'å¦ä¸€å¼ ç…§ç‰‡', 'ä¸‹ä¸€å¼ ', 'å¦ä¸€å¼ ', 'nextphoto', 'nextimage'],
-    'å¯†ç è¾“å…¥æ¡†': ['å¯†ç è¾“å…¥æ¡†', 'å¯†ç æ¡†', 'è¾“å…¥å¯†ç ', 'passwordinput', 'passwordfield'],
-    'ç¡®å®š': ['ç¡®å®š', 'æ‰“å¼€', 'ç¡®è®¤', 'æäº¤', 'è§£é”', 'open'],
-    'ä¸»å±å¹•': ['ä¸»å±å¹•', 'æ¡Œé¢', 'home']
+    '·µ»Ø': ['·µ»Ø', 'ºóÍË', 'back'],
+    'Î¢ĞÅ': ['Î¢ĞÅ', 'wechat'],
+    'Ïà²á': ['Ïà²á', 'album'],
+    'ÊÖ»ú': ['ÊÖ»ú', '²éÊÖ»ú', 'phone'],
+    '¹ºÎï': ['¹ºÎï', 'shop', 'shopping'],
+    'ÂÛÌ³': ['ÂÛÌ³', 'forum'],
+    'iCity': ['icity', 'icityapp', 'icityÓ¦ÓÃ'],
+    'ÉèÖÃ': ['ÉèÖÃ', 'settings'],
+    '¶¯Ì¬': ['¶¯Ì¬'],
+    'Í¨Ñ¶Â¼': ['Í¨Ñ¶Â¼', 'ÁªÏµÈËÁĞ±í', 'contacts'],
+    'ÁÄÌìÁĞ±í': ['ÁÄÌìÁĞ±í', 'ÏûÏ¢ÁĞ±í', 'ÁĞ±í'],
+    'ÅóÓÑÈ¦': ['ÅóÓÑÈ¦'],
+    'ÁÄÌìÍ·Ïñ': ['ÁÄÌìÍ·Ïñ', 'Í·Ïñ', 'avatar', 'profile', 'profilepicture', 'profilepic', 'pfp', 'contactavatar'],
+    'Albums': ['albums', 'albumstab', 'Ïà²¾', 'Ïà²¾Ò³', 'Ïà²¾ÁĞ±í', 'Ïà²áÁĞ±í', 'albumsÒ³', 'albumlist'],
+    'ÍË³öÕÕÆ¬': ['ÍË³öÕÕÆ¬', '¹Ø±ÕÕÕÆ¬', '¹Ø±ÕÍ¼Æ¬', 'ÍË³öÍ¼Æ¬', '¹Ø±Õµ±Ç°ÕÕÆ¬', 'closephoto', 'closephotodetail'],
+    'ÊÕ²ØÕÕÆ¬': ['ÊÕ²ØÕÕÆ¬', 'ÊÕ²ØÕâÕÅÕÕÆ¬', 'µã°®ĞÄ', 'µã»÷°®ĞÄ', '°®ĞÄ', 'Ï²»¶ÕâÕÅÕÕÆ¬', 'favoritephoto', 'favorite', 'likephoto'],
+    'ÏÂÒ»ÕÅÕÕÆ¬': ['ÏÂÒ»ÕÅÕÕÆ¬', 'ÁíÒ»ÕÅÕÕÆ¬', 'ÏÂÒ»ÕÅ', 'ÁíÒ»ÕÅ', 'nextphoto', 'nextimage'],
+    'ÃÜÂëÊäÈë¿ò': ['ÃÜÂëÊäÈë¿ò', 'ÃÜÂë¿ò', 'ÊäÈëÃÜÂë', 'passwordinput', 'passwordfield'],
+    'È·¶¨': ['È·¶¨', '´ò¿ª', 'È·ÈÏ', 'Ìá½»', '½âËø', 'open'],
+    'Ö÷ÆÁÄ»': ['Ö÷ÆÁÄ»', '×ÀÃæ', 'home']
 };
 
 function normalizeScreenActionText(value) {
@@ -615,7 +616,7 @@ function findContactMentionInText(text) {
 }
 
 function containsCurrentContactPronoun(normalizedText) {
-    return ['ä»–çš„', 'å¥¹çš„', 'å®ƒçš„', 'è¿™ä¸ªäºº', 'è¿™äºº', 'taçš„', 'ta', 'ä»–', 'å¥¹', 'å®ƒ'].some(keyword => normalizedText.includes(keyword));
+    return ['ËûµÄ', 'ËıµÄ', 'ËüµÄ', 'Õâ¸öÈË', 'ÕâÈË', 'taµÄ', 'ta', 'Ëû', 'Ëı', 'Ëü'].some(keyword => normalizedText.includes(keyword));
 }
 
 function resolveContactReferenceFromText(text, context) {
@@ -645,55 +646,55 @@ function resolveScreenNavigationIntent(targetDesc, context) {
     const normalizedText = normalizeScreenActionText(targetDesc);
     if (!normalizedText) return null;
 
-    const isWechatIntent = textHasAnyKeyword(normalizedText, ['å›å¾®ä¿¡', 'å»å¾®ä¿¡', 'æ‰“å¼€å¾®ä¿¡']) || normalizedText === 'å¾®ä¿¡' || normalizedText === 'wechat';
+    const isWechatIntent = textHasAnyKeyword(normalizedText, ['»ØÎ¢ĞÅ', 'È¥Î¢ĞÅ', '´ò¿ªÎ¢ĞÅ']) || normalizedText === 'Î¢ĞÅ' || normalizedText === 'wechat';
     if (isWechatIntent) {
         return { type: 'wechat_chat_list' };
     }
 
-    const isChatListIntent = textHasAnyKeyword(normalizedText, ['çœ‹æˆ‘çš„èŠå¤©', 'å»èŠå¤©åˆ—è¡¨', 'å›èŠå¤©åˆ—è¡¨', 'æ‰“å¼€èŠå¤©åˆ—è¡¨', 'æ¶ˆæ¯åˆ—è¡¨']) || normalizedText === 'èŠå¤©åˆ—è¡¨';
+    const isChatListIntent = textHasAnyKeyword(normalizedText, ['¿´ÎÒµÄÁÄÌì', 'È¥ÁÄÌìÁĞ±í', '»ØÁÄÌìÁĞ±í', '´ò¿ªÁÄÌìÁĞ±í', 'ÏûÏ¢ÁĞ±í']) || normalizedText === 'ÁÄÌìÁĞ±í';
     if (isChatListIntent) {
         return { type: 'wechat_chat_list' };
     }
 
-    const isAlbumIntent = textHasAnyKeyword(normalizedText, ['æˆ‘çš„ç›¸å†Œ', 'çœ‹æˆ‘çš„ç›¸å†Œ', 'å»ç›¸å†Œ', 'æ‰“å¼€ç›¸å†Œ']) || normalizedText === 'ç›¸å†Œ';
+    const isAlbumIntent = textHasAnyKeyword(normalizedText, ['ÎÒµÄÏà²á', '¿´ÎÒµÄÏà²á', 'È¥Ïà²á', '´ò¿ªÏà²á']) || normalizedText === 'Ïà²á';
     if (isAlbumIntent) {
-        return { type: 'open_app', appId: 'album-app', appLabel: 'ç›¸å†Œ' };
+        return { type: 'open_app', appId: 'album-app', appLabel: 'Ïà²á' };
     }
 
     const isAlbumAlbumsIntent = normalizedText === 'albums'
-        || normalizedText === 'ç›¸ç°¿'
-        || textHasAnyKeyword(normalizedText, ['å»albums', 'æ‰“å¼€albums', 'å»ç›¸ç°¿', 'å»ç›¸ç°¿é¡µ', 'æ‰“å¼€ç›¸ç°¿é¡µ', 'ç›¸å†Œåˆ—è¡¨', 'ç›¸ç°¿åˆ—è¡¨']);
+        || normalizedText === 'Ïà²¾'
+        || textHasAnyKeyword(normalizedText, ['È¥albums', '´ò¿ªalbums', 'È¥Ïà²¾', 'È¥Ïà²¾Ò³', '´ò¿ªÏà²¾Ò³', 'Ïà²áÁĞ±í', 'Ïà²¾ÁĞ±í']);
     if (isAlbumAlbumsIntent) {
         return { type: 'album_albums_tab' };
     }
 
 
-    if (textHasAnyKeyword(normalizedText, ['å»è®ºå›', 'æ‰“å¼€è®ºå›', 'è®ºå›app']) || normalizedText === 'è®ºå›') {
-        return { type: 'open_app', appId: 'forum-app', appLabel: 'è®ºå›' };
+    if (textHasAnyKeyword(normalizedText, ['È¥ÂÛÌ³', '´ò¿ªÂÛÌ³', 'ÂÛÌ³app']) || normalizedText === 'ÂÛÌ³') {
+        return { type: 'open_app', appId: 'forum-app', appLabel: 'ÂÛÌ³' };
     }
 
-    if (textHasAnyKeyword(normalizedText, ['å»è´­ç‰©', 'æ‰“å¼€è´­ç‰©', 'è´­ç‰©app']) || normalizedText === 'è´­ç‰©') {
-        return { type: 'open_app', appId: 'shopping-app', appLabel: 'è´­ç‰©' };
+    if (textHasAnyKeyword(normalizedText, ['È¥¹ºÎï', '´ò¿ª¹ºÎï', '¹ºÎïapp']) || normalizedText === '¹ºÎï') {
+        return { type: 'open_app', appId: 'shopping-app', appLabel: '¹ºÎï' };
     }
 
-    if (textHasAnyKeyword(normalizedText, ['é–¸æ¨¼æ¯city', 'é–¹å«æŒ¸ç»±æ…½city', 'é–¸æ¨¼æ¯cityapp', 'é–¹å«æŒ¸ç»±æ…½cityapp']) || normalizedText === 'icity' || normalizedText === 'icityapp') {
+    if (textHasAnyKeyword(normalizedText, ['é˜ç±­city', 'éµæ’³ç´‘icity', 'é˜ç±­cityapp', 'éµæ’³ç´‘icityapp']) || normalizedText === 'icity' || normalizedText === 'icityapp') {
         return { type: 'open_app', appId: 'icity-app', appLabel: 'iCity' };
     }
 
-    if (textHasAnyKeyword(normalizedText, ['æˆ‘çš„æœ‹å‹åœˆ', 'çœ‹æˆ‘çš„æœ‹å‹åœˆ', 'æˆ‘çš„åŠ¨æ€', 'çœ‹æˆ‘çš„åŠ¨æ€', 'å»åŠ¨æ€', 'æ‰“å¼€åŠ¨æ€', 'è¿›å…¥åŠ¨æ€']) || normalizedText === 'åŠ¨æ€') {
+    if (textHasAnyKeyword(normalizedText, ['ÎÒµÄÅóÓÑÈ¦', '¿´ÎÒµÄÅóÓÑÈ¦', 'ÎÒµÄ¶¯Ì¬', '¿´ÎÒµÄ¶¯Ì¬', 'È¥¶¯Ì¬', '´ò¿ª¶¯Ì¬', '½øÈë¶¯Ì¬']) || normalizedText === '¶¯Ì¬') {
         return { type: 'my_moments' };
     }
 
     const contactRef = resolveContactReferenceFromText(targetDesc, context);
-    const hasExplicitChatKeyword = textHasAnyKeyword(normalizedText, ['èŠå¤©', 'å¯¹è¯', 'æ¶ˆæ¯', 'ç§èŠ', 'èŠå¤©é¡µ']);
+    const hasExplicitChatKeyword = textHasAnyKeyword(normalizedText, ['ÁÄÌì', '¶Ô»°', 'ÏûÏ¢', 'Ë½ÁÄ', 'ÁÄÌìÒ³']);
     const isExactContactNameIntent = !!contactRef.contact
         && getContactNameVariants(contactRef.contact).some(variant => variant.normalized === normalizedText);
     const isChatIntent = hasExplicitChatKeyword;
-    const isProfileIntent = textHasAnyKeyword(normalizedText, ['èµ„æ–™', 'ä¸»é¡µ', 'ä¸ªäººé¡µ', 'åç‰‡', 'èµ„æ–™å¡', 'ä¿¡æ¯é¡µ']);
-    const isMomentsIntent = normalizedText.includes('æœ‹å‹åœˆ') || normalizedText.includes('ä¸ªäººåŠ¨æ€');
+    const isProfileIntent = textHasAnyKeyword(normalizedText, ['×ÊÁÏ', 'Ö÷Ò³', '¸öÈËÒ³', 'ÃûÆ¬', '×ÊÁÏ¿¨', 'ĞÅÏ¢Ò³']);
+    const isMomentsIntent = normalizedText.includes('ÅóÓÑÈ¦') || normalizedText.includes('¸öÈË¶¯Ì¬');
 
     if (contactRef.ambiguous && (isChatIntent || isProfileIntent || isMomentsIntent)) {
-        return { type: 'ambiguous', reason: 'ç›®æ ‡ä¸æ˜ç¡®ï¼Œæ— æ³•åˆ¤æ–­å½“å‰æŒ‡çš„æ˜¯å“ªä½è”ç³»äºº' };
+        return { type: 'ambiguous', reason: 'Ä¿±ê²»Ã÷È·£¬ÎŞ·¨ÅĞ¶Ïµ±Ç°Ö¸µÄÊÇÄÄÎ»ÁªÏµÈË' };
     }
 
     if (contactRef.contact && isMomentsIntent) {
@@ -740,13 +741,13 @@ function createTapStep(target, options = {}) {
         target,
         label,
         fallback: options.fallback || null,
-        failureText: options.failureText || `æœªæ‰¾åˆ° ${label} å…¥å£`,
+        failureText: options.failureText || `Î´ÕÒµ½ ${label} Èë¿Ú`,
         delay: typeof options.delay === 'number' ? options.delay : 320
     };
 }
 
 function createContactStep(contact) {
-    const displayName = getContactDisplayName(contact) || 'è¯¥è”ç³»äºº';
+    const displayName = getContactDisplayName(contact) || '¸ÃÁªÏµÈË';
     return createTapStep(displayName, {
         label: displayName,
         fallback: () => {
@@ -756,15 +757,15 @@ function createContactStep(contact) {
             }
             return false;
         },
-        failureText: `æœªæ‰¾åˆ° ${displayName} çš„èŠå¤©å…¥å£`
+        failureText: `Î´ÕÒµ½ ${displayName} µÄÁÄÌìÈë¿Ú`
     });
 }
 
 function createOpenWechatStep() {
-    return createTapStep('å¾®ä¿¡', {
+    return createTapStep('Î¢ĞÅ', {
         fallback: () => {
             if (typeof window.handleAppClick === 'function') {
-                window.handleAppClick('wechat-app', 'å¾®ä¿¡');
+                window.handleAppClick('wechat-app', 'Î¢ĞÅ');
                 return true;
             }
             const app = document.getElementById('wechat-app');
@@ -774,7 +775,7 @@ function createOpenWechatStep() {
             }
             return false;
         },
-        failureText: 'æœªèƒ½æ‰“å¼€å¾®ä¿¡'
+        failureText: 'Î´ÄÜ´ò¿ªÎ¢ĞÅ'
     });
 }
 
@@ -791,7 +792,7 @@ function createHideAppStep(target, appId, failureText) {
 }
 
 function createExitWechatStep() {
-    return createHideAppStep('é€€å‡ºå¾®ä¿¡', 'wechat-app', 'æœªèƒ½é€€å‡ºå¾®ä¿¡');
+    return createHideAppStep('ÍË³öÎ¢ĞÅ', 'wechat-app', 'Î´ÄÜÍË³öÎ¢ĞÅ');
 }
 
 function buildPlanToChatList(context) {
@@ -799,31 +800,31 @@ function buildPlanToChatList(context) {
         case SCREEN_PAGE.CHAT_LIST:
             return [];
         case SCREEN_PAGE.CONTACT_CHAT:
-            return [createTapStep('è¿”å›', { failureText: 'æœªèƒ½è¿”å›èŠå¤©åˆ—è¡¨' })];
+            return [createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ·µ»ØÁÄÌìÁĞ±í' })];
         case SCREEN_PAGE.PROFILE: {
-            const plan = [createTapStep('è¿”å›', { failureText: 'æœªèƒ½å…³é—­èµ„æ–™é¡µ' })];
+            const plan = [createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ¹Ø±Õ×ÊÁÏÒ³' })];
             if (
                 context.currentChatContactId
                 && context.currentProfileContactId
                 && String(context.currentChatContactId) === String(context.currentProfileContactId)
             ) {
-                plan.push(createTapStep('è¿”å›', { failureText: 'æœªèƒ½è¿”å›èŠå¤©åˆ—è¡¨' }));
+                plan.push(createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ·µ»ØÁÄÌìÁĞ±í' }));
             }
             return plan;
         }
         case SCREEN_PAGE.PERSONAL_MOMENTS: {
-            const plan = [createTapStep('è¿”å›', { failureText: 'æœªèƒ½å…³é—­æœ‹å‹åœˆé¡µé¢' })];
+            const plan = [createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ¹Ø±ÕÅóÓÑÈ¦Ò³Ãæ' })];
             if (context.personalMomentsSource === 'ai-profile') {
-                plan.push(createTapStep('è¿”å›', { failureText: 'æœªèƒ½å…³é—­èµ„æ–™é¡µ' }));
+                plan.push(createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ¹Ø±Õ×ÊÁÏÒ³' }));
             }
             if (context.currentChatContactId) {
-                plan.push(createTapStep('è¿”å›', { failureText: 'æœªèƒ½è¿”å›èŠå¤©åˆ—è¡¨' }));
+                plan.push(createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ·µ»ØÁÄÌìÁĞ±í' }));
             }
             return plan;
         }
         case SCREEN_PAGE.MOMENTS_FEED:
         case SCREEN_PAGE.WECHAT_OTHER:
-            return [createTapStep('èŠå¤©åˆ—è¡¨', { failureText: 'æœªèƒ½å›åˆ°å¾®ä¿¡èŠå¤©åˆ—è¡¨' })];
+            return [createTapStep('ÁÄÌìÁĞ±í', { failureText: 'Î´ÄÜ»Øµ½Î¢ĞÅÁÄÌìÁĞ±í' })];
         case SCREEN_PAGE.HOME:
             return [createOpenWechatStep()];
         case SCREEN_PAGE.ALBUM_APP:
@@ -857,15 +858,15 @@ function buildPlanToHome(context) {
                 createExitWechatStep()
             ];
         case SCREEN_PAGE.ALBUM_APP:
-            return [createHideAppStep('é€€å‡ºç›¸å†Œ', 'album-app', 'æœªèƒ½é€€å‡ºç›¸å†Œ')];
+            return [createHideAppStep('ÍË³öÏà²á', 'album-app', 'Î´ÄÜÍË³öÏà²á')];
         case SCREEN_PAGE.ICITY_APP:
-            return [createHideAppStep('é€€å‡ºicity', 'icity-app', 'æœªèƒ½é€€å‡º iCity')];
+            return [createHideAppStep('ÍË³öicity', 'icity-app', 'Î´ÄÜÍË³ö iCity')];
         case SCREEN_PAGE.FORUM_APP:
-            return [createHideAppStep('é€€å‡ºè®ºå›', 'forum-app', 'æœªèƒ½é€€å‡ºè®ºå›')];
+            return [createHideAppStep('ÍË³öÂÛÌ³', 'forum-app', 'Î´ÄÜÍË³öÂÛÌ³')];
         case SCREEN_PAGE.SHOPPING_APP:
-            return [createHideAppStep('é€€å‡ºè´­ç‰©', 'shopping-app', 'æœªèƒ½é€€å‡ºè´­ç‰©')];
+            return [createHideAppStep('ÍË³ö¹ºÎï', 'shopping-app', 'Î´ÄÜÍË³ö¹ºÎï')];
         case SCREEN_PAGE.PHONE_APP:
-            return [createHideAppStep('é€€å‡ºæ‰‹æœº', 'phone-app', 'æœªèƒ½é€€å‡ºæ‰‹æœº')];
+            return [createHideAppStep('ÍË³öÊÖ»ú', 'phone-app', 'Î´ÄÜÍË³öÊÖ»ú')];
         default:
             return [];
     }
@@ -883,7 +884,7 @@ function buildPlanToContactChat(contact, context) {
         && context.currentChatContactId
         && String(context.currentChatContactId) === String(contact.id)
     ) {
-        return [createTapStep('è¿”å›', { failureText: 'æœªèƒ½è¿”å›èŠå¤©é¡µ' })];
+        return [createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ·µ»ØÁÄÌìÒ³' })];
     }
 
     if (
@@ -892,9 +893,9 @@ function buildPlanToContactChat(contact, context) {
         && context.currentChatContactId
         && String(context.currentChatContactId) === String(contact.id)
     ) {
-        const plan = [createTapStep('è¿”å›', { failureText: 'æœªèƒ½å…³é—­æœ‹å‹åœˆé¡µé¢' })];
+        const plan = [createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ¹Ø±ÕÅóÓÑÈ¦Ò³Ãæ' })];
         if (context.personalMomentsSource === 'ai-profile') {
-            plan.push(createTapStep('è¿”å›', { failureText: 'æœªèƒ½è¿”å›èŠå¤©é¡µ' }));
+            plan.push(createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ·µ»ØÁÄÌìÒ³' }));
         }
         return plan;
     }
@@ -904,7 +905,7 @@ function buildPlanToContactChat(contact, context) {
 
 function buildPlanToContactProfile(contact, context) {
     const currentContact = getCurrentContextContact(context);
-    const displayName = getContactDisplayName(contact) || 'è¯¥è”ç³»äºº';
+    const displayName = getContactDisplayName(contact) || '¸ÃÁªÏµÈË';
     if (context.page === SCREEN_PAGE.PROFILE && isSameContact(currentContact, contact)) {
         return [];
     }
@@ -913,13 +914,13 @@ function buildPlanToContactProfile(contact, context) {
         && isSameContact(currentContact, contact)
         && context.personalMomentsSource === 'ai-profile'
     ) {
-        return [createTapStep('è¿”å›', { failureText: `æœªèƒ½è¿”å› ${displayName} çš„èµ„æ–™é¡µ` })];
+        return [createTapStep('·µ»Ø', { failureText: `Î´ÄÜ·µ»Ø ${displayName} µÄ×ÊÁÏÒ³` })];
     }
 
     return [
         ...buildPlanToContactChat(contact, context),
-        createTapStep('èŠå¤©å¤´åƒ', {
-            label: `${displayName} çš„èŠå¤©å¤´åƒ`,
+        createTapStep('ÁÄÌìÍ·Ïñ', {
+            label: `${displayName} µÄÁÄÌìÍ·Ïñ`,
             fallback: () => {
                 if (typeof window.openAiProfile === 'function') {
                     window.openAiProfile(contact.id);
@@ -927,20 +928,20 @@ function buildPlanToContactProfile(contact, context) {
                 }
                 return false;
             },
-            failureText: `æœªæ‰¾åˆ° ${displayName} çš„èµ„æ–™å…¥å£`
+            failureText: `Î´ÕÒµ½ ${displayName} µÄ×ÊÁÏÈë¿Ú`
         })
     ];
 }
 
 function buildPlanToContactMoments(contact, context) {
     const currentContact = getCurrentContextContact(context);
-    const displayName = getContactDisplayName(contact) || 'è¯¥è”ç³»äºº';
+    const displayName = getContactDisplayName(contact) || '¸ÃÁªÏµÈË';
     if (context.page === SCREEN_PAGE.PERSONAL_MOMENTS && isSameContact(currentContact, contact)) {
         return [];
     }
 
-    const openMomentsStep = createTapStep('èµ„æ–™é¡µæœ‹å‹åœˆ', {
-        label: `${displayName} çš„æœ‹å‹åœˆå…¥å£`,
+    const openMomentsStep = createTapStep('×ÊÁÏÒ³ÅóÓÑÈ¦', {
+        label: `${displayName} µÄÅóÓÑÈ¦Èë¿Ú`,
         fallback: () => {
             if (typeof window.openAiMoments === 'function') {
                 window.openAiMoments();
@@ -948,7 +949,7 @@ function buildPlanToContactMoments(contact, context) {
             }
             return false;
         },
-        failureText: `æœªæ‰¾åˆ° ${displayName} çš„æœ‹å‹åœˆå…¥å£`
+        failureText: `Î´ÕÒµ½ ${displayName} µÄÅóÓÑÈ¦Èë¿Ú`
     });
 
     if (context.page === SCREEN_PAGE.PROFILE && isSameContact(currentContact, contact)) {
@@ -967,9 +968,9 @@ function buildPlanToMyMoments(context) {
             return [];
         case SCREEN_PAGE.CHAT_LIST:
         case SCREEN_PAGE.WECHAT_OTHER:
-            return [createTapStep('åŠ¨æ€', { failureText: 'æœªæ‰¾åˆ°åŠ¨æ€å…¥å£' })];
+            return [createTapStep('¶¯Ì¬', { failureText: 'Î´ÕÒµ½¶¯Ì¬Èë¿Ú' })];
         default:
-            return [...buildPlanToChatList(context), createTapStep('åŠ¨æ€', { failureText: 'æœªæ‰¾åˆ°åŠ¨æ€å…¥å£' })];
+            return [...buildPlanToChatList(context), createTapStep('¶¯Ì¬', { failureText: 'Î´ÕÒµ½¶¯Ì¬Èë¿Ú' })];
     }
 }
 
@@ -1001,7 +1002,7 @@ function buildPlanToApp(appId, context) {
                 }
                 return false;
             },
-            failureText: `æœªèƒ½æ‰“å¼€ ${appLabel}`
+            failureText: `Î´ÄÜ´ò¿ª ${appLabel}`
         })
     ];
 }
@@ -1017,20 +1018,20 @@ function buildPlanToAlbumAlbumsTab(context) {
         const plan = [];
 
         if (isPhotoDetailOpen) {
-            plan.push(createTapStep('é€€å‡ºç…§ç‰‡', { failureText: 'æœªèƒ½é€€å‡ºç…§ç‰‡è¯¦æƒ…' }));
+            plan.push(createTapStep('ÍË³öÕÕÆ¬', { failureText: 'Î´ÄÜÍË³öÕÕÆ¬ÏêÇé' }));
         }
         if (isAlbumDetailOpen) {
-            plan.push(createTapStep('è¿”å›', { failureText: 'æœªèƒ½è¿”å›ç›¸ç°¿åˆ—è¡¨' }));
+            plan.push(createTapStep('·µ»Ø', { failureText: 'Î´ÄÜ·µ»ØÏà²¾ÁĞ±í' }));
         }
         if (!isAlbumsActive || isPhotoDetailOpen || isAlbumDetailOpen) {
-            plan.push(createTapStep('Albums', { failureText: 'æœªèƒ½åˆ‡æ¢åˆ°ç›¸ç°¿é¡µ' }));
+            plan.push(createTapStep('Albums', { failureText: 'Î´ÄÜÇĞ»»µ½Ïà²¾Ò³' }));
         }
         return plan;
     }
 
     return [
         ...buildPlanToApp('album-app', context),
-        createTapStep('Albums', { failureText: 'æœªèƒ½åˆ‡æ¢åˆ°ç›¸ç°¿é¡µ' })
+        createTapStep('Albums', { failureText: 'Î´ÄÜÇĞ»»µ½Ïà²¾Ò³' })
     ];
 }
 
@@ -1060,21 +1061,21 @@ function buildScreenNavigationPlan(intent, context) {
 function getNavigationSuccessMessage(intent) {
     switch (intent.type) {
         case 'wechat_chat_list':
-            return '[ç³»ç»Ÿ]: å·²å›åˆ°å¾®ä¿¡èŠå¤©åˆ—è¡¨';
+            return '[ÏµÍ³]: ÒÑ»Øµ½Î¢ĞÅÁÄÌìÁĞ±í';
         case 'contact_chat':
-            return `[ç³»ç»Ÿ]: å·²æ‰“å¼€ ${getContactDisplayName(intent.contact)} çš„èŠå¤©`;
+            return `[ÏµÍ³]: ÒÑ´ò¿ª ${getContactDisplayName(intent.contact)} µÄÁÄÌì`;
         case 'contact_profile':
-            return `[ç³»ç»Ÿ]: å·²æ‰“å¼€ ${getContactDisplayName(intent.contact)} çš„èµ„æ–™é¡µ`;
+            return `[ÏµÍ³]: ÒÑ´ò¿ª ${getContactDisplayName(intent.contact)} µÄ×ÊÁÏÒ³`;
         case 'contact_moments':
-            return `[ç³»ç»Ÿ]: å·²æ‰“å¼€ ${getContactDisplayName(intent.contact)} çš„æœ‹å‹åœˆ`;
+            return `[ÏµÍ³]: ÒÑ´ò¿ª ${getContactDisplayName(intent.contact)} µÄÅóÓÑÈ¦`;
         case 'my_moments':
-            return '[ç³»ç»Ÿ]: å·²æ‰“å¼€åŠ¨æ€é¡µ';
+            return '[ÏµÍ³]: ÒÑ´ò¿ª¶¯Ì¬Ò³';
         case 'open_app':
-            return `[ç³»ç»Ÿ]: å·²æ‰“å¼€ ${intent.appLabel || HIGH_LEVEL_APP_TARGETS[intent.appId] || intent.appId}`;
+            return `[ÏµÍ³]: ÒÑ´ò¿ª ${intent.appLabel || HIGH_LEVEL_APP_TARGETS[intent.appId] || intent.appId}`;
         case 'album_albums_tab':
-            return '[ç³»ç»Ÿ]: å·²åˆ‡æ¢åˆ°ç›¸ç°¿é¡µ';
+            return '[ÏµÍ³]: ÒÑÇĞ»»µ½Ïà²¾Ò³';
         default:
-            return '[ç³»ç»Ÿ]: å·²å®Œæˆå¯¼èˆª';
+            return '[ÏµÍ³]: ÒÑÍê³Éµ¼º½';
     }
 }
 
@@ -1103,31 +1104,31 @@ function parseChineseScreenActionNumber(rawValue) {
     if (/^\d+$/.test(value)) return Number.parseInt(value, 10);
 
     const digitMap = {
-        'é›¶': 0,
-        'ã€‡': 0,
-        'ä¸€': 1,
-        'äºŒ': 2,
-        'ä¸¤': 2,
-        'ä¸‰': 3,
-        'å››': 4,
-        'äº”': 5,
-        'å…­': 6,
-        'ä¸ƒ': 7,
-        'å…«': 8,
-        'ä¹': 9
+        'Áã': 0,
+        '©–': 0,
+        'Ò»': 1,
+        '¶ş': 2,
+        'Á½': 2,
+        'Èı': 3,
+        'ËÄ': 4,
+        'Îå': 5,
+        'Áù': 6,
+        'Æß': 7,
+        '°Ë': 8,
+        '¾Å': 9
     };
 
-    if (value === 'å') return 10;
-    if (value.startsWith('å')) {
+    if (value === 'Ê®') return 10;
+    if (value.startsWith('Ê®')) {
         const tail = value.slice(1);
         return 10 + (digitMap[tail] || 0);
     }
-    if (value.endsWith('å')) {
+    if (value.endsWith('Ê®')) {
         const head = value.slice(0, -1);
         return (digitMap[head] || 0) * 10;
     }
-    if (value.includes('å')) {
-        const parts = value.split('å');
+    if (value.includes('Ê®')) {
+        const parts = value.split('Ê®');
         const tens = digitMap[parts[0]] || 0;
         const ones = digitMap[parts[1]] || 0;
         return tens * 10 + ones;
@@ -1160,12 +1161,12 @@ function parseAlbumIndexedTarget(targetDesc) {
 
     const hanNumberClass = '[\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341\u4E24\u3007\u96F6]+';
     const localizedPatterns = [
-        { kind: 'photo', regex: /^å›¾ç‰‡\s*(\d+)$/i },
-        { kind: 'photo', regex: /^ç…§ç‰‡\s*(\d+)$/i },
+        { kind: 'photo', regex: /^Í¼Æ¬\s*(\d+)$/i },
+        { kind: 'photo', regex: /^ÕÕÆ¬\s*(\d+)$/i },
         { kind: 'photo', regex: new RegExp('^\\u7B2C\\s*(\\d+)\\s*(?:\\u5F20)?(?:\\u56FE\\u7247|\\u7167\\u7247|\\u56FE|\\u4E2A\\u56FE\\u7247|\\u4E2A\\u7167\\u7247)?$', 'i') },
         { kind: 'photo', regex: new RegExp('^\\u7B2C\\s*(' + hanNumberClass + ')\\s*(?:\\u5F20)?(?:\\u56FE\\u7247|\\u7167\\u7247|\\u56FE|\\u4E2A\\u56FE\\u7247|\\u4E2A\\u7167\\u7247)?$') },
         { kind: 'photo', regex: new RegExp('^(' + hanNumberClass + ')\\s*(?:\\u5F20)?(?:\\u56FE\\u7247|\\u7167\\u7247|\\u56FE|\\u4E2A\\u56FE\\u7247|\\u4E2A\\u7167\\u7247)?$') },
-        { kind: 'album', regex: /^ç›¸å†Œ\s*(\d+)$/i },
+        { kind: 'album', regex: /^Ïà²á\s*(\d+)$/i },
         { kind: 'album', regex: new RegExp('^\\u7B2C\\s*(\\d+)\\s*\\u4E2A\\u76F8\\u518C$', 'i') },
         { kind: 'album', regex: new RegExp('^\\u7B2C\\s*(' + hanNumberClass + ')\\s*\\u4E2A\\u76F8\\u518C$') }
     ];
@@ -1219,35 +1220,35 @@ function extractScreenShareActionTargetsFromUserText(text, context = getScreenNa
     const normalizedText = normalizeScreenActionText(rawText);
     const targets = [];
 
-    const needsAlbumOpen = textHasAnyKeyword(normalizedText, ['æˆ‘çš„ç›¸å†Œ', 'çœ‹æˆ‘çš„ç›¸å†Œ', 'å»ç›¸å†Œ', 'æ‰“å¼€ç›¸å†Œ']) || normalizedText === 'ç›¸å†Œ';
+    const needsAlbumOpen = textHasAnyKeyword(normalizedText, ['ÎÒµÄÏà²á', '¿´ÎÒµÄÏà²á', 'È¥Ïà²á', '´ò¿ªÏà²á']) || normalizedText === 'Ïà²á';
     if (needsAlbumOpen && context.page !== SCREEN_PAGE.ALBUM_APP) {
-        targets.push('ç›¸å†Œ');
+        targets.push('Ïà²á');
     }
 
     const photoPatterns = [
-        /ç¬¬\s*([ä¸€äºŒä¸‰å››äº”å…­ä¸ƒå…«ä¹åä¸¤ã€‡é›¶\d]+)\s*å¼ (?:å›¾ç‰‡|ç…§ç‰‡|å›¾)/,
-        /(?:å›¾ç‰‡|ç…§ç‰‡)\s*([ä¸€äºŒä¸‰å››äº”å…­ä¸ƒå…«ä¹åä¸¤ã€‡é›¶\d]+)/
+        /µÚ\s*([Ò»¶şÈıËÄÎåÁùÆß°Ë¾ÅÊ®Á½©–Áã\d]+)\s*ÕÅ(?:Í¼Æ¬|ÕÕÆ¬|Í¼)/,
+        /(?:Í¼Æ¬|ÕÕÆ¬)\s*([Ò»¶şÈıËÄÎåÁùÆß°Ë¾ÅÊ®Á½©–Áã\d]+)/
     ];
     for (const pattern of photoPatterns) {
         const match = rawText.match(pattern);
         if (!match) continue;
         const index = parseChineseScreenActionNumber(match[1]);
         if (Number.isFinite(index) && index >= 1) {
-            targets.push(`å›¾ç‰‡${index}`);
+            targets.push(`Í¼Æ¬${index}`);
             break;
         }
     }
 
     const albumPatterns = [
-        /ç¬¬\s*([ä¸€äºŒä¸‰å››äº”å…­ä¸ƒå…«ä¹åä¸¤ã€‡é›¶\d]+)\s*ä¸ªç›¸å†Œ/,
-        /ç›¸å†Œ\s*([ä¸€äºŒä¸‰å››äº”å…­ä¸ƒå…«ä¹åä¸¤ã€‡é›¶\d]+)/
+        /µÚ\s*([Ò»¶şÈıËÄÎåÁùÆß°Ë¾ÅÊ®Á½©–Áã\d]+)\s*¸öÏà²á/,
+        /Ïà²á\s*([Ò»¶şÈıËÄÎåÁùÆß°Ë¾ÅÊ®Á½©–Áã\d]+)/
     ];
     for (const pattern of albumPatterns) {
         const match = rawText.match(pattern);
         if (!match) continue;
         const index = parseChineseScreenActionNumber(match[1]);
         if (Number.isFinite(index) && index >= 1) {
-            targets.push(`ç›¸å†Œ${index}`);
+            targets.push(`Ïà²á${index}`);
             break;
         }
     }
@@ -1265,7 +1266,7 @@ window.executeScreenShareUserTextActions = async function(text) {
 function getSpecialScreenActionTarget(targetDesc, context = getScreenNavigationContext()) {
     const canonicalTarget = getCanonicalScreenTarget(targetDesc);
     switch (canonicalTarget) {
-        case 'è¿”å›':
+        case '·µ»Ø':
             switch (context.page) {
                 case SCREEN_PAGE.PERSONAL_MOMENTS:
                     return findFirstVisibleElement('#close-personal-moments');
@@ -1288,45 +1289,45 @@ function getSpecialScreenActionTarget(targetDesc, context = getScreenNavigationC
                 case SCREEN_PAGE.PHONE_APP:
                     return findFirstVisibleElement('#close-phone-app');
                 default:
-                    return findFirstVisibleElement(screenTargets['è¿”å›']);
+                    return findFirstVisibleElement(screenTargets['·µ»Ø']);
             }
-        case 'èŠå¤©åˆ—è¡¨':
+        case 'ÁÄÌìÁĞ±í':
             if (context.page === SCREEN_PAGE.CONTACT_CHAT) {
                 return findFirstVisibleElement('#back-to-contacts');
             }
             return findFirstVisibleElement('#wechat-app .wechat-tab-item[data-tab="contacts"]');
-        case 'é€€å‡ºå¾®ä¿¡':
+        case 'ÍË³öÎ¢ĞÅ':
             return findFirstVisibleElement('#contacts-back-btn');
-        case 'èŠå¤©å¤´åƒ':
+        case 'ÁÄÌìÍ·Ïñ':
             return findFirstVisibleElement('#chat-screen .chat-avatar[onclick*="openAiProfile"]');
-        case 'èµ„æ–™é¡µæœ‹å‹åœˆ':
+        case '×ÊÁÏÒ³ÅóÓÑÈ¦':
             return findFirstVisibleElement('#ai-moments-entry');
-        case 'æœ‹å‹åœˆ':
+        case 'ÅóÓÑÈ¦':
             if (context.page === SCREEN_PAGE.PROFILE) {
                 return findFirstVisibleElement('#ai-moments-entry');
             }
             return findFirstVisibleElement('#wechat-app .wechat-tab-item[data-tab="moments"]');
-        case 'åŠ¨æ€':
+        case '¶¯Ì¬':
             return findFirstVisibleElement('#wechat-app .wechat-tab-item[data-tab="moments"]');
-        case 'é€šè®¯å½•':
+        case 'Í¨Ñ¶Â¼':
             return findFirstVisibleElement('#wechat-app .wechat-tab-item[data-tab="addressbook"]');
-        case 'æ”¶è—ç…§ç‰‡':
+        case 'ÊÕ²ØÕÕÆ¬':
             return findFirstVisibleElement('#album-photo-favorite-btn');
-        case 'ä¸‹ä¸€å¼ ç…§ç‰‡':
+        case 'ÏÂÒ»ÕÅÕÕÆ¬':
             return getAlbumNextPhotoTarget();
         case 'Albums':
             return findFirstVisibleElement('#album-tab-albums');
-        case 'å¯†ç è¾“å…¥æ¡†':
+        case 'ÃÜÂëÊäÈë¿ò':
             return findFirstVisibleElement('#album-privacy-password-input');
-        case 'ç¡®å®š':
+        case 'È·¶¨':
             return findFirstVisibleElement('#album-privacy-password-confirm');
-        case 'é€€å‡ºç…§ç‰‡':
+        case 'ÍË³öÕÕÆ¬':
             return findFirstVisibleElement('#album-photo-close-btn');
-        case 'é€€å‡ºç›¸å†Œ':
-        case 'é€€å‡ºè®ºå›':
-        case 'é€€å‡ºè´­ç‰©':
-        case 'é€€å‡ºicity':
-        case 'é€€å‡ºæ‰‹æœº':
+        case 'ÍË³öÏà²á':
+        case 'ÍË³öÂÛÌ³':
+        case 'ÍË³ö¹ºÎï':
+        case 'ÍË³öicity':
+        case 'ÍË³öÊÖ»ú':
             return findFirstVisibleElement(screenTargets[canonicalTarget]);
         default:
             return getAlbumIndexedTargetElement(targetDesc, context);
@@ -1632,15 +1633,15 @@ function isWrappedStandaloneSecretText(text) {
         ['"', '"'],
         ["'", "'"],
         ['`', '`'],
-        ['â€œ', 'â€'],
-        ['â€˜', 'â€™'],
-        ['ã€Œ', 'ã€'],
-        ['ã€', 'ã€'],
-        ['ã€Š', 'ã€‹'],
-        ['ã€ˆ', 'ã€‰'],
-        ['ã€', 'ã€‘'],
+        ['¡°', '¡±'],
+        ['¡®', '¡¯'],
+        ['¡¸', '¡¹'],
+        ['¡º', '¡»'],
+        ['¡¶', '¡·'],
+        ['¡´', '¡µ'],
+        ['¡¾', '¡¿'],
         ['(', ')'],
-        ['ï¼ˆ', 'ï¼‰'],
+        ['£¨', '£©'],
         ['[', ']'],
         ['{', '}']
     ];
@@ -1662,7 +1663,7 @@ function extractStandaloneScreenTypeSecretsFromText(text) {
     const secrets = [];
     const normalizedCompact = normalizedText.replace(/\s+/g, '');
     const isWrapped = isWrappedStandaloneSecretText(sourceText);
-    const standaloneDateMatch = normalizedText.match(/^(\d{1,2})\s*(?:æœˆ|[\/\-.])\s*(\d{1,2})(?:æ—¥|å·)?$/i);
+    const standaloneDateMatch = normalizedText.match(/^(\d{1,2})\s*(?:ÔÂ|[\/\-.])\s*(\d{1,2})(?:ÈÕ|ºÅ)?$/i);
 
     if (standaloneDateMatch) {
         const mmdd = buildScreenTypeMmddSecret(standaloneDateMatch[1], standaloneDateMatch[2]);
@@ -1887,7 +1888,7 @@ async function executeNavigationPlan(cursor, plan) {
 
         return {
             success: false,
-            reason: step.failureText || `æœªæ‰¾åˆ° ${step.label || step.target} å…¥å£`
+            reason: step.failureText || `Î´ÕÒµ½ ${step.label || step.target} Èë¿Ú`
         };
     }
 
@@ -1967,13 +1968,13 @@ function executeSingleScreenAction(action, payload) {
         const intent = resolveScreenNavigationIntent(targetDesc, context);
         if (intent) {
             if (intent.type === 'ambiguous') {
-                emitScreenShareSystemMessage(`[ç³»ç»Ÿ]: ${intent.reason}`);
+                emitScreenShareSystemMessage(`[ÏµÍ³]: ${intent.reason}`);
                 return;
             }
 
             const plan = buildScreenNavigationPlan(intent, context);
             if (!plan) {
-                emitScreenShareSystemMessage('[ç³»ç»Ÿ]: å½“å‰æ— æ³•æ‰§è¡Œè¿™ä¸ªå¯¼èˆªåŠ¨ä½œ');
+                emitScreenShareSystemMessage('[ÏµÍ³]: µ±Ç°ÎŞ·¨Ö´ĞĞÕâ¸öµ¼º½¶¯×÷');
                 return;
             }
 
@@ -1981,7 +1982,7 @@ function executeSingleScreenAction(action, payload) {
             if (result.success) {
                 emitScreenShareSystemMessage(getNavigationSuccessMessage(intent));
             } else {
-                emitScreenShareSystemMessage(`[ç³»ç»Ÿ]: ${result.reason}`);
+                emitScreenShareSystemMessage(`[ÏµÍ³]: ${result.reason}`);
             }
             return;
         }
@@ -2005,18 +2006,18 @@ function executeSingleScreenAction(action, payload) {
             }
 
             await simulateScreenTap(cursor, targetEl);
-            emitScreenShareSystemMessage(`[ç³»ç»Ÿ]: å·²ç‚¹å‡» ${targetDesc}`);
+            emitScreenShareSystemMessage(`[ÏµÍ³]: ÒÑµã»÷ ${targetDesc}`);
             return;
         }
 
         const matchedContact = findContactByScreenActionText(targetDesc);
         if (matchedContact && typeof window.openChat === 'function') {
             window.openChat(matchedContact.id);
-            emitScreenShareSystemMessage(`[ç³»ç»Ÿ]: å·²æ‰“å¼€ ${getContactDisplayName(matchedContact)} çš„èŠå¤©`);
+            emitScreenShareSystemMessage(`[ÏµÍ³]: ÒÑ´ò¿ª ${getContactDisplayName(matchedContact)} µÄÁÄÌì`);
             return;
         }
 
-        emitScreenShareSystemMessage(`[ç³»ç»Ÿ]: æœªæ‰¾åˆ° ${targetDesc}ï¼Œæ— æ³•æ‰§è¡Œç‚¹å‡»`);
+        emitScreenShareSystemMessage(`[ÏµÍ³]: Î´ÕÒµ½ ${targetDesc}£¬ÎŞ·¨Ö´ĞĞµã»÷`);
     })();
 }
 
@@ -2154,8 +2155,8 @@ function sanitizeScreenShareSummaryValue(value, maxLength = 120) {
         .trim();
     if (!normalized) return '';
     if (normalized.length <= maxLength) return normalized;
-    if (maxLength <= 1) return 'â€¦';
-    return `${normalized.slice(0, maxLength - 1)}â€¦`;
+    if (maxLength <= 1) return '¡­';
+    return `${normalized.slice(0, maxLength - 1)}¡­`;
 }
 
 function getWechatListScreenShareSummaryText(snapshot) {
@@ -2166,7 +2167,7 @@ function getWechatListScreenShareSummaryText(snapshot) {
     }
 
     const itemText = items.map((item, index) => {
-        const parts = [`${index + 1}. ${sanitizeScreenShareSummaryValue(item.name || 'è”ç³»äºº', 40)}`];
+        const parts = [`${index + 1}. ${sanitizeScreenShareSummaryValue(item.name || 'ÁªÏµÈË', 40)}`];
         if (item.pinned) parts.push('(pinned)');
         if (item.preview) parts.push(`preview=${sanitizeScreenShareSummaryValue(item.preview, 80)}`);
         if (item.time) parts.push(`time=${sanitizeScreenShareSummaryValue(item.time, 16)}`);
@@ -2179,7 +2180,7 @@ function getWechatListScreenShareSummaryText(snapshot) {
 function getWechatChatScreenShareSummaryText(snapshot) {
     if (!snapshot) return '';
     const items = Array.isArray(snapshot.items) ? snapshot.items.slice(0, 8) : [];
-    const contactName = sanitizeScreenShareSummaryValue(snapshot.contactName || 'è”ç³»äºº', 40) || 'è”ç³»äºº';
+    const contactName = sanitizeScreenShareSummaryValue(snapshot.contactName || 'ÁªÏµÈË', 40) || 'ÁªÏµÈË';
     if (!items.length) {
         return `WeChat is on contact_chat | contact=${contactName} | visibleMessages=0`;
     }

@@ -46,9 +46,13 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
     <link rel="stylesheet" href="css/album.css">
     <link rel="stylesheet" href="css/chat_ui_v1_overrides.css">
+    <link rel="stylesheet" href="css/fire_buddy.css?v=20260324b1">
     <link rel="stylesheet" href="css/screen_share.css">
     <link rel="stylesheet" href="css/calendar_app.css">
     <link rel="stylesheet" href="css/garden_app.css?v=20">
+    <link rel="stylesheet" href="css/chat_settings_editorial.css">
+    <link rel="stylesheet" href="css/chat_oracle_quick_replies.css">
+    <link rel="stylesheet" href="css/preset_app.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -776,432 +780,486 @@
 
             <!-- 聊天设置全屏页 -->
             <div id="chat-settings-screen" class="sub-screen hidden" style="z-index: 160;">
-                <div class="chat-header">
-                    <button id="close-chat-settings" class="back-btn"><i class="fas fa-chevron-left"></i> 返回</button>
-                    <span>聊天详情</span>
-                    <button id="save-chat-settings-btn" class="wechat-icon-btn" style="font-size: 16px; font-weight: 600; color: #07C160; width: auto; padding: 0 10px;">保存</button>
+                <div class="chat-header chat-settings-editorial-header mag-header">
+                    <button id="close-chat-settings" class="back-btn chat-settings-legacy-control"><i class="fas fa-chevron-left"></i> 返回</button>
+                    <div class="chat-settings-editorial-hero">
+                        <div id="chat-settings-editorial-back" class="chat-settings-editorial-back" onclick="document.getElementById('close-chat-settings').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('close-chat-settings').click();}" role="button" tabindex="0" aria-label="返回聊天">
+                            <div class="chat-settings-editorial-subtitle mag-subtitle"><span class="chat-settings-editorial-spark">✦</span> SYSTEM CONFIG // 01</div>
+                            <div class="chat-settings-editorial-title-row mag-title-row">
+                                <h1 class="chat-settings-editorial-title mag-title">Chat Details <span class="separator" style="margin: 0 10px;">/</span></h1>
+                            </div>
+                        </div>
+                        <div class="chat-settings-editorial-avatars mag-header-avatars" aria-hidden="true">
+                            <div id="chat-settings-editorial-contact-avatar" class="chat-settings-editorial-avatar mag-header-avatar"><i class="ri-user-line"></i></div>
+                            <div id="chat-settings-editorial-user-avatar" class="chat-settings-editorial-avatar mag-header-avatar"><i class="ri-user-smile-line"></i></div>
+                        </div>
+                    </div>
+                    <span class="chat-settings-legacy-title">聊天详情</span>
+                    <button id="save-chat-settings-btn" class="wechat-icon-btn chat-settings-legacy-control" style="font-size: 16px; font-weight: 600; color: #07C160; width: auto; padding: 0 10px;">保存</button>
                 </div>
-                <div class="app-body" style="background-color: var(--bg-color);">
+                <div class="app-body chat-settings-editorial-body" style="background-color: var(--bg-color);">
                     <!-- 导航栏 -->
-                    <div class="chat-settings-nav">
-                        <div class="nav-item active" data-tab="ai">TA</div>
-                        <div class="nav-item" data-tab="user">我</div>
-                        <div class="nav-item" data-tab="appearance">外观</div>
+                    <div class="chat-settings-nav mag-nav">
+                        <div class="nav-item mag-nav-item active" data-tab="ai">TARGET <span class="mag-nav-zh"><span class="separator">/</span> 目标</span></div>
+                        <div class="nav-item mag-nav-item" data-tab="user">USER <span class="mag-nav-zh"><span class="separator">/</span> 我</span></div>
+                        <div class="nav-item mag-nav-item" data-tab="appearance">VISUALS <span class="mag-nav-zh"><span class="separator">/</span> 外观</span></div>
                         <div class="nav-indicator"></div>
                     </div>
 
                     <!-- AI Tab -->
-                    <div id="chat-setting-tab-ai" class="chat-setting-tab-content active">
+                    <div id="chat-setting-tab-ai" class="chat-setting-tab-content mag-section active">
                         <!-- AI 设置卡片 -->
-                        <div class="ai-setting-card">
-                            <!-- 背景图区域 -->
-                            <div class="ai-setting-bg" id="ai-setting-bg-container">
-                                <input type="file" id="chat-setting-ai-bg-input" accept="image/*" class="file-input-hidden">
-                            </div>
-                            
-                            <!-- 头像区域 -->
-                            <div class="ai-setting-avatar-container">
-                                <input type="file" id="chat-setting-avatar" accept="image/*" class="file-input-hidden">
-                                <label for="chat-setting-avatar" class="ai-setting-avatar-wrapper">
-                                    <img id="chat-setting-avatar-preview" src="" alt="Avatar">
-                                </label>
-                            </div>
-
-                            <!-- 姓名 -->
-                            <div class="ai-setting-name-container">
-                                <input type="text" id="chat-setting-name" class="ai-setting-name-input" placeholder="姓名">
-                            </div>
-
-                            <!-- 备注 -->
-                            <div class="ai-setting-remark-container">
-                                <input type="text" id="chat-setting-remark" class="ai-setting-remark-input" placeholder="备注">
-                            </div>
-
-                            <!-- 分组 -->
-                            <div class="ai-setting-group-container" id="chat-setting-group-trigger">
-                                <span id="chat-setting-group-value" class="ai-setting-group-text">未分组</span>
-                                <i class="fas fa-chevron-right" style="font-size: 12px; color: #ccc;"></i>
-                            </div>
-
-                            <!-- 人设 -->
-                            <div class="ai-setting-persona-container">
-                                <textarea id="chat-setting-persona" class="ai-setting-persona-input" placeholder="输入人设..."></textarea>
-                            </div>
-                        </div>
-
-                        <!-- 所在位置 -->
-                        <div class="ai-setting-location-container">
-                            <div class="ai-setting-location-label">📍 所在位置</div>
-                            <div class="ai-setting-location-selects">
-                                <select id="chat-setting-location-country" class="ai-setting-location-select">
-                                    <option value="">选择国家</option>
-                                </select>
-                                <select id="chat-setting-location-province" class="ai-setting-location-select" disabled>
-                                    <option value="">选择省份</option>
-                                </select>
-                                <select id="chat-setting-location-city" class="ai-setting-location-select" disabled>
-                                    <option value="">选择城市</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="ios-list-group">
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>上下文条数限制 (0为不限制)</label>
-                                    <input type="number" id="chat-setting-context-limit" placeholder="默认全部" min="0">
+                        <div class="ai-setting-card editorial-primary-card editorial-target-card mag-card">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> ID-01</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-fingerprint-line"></i><span>Identity</span></div>
+                            <div class="editorial-identity-inline mag-avatar-upload mag-target-identity">
+                                <div class="ai-setting-avatar-container">
+                                    <input type="file" id="chat-setting-avatar" accept="image/*" class="file-input-hidden">
+                                    <label for="chat-setting-avatar" class="ai-setting-avatar-wrapper mag-avatar-preview is-clickable">
+                                        <img id="chat-setting-avatar-preview" src="" alt="Avatar">
+                                    </label>
                                 </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>本轮提示词 Token 概览</label>
-                                    <div id="chat-setting-token-preview" class="chat-token-preview is-loading">
-                                        <div class="chat-token-preview-main">
-                                            <strong id="chat-setting-token-count" class="chat-token-preview-count">计算中...</strong>
-                                        </div>
-                                        <div class="chat-token-preview-breakdown">
-                                            <div class="chat-token-preview-item">
-                                                <span>系统基础</span>
-                                                <strong id="chat-setting-token-system-base">--</strong>
-                                            </div>
-                                            <div class="chat-token-preview-item">
-                                                <span>记忆</span>
-                                                <strong id="chat-setting-token-memory">--</strong>
-                                            </div>
-                                            <div class="chat-token-preview-item">
-                                                <span>世界书</span>
-                                                <strong id="chat-setting-token-worldbook">--</strong>
-                                            </div>
-                                            <div class="chat-token-preview-item">
-                                                <span>聊天上下文</span>
-                                                <strong id="chat-setting-token-context">--</strong>
-                                            </div>
-                                            <div class="chat-token-preview-item">
-                                                <span>场景附加</span>
-                                                <strong id="chat-setting-token-extra">--</strong>
-                                            </div>
-                                        </div>
-                                        <div id="chat-setting-token-visual" class="chat-token-preview-visual">视觉输入：检测中...</div>
-                                        <div id="chat-setting-token-meta" class="chat-token-preview-meta">按当前未保存设置实时估算</div>
+                                <div class="editorial-identity-meta mag-target-meta">
+                                    <div class="chat-setting-target-name-row mag-field is-compact">
+                                        <input type="text" id="chat-setting-name" class="chat-setting-target-name-input mag-input" placeholder="姓名" style="width:100% !important; text-align:left !important; text-align-last:left !important; display:block !important; margin:0 !important; padding-left:26px !important; padding-right:0 !important; background:transparent !important;">
                                     </div>
-                                </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>自动总结触发条数 (0为关闭)</label>
-                                    <input type="number" id="chat-setting-summary-limit" placeholder="默认关闭" min="0">
-                                </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>主动发消息</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-active-reply">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>主动发消息间隔 (秒)</label>
-                                    <input type="number" id="chat-setting-active-interval" placeholder="例如: 60" min="5">
-                                </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>休息时间段</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-rest-window-enabled">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="list-item" id="chat-setting-rest-window-time-panel" style="display: none;">
-                                <div class="list-content column">
-                                    <label>休息时间（跨天也生效）</label>
-                                    <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
-                                        <input type="time" id="chat-setting-rest-window-start" style="flex: 1; min-width: 0;">
-                                        <span style="color: #8e8e93; flex-shrink: 0;">到</span>
-                                        <input type="time" id="chat-setting-rest-window-end" style="flex: 1; min-width: 0;">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>显示AI心声</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-show-thought">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>心声显示样式</label>
-                                    <select id="chat-setting-thought-style">
-                                        <option value="title">点击备注名</option>
-                                        <option value="desktop-pet">桌宠悬浮</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="list-item" id="chat-setting-thought-pet-panel" style="display: none;">
-                                <div class="list-content column">
-                                    <label>桌宠设置</label>
-                                    <div style="display: flex; align-items: center; gap: 12px; width: 100%;">
-                                        <img id="chat-setting-thought-pet-preview" src="" alt="桌宠预览" style="width: 56px; height: 56px; object-fit: contain; border-radius: 10px; background: #f2f2f7; border: 1px solid #e5e5ea; padding: 4px; flex-shrink: 0;">
-                                        <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
-                                            <input type="file" id="chat-setting-thought-pet-image" accept="image/*" class="file-input-hidden">
-                                            <label for="chat-setting-thought-pet-image" class="ios-btn">上传桌宠图片</label>
-                                            <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
-                                                <label style="font-size: 14px; color: #6d6d72; white-space: nowrap;">大小 <span id="chat-setting-thought-pet-size-value">88px</span></label>
-                                                <input type="range" id="chat-setting-thought-pet-size" min="52" max="140" step="1" value="88" style="width: 100%;">
+                                    <div class="chat-setting-target-location-row editorial-inline-location mag-field is-compact mag-target-location-field">
+                                        <button id="chat-setting-location-trigger" class="mag-location-trigger is-empty" type="button" style="width:100% !important;">
+                                            <i class="ri-map-pin-2-line"></i>
+                                            <span id="chat-setting-location-summary" class="mag-location-summary">点击选择国家、省份、城市</span>
+                                            <i class="ri-arrow-down-s-line mag-location-arrow"></i>
+                                        </button>
+                                        <div id="chat-setting-location-picker" class="mag-location-picker mag-hidden">
+                                            <div class="ai-setting-location-selects">
+                                                <select id="chat-setting-location-country" class="ai-setting-location-select mag-select">
+                                                    <option value="">选择国家</option>
+                                                </select>
+                                                <select id="chat-setting-location-province" class="ai-setting-location-select mag-select" disabled>
+                                                    <option value="">选择省份</option>
+                                                </select>
+                                                <select id="chat-setting-location-city" class="ai-setting-location-select mag-select" disabled>
+                                                    <option value="">选择城市</option>
+                                                </select>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>AI可知晓心声</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-thought-visible">
-                                        <span class="slider"></span>
-                                    </label>
+                            <div class="mag-field editorial-remark-group-field">
+                                <label class="mag-label">Remark &amp; Group <span class="separator">/</span> <span class="mag-zh">备注与分组</span></label>
+                                <div class="editorial-split-row">
+                                    <div class="ai-setting-remark-container mag-field is-compact">
+                                        <input type="text" id="chat-setting-remark" class="ai-setting-remark-input mag-input" placeholder="备注">
+                                    </div>
+                                    <div class="ai-setting-group-container mag-field is-compact" id="chat-setting-group-trigger">
+                                        <span id="chat-setting-group-value" class="ai-setting-group-text">未分组</span>
+                                        <i class="fas fa-chevron-right editorial-inline-arrow"></i>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>AI可知晓真实时间</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-real-time-visible">
-                                        <span class="slider"></span>
-                                    </label>
+                            <div class="ai-setting-persona-container mag-field">
+                                <label class="mag-label">Persona Prompt <span class="separator">/</span> <span class="mag-zh">人设指令</span></label>
+                                <div id="chat-setting-persona-preview" class="mag-prompt-preview mag-prompt-preview-clamp chat-settings-prompt-trigger" data-input-id="chat-setting-persona" data-default-text="点击填写角色指令内容..." data-modal-en="Persona Prompt" data-modal-zh="人设指令" data-modal-placeholder="描述 TA 的性格、说话方式、行为倾向..." role="button" tabindex="0">点击填写角色指令内容...</div>
+                                <textarea id="chat-setting-persona" class="ai-setting-persona-input mag-textarea chat-settings-prompt-source" placeholder="输入人设..." hidden></textarea>
+                            </div>
+                            <div class="mag-field">
+                                <label class="mag-label">Linked Worldbooks <span class="separator">/</span> <span class="mag-zh">关联世界书</span></label>
+                                <div class="mag-multi-select-field" data-multiselect-key="worldbooks">
+                                    <button id="chat-setting-wb-trigger" class="mag-multi-select-trigger" type="button">
+                                        <span id="chat-setting-wb-tags" class="mag-inline-tag-list"></span>
+                                        <i class="ri-arrow-down-s-line mag-location-arrow"></i>
+                                    </button>
+                                    <div id="chat-setting-wb-list" class="mag-multi-select-panel mag-hidden">
+                                        <!-- 世界书分类列表将通过JS生成 -->
+                                    </div>
                                 </div>
                             </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>知晓节假日与日程</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-calendar-aware">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="section-title">语音合成 (TTS)</div>
-                        <div class="ios-list-group">
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>启用 TTS (Minimax)</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-tts-enabled">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>音色 ID (Voice ID)</label>
-                                    <input type="text" id="chat-setting-tts-voice-id" placeholder="例如: male-qn-qingse">
-                                    <div style="font-size: 12px; color: #888; margin-top: 5px;">
-                                        常用: male-qn-qingse (青涩), female-shaonv (少女), male-qn-jingying (精英)
+                            <div class="mag-field">
+                                <label class="mag-label">Linked Sticker Packs <span class="separator">/</span> <span class="mag-zh">关联表情包</span></label>
+                                <div class="mag-multi-select-field" data-multiselect-key="stickers">
+                                    <button id="chat-setting-sticker-trigger" class="mag-multi-select-trigger" type="button">
+                                        <span id="chat-setting-sticker-tags" class="mag-inline-tag-list"></span>
+                                        <i class="ri-arrow-down-s-line mag-location-arrow"></i>
+                                    </button>
+                                    <div id="chat-setting-sticker-list" class="mag-multi-select-panel mag-hidden">
+                                        <!-- 表情包分类列表将通过JS生成 -->
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="section-title">关联世界书</div>
-                        <div class="ios-list-group" id="chat-setting-wb-list">
-                            <!-- 世界书分类列表将通过JS生成 -->
-                        </div>
+                        <div class="editorial-card-shell mag-card">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> SYS-02</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-star-line"></i><span>Logic Engine</span></div>
 
-                        <div class="section-title">关联表情包</div>
-                        <div class="ios-list-group" id="chat-setting-sticker-list">
-                            <!-- 表情包分类列表将通过JS生成 -->
-                        </div>
+                            <div class="mag-field">
+                                <label class="mag-label">Context Limit <span class="separator">/</span> <span class="mag-zh">上下文条数限制</span></label>
+                                <input type="number" id="chat-setting-context-limit" class="mag-input" placeholder="0 为不限" min="0">
+                            </div>
 
-                        <div class="section-title">NovelAI 生图预设</div>
-                        <div class="ios-list-group">
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>选择预设</label>
-                                    <select id="chat-setting-novelai-preset" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; background-color: #f2f2f7;">
-                                        <option value="">-- 不使用预设 --</option>
-                                    </select>
-                                    <div style="font-size: 12px; color: #888; margin-top: 5px;">
-                                        当在聊天中生成该角色的图片时，将使用此预设的提示词。
+                            <div class="mag-field">
+                                <label class="mag-label">Prompt Token Overview <span class="separator">/</span> <span class="mag-zh">提示词 Token 概览</span></label>
+                                <div id="chat-setting-token-preview" class="chat-token-preview editorial-token-overview is-loading">
+                                    <div class="mag-metrics">
+                                        <div class="mag-metric">
+                                            <div class="mag-metric-label">Estimated Total</div>
+                                            <div id="chat-setting-token-count" class="chat-token-preview-count mag-metric-value">--</div>
+                                            <span class="mag-metric-note">按当前未保存设置实时估算</span>
+                                        </div>
+                                        <div class="mag-metric">
+                                            <div class="mag-metric-label">Visual Input</div>
+                                            <div id="chat-setting-token-visual-state" class="mag-metric-value">--</div>
+                                            <span id="chat-setting-token-visual" class="chat-token-preview-visual mag-metric-note">当前检测中...</span>
+                                        </div>
                                     </div>
+                                    <div class="chat-token-preview-breakdown mag-chip-list">
+                                        <div class="chat-token-preview-item mag-chip">
+                                            <span>System</span>
+                                            <strong id="chat-setting-token-system-base">--</strong>
+                                        </div>
+                                        <div class="chat-token-preview-item mag-chip">
+                                            <span>Memory</span>
+                                            <strong id="chat-setting-token-memory">--</strong>
+                                        </div>
+                                        <div class="chat-token-preview-item mag-chip">
+                                            <span>Worldbook</span>
+                                            <strong id="chat-setting-token-worldbook">--</strong>
+                                        </div>
+                                        <div class="chat-token-preview-item mag-chip">
+                                            <span>Context</span>
+                                            <strong id="chat-setting-token-context">--</strong>
+                                        </div>
+                                        <div class="chat-token-preview-item mag-chip">
+                                            <span>Extra</span>
+                                            <strong id="chat-setting-token-extra">--</strong>
+                                        </div>
+                                    </div>
+                                    <div id="chat-setting-token-meta" class="chat-token-preview-meta editorial-token-meta">按当前未保存设置实时估算</div>
+                                </div>
+                            </div>
+
+                            <div class="mag-field">
+                                <label class="mag-label">Summary Trigger <span class="separator">/</span> <span class="mag-zh">自动总结触发条数</span></label>
+                                <input type="number" id="chat-setting-summary-limit" class="mag-input" placeholder="0 disables summary" min="0">
+                            </div>
+
+                            <div class="mag-block-decor"></div>
+
+                            <label class="mag-label">Behavior Automation <span class="separator">/</span> <span class="mag-zh">行为自动化</span></label>
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">Active Reply <span class="separator">/</span> <span class="mag-zh">主动发消息</span></span>
+                                <label><input type="checkbox" id="chat-setting-active-reply" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div class="mag-field" style="margin-top: 10px;">
+                                <label class="mag-label">Interval in Seconds <span class="separator">/</span> <span class="mag-zh">主动消息间隔</span></label>
+                                <input type="number" id="chat-setting-active-interval" class="mag-input" placeholder="e.g. 60" min="5">
+                            </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">Rest Window <span class="separator">/</span> <span class="mag-zh">休息时间段</span></span>
+                                <label><input type="checkbox" id="chat-setting-rest-window-enabled" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div id="chat-setting-rest-window-time-panel" class="mag-field" style="display: none; margin-top: 10px;">
+                                <label class="mag-label">Quiet Hours <span class="separator">/</span> <span class="mag-zh">休息时间（跨天生效）</span></label>
+                                <div class="mag-split-fields mag-time-range-row">
+                                    <input type="time" id="chat-setting-rest-window-start" class="mag-input">
+                                    <span class="mag-time-range-separator">TO</span>
+                                    <input type="time" id="chat-setting-rest-window-end" class="mag-input">
                                 </div>
                             </div>
                         </div>
 
-                        <div class="ios-list-group" style="margin-top: 20px;">
-                            <div class="list-item">
-                                <button id="trigger-ai-moment-btn" class="ios-btn-block secondary">让TA发动态</button>
+                        <div class="editorial-card-shell mag-card editorial-thought-card">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> MOD-03</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-bubble-chart-line"></i><span>Thought System</span></div>
+                            <div class="editorial-thought-title-divider"></div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">Show Thoughts <span class="separator">/</span> <span class="mag-zh">显示心声</span></span>
+                                <label><input type="checkbox" id="chat-setting-show-thought" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div class="mag-field editorial-thought-style-field" style="margin-top: 10px;">
+                                <label class="mag-label">Thought Style <span class="separator">/</span> <span class="mag-zh">心声显示样式</span></label>
+                                <select id="chat-setting-thought-style" class="mag-select editorial-thought-style-select">
+                                    <option value="title">Title Tap / 点击备注名</option>
+                                    <option value="desktop-pet">Desktop Pet / 桌宠悬浮</option>
+                                </select>
+                            </div>
+
+                            <div id="chat-setting-thought-pet-panel" class="mag-field editorial-thought-pet-field" style="display: none; margin-top: 10px;">
+                                <div class="editorial-thought-pet-shell">
+                                    <div class="editorial-thought-pet-upload-row">
+                                        <input type="file" id="chat-setting-thought-pet-image" accept="image/*" class="file-input-hidden">
+                                        <label for="chat-setting-thought-pet-image" class="editorial-thought-pet-preview-frame">
+                                            <img id="chat-setting-thought-pet-preview" class="editorial-thought-pet-preview" src="" alt="Thought Pet Preview">
+                                        </label>
+                                        <div class="editorial-thought-pet-upload-main">
+                                            <div class="mag-label editorial-thought-pet-inline-label">THOUGHT PET <span class="separator">/</span> <span class="mag-zh">心声桌宠</span></div>
+                                            <input type="range" id="chat-setting-thought-pet-size" class="editorial-thought-size-slider" min="52" max="140" step="1" value="88">
+                                            <div class="editorial-thought-size-note">Current size / 当前大小：<strong><span id="chat-setting-thought-pet-size-value">88px</span></strong></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">AI 可知晓心声 <span class="separator">/</span> <span class="mag-en-short">Thoughts</span></span>
+                                <label><input type="checkbox" id="chat-setting-thought-visible" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">AI 可知晓真实时间 <span class="separator">/</span> <span class="mag-en-short">Time</span></span>
+                                <label><input type="checkbox" id="chat-setting-real-time-visible" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">知晓节假日与日程 <span class="separator">/</span> <span class="mag-en-short">Calendar</span></span>
+                                <label><input type="checkbox" id="chat-setting-calendar-aware" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
                             </div>
                         </div>
-                        <div class="ios-list-group">
-                            <div class="list-item">
-                                <button id="export-character-btn" class="ios-btn-block secondary">导出角色数据</button>
+                        <div class="editorial-card-shell mag-card editorial-fire-buddy-card">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> FBR-04</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-fire-line"></i><span>Fire Buddy</span></div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">启用小火人 <span class="separator">/</span> <span class="mag-en-short">Enable</span></span>
+                                <label><input type="checkbox" id="chat-setting-fire-buddy-enabled" class="mag-toggle-input" checked><div class="mag-toggle-switch"></div></label>
                             </div>
-                            <div class="list-item">
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">手动调试 <span class="separator">/</span> <span class="mag-en-short">Debug</span></span>
+                                <label><input type="checkbox" id="chat-setting-fire-buddy-manual-enabled" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div class="mag-field" style="margin-top: 10px;">
+                                <label class="mag-label">DEBUG STATUS <span class="separator">/</span> <span class="mag-zh">调试状态</span></label>
+                                <select id="chat-setting-fire-buddy-mode" class="mag-select">
+                                    <option value="locked">未解锁 / Locked</option>
+                                    <option value="warming" selected>升温中 / Warm</option>
+                                    <option value="invitable">可邀请 / Invite</option>
+                                    <option value="invited">已邀请 / Invited</option>
+                                    <option value="bound">已绑定 / Bound</option>
+                                    <option value="gray">已变灰 / Gray</option>
+                                    <option value="wake-ready">可唤醒 / Wake</option>
+                                </select>
+                            </div>
+
+                            <div class="mag-field">
+                                <label class="mag-label">DISPLAY MODE <span class="separator">/</span> <span class="mag-zh">显示方式</span></label>
+                                <select id="chat-setting-fire-buddy-display-mode" class="mag-select">
+                                    <option value="topbar" selected>顶栏入口 / Topbar</option>
+                                    <option value="desktop-pet">桌宠悬浮 / Pet</option>
+                                </select>
+                            </div>
+
+                            <div id="chat-setting-fire-buddy-topbar-icon-row" class="mag-toggle">
+                                <span class="mag-toggle-text">显示顶栏图标 <span class="separator">/</span> <span class="mag-en-short">Icon</span></span>
+                                <label><input type="checkbox" id="chat-setting-fire-buddy-topbar-icon-visible" class="mag-toggle-input" checked><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div id="chat-setting-fire-buddy-pet-panel" class="editorial-fire-buddy-panel">
+                                <div class="mag-upload-card">
+                                    <div class="mag-upload-row">
+                                        <input type="file" id="chat-setting-fire-buddy-pet-image" accept="image/*" class="file-input-hidden">
+                                        <label for="chat-setting-fire-buddy-pet-image" class="mag-upload-preview is-clickable editorial-fire-buddy-upload-preview" style="background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0.16)); color: var(--mag-accent);">
+                                            <img id="chat-setting-fire-buddy-pet-preview" class="editorial-fire-buddy-preview-image" src="" alt="Fire Buddy Pet Preview">
+                                            <span class="editorial-fire-buddy-preview-icon"><i class="ri-fire-fill"></i></span>
+                                        </label>
+                                        <div class="editorial-fire-buddy-upload-main">
+                                            <div class="mag-label">Desktop Pet Setup <span class="separator">/</span> <span class="mag-zh">桌宠形象</span></div>
+                                            <input type="range" id="chat-setting-fire-buddy-pet-size" class="mag-slider" min="56" max="150" step="1" value="92">
+                                            <div class="mag-note"><strong><span id="chat-setting-fire-buddy-pet-size-value">92px</span></strong></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="chat-setting-fire-buddy-summary" class="mag-muted-box">Current progress / 当前进度：继续聊天点亮火花，达到邀请阈值后将出现在聊天顶栏。</div>
+                        </div>
+                        <div class="editorial-card-shell mag-card" style="grid-column: 1 / -1;">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> ASSET-05</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-links-line"></i><span>Assets &amp; Actions</span></div>
+
+                            <div class="mag-grid" style="gap: 24px;">
+                                <div>
+                                    <div class="mag-toggle">
+                                        <span class="mag-toggle-text">Voice TTS <span class="separator">/</span> <span class="mag-zh">语音合成</span></span>
+                                        <label><input type="checkbox" id="chat-setting-tts-enabled" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                                    </div>
+
+                                    <div class="mag-field" style="margin-top: 12px;">
+                                        <label class="mag-label">Voice ID <span class="separator">/</span> <span class="mag-zh">音色 ID</span></label>
+                                        <input type="text" id="chat-setting-tts-voice-id" class="mag-input" placeholder="e.g. male-qn-qingse">
+                                        <div style="font-size: 12px; color: var(--mag-sec-text); margin-top: 8px; line-height: 1.6;">常用: male-qn-qingse (青涩), female-shaonv (少女), male-qn-jingying (精英)</div>
+                                    </div>
+
+                                    <div class="mag-field">
+                                        <label class="mag-label">NovelAI Preset <span class="separator">/</span> <span class="mag-zh">生图预设</span></label>
+                                        <select id="chat-setting-novelai-preset" class="mag-select">
+<option value="">-- 不使用预设 --</option>
+                                        </select>
+                                        <div style="font-size: 12px; color: var(--mag-sec-text); margin-top: 8px; line-height: 1.6;">当在聊天中生成该角色的图片时，将使用此预设的提示词。</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mag-action-row">
+                                <button id="trigger-ai-moment-btn" class="mag-btn"><i class="ri-quill-pen-line"></i> 让TA发动态</button>
+                                <button id="export-character-btn" class="mag-btn"><i class="ri-download-line"></i> 导出角色数据</button>
                                 <input type="file" id="import-character-input" accept=".json" class="file-input-hidden">
-                                <label for="import-character-input" class="ios-btn-block secondary" style="margin-bottom:0; text-align:center;">导入角色数据</label>
-                            </div>
-                        </div>
-                        <div class="ios-list-group">
-                            <div class="list-item center-content" id="clear-chat-history-btn">
-                                <span class="danger-text">清空聊天记录</span>
+                                <label for="import-character-input" class="mag-btn" style="margin-bottom: 0; text-align: center;"><i class="ri-upload-line"></i> 导入角色数据</label>
+                                <button id="clear-chat-history-btn" class="mag-btn" style="border-color: var(--soft-danger, #d39a94); color: var(--soft-danger, #d39a94);"><i class="ri-delete-bin-line"></i> 清空聊天记录</button>
                             </div>
                         </div>
                     </div>
-
                     <!-- User Tab -->
-                    <div id="chat-setting-tab-user" class="chat-setting-tab-content">
-                        <!-- 用户设置卡片 -->
-                        <div class="ai-setting-card">
-                            <!-- 背景图区域 -->
-                            <div class="ai-setting-bg" id="user-setting-bg-container" style="background-color: #ccc;">
-                                <input type="file" id="chat-setting-user-bg-input" accept="image/*" class="file-input-hidden">
-                            </div>
-                            
-                            <!-- 头像区域 -->
-                            <div class="ai-setting-avatar-container">
-                                <input type="file" id="chat-setting-my-avatar" accept="image/*" class="file-input-hidden">
-                                <label for="chat-setting-my-avatar" class="ai-setting-avatar-wrapper">
-                                    <img id="chat-setting-my-avatar-preview" src="" alt="Avatar">
-                                </label>
-                            </div>
-
-                            <!-- 身份选择 -->
-                            <div class="ai-setting-name-container">
-                                <select id="chat-setting-user-persona" class="ai-setting-name-input" style="background: transparent; border: none; text-align: center; width: auto; min-width: 150px;">
-                                    <option value="">-- 选择身份 --</option>
-                                </select>
-                            </div>
-
-                            <!-- 分隔线 -->
-                            <div style="width: 90%; height: 1px; background-color: #eee; margin: 20px 0;"></div>
-
-                            <!-- 性别设置 -->
-                            <div style="width: 100%; padding: 0 20px; margin-bottom: 20px;">
-                                <div style="font-size: 13px; color: #6d6d72; margin-bottom: 10px; text-align: left; font-weight: 500;">性别</div>
-                                <div id="user-gender-display" style="width: 100%; cursor: pointer; padding: 10px; background-color: #f9f9f9; border-radius: 8px; text-align: center; font-size: 16px; color: #333;">
-                                    性别：女
+                    <div id="chat-setting-tab-user" class="chat-setting-tab-content mag-section">
+                        <div class="ai-setting-card editorial-primary-card editorial-user-card mag-card">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> USER-01</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-user-smile-line"></i><span>User Profile</span></div>
+                            <div class="mag-identity-profile mag-user-profile-inline editorial-user-inline">
+                                <div class="ai-setting-avatar-container mag-identity-avatar-badge">
+                                    <input type="file" id="chat-setting-my-avatar" accept="image/*" class="file-input-hidden">
+                                    <label for="chat-setting-my-avatar" class="ai-setting-avatar-wrapper mag-avatar-preview is-clickable">
+                                        <img id="chat-setting-my-avatar-preview" src="" alt="Avatar">
+                                    </label>
                                 </div>
-                            </div>
-
-                            <!-- TA眼中的我 -->
-                            <div style="width: 100%; padding: 0 20px;">
-                                <div style="font-size: 13px; color: #6d6d72; margin-bottom: 10px; text-align: left; font-weight: 500;">TA眼中的我</div>
-                                
-                                <!-- 显示模式 -->
-                                <div id="user-perception-display" style="width: 100%;">
-                                    <div id="user-perception-list" style="margin-bottom: 15px; min-height: 20px; text-align: left; max-height: 150px; overflow-y: auto;">
-                                        <!-- 列表项将通过JS生成 -->
+                                <div class="mag-identity-meta editorial-identity-meta">
+                                    <div class="mag-force-inline mag-user-meta-inline">
+                                        <div class="ai-setting-name-container mag-field is-compact editorial-user-select-field editorial-user-persona-field">
+                                            <select id="chat-setting-user-persona" class="ai-setting-name-input mag-select">
+                                                <option value="">Default Self / 默认身份</option>
+                                            </select>
+                                        </div>
+                                        <div class="editorial-user-gender-wrap mag-field is-compact editorial-user-select-field editorial-user-gender-field">
+                                            <div id="user-gender-display" role="button" tabindex="0">Female / 女</div>
+                                        </div>
                                     </div>
-                                    <button id="edit-user-perception-btn" class="ios-btn-block secondary">编辑</button>
+                                </div>
+                            </div>
+                            <div class="mag-field editorial-user-prompt-field">
+                                <label class="mag-label">User Prompt <span class="separator">/</span> <span class="mag-zh">我的身份设定</span></label>
+                                <div id="chat-setting-user-prompt-preview" class="mag-prompt-preview mag-prompt-preview-clamp chat-settings-prompt-trigger" data-input-id="chat-setting-user-prompt" data-default-text="点击填写我的身份设定..." data-modal-en="User Prompt" data-modal-zh="身份设定" data-modal-placeholder="告诉 AI 你是谁、希望如何被理解..." role="button" tabindex="0">点击填写我的身份设定...</div>
+                                <textarea id="chat-setting-user-prompt" class="mag-textarea chat-settings-prompt-source" rows="3" placeholder="在此输入人设..." hidden></textarea>
+                            </div>
+                        </div>
+                        <div class="editorial-card-shell editorial-user-perception-card mag-card">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> USER-02</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-eye-line"></i><span>User Perception</span></div>
+                            <div class="editorial-user-perception-panel mag-perception-panel">
+                                <div id="user-perception-display">
+                                    <div class="mag-field">
+                                        <label class="mag-label">Perception List <span class="separator">/</span> <span class="mag-zh">认知列表</span></label>
+                                        <div id="user-perception-list"></div>
+                                    </div>
+                                    <div class="mag-action-row">
+                                        <button id="edit-user-perception-btn" class="ios-btn-block secondary mag-btn">Edit</button>
+                                    </div>
                                 </div>
 
-                                <!-- 编辑模式 -->
-                                <div id="user-perception-edit" class="hidden" style="width: 100%;">
-                                    <textarea id="user-perception-input" style="width: 100%; height: 150px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; margin-bottom: 10px; font-family: inherit; background-color: #f9f9f9;" placeholder="每行一条认知信息"></textarea>
-                                    <div style="display: flex; gap: 10px;">
-                                        <button id="save-user-perception-btn" class="ios-btn-block" style="background-color: #000; color: white; flex: 1;">保存</button>
-                                        <button id="cancel-user-perception-btn" class="ios-btn-block" style="background-color: #8e8e93; color: white; flex: 1;">取消</button>
+                                <div id="user-perception-edit" class="hidden">
+                                    <div class="mag-field">
+                                        <label class="mag-label">Edit Buffer <span class="separator">/</span> <span class="mag-zh">编辑区（每行一条）</span></label>
+                                        <textarea id="user-perception-input" class="mag-textarea editorial-perception-textarea" placeholder="每行一条认知信息"></textarea>
+                                    </div>
+                                    <div class="mag-action-row">
+                                        <button id="save-user-perception-btn" class="ios-btn-block mag-btn">Save</button>
+                                        <button id="cancel-user-perception-btn" class="ios-btn-block secondary mag-btn editorial-ghost-btn">Cancel</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
+
+
 
                     <!-- Appearance Tab -->
-                    <div id="chat-setting-tab-appearance" class="chat-setting-tab-content">
-                        <div class="ios-list-group">
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <div style="display: flex; justify-content: space-between; width: 100%;">
-                                        <label>字体大小</label>
-                                        <span id="chat-font-size-value">16px</span>
-                                    </div>
-                                    <input type="range" id="chat-font-size-slider" min="12" max="30" step="1" value="16" style="width: 100%;">
+                    <div id="chat-setting-tab-appearance" class="chat-setting-tab-content mag-section">
+                        <div class="editorial-card-shell mag-card editorial-visuals-display-card">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> VIS-01</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-layout-4-line"></i><span>Display System</span></div>
+
+                            <div class="mag-field editorial-display-font-field">
+                                <label class="mag-label">Font Size <span class="separator">/</span> <span class="mag-zh">字体大小</span></label>
+                                <div class="editorial-display-font-row">
+                                    <span id="chat-font-size-value" class="editorial-display-font-value">16px</span>
+                                    <input type="range" id="chat-font-size-slider" class="mag-slider editorial-display-font-slider" min="12" max="30" step="1" value="16">
                                 </div>
                             </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>头像显示范围</label>
-                                    <select id="chat-setting-avatar-visibility">
-                                        <option value="show-both">都显示</option>
-                                        <option value="hide-other">隐藏对方</option>
-                                        <option value="hide-self">隐藏自己</option>
-                                        <option value="hide-both">隐藏双方</option>
-                                    </select>
-                                </div>
+
+                            <div class="mag-field editorial-visual-select-field">
+                                <label class="mag-label">Avatar Visibility <span class="separator">/</span> <span class="mag-zh">头像显示范围</span></label>
+                                <select id="chat-setting-avatar-visibility" class="mag-select">
+                                    <option value="show-both">Show Both / 都显示</option>
+                                    <option value="hide-other">Hide Other / 隐藏对方</option>
+                                    <option value="hide-self">Hide Self / 隐藏自己</option>
+                                    <option value="hide-both">Hide Both / 隐藏双方</option>
+                                </select>
                             </div>
-                            <div class="list-item">
-                                <div class="list-content">
-                                    <label>时间戳显示</label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="chat-setting-show-timestamp" checked>
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">Show Timestamps <span class="separator">/</span> <span class="mag-zh">时间戳显示</span></span>
+                                <label><input type="checkbox" id="chat-setting-show-timestamp" class="mag-toggle-input" checked><div class="mag-toggle-switch"></div></label>
                             </div>
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>AI消息间隔 (毫秒)</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <input type="number" id="chat-setting-interval-min" placeholder="最小(默认400)" style="flex: 1;width: 70%;">
-                                        <span>-</span>
-                                        <input type="number" id="chat-setting-interval-max" placeholder="最大(默认2200)" style="flex: 1;">
-                                    </div>
+
+                            <div class="mag-field editorial-interval-field" style="margin-top: 18px;">
+                                <label class="mag-label">AI Message Interval (ms) <span class="separator">/</span> <span class="mag-zh">AI 消息间隔</span></label>
+                                <div class="mag-split-fields mag-inline-number-pair editorial-interval-pair">
+                                    <input type="number" id="chat-setting-interval-min" class="mag-input editorial-interval-input" value="400" placeholder="Min">
+                                    <input type="number" id="chat-setting-interval-max" class="mag-input editorial-interval-input" value="2200" placeholder="Max">
                                 </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>聊天背景</label>
-                                    <input type="file" id="chat-setting-bg" accept="image/*" class="file-input-hidden">
-                                    <label for="chat-setting-bg" class="ios-btn">选择图片</label>
-                                </div>
-                            </div>
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>视频通话背景</label>
-                                    <input type="file" id="chat-setting-video-bg" accept="image/*" class="file-input-hidden">
-                                    <label for="chat-setting-video-bg" class="ios-btn">选择图片</label>
-                                </div>
-                            </div>
-                            <div class="list-item no-padding">
-                                <div id="chat-bg-gallery" class="gallery-scroll">
-                                    <!-- 壁纸缩略图将在这里生成 -->
-                                </div>
-                            </div>
-                            <div class="list-item center-content" id="reset-chat-bg">
-                                <span class="danger-text">重置默认背景</span>
                             </div>
                         </div>
 
-                        <div class="section-title">聊天页面自定义CSS</div>
-                        <div class="ios-list-group">
-                            <div class="list-item">
-                                <div class="list-content column">
-                                    <label>CSS预设</label>
-                                    <div class="input-row full-width">
-                                        <select id="chat-css-preset-select">
-                                            <option value="">-- 选择预设 --</option>
-                                        </select>
-                                        <button id="save-chat-css-preset" class="ios-btn-small">保存</button>
-                                        <button id="delete-chat-css-preset" class="ios-btn-small danger">删除</button>
+                        <div class="editorial-card-shell mag-card editorial-background-library-card">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> VIS-02</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-image-line"></i><span>Background Library</span></div>
+
+                            <div class="mag-field">
+                                <label class="mag-label">Chat Background <span class="separator">/</span> <span class="mag-zh">聊天背景</span></label>
+                                <input type="file" id="chat-setting-bg" accept="image/*" class="file-input-hidden">
+                                <div class="mag-action-row editorial-background-actions" style="margin-top: 0;">
+                                    <label for="chat-setting-bg" class="mag-btn" role="button" tabindex="0">Upload Images</label>
+                                    <button type="button" id="reset-chat-bg" class="mag-btn editorial-ghost-btn">Reset Default</button>
+                                </div>
+                                <div id="chat-bg-gallery" class="mag-background-list gallery-scroll"></div>
+                            </div>
+
+                            <div class="mag-field">
+                                <label class="mag-label">Video Background <span class="separator">/</span> <span class="mag-zh">视频通话背景</span></label>
+                                <input type="file" id="chat-setting-video-bg" accept="image/*" class="file-input-hidden">
+                                <label for="chat-setting-video-bg" class="mag-btn editorial-background-full-btn" role="button" tabindex="0">Select Image</label>
+                            </div>
+                        </div>
+
+                        <div class="editorial-card-shell mag-card editorial-custom-css-card" style="grid-column: 1 / -1;">
+                            <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> CSS-03</div>
+                            <div class="chat-settings-card-title mag-card-title"><i class="ri-code-line"></i><span>Custom CSS</span></div>
+                            <div class="mag-field">
+                                <label class="mag-label">CSS Preset <span class="separator">/</span> <span class="mag-zh">样式预设</span></label>
+                                <div class="mag-icon-actions mag-icon-actions-inline editorial-css-actions">
+                                    <select id="chat-css-preset-select" class="mag-select">
+                                        <option value="">-- Select Preset --</option>
+                                    </select>
+                                    <div class="mag-icon-btn-group">
+                                        <button id="save-chat-css-preset" class="mag-icon-btn" type="button" aria-label="Save preset"><i class="ri-save-line"></i></button>
+                                        <button id="delete-chat-css-preset" class="mag-icon-btn danger" type="button" aria-label="Delete preset"><i class="ri-delete-bin-6-line"></i></button>
                                     </div>
                                 </div>
                             </div>
-                            <div class="list-item no-padding">
-                                <textarea id="chat-setting-custom-css" placeholder="/* 仅针对当前聊天页面的CSS */" style="height: 200px;"></textarea>
-                            </div>
+
+                            <textarea id="chat-setting-custom-css" class="mag-textarea editorial-code-textarea" placeholder="/* 仅针对当前聊天页面的 CSS */"></textarea>
+
+                            <button type="button" class="mag-btn editorial-custom-css-apply" onclick="applyChatSettingsCustomCssPreview()">Apply Styles</button>
                         </div>
                     </div>
                 </div>
+                <button type="button" id="chat-settings-editorial-save" class="chat-settings-editorial-save hidden" onclick="handleChatSettingsFloatingSave()" aria-label="Save chat settings" title="Save">
+                    <i class="ri-save-line"></i>
+                </button>
             </div>
 
             <!-- 添加联系人弹窗 -->
@@ -1448,6 +1506,13 @@
                     <button id="back-to-contacts" class="back-btn"><i class="fas fa-chevron-left"></i></button>
                     <button id="multi-select-cancel" class="multi-select-cancel hidden">退出</button>
                     <span id="chat-title" style="cursor: pointer;">用户名</span>
+                    <button id="fire-buddy-entry" class="wechat-icon-btn fire-buddy-entry hidden" aria-label="打开小火人面板">
+                        <span class="fire-buddy-entry-icon" aria-hidden="true">
+                            <svg class="fire-buddy-brand-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
+                            </svg>
+                        </span>
+                    </button>
                     <button id="chat-settings-btn" class="wechat-icon-btn"><i class="fas fa-ellipsis-h"></i></button>
                 </div>
                 <!-- 多选删除控制项：右下删除（退出按钮已移入 header） -->
@@ -1462,6 +1527,18 @@
                         <div class="thought-pet-content" id="thought-pet-content-text"></div>
                     </div>
                 </div>
+                <div id="fire-buddy-pet" class="fire-buddy-pet hidden">
+                    <img id="fire-buddy-pet-image" src="" alt="小火人桌宠">
+                    <span id="fire-buddy-pet-badge" class="fire-buddy-pet-badge">🔥</span>
+                </div>
+                <button id="fire-buddy-unlock-card" class="fire-buddy-unlock-card hidden" type="button" aria-label="小火人已可解锁，点击打开">
+                    <div class="fire-buddy-unlock-card-icon">🔥</div>
+                    <div class="fire-buddy-unlock-card-copy">
+                        <div id="fire-buddy-unlock-card-title" class="fire-buddy-unlock-card-title">可以解锁小火人了</div>
+                        <div id="fire-buddy-unlock-card-text" class="fire-buddy-unlock-card-text">连续互发 3 天消息，点击进入小火人页面</div>
+                    </div>
+                    <div class="fire-buddy-unlock-card-arrow"><i class="fas fa-chevron-right"></i></div>
+                </button>
                 <div class="chat-bottom-stack">
                     <!-- 引用回复条 -->
                     <div id="reply-bar" class="reply-bar hidden">
@@ -1470,9 +1547,31 @@
                         </div>
                         <div class="reply-close" id="close-reply-bar"><i class="fas fa-times-circle"></i></div>
                     </div>
+                    <div id="fire-buddy-compose-bar" class="fire-buddy-compose-bar hidden">
+                        <img id="fire-buddy-compose-avatar" class="fire-buddy-compose-avatar" src="" alt="小火人头像">
+                        <div class="fire-buddy-compose-main">
+                            <div class="fire-buddy-compose-title">以小火人身份发言</div>
+                            <div class="fire-buddy-compose-row">
+                                <input type="text" id="fire-buddy-compose-input" placeholder="输入小火人想说的话...">
+                                <button id="fire-buddy-compose-send" type="button">发送</button>
+                            </div>
+                        </div>
+                        <button id="fire-buddy-compose-close" class="fire-buddy-compose-close" type="button" aria-label="关闭小火人发言">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
                     <!-- 临时提示组件 -->
                     <div id="chat-toast" class="chat-toast hidden">
                         <span id="chat-toast-text"></span>
+                    </div>
+                    <div id="fire-buddy-mention-menu" class="fire-buddy-mention-menu hidden">
+                        <button id="fire-buddy-mention-option" class="fire-buddy-mention-option" type="button">
+                            <img id="fire-buddy-mention-avatar" class="fire-buddy-mention-avatar" src="" alt="小火人头像">
+                            <div class="fire-buddy-mention-copy">
+                                <div id="fire-buddy-mention-name" class="fire-buddy-mention-name">小火人</div>
+                                <div class="fire-buddy-mention-desc">@TA 后可触发小火人连发回复</div>
+                            </div>
+                        </button>
                     </div>
                     <div class="chat-input-area">
                         <button id="chat-more-btn" class="chat-icon-btn" aria-label="更多功能">
@@ -1562,6 +1661,14 @@
                                 <div class="more-icon"><i class="fas fa-comment-dots"></i></div>
                                 <div class="more-label">让TA发消息</div>
                             </div>
+                            <div class="more-item" id="chat-more-oracle-btn">
+                                <div class="more-icon"><i class="fas fa-star"></i></div>
+                                <div class="more-label">抽牌</div>
+                            </div>
+                            <div class="more-item" id="chat-more-fire-buddy-btn">
+                                <div class="more-icon"><i class="fas fa-fire"></i></div>
+                                <div class="more-label">小火人代发</div>
+                            </div>
                             <div class="more-item" id="chat-more-games-btn">
                                 <div class="more-icon"><i class="fas fa-gamepad"></i></div>
                                 <div class="more-label">小游戏</div>
@@ -1583,6 +1690,306 @@
                     </div>
                     
                     <input type="file" id="chat-photo-input" accept="image/*" class="file-input-hidden">
+                </div>
+                <div id="chat-oracle-inline-draw" class="chat-oracle-inline-draw hidden">
+                    <div id="chat-oracle-draw-select-state" class="chat-oracle-draw-state">
+                        <div id="chat-oracle-draw-deck-list" class="chat-oracle-list-block"></div>
+                        <div id="chat-oracle-draw-empty-state" class="chat-oracle-section hidden">
+                            <div class="chat-oracle-empty">还没有可抽取的牌组。</div>
+                            <div class="chat-oracle-text-actions single">
+                                <button id="chat-oracle-draw-open-manage-btn" class="chat-oracle-text-btn primary" type="button">去管理页导入牌组</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="chat-oracle-draw-fan-state" class="chat-oracle-draw-state hidden">
+                        <div class="chat-oracle-draw-stage-head">
+                            <button id="chat-oracle-draw-current-deck" class="chat-oracle-draw-current-deck" type="button" aria-label="退出抽卡"></button>
+                        </div>
+
+                        <div id="chat-oracle-fan-zone" class="chat-oracle-fan-zone">
+                            <div id="chat-oracle-fan" class="chat-oracle-fan" aria-label="抽牌卡列"></div>
+                        </div>
+                    </div>
+
+                    <div id="chat-oracle-draw-detail" class="chat-oracle-draw-detail hidden">
+                        <button id="chat-oracle-draw-detail-backdrop" class="chat-oracle-draw-detail-backdrop" type="button" aria-label="关闭抽牌详情"></button>
+                        <div class="chat-oracle-draw-detail-card">
+                            <div id="chat-oracle-draw-detail-title" class="chat-oracle-draw-detail-title">请选择一张牌</div>
+                            <div id="chat-oracle-draw-detail-keywords" class="chat-oracle-draw-detail-keywords"></div>
+                            <div id="chat-oracle-draw-detail-reply-label" class="chat-oracle-draw-detail-reply-label"></div>
+                            <div id="chat-oracle-draw-detail-reply" class="chat-oracle-draw-detail-reply"></div>
+                            <div class="chat-oracle-text-actions">
+                                <button id="chat-oracle-draw-send-btn" class="chat-oracle-text-btn primary" type="button">发送</button>
+                                <button id="chat-oracle-draw-reset-btn" class="chat-oracle-text-btn" type="button">重新抽取</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="chat-oracle-modal" class="chat-oracle-modal hidden">
+                    <button id="chat-oracle-backdrop" class="chat-oracle-backdrop" type="button" aria-label="关闭抽牌快捷回复"></button>
+                    <div class="chat-oracle-sheet" role="dialog" aria-modal="true" aria-label="抽牌快捷回复">
+                        <div class="chat-oracle-view" data-oracle-view="home">
+                            <div class="chat-oracle-head">
+                                <div>
+                                    <div class="chat-oracle-title">抽牌快捷回复</div>
+                                    <div class="chat-oracle-subtitle">请选择你要进入的功能</div>
+                                </div>
+
+                            </div>
+
+                            <div class="chat-oracle-home-actions">
+                                <button id="chat-oracle-open-manage-btn" class="chat-oracle-home-btn manage" type="button">
+                                    <div class="chat-oracle-home-icon"><i class="fas fa-sliders-h"></i></div>
+                                    <div class="chat-oracle-home-copy">
+                                        <div class="chat-oracle-home-title">管理快捷回复</div>
+                                        <div class="chat-oracle-home-desc">导入牌组、应用牌组，并管理当前已有的回复</div>
+                                    </div>
+                                </button>
+                                <button id="chat-oracle-open-draw-btn" class="chat-oracle-home-btn draw" type="button">
+                                    <div class="chat-oracle-home-icon"><i class="fas fa-star"></i></div>
+                                    <div class="chat-oracle-home-copy">
+                                        <div class="chat-oracle-home-title">开始抽牌</div>
+                                        <div class="chat-oracle-home-desc">抽出已配置的牌，并一键发送对应回复</div>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <div id="chat-oracle-home-summary" class="chat-oracle-home-summary">尚未导入快捷回复</div>
+                        </div>
+
+                        <div class="chat-oracle-view hidden" data-oracle-view="manage">
+                            <div class="chat-oracle-head">
+                                <button class="chat-oracle-nav-btn" data-oracle-back="home" type="button" aria-label="返回抽牌入口">
+                                    <i class="fas fa-chevron-left"></i>
+                                </button>
+                                <div class="chat-oracle-head-copy">
+                                    <div class="chat-oracle-title">管理快捷回复</div>
+                                    <div class="chat-oracle-subtitle">导入牌组、应用牌组，并整理当前已有的回复</div>
+                                </div>
+
+                            </div>
+
+                            <div class="chat-oracle-section">
+                                <div class="chat-oracle-section-title">导入牌组</div>
+                                <button id="chat-oracle-open-import-modal-btn" class="chat-oracle-pill-btn" type="button">
+                                    <i class="fas fa-file-import"></i>
+                                    <span>导入并保存牌组</span>
+                                </button>
+                                <div class="chat-oracle-note">导入时需要填写牌组名称，导入成功后会自动保存到牌组列表，并同时应用到当前配置。</div>
+                            </div>
+
+                            <div class="chat-oracle-section">
+                                <div class="chat-oracle-section-head">
+                                    <div id="chat-oracle-decks-title" class="chat-oracle-section-title">牌组</div>
+                                    <button id="chat-oracle-open-create-deck-modal-btn" class="chat-oracle-small-btn" type="button">新建牌组</button>
+                                </div>
+                                <div id="chat-oracle-presets-list" class="chat-oracle-list-block">
+                                    <div class="chat-oracle-empty">还没有保存任何牌组。</div>
+                                </div>
+                                <div id="chat-oracle-preset-status" class="chat-oracle-note">导入牌组后会自动保存到列表，可在这里一键应用</div>
+                            </div>
+
+                            <div class="chat-oracle-section">
+                                <div class="chat-oracle-section-head">
+                                    <div id="chat-oracle-existing-title" class="chat-oracle-section-title">牌组内快捷回复</div>
+                                    <div class="chat-oracle-inline-actions">
+                                        <button id="chat-oracle-open-add-reply-modal-btn" class="chat-oracle-small-btn" type="button">新增快捷回复</button>
+                                        <button id="chat-oracle-clear-btn" class="chat-oracle-small-btn" type="button">清空当前配置</button>
+                                    </div>
+                                </div>
+                                <div id="chat-oracle-existing-list" class="chat-oracle-list-block">
+                                    <div class="chat-oracle-empty">当前还没有导入任何快捷回复。</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="chat-oracle-import-modal" class="chat-oracle-import-modal hidden">
+                            <button id="chat-oracle-import-modal-backdrop" class="chat-oracle-import-modal-backdrop" type="button" aria-label="关闭导入牌组"></button>
+                            <div class="chat-oracle-import-card">
+                                <div class="chat-oracle-head chat-oracle-import-head">
+                                    <div>
+                                        <div class="chat-oracle-title">导入牌组</div>
+                                        <div class="chat-oracle-subtitle">填写牌组名称后，导入内容会直接保存为牌组</div>
+                                    </div>
+                                    <button id="chat-oracle-import-modal-close" class="chat-oracle-close-btn" type="button" aria-label="关闭导入牌组">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+
+                                <input id="chat-oracle-import-name" class="chat-oracle-text-input" type="text" placeholder="输入牌组名称，例如：温柔回复组">
+                                <button id="chat-oracle-import-file-btn" class="chat-oracle-pill-btn" type="button">
+                                    <i class="fas fa-file-arrow-up"></i>
+                                    <span>选择 JSON 文件</span>
+                                </button>
+                                <input type="file" id="chat-oracle-file-input" accept=".json,application/json" class="file-input-hidden">
+                                <textarea id="chat-oracle-import-textarea" class="chat-oracle-import-textarea" placeholder='支持直接粘贴 JSON，例如：{"月井":"我想先慢慢想一下","金羽":{"label":"主动一点","content":"我来先给你回消息啦"}}'></textarea>
+
+                                <div class="chat-oracle-text-actions">
+                                    <button id="chat-oracle-confirm-import-btn" class="chat-oracle-text-btn primary" type="button">导入并保存牌组</button>
+                                    <button id="chat-oracle-cancel-import-btn" class="chat-oracle-text-btn" type="button">取消</button>
+                                </div>
+
+                                <div id="chat-oracle-import-status" class="chat-oracle-note">每张牌只保留 1 条回复；如果牌组名称重复，会覆盖同名牌组。</div>
+                                <div class="chat-oracle-format-tip">支持格式：直接用牌名 / 牌序号作为键，例如 <code>"月井"</code>、<code>"I"</code>。</div>
+                            </div>
+                        </div>
+
+                        <div id="chat-oracle-edit-modal" class="chat-oracle-import-modal hidden">
+                            <button id="chat-oracle-edit-modal-backdrop" class="chat-oracle-import-modal-backdrop" type="button" aria-label="关闭编辑快捷回复"></button>
+                            <div class="chat-oracle-import-card">
+                                <div class="chat-oracle-head chat-oracle-import-head">
+                                    <div class="chat-oracle-title" id="chat-oracle-edit-title">编辑快捷回复</div>
+                                    <button id="chat-oracle-edit-modal-close" class="chat-oracle-close-btn" type="button" aria-label="关闭编辑快捷回复">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+
+                                <input id="chat-oracle-edit-label" class="chat-oracle-text-input" type="text" placeholder="快捷回复标题（可选）">
+                                <textarea id="chat-oracle-edit-content" class="chat-oracle-import-textarea" placeholder="编辑这张牌对应的快捷回复内容"></textarea>
+
+                                <div class="chat-oracle-text-actions">
+                                    <button id="chat-oracle-save-edit-btn" class="chat-oracle-text-btn primary" type="button">保存修改</button>
+                                    <button id="chat-oracle-cancel-edit-btn" class="chat-oracle-text-btn" type="button">取消</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="chat-oracle-create-deck-modal" class="chat-oracle-import-modal hidden">
+                            <button id="chat-oracle-create-deck-modal-backdrop" class="chat-oracle-import-modal-backdrop" type="button" aria-label="关闭新建牌组"></button>
+                            <div class="chat-oracle-import-card">
+                                <div class="chat-oracle-head chat-oracle-import-head">
+                                    <div>
+                                        <div class="chat-oracle-title">新建牌组</div>
+                                        <div class="chat-oracle-subtitle">先创建一个空牌组，再继续手动添加快捷回复</div>
+                                    </div>
+                                    <button id="chat-oracle-create-deck-modal-close" class="chat-oracle-close-btn" type="button" aria-label="关闭新建牌组">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+
+                                <input id="chat-oracle-create-deck-name" class="chat-oracle-text-input" type="text" placeholder="输入牌组名称，例如：日常安抚组">
+
+                                <div class="chat-oracle-text-actions">
+                                    <button id="chat-oracle-save-create-deck-btn" class="chat-oracle-text-btn primary" type="button">保存牌组</button>
+                                    <button id="chat-oracle-cancel-create-deck-btn" class="chat-oracle-text-btn" type="button">取消</button>
+                                </div>
+
+                                <div id="chat-oracle-create-deck-status" class="chat-oracle-note">新建后会自动在牌组列表中选中，你可以继续手动添加快捷回复。</div>
+                            </div>
+                        </div>
+
+                        <div id="chat-oracle-add-reply-modal" class="chat-oracle-import-modal hidden">
+                            <button id="chat-oracle-add-reply-modal-backdrop" class="chat-oracle-import-modal-backdrop" type="button" aria-label="关闭新增快捷回复"></button>
+                            <div class="chat-oracle-import-card">
+                                <div class="chat-oracle-head chat-oracle-import-head">
+                                    <div>
+                                        <div class="chat-oracle-title" id="chat-oracle-add-reply-title">新增快捷回复</div>
+                                        <div class="chat-oracle-subtitle">为当前选中的牌组手动添加一张牌对应的快捷回复</div>
+                                    </div>
+                                    <button id="chat-oracle-add-reply-modal-close" class="chat-oracle-close-btn" type="button" aria-label="关闭新增快捷回复">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+
+                                <select id="chat-oracle-add-reply-card" class="chat-oracle-text-input chat-oracle-select-input"></select>
+                                <input id="chat-oracle-add-reply-label" class="chat-oracle-text-input" type="text" placeholder="快捷回复标题（可选）">
+                                <textarea id="chat-oracle-add-reply-content" class="chat-oracle-import-textarea" placeholder="输入这张牌要发送的快捷回复内容"></textarea>
+
+                                <div class="chat-oracle-text-actions">
+                                    <button id="chat-oracle-save-add-reply-btn" class="chat-oracle-text-btn primary" type="button">保存快捷回复</button>
+                                    <button id="chat-oracle-cancel-add-reply-btn" class="chat-oracle-text-btn" type="button">取消</button>
+                                </div>
+
+                                <div id="chat-oracle-add-reply-status" class="chat-oracle-note">每张牌只能保留 1 条快捷回复；已存在的牌可以直接在列表中点击编辑。</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <div id="chat-settings-prompt-modal" class="mag-modal-overlay">
+                    <div class="mag-modal-card">
+                        <h3 class="mag-modal-title">
+                            <span id="chat-settings-modal-title-en">Edit Prompt</span>
+                            <span class="separator" style="font-size: 20px; margin: 0 10px;">/</span>
+                            <span id="chat-settings-modal-title-zh" style="font-family: 'Inter', sans-serif; font-size: 15px; font-weight: 400; font-style: normal; opacity: 0.8;">编辑指令</span>
+                        </h3>
+                        <textarea id="chat-settings-modal-textarea" class="mag-modal-textarea" placeholder="在此输入详细的指令..."></textarea>
+                        <div class="mag-modal-actions">
+                            <button id="chat-settings-modal-cancel" class="mag-btn" type="button">Cancel / 取消</button>
+                            <button id="chat-settings-modal-save" class="mag-btn" type="button" style="background: var(--mag-accent); color: #fff;">Save / 保存</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="fire-buddy-panel" class="sub-screen hidden fire-buddy-v2-panel" style="z-index: 165;">
+                <div class="fire-buddy-v2-blur-spot"></div>
+                <div class="fire-buddy-v2-abstract-circle"></div>
+                <div class="fire-buddy-v2-abstract-circle-2"></div>
+
+                <div class="fire-buddy-v2-header">
+                    <div>
+                        <div id="fire-buddy-panel-subtitle" class="fire-buddy-v2-header-sub">STATUS / BOUND</div>
+                        <div class="fire-buddy-v2-header-title">
+                            <svg class="fire-buddy-brand-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
+                            </svg>
+                            <span id="fire-buddy-panel-title">Spark.</span>
+                        </div>
+                    </div>
+                    <button id="close-fire-buddy-panel" class="fire-buddy-v2-close-btn" type="button" aria-label="关闭小火人面板">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+
+                <div class="fire-buddy-v2-content">
+                    <div class="fire-buddy-v2-status-section">
+                        <div id="fire-buddy-stage-label" class="fire-buddy-v2-status-tag">
+                            <span id="fire-buddy-stage-avatar" class="fire-buddy-v2-status-tag-icon">✦</span>
+                            <span id="fire-buddy-stage-label-text">活跃羁绊</span>
+                        </div>
+                        <p id="fire-buddy-status-text" class="fire-buddy-v2-status-text">
+                            羁绊已建立。当前互动处于 <strong>活跃</strong> 状态。继续保持日常沟通，以免星火熄灭进入休眠。
+                        </p>
+                        <div id="fire-buddy-panel-detail" class="fire-buddy-v2-status-detail">绑定时间：-- · 最近有效互动：--</div>
+                        <button id="fire-buddy-panel-action" class="fire-buddy-v2-btn-outline hidden" type="button" aria-label="执行小火人当前阶段操作">
+                            <span>发起邀请</span>
+                        </button>
+                    </div>
+
+                    <div class="fire-buddy-v2-grid-stats">
+                        <div class="fire-buddy-v2-stat-card">
+                            <div id="fire-buddy-current-streak" class="fire-buddy-v2-stat-num">0<span>d</span></div>
+                            <div class="fire-buddy-v2-stat-name">Streak</div>
+                            <div class="fire-buddy-v2-decor-symbol">❖</div>
+                        </div>
+                        <div class="fire-buddy-v2-stat-card">
+                            <div id="fire-buddy-longest-streak" class="fire-buddy-v2-stat-num">0<span>d</span></div>
+                            <div class="fire-buddy-v2-stat-name">Longest</div>
+                            <div class="fire-buddy-v2-decor-symbol">✧</div>
+                        </div>
+                    </div>
+
+                    <div class="fire-buddy-v2-form-section">
+                        <div class="fire-buddy-v2-form-header">
+                            <div class="fire-buddy-v2-form-title">IDENTITY 设定</div>
+                        </div>
+
+                        <div class="fire-buddy-v2-input-block">
+                            <input id="fire-buddy-name-input" type="text" class="fire-buddy-v2-clean-input" maxlength="24" placeholder="赋予它一个称呼">
+                        </div>
+
+                        <div class="fire-buddy-v2-input-block">
+                            <textarea id="fire-buddy-persona-input" class="fire-buddy-v2-clean-textarea" placeholder="描述它的性格与说话方式..."></textarea>
+                        </div>
+
+                        <button id="fire-buddy-profile-save" class="fire-buddy-v2-btn-outline" type="button">
+                            <span>Apply Changes</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -3003,6 +3410,38 @@
                     <button id="close-meeting-action-suggestion-menu" style="background:rgba(0,0,0,0.05);border:none;width:30px;height:30px;border-radius:50%;font-size:14px;font-weight:bold;cursor:pointer;color:#1c1c1e;">✕</button>
                 </div>
                 <div id="meeting-action-suggestion-list" style="padding-bottom:10px;"></div>
+            </div>
+
+            <div id="meeting-integration-modal" class="meeting-integration-modal hidden">
+                <div class="meeting-integration-dialog">
+                    <button type="button" id="close-meeting-integration" class="meeting-integration-close" aria-label="关闭">×</button>
+
+                    <div class="meeting-integration-kicker">Offline Meeting</div>
+                    <div class="meeting-integration-title">接入预设与正则</div>
+                    <div class="meeting-integration-subtitle">预设会接入当前已开启的条目，正则可按分类勾选。</div>
+
+                    <div class="meeting-integration-body">
+                        <section class="meeting-integration-section">
+                            <div class="meeting-integration-section-head">
+                                <div class="meeting-integration-section-title">预设</div>
+                            </div>
+                            <div id="meeting-integration-preset-list" class="meeting-integration-preset-list"></div>
+                        </section>
+
+                        <section class="meeting-integration-section">
+                            <div class="meeting-integration-section-head">
+                                <div class="meeting-integration-section-title">正则</div>
+                            </div>
+                            <div id="meeting-integration-regex-summary" class="meeting-integration-regex-summary">已选 0 条正则</div>
+                            <div id="meeting-integration-regex-list" class="meeting-integration-regex-list"></div>
+                        </section>
+                    </div>
+
+                    <div class="meeting-integration-actions">
+                        <button type="button" id="meeting-integration-cancel" class="meeting-integration-btn meeting-integration-btn-ghost">取消</button>
+                        <button type="button" id="meeting-integration-save" class="meeting-integration-btn meeting-integration-btn-fill">保存</button>
+                    </div>
+                </div>
             </div>
 
             <!-- 见面剧情编辑弹窗 -->
@@ -7599,6 +8038,7 @@
     <script src="js/icity.js"></script>
     <script src="js/garden_app.js?v=10"></script>
     <script src="js/mood_flora.js"></script>
+    <script src="js/preset_app.js"></script>
     <script src="js/home.js"></script>
     <script src="js/calendar_app.js"></script>
     <script src="js/music_app_screen.js"></script>
@@ -7608,6 +8048,8 @@
     <script src="js/chat/03-ai-engine.js"></script>
     <script src="js/chat/04-media-init.js"></script>
     <script src="js/chat/05-addressbook-friends.js"></script>
+    <script src="js/chat/06-oracle-quick-replies.js"></script>
+    <script src="js/fire_buddy.js?v=20260324b1"></script>
     <script src="js/offline_push_sync.js"></script>
     <script src="js/shopping.js"></script>
     <script src="js/forum.js"></script>
@@ -7910,8 +8352,168 @@
                 </div>
             </div>
 
+            <div id="preset-app" class="app-screen hidden preset-app-screen">
+                <div class="preset-shell">
+                    <div class="preset-stage">
+                        <section class="preset-tab-pane preset-pane active" data-tab-pane="preset">
+                            <div class="preset-header">
+                                <div class="preset-brand-meta">
+                                    <button type="button" class="preset-exit-btn" id="preset-exit-btn" aria-label="退出预设应用">Vol. <span class="preset-vol-num-display">1</span> — Config</button>
+                                    <span>Vol. <span id="preset-vol-num">1</span> — Config</span>
+                                    <div class="preset-header-actions">
+                                        <button type="button" class="preset-action-icon" id="preset-add-preset-btn" aria-label="Add preset">
+                                            <i class="ri-add-line"></i>
+                                        </button>
+                                        <button type="button" class="preset-action-icon" id="preset-add-item-btn" aria-label="Add entry">
+                                            <i class="ri-play-list-add-line"></i>
+                                        </button>
+                                        <button type="button" class="preset-action-icon" id="close-preset-app" aria-label="导入预设">
+                                            <i class="ri-folder-add-line"></i>
+                                        </button>
+                                        <button type="button" class="preset-action-icon preset-action-icon-danger" id="preset-delete-preset-btn" aria-label="Delete preset">
+                                            <i class="ri-delete-bin-6-line"></i>
+                                        </button>
+                                        <input type="file" id="preset-import-input" accept=".json" hidden>
+                                    </div>
+                                </div>
+
+                                <div class="preset-carousel" id="preset-carousel"></div>
+                                <div class="preset-nav-dots" id="preset-dots"></div>
+                            </div>
+
+                            <div class="preset-content" id="preset-app-content">
+                                <div class="preset-list-container" id="preset-list-content"></div>
+                            </div>
+                        </section>
+
+                        <section class="preset-tab-pane regex-pane" data-tab-pane="regex">
+                            <div class="regex-page-scroll">
+                                <header class="regex-workspace-header">
+                                    <div class="regex-title-block">
+                                        <button type="button" class="regex-home-btn" id="preset-regex-home" aria-label="返回主屏幕">Lexicon</button>
+                                        <div class="regex-category-switcher" id="preset-regex-category-switcher">
+                                            <button type="button" class="regex-category-trigger" id="preset-regex-category-trigger" aria-label="切换正则分类">
+                                                <span class="regex-category-trigger-label"><i class="ri-node-tree"></i> Category</span>
+                                                <span class="regex-category-trigger-name" id="preset-regex-category-name">All Regex</span>
+                                                <i class="ri-arrow-down-s-line regex-category-trigger-caret"></i>
+                                            </button>
+                                            <div class="regex-category-dropdown" id="preset-regex-category-dropdown"></div>
+                                        </div>
+                                    </div>
+                                    <div class="regex-actions">
+                                        <button type="button" id="preset-regex-open-category"><i class="ri-folder-add-line"></i> Category</button>
+                                        <button type="button" id="preset-regex-open-drawer"><i class="ri-add-line"></i> New</button>
+                                    </div>
+                                </header>
+
+                                <div class="regex-grid" id="preset-regex-grid"></div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <nav class="preset-bottom-bar" id="preset-bottom-bar">
+                        <button type="button" class="preset-tab-item active" data-tab="preset">
+                            <i class="ri-book-3-line"></i>
+                            <span>预设</span>
+                        </button>
+                        <button type="button" class="preset-tab-item" data-tab="regex">
+                            <i class="ri-braces-line"></i>
+                            <span>正则</span>
+                        </button>
+                    </nav>
+
+                    <div class="preset-sheet-backdrop" id="preset-sheet-backdrop"></div>
+
+                    <div class="preset-editor-sheet" id="preset-editor-sheet">
+                        <div class="preset-sheet-handle"></div>
+                        <div class="preset-editor-title" id="preset-editor-title">Refine Parameter</div>
+
+                        <div class="preset-form-group">
+                            <label for="preset-input-en" id="preset-input-en-label">Nomenclature</label>
+                            <input type="text" class="preset-styled-input" id="preset-input-en" placeholder="Parameter Name">
+                        </div>
+
+                        <div class="preset-form-group" id="preset-definition-group">
+                            <label for="preset-input-zh" id="preset-input-zh-label">Definition</label>
+                            <textarea class="preset-styled-input preset-styled-textarea" id="preset-input-zh" placeholder="Definition Content"></textarea>
+                        </div>
+
+                        <div class="preset-sheet-actions">
+                            <button type="button" class="preset-btn preset-btn-outline" id="preset-discard-btn">Cancel</button>
+                            <button type="button" class="preset-btn preset-btn-fill" id="preset-commit-btn">Save</button>
+                        </div>
+                    </div>
+
+                    <div class="regex-drawer-overlay" id="preset-regex-overlay"></div>
+
+                    <div class="preset-confirm-overlay" id="preset-confirm-overlay"></div>
+
+                    <div class="preset-confirm-sheet" id="preset-confirm-sheet">
+                        <div class="preset-sheet-handle"></div>
+                        <div class="preset-confirm-kicker" id="preset-confirm-kicker">Confirm</div>
+                        <div class="preset-confirm-title" id="preset-confirm-title">Are you sure?</div>
+                        <div class="preset-confirm-copy" id="preset-confirm-copy">This action cannot be undone.</div>
+                        <div class="preset-sheet-actions">
+                            <button type="button" class="preset-btn preset-btn-outline" id="preset-confirm-cancel">Cancel</button>
+                            <button type="button" class="preset-btn preset-btn-danger" id="preset-confirm-commit">Delete</button>
+                        </div>
+                    </div>
+
+                    <div class="regex-category-overlay" id="preset-regex-category-overlay"></div>
+
+                    <div class="regex-category-sheet" id="preset-regex-category-sheet">
+                        <div class="regex-drawer-header">
+                            <h3 id="preset-regex-category-sheet-title">New Category</h3>
+                            <button type="button" class="regex-drawer-close" id="preset-regex-category-close"><i class="ri-close-line"></i></button>
+                        </div>
+
+                        <div class="regex-form-group">
+                            <label for="preset-regex-category-input">Category Name</label>
+                            <input type="text" id="preset-regex-category-input" placeholder="e.g. Cleanup">
+                        </div>
+
+                        <div class="regex-category-sheet-block">
+                            <div class="regex-category-sheet-label">Include Regex</div>
+                            <div class="regex-category-sheet-list" id="preset-regex-category-list"></div>
+                        </div>
+
+                        <button type="button" class="regex-submit-btn" id="preset-regex-category-save">Create Category</button>
+                    </div>
+
+                    <div class="regex-drawer" id="preset-regex-drawer">
+                        <div class="regex-drawer-header">
+                            <h3 id="preset-regex-drawer-title">Compose</h3>
+                            <button type="button" class="regex-drawer-close" id="preset-regex-close-drawer"><i class="ri-close-line"></i></button>
+                        </div>
+
+                        <div class="regex-form-group">
+                            <label for="preset-regex-title">Title</label>
+                            <input type="text" id="preset-regex-title" placeholder="e.g. Find Emails">
+                        </div>
+
+                        <div class="regex-form-group">
+                            <label for="preset-regex-pattern">Expression</label>
+                            <input type="text" id="preset-regex-pattern" placeholder="/pattern/g">
+                        </div>
+
+                        <div class="regex-form-group">
+                            <label for="preset-regex-template">Template</label>
+                            <textarea id="preset-regex-template" placeholder="HTML string..."></textarea>
+                        </div>
+
+                        <button type="button" class="regex-submit-btn" id="preset-regex-add-entry">Append to Lexicon</button>
+                    </div>
+                </div>
+            </div>
+
 </body>
 </html>
+
+
+
+
+
+
 
 
 

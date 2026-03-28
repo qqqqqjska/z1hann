@@ -28,6 +28,7 @@ let homeScreenData = [
     { index: 24, type: 'app', name: 'icity', iconClass: 'fas fa-book', color: '#333', appId: 'icity-app' },
     { index: 25, type: 'app', name: '家园', iconClass: 'fas fa-house-chimney', color: '#F59E0B', appId: 'garden-app' },
     { index: 26, type: 'app', name: '日历', iconClass: 'fas fa-calendar-alt', color: '#FF3B30', appId: 'calendar-app' },
+    { index: 27, type: 'app', name: '预设', iconClass: 'fas fa-sliders-h', color: '#111111', appId: 'preset-app' },
     { index: 28, type: 'app', name: 'LookUS', iconClass: 'fas fa-eye', color: '#FF2D55', appId: 'lookus-app' },
     { index: 10, type: 'app', name: '微信', iconClass: 'fab fa-weixin', color: '#07C160', appId: 'wechat-app' },
     { index: 11, type: 'app', name: '世界书', iconClass: 'fas fa-globe', color: '#007AFF', appId: 'worldbook-app' },
@@ -169,6 +170,23 @@ function initGrid() {
         }
     }
 
+    // 强制添加预设应用 (如果不存在)
+    if (!homeScreenData.some(item => item.appId === 'preset-app')) {
+        const targetIndex = findFirstAvailableSlot(27, SLOTS_PER_PAGE * 2);
+
+        if (targetIndex !== null) {
+            homeScreenData.push({
+                index: targetIndex,
+                type: 'app',
+                name: '预设',
+                iconClass: 'fas fa-sliders-h',
+                color: '#111111',
+                appId: 'preset-app',
+                _internalId: generateId()
+            });
+        }
+    }
+
     // 强制添加银行应用 (如果不存在)
     if (!homeScreenData.some(item => item.appId === 'bank-app')) {
         // 查找空闲位置 (优先 index 13)
@@ -277,7 +295,8 @@ function checkAndShowUpdateModal() {
             // Default Page 2 items
             const defaultPage2 = [
                 { index: 24, type: 'app', name: 'icity', iconClass: 'fas fa-book', color: '#333', appId: 'icity-app', _internalId: generateId() },
-                { index: 25, type: 'app', name: '家园', iconClass: 'fas fa-house-chimney', color: '#F59E0B', appId: 'garden-app', _internalId: generateId() }
+                { index: 25, type: 'app', name: '家园', iconClass: 'fas fa-house-chimney', color: '#F59E0B', appId: 'garden-app', _internalId: generateId() },
+                { index: 27, type: 'app', name: '预设', iconClass: 'fas fa-sliders-h', color: '#111111', appId: 'preset-app', _internalId: generateId() }
             ];
             
             // Filter current data to keep only Page 1

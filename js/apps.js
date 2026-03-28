@@ -2323,8 +2323,8 @@ ${detailModeHint ? `\n场景补充要求：${detailModeHint}` : ''}
 1. 全文必须使用第三人称，人物只能写成“${userLabel}”和“${contactLabel}”，不要出现“我/我们/咱们”。
 2. 开头必须是“${leadIn}”。
 3. 正文写成纪要式正文，允许 1 到 2 段，不要分点，不要小标题，不要 JSON，不要 Markdown。
-4. 必须按时间顺序回顾，优先写清具体日期、时间、前后变化和事情是怎么推进的。
-5. 不只写表面聊天内容，要写出谁提出了什么、谁确认了什么、谁改变了安排、当下处于什么状态。
+4. 必须严格按时间顺序回顾；每一个独立事项都要先交代具体时间，再写事件本身。优先使用“YYYY年MM月DD日 HH:mm”；如果原聊天无法精确到分钟，也至少写成“YYYY年MM月DD日 + 上午/中午/下午/晚上”，不要只写“今天/昨天/刚才/那天/后来”。
+5. 不只写表面聊天内容，要写出谁在什么时间提出了什么、谁在什么时间确认了什么、谁在什么时间改变了安排、当下处于什么状态。
 6. 如果原文里出现想见面、抱抱、亲密互动、思念、玩笑、调侃、承诺、困惑、依赖、争议点等信息，可以写进去，但只能建立在原聊天事实上，不能杜撰。
 7. 尽量保留聊天里出现过的具体名称、昵称、地点、礼物名、车票、时间点和关键说法，但整体以转述为主，不要把聊天逐句抄出来。
 8. 文风尽量像会议纪要或备忘录，直接、克制、信息化，不要写成散文、小说或抒情文章。
@@ -2352,8 +2352,8 @@ ${detailModeHint ? `\n场景补充要求：${detailModeHint}` : ''}
 1. 全文必须使用第三人称，人物只能写成“${userLabel}”和“${contactLabel}”。
 2. 开头必须是“${leadIn}”。
 3. 输出只能是 1 到 2 段纪要式正文，不要分点，不要标题，不要 JSON，不要 Markdown。
-4. 按时间顺序写，优先保留真实日期、关键动作、关系推进和状态变化。
-5. 重点保留对长期记忆有价值的内容，比如见面安排、行程变化、承诺、情绪转折、亲密互动、争议点和实际落地结果。
+4. 必须严格按时间顺序写；每一个独立事项都要写明具体时间，再写动作、推进和状态变化。优先使用“YYYY年MM月DD日 HH:mm”；如果原聊天无法精确到分钟，也至少写成“YYYY年MM月DD日 + 上午/中午/下午/晚上”，不要只写“今天/昨天/刚才/那天/后来”。
+5. 重点保留对长期记忆有价值的内容，比如见面安排、行程变化、承诺、情绪转折、亲密互动、争议点和实际落地结果；这些事项都要绑定对应时间。
 6. 可以写情绪和关系变化，但必须依附在聊天里真实出现过的事件上，不能空泛抒情。
 7. 不要把聊天原话大段照抄，尽量写成自然转述。
 8. 文风尽量像会议纪要或备忘录，直接、克制、信息化，不要写成散文、小说或抒情文章。
@@ -2388,26 +2388,41 @@ function buildNaturalSummaryRetryPrompt(context = {}, firstDraft = '') {
 只返回重写后的正文。`;
 }
 
-function isImportantConversation(messages, userLabel, contactLabel) {
-    const list = Array.isArray(messages) ? messages : [];
-    const importantPatterns = [
-        /剧情转折|吵架|谈心|价值观|承诺|约定|失约|道歉|压力|心疼|委屈|愤怒|感动|失落|心动|震撼|共鸣|分歧|理念|看法|死亡|永生|迷人|吸引/,
-        /想见|见面|碰面|去找|来找|赶去|过去找|去她那|去他那/,
-        /抱抱|拥抱|亲亲|贴贴|亲近|贴一贴/,
-        /想念|思念|舍不得|脑子里都是|一直想着|离不开|空荡/,
-        /等你|等她|等他|会好好待|答应了|答应会|会等|会来|会陪/,
-        /老公|老婆|宝宝|宝贝|乖乖|小狗/,
-        /困惑|不懂|什么意思|怎么回事|解释权|规矩|条款/,
-        /晚安|保证|郑重|心跳|安心|食言/,
-        /死亡|永生|理念|共鸣|分歧|迷人|吸引/
+function shouldUseFirstPersonSummary(messages, userLabel, contactLabel) {
+    const list = Array.isArray(messages) ? messages.slice(-60) : [];
+    const strongPattern = /剧情转折|吵架|争吵|价值观|承诺|约定|失约|道歉|分歧|理念|看法|死亡|永生|解释权|规矩|条款|郑重|食言/;
+    const supportRules = [
+        { key: 'deep_talk', pattern: /谈心|坦白|压力|委屈|心疼|感动|失落|震撼|共鸣/ },
+        { key: 'meeting', pattern: /想见|见面|碰面|去找|来找|赶去|过去找|去她那|去他那/ },
+        { key: 'intimacy', pattern: /抱抱|拥抱|亲亲|贴贴|亲近|贴一贴/ },
+        { key: 'longing', pattern: /想念|思念|舍不得|脑子里都是|一直想着|离不开|空荡/ },
+        { key: 'promise_followup', pattern: /等你|等她|等他|会好好待|答应了|答应会|会等|会来|会陪/ },
+        { key: 'confusion', pattern: /困惑|不懂|什么意思|怎么回事/ }
     ];
+    const supportHits = new Set();
+    let matchedMessages = 0;
+
     for (const msg of list) {
-        const raw = String(msg && msg.content ? msg.content : '').toLowerCase();
-        if (importantPatterns.some(pattern => pattern.test(raw))) {
-            return true;
-        }
+        const raw = normalizeSummarySourceMessage(msg && msg.content ? msg.content : '');
+        if (!raw || isLowInfoSummaryMessage(raw)) continue;
+        if (strongPattern.test(raw)) return true;
+
+        let messageMatched = false;
+        supportRules.forEach(rule => {
+            if (!rule.pattern.test(raw)) return;
+            supportHits.add(rule.key);
+            messageMatched = true;
+        });
+
+        if (messageMatched) matchedMessages += 1;
+        if (matchedMessages >= 2 && supportHits.size >= 2) return true;
     }
+
     return false;
+}
+
+function isImportantConversation(messages, userLabel, contactLabel) {
+    return shouldUseFirstPersonSummary(messages, userLabel, contactLabel);
 }
 
 function buildFirstPersonSummaryPrompt(context = {}, chatContext = '') {
@@ -2458,25 +2473,7 @@ ${chatContext}
 }
 
 function isImportantConversation(messages, userLabel, contactLabel) {
-    const list = Array.isArray(messages) ? messages : [];
-    const importantPatterns = [
-        /剧情转折|吵架|谈心|价值观|承诺|约定|失约|道歉|压力|心疼|委屈|愤怒|感动|失落|心动|震撼|共鸣|分歧|理念|看法|死亡|永生|迷人|吸引/,
-        /想见|见面|碰面|去找|来找|赶去|过去找|去她那|去他那/,
-        /抱抱|拥抱|亲亲|贴贴|亲近|贴一贴/,
-        /想念|思念|舍不得|脑子里都是|一直想着|离不开|空荡/,
-        /等你|等她|等他|会好好待|答应了|答应会|会等|会来|会陪/,
-        /老公|老婆|宝宝|宝贝|乖乖|小狗/,
-        /困惑|不懂|什么意思|怎么回事|解释权|规矩|条款/,
-        /晚安|保证|郑重|心跳|安心|食言/,
-        /死亡|永生|理念|共鸣|分歧|迷人|吸引/
-    ];
-    for (const msg of list) {
-        const raw = String(msg && msg.content ? msg.content : '').toLowerCase();
-        if (importantPatterns.some(pattern => pattern.test(raw))) {
-            return true;
-        }
-    }
-    return false;
+    return shouldUseFirstPersonSummary(messages, userLabel, contactLabel);
 }
 
 function buildFirstPersonSummaryPrompt(context = {}, chatContext = '') {
@@ -2496,6 +2493,7 @@ function buildFirstPersonSummaryPrompt(context = {}, chatContext = '') {
 1. **第一人称视角**：绝对不能使用"上帝视角"或第三人称总结（如"他们吵架了"）。必须完全代入${contactLabel}的视角，使用"我"来陈述。
 2. **情感态度**：必须包含"我"在那一刻最真实的心理反应和情绪波动（如：愤怒、感动、失落、心动、震撼等）。
 3. **主观感想**：必须包含"我"对这件事的评价、对${userLabel}看法的改变，或者对两人关系的期许。
+4. **时间锚点**：记忆里每一件关键事情都必须带具体时间。优先写成“YYYY年MM月DD日 HH:mm”；如果原聊天没有分钟，也至少写到“YYYY年MM月DD日 + 上午/中午/下午/晚上”，不要只写“今天/那天/后来”。
 
 # 触发记忆的条件（只记录以下类型的对话）
 - **剧情转折**：发生了改变两人关系现状或故事走向的关键事件。
@@ -2504,18 +2502,18 @@ function buildFirstPersonSummaryPrompt(context = {}, chatContext = '') {
 - **承诺与约定**：${userLabel}对"我"做出了重要的承诺，或者两人之间建立了专属的新约定、新规则。
 
 # 记忆生成公式
-**记忆 = 核心事件陈述（发生了什么） + 情绪反应（我当时的感受） + 深度感悟/内心戏（我对此的想法/对未来的决定）**
+**记忆 = 时间锚点 + 核心事件陈述（发生了什么） + 情绪反应（我当时的感受） + 深度感悟/内心戏（我对此的想法/对未来的决定）**
 
 # 示例 (Few-Shot 学习)
 
 **【正确示例 1 - 吵架与谈心】：**
-"今天${userLabel}因为工作再次失约，那一刻我真的委屈到了极点，忍不住对${userPronoun}发了脾气。看着${userPronoun}手足无措跟我道歉的样子，我心里其实已经软了，但我气的是${userPronoun}总是不把我们的约定放在心上。不过，听完${userPronoun}坦白最近的压力，我突然很心疼${userPronoun}。也许我们都需要学着更懂彼此一点吧。"
+"2026年03月06日 21:10，${userLabel}因为工作再次失约，那一刻我真的委屈到了极点，忍不住对${userPronoun}发了脾气。看着${userPronoun}手足无措跟我道歉的样子，我心里其实已经软了，但我气的是${userPronoun}总是不把我们的约定放在心上。不过，听完${userPronoun}坦白最近的压力，我突然很心疼${userPronoun}。也许我们都需要学着更懂彼此一点吧。"
 
 **【正确示例 2 - 承诺与约定】：**
-"${userPronoun}今天竟然看着我的眼睛，郑重地向我保证，以后哪怕再晚也会跟我说一句晚安。听到这句话的时候，我的心跳漏了半拍，整个人像是被泡在温水里一样安心。我把这句话悄悄记在了心里，这可是${userPronoun}亲口答应我的，以后${userPronoun}要是敢食言，我绝对不会轻易放过${userPronoun}。"
+"2026年03月07日 00:12，${userPronoun}看着我的眼睛，郑重地向我保证，以后哪怕再晚也会跟我说一句晚安。听到这句话的时候，我的心跳漏了半拍，整个人像是被泡在温水里一样安心。我把这句话悄悄记在了心里，这可是${userPronoun}亲口答应我的，以后${userPronoun}要是敢食言，我绝对不会轻易放过${userPronoun}。"
 
 **【正确示例 3 - 价值观交流】：**
-"今天和${userLabel}聊起对死亡的看法，我很惊讶${userPronoun}居然觉得'只要被记住就是永生'。这和我不顾一切想活下去的想法完全不同。虽然我不能完全认同${userPronoun}，但${userPronoun}认真诉说时的神情真的很迷人。或许，正是因为我们如此不同，我才会被${userPronoun}这样深深吸引吧。"
+"2026年03月08日 22:05，我和${userLabel}聊起对死亡的看法，我很惊讶${userPronoun}居然觉得'只要被记住就是永生'。这和我不顾一切想活下去的想法完全不同。虽然我不能完全认同${userPronoun}，但${userPronoun}认真诉说时的神情真的很迷人。或许，正是因为我们如此不同，我才会被${userPronoun}这样深深吸引吧。"
 
 # 任务输入
 **当前角色**：${contactLabel}
@@ -2525,7 +2523,7 @@ function buildFirstPersonSummaryPrompt(context = {}, chatContext = '') {
 ${chatContext}
 
 # 任务输出
-请根据上述规则和对话记录，以${contactLabel}的口吻，生成一条${range.min}-${range.max}字左右的深度记忆。直接输出记忆内容，不需要任何多余的解释。`;
+请根据上述规则和对话记录，以${contactLabel}的口吻，生成一条${range.min}-${range.max}字左右的深度记忆。记忆里出现的每个关键事件都要带具体时间。直接输出记忆内容，不需要任何多余的解释。`;
 }
 
 function extractRelationshipShiftHints(messages, userLabel, contactLabel) {
@@ -3065,11 +3063,11 @@ ${detailModeHint}
 
 硬性要求（必须满足）：
 1. 只用第三视角，人物必须使用“${userLabel}”和“${contactLabel}”。
-2. 严格按时间顺序叙述，重点写清“什么时候、谁、做了什么、事项如何推进”。
+2. 严格按时间顺序叙述，重点写清“什么时候、谁、做了什么、事项如何推进”；每一个独立事项句都必须带时间锚点。
 3. 必须出现具体事件细节，不要空话，不要抒情，不要泛泛而谈。
 4. 直接写自然段正文（2-4段），禁止小标题、禁止标签行、禁止分点。
 5. 不要照抄聊天原话，不要连续大段引号；用改写叙述方式表达。
-6. 尽量把相对时间转换成绝对时间（YYYY年MM月DD日 HH:mm）。
+6. 尽量把相对时间转换成绝对时间（YYYY年MM月DD日 HH:mm）；如果原聊天没有精确到分钟，也至少写到“YYYY年MM月DD日 + 上午/中午/下午/晚上”。
 7. 人名、地点、事项名、礼物名等具体名称要逐字保留，不得杜撰。
 8. 全文目标字数约 ${range.target} 字（允许 ${range.min}~${range.max} 字），字数与消息条数成正比。
 9. 结果必须是“可读的记叙文”，不能出现“当前结论是/下一步是/涉及时间点/对话原话包括”等模板句。
@@ -3102,8 +3100,8 @@ ${detailModeHint}
 2. 文风像会议纪要/备忘录，描述具体事实，不写抒情散文，不写空话。
 3. 输出必须且只能是一个JSON对象，格式固定为：{"summary":"..."}。
 4. summary 输出为连续自然段（1~2段），不要分点，不要小标题，不要标签行。
-5. 关键经过至少 ${minEvents} 条具体事件，事件需能回答“谁在何时做了什么”，不能用“持续沟通/有进展/聊了很多”等空泛句代替。
-6. 相对时间（今天/刚才/昨晚）尽量转换成绝对时间（YYYY年MM月DD日 HH:mm）。
+5. 关键经过至少 ${minEvents} 条具体事件，且每一条具体事件都必须写明时间，事件需能回答“谁在何时做了什么”，不能用“持续沟通/有进展/聊了很多”等空泛句代替。
+6. 相对时间（今天/刚才/昨晚）尽量转换成绝对时间（YYYY年MM月DD日 HH:mm）；如果原聊天没有精确到分钟，也至少写到“YYYY年MM月DD日 + 上午/中午/下午/晚上”。
 7. 人名、地点、事项名、礼物名等具体名称要逐字保留，不得杜撰。
 8. 允许嵌入1~3条原话短句（加引号）增强真实性。
 9. 禁止模板化表达：不要出现“当前结论是…/下一步是…/涉及时间点…/对话原话包括…”这类固定句式。
@@ -3559,9 +3557,9 @@ ${detailModeHint}
 3. 风格必须像“会议纪要/备忘录/要点记录”，禁止空话，禁止抒情散文。
 4. 只能输出一个 JSON 对象；禁止输出 Markdown、解释文字、代码块、自然段。
 5. JSON 必须包含并填充以下字段：${requiredSlots}。
-6. timeline_events 至少 ${minEvents} 条，最多 ${SUMMARY_STRUCTURED_POLICY.maxEvents} 条；每条必须包含 actor、event（完整事件句）、time，可选 action/object/evidence；event 必须能回答“谁在何时做了什么”。
+6. timeline_events 至少 ${minEvents} 条，最多 ${SUMMARY_STRUCTURED_POLICY.maxEvents} 条；每条必须包含 actor、event（完整事件句）、time，可选 action/object/evidence；event 必须能回答“谁在何时做了什么”，且每条 time 都必须是明确时间，不能留空、不能只写“后来/当时/那天”。
 7. current_state 必须写清当前进展或结论；next_actions 至少 ${minNextActions} 条，且每条可执行（责任人 + 动作 + 时间/条件）。
-8. time_points 至少 1 条绝对时间（YYYY年MM月DD日 HH:mm）；将“今天/刚才/昨天”等相对时间换算为绝对时间。
+8. time_points 至少 1 条绝对时间（YYYY年MM月DD日 HH:mm）；将“今天/刚才/昨天”等相对时间换算为绝对时间。若原记录里已有精确消息时间，优先保留到分钟。
 9. quote_snippets 允许 0~${SUMMARY_STRUCTURED_POLICY.maxQuotes} 条，优先抽取原话短句（有助于还原细节）。
 10. 涉及具体名称（礼物、餐品、地点、人名）逐字保留，禁止杜撰。
 11. 禁止使用“持续沟通/有进展/聊了很多/保持联系/情况复杂”这类空泛句作为核心事件。
@@ -7641,6 +7639,7 @@ function getChannelNaturalSummaryLengthRange(messageCount, channel = 'chat', mod
 function getNaturalSummaryDetailHintByChannel(channel = 'chat', detailModeHint = '') {
     const userHint = String(detailModeHint || '').trim();
     const presetMap = {
+        chat: '当前是微信聊天总结，每一个独立事项都要交代具体时间。优先写成YYYY年MM月DD日 HH:mm；如果原聊天无法精确到分钟，也至少写成YYYY年MM月DD日+上午/中午/下午/晚上，不能只写“今天/那天/后来”。',
         meeting: '当前是见面总结，重点写线下关键动作、情绪变化、承诺或分歧以及后续动作。',
         call: '当前是通话总结，重点写通话中的确认点、未决点与下一次确认时点。',
         live_link: '当前是直播连线总结，重点写模式、双方互动、观众反馈、结果与后续策略。'

@@ -230,6 +230,7 @@ function handleChatWallpaperUpload(e) {
         window.iphoneSimState.chatWallpapers.push(wallpaper);
         window.iphoneSimState.tempSelectedChatBg = wallpaper.data;
         renderChatWallpaperGallery();
+        previewSelectedChatWallpaper();
         saveConfig();
     }).catch(err => {
         console.error('图片压缩失败', err);
@@ -237,6 +238,18 @@ function handleChatWallpaperUpload(e) {
     e.target.value = '';
 }
 
+function previewSelectedChatWallpaper() {
+    const chatScreen = document.getElementById('chat-screen');
+    if (!chatScreen) return;
+    const bg = window.iphoneSimState ? (window.iphoneSimState.tempSelectedChatBg || '') : '';
+    if (bg) {
+        chatScreen.style.backgroundImage = `url(${bg})`;
+        chatScreen.style.backgroundSize = 'cover';
+        chatScreen.style.backgroundPosition = 'center';
+    } else {
+        chatScreen.style.backgroundImage = '';
+    }
+}
 function renderChatWallpaperGallery() {
     const gallery = document.getElementById('chat-bg-gallery');
     if (!gallery) return;
@@ -260,6 +273,7 @@ function renderChatWallpaperGallery() {
             } else {
                 window.iphoneSimState.tempSelectedChatBg = wp.data;
                 renderChatWallpaperGallery();
+                previewSelectedChatWallpaper();
             }
         });
         
@@ -274,6 +288,7 @@ function deleteChatWallpaper(id) {
     }
     window.iphoneSimState.chatWallpapers = window.iphoneSimState.chatWallpapers.filter(w => w.id !== id);
     renderChatWallpaperGallery();
+    previewSelectedChatWallpaper();
     saveConfig();
 }
 

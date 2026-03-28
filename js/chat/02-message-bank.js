@@ -646,6 +646,14 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     if (description) {
         msg.description = description;
     }
+
+    if (typeof window.markFireBuddyMentionOnOutgoingMsg === 'function') {
+        try {
+            window.markFireBuddyMentionOnOutgoingMsg(msg, text, contactId, type, isUser);
+        } catch (fireBuddyMentionError) {
+            console.warn('标记小火人 mention 失败', fireBuddyMentionError);
+        }
+    }
     
     window.iphoneSimState.chatHistory[contactId].push(msg);
     if (type === 'text' && window.FloraEngine && typeof window.FloraEngine.analyzeChat === 'function') {

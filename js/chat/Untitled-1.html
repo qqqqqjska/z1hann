@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>预设页面 · 版本 A</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f5f7;
+      --bg-soft: #eef1f5;
+      --panel: rgba(255, 255, 255, 0.7);
+      --panel-strong: rgba(255, 255, 255, 0.86);
+      --text: #121418;
+      --muted: #68707f;
+      --line: rgba(17, 24, 39, 0.08);
+      --shadow: 0 24px 80px rgba(20, 24, 34, 0.12);
+      --shadow-soft: 0 10px 30px rgba(20, 24, 34, 0.08);
+      --blue: #b8cffd;
+      --cyan: #c4eef5;
+      --violet: #ddd4ff;
+      --mint: #cfeede;
+      --glass: saturate(180%) blur(22px);
+      --radius-xl: 34px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(184, 207, 253, 0.95), transparent 26%),
+        radial-gradient(circle at 100% 10%, rgba(221, 212, 255, 0.85), transparent 24%),
+        radial-gradient(circle at 20% 100%, rgba(207, 238, 222, 0.9), transparent 30%),
+        linear-gradient(180deg, #f8f9fc 0%, #eff2f6 100%);
+      color: var(--text);
+      font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::before {
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.8), transparent 88%);
+      opacity: 0.65;
+    }
+
+    body::after {
+      background:
+        radial-gradient(circle at var(--mx, 20%) var(--my, 20%), rgba(255, 255, 255, 0.9), transparent 20%),
+        radial-gradient(circle at 72% 20%, rgba(196, 238, 245, 0.4), transparent 22%),
+        radial-gradient(circle at 28% 76%, rgba(221, 212, 255, 0.45), transparent 24%);
+      filter: blur(28px);
+      opacity: 0.9;
+      transition: background 260ms ease;
+    }
+
+    @keyframes floatBlob {
+      0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+      50% { transform: translate3d(0, -12px, 0) scale(1.03); }
+    }
+
+    @keyframes reveal {
+      from { opacity: 0; transform: translateY(18px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes driftIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pulseRing {
+      0% { box-shadow: 0 0 0 0 rgba(91, 118, 255, 0.18); }
+      100% { box-shadow: 0 0 0 12px rgba(91, 118, 255, 0); }
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      padding: 28px;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    .shell {
+      position: relative;
+      width: min(1480px, 100%);
+      min-height: calc(100vh - 56px);
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr);
+      gap: 18px;
+      opacity: 0;
+      transform: translateY(12px);
+      transition: opacity 520ms ease, transform 520ms ease;
+    }
+
+    body.ready .shell {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .panel {
+      position: relative;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58));
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.52), transparent 36%, rgba(255,255,255,0.08));
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .sidebar,
+    .workspace {
+      position: relative;
+      z-index: 1;
+    }
+
+    .sidebar {
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding-bottom: 6px;
+    }
+
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.84), rgba(184, 207, 253, 0.7));
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.6), 0 8px 18px rgba(123, 149, 213, 0.18);
+      font-size: 18px;
+      letter-spacing: 0.14em;
+      font-weight: 700;
+    }
+
+    .brand-copy small,
+    .section-caption,
+    .metric-label,
+    .chip,
+    .entry-role,
+    .entry-meta,
+    .preset-index,
+    .toolbar-note,
+    .ghost-btn span,
+    .switch-label {
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 11px;
+    }
+
+    .brand-copy small,
+    .section-caption,
+    .metric-label,
+    .entry-meta,
+    .toolbar-note,
+    .ghost-btn span,
+    .switch-label {
+      color: var(--muted);
+    }
+
+    .brand-copy h1 {
+      margin: 6px 0 0;
+      font-size: 28px;
+      letter-spacing: -0.04em;
+    }
+
+    .sidebar-intro {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    .mini-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .mini-card {
+      padding: 14px 14px 12px;
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.56);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .mini-card strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 18px;
+      letter-spacing: -0.04em;
+    }
+
+    .preset-stack {
+      display: grid;
+      gap: 12px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .preset-card {
+      position: relative;
+      width: 100%;
+      padding: 16px 18px;
+      border: 1px solid transparent;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.44);
+      box-shadow: 0 10px 30px rgba(20, 24, 34, 0.05);
+      cursor: pointer;
+      text-align: left;
+      transition: transform 240ms ease, box-shadow 240ms ease, border-color 240ms ease, background 240ms ease;
+    }
+
+    .preset-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 36px rgba(20, 24, 34, 0.09);
+    }
+
+    .preset-card.is-active {
+      background: linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0.66));
+      border-color: rgba(91, 118, 255, 0.16);
+      box-shadow: 0 18px 40px rgba(109, 127, 193, 0.14);
+    }
+
+    .preset-card.is-active::after {
+      content: "";
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #7090ff;
+      animation: pulseRing 1.4s ease-out infinite;
+    }
+
+    .preset-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .preset-name {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+
+    .preset-desc {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .preset-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid rgba(17, 24, 39, 0.06);
+      color: #475062;
+      font-weight: 600;
+    }
+
+    .chip::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.5;
+    }
+
+    .workspace {
+      padding: 22px;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: 18px;
+    }
+
+    .toolbar,
+    .hero,
+    .entry-grid-wrap,
+    .dock {
+      position: relative;
+      z-index: 1;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 4px 4px 0;
+    }
+
+    .toolbar-left,
+    .toolbar-right,
+    .hero-top,
+    .hero-actions,
+    .entry-toolbar,
+    .dock {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .pill,
+    .ghost-btn,
+    .filter-btn,
+    .dock-btn,
+    .toggle-btn,
+    .preset-card {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .pill,
+    .ghost-btn,
+    .filter-btn,
+    .dock-btn {
+      border: 1px solid rgba(17, 24, 39, 0.07);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.56);
+      min-height: 40px;
+      padding: 0 16px;
+      cursor: pointer;
+      transition: transform 220ms ease, background 220ms ease, box-shadow 220ms ease;
+      box-shadow: 0 6px 18px rgba(20, 24, 34, 0.05);
+    }
+
+    .pill:hover,
+    .ghost-btn:hover,
+    .filter-btn:hover,
+    .dock-btn:hover,
+    .toggle-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .pill:active,
+    .ghost-btn:active,
+    .filter-btn:active,
+    .dock-btn:active,
+    .toggle-btn:active,
+    .preset-card:active,
+    .entry-card:active {
+      transform: scale(0.985);
+    }
+
+    .pill.is-primary {
+      background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(227, 235, 255, 0.86));
+    }
+
+    .ghost-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .hero {
+      padding: 26px;
+      border-radius: 30px;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.82), rgba(255,255,255,0.6)),
+        radial-gradient(circle at 100% 0%, rgba(184, 207, 253, 0.48), transparent 28%),
+        radial-gradient(circle at 0% 100%, rgba(207, 238, 222, 0.42), transparent 24%);
+      border: 1px solid rgba(255,255,255,0.78);
+      box-shadow: var(--shadow-soft);
+      animation: reveal 560ms ease both;
+    }
+
+    .hero-symbol {
+      width: 72px;
+      height: 72px;
+      border-radius: 24px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, rgba(255,255,255,0.85), rgba(184,207,253,0.76));
+      border: 1px solid rgba(255,255,255,0.88);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.8), 0 16px 36px rgba(109, 127, 193, 0.16);
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      animation: floatBlob 4.6s ease-in-out infinite;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 0.8fr;
+      gap: 22px;
+      margin-top: 18px;
+    }
+
+    .hero-title {
+      margin: 10px 0 12px;
+      font-size: clamp(30px, 3.2vw, 48px);
+      line-height: 1.06;
+      letter-spacing: -0.06em;
+    }
+
+    .hero-copy {
+      margin: 0;
+      color: #566072;
+      line-height: 1.9;
+      max-width: 64ch;
+    }
+
+    .hero-actions {
+      margin-top: 20px;
+    }
+
+    .hero-metrics {
+      display: grid;
+      gap: 12px;
+    }
+
+    .metric-card {
+      padding: 16px 18px;
+      border-radius: 22px;
+      background: rgba(255,255,255,0.62);
+      border: 1px solid rgba(255,255,255,0.8);
+      box-shadow: 0 10px 24px rgba(20, 24, 34, 0.06);
+    }
+
+    .metric-value {
+      display: block;
+      margin-top: 8px;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.05em;
+    }
+
+    .entry-grid-wrap {
+      padding: 20px 20px 16px;
+      border-radius: 30px;
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.76);
+      box-shadow: var(--shadow-soft);
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .entry-toolbar {
+      justify-content: space-between;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .filter-btn {
+      padding: 0 14px;
+      min-height: 38px;
+      color: #4d5667;
+      font-weight: 600;
+    }
+
+    .filter-btn.is-active {
+      background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(231, 238, 255, 0.88));
+      box-shadow: 0 12px 28px rgba(109, 127, 193, 0.12);
+    }
+
+    .entry-grid {
+      overflow: auto;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      align-content: start;
+      padding-right: 4px;
+    }
+
+    .entry-card {
+      position: relative;
+      padding: 18px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.7));
+      border: 1px solid rgba(255,255,255,0.85);
+      box-shadow: 0 12px 28px rgba(20, 24, 34, 0.06);
+      display: grid;
+      gap: 14px;
+      animation: driftIn 420ms ease both;
+      animation-delay: calc(var(--delay, 0) * 60ms);
+      transition: transform 220ms ease, box-shadow 220ms ease, background 220ms ease;
+      cursor: pointer;
+    }
+
+    .entry-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 16px 38px rgba(20, 24, 34, 0.1);
+    }
+
+    .entry-card.is-off {
+      background: linear-gradient(180deg, rgba(248,249,252,0.94), rgba(244,246,249,0.8));
+    }
+
+    .entry-card.is-off .entry-name,
+    .entry-card.is-off .entry-desc,
+    .entry-card.is-off .entry-point {
+      opacity: 0.7;
+    }
+
+    .entry-top,
+    .entry-bottom {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .entry-meta-stack {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .entry-role,
+    .entry-point {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(17, 24, 39, 0.06);
+      background: rgba(255,255,255,0.66);
+      color: #4b5465;
+      font-weight: 700;
+    }
+
+    .entry-name {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      margin-top: 8px;
+    }
+
+    .entry-desc {
+      color: #5c6575;
+      line-height: 1.75;
+      font-size: 14px;
+    }
+
+    .toggle-btn {
+      width: 62px;
+      min-width: 62px;
+      height: 36px;
+      border: none;
+      border-radius: 999px;
+      background: rgba(17, 24, 39, 0.12);
+      cursor: pointer;
+      transition: background 240ms ease, box-shadow 240ms ease, transform 240ms ease;
+    }
+
+    .toggle-btn::before {
+      content: "";
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.95);
+      box-shadow: 0 4px 10px rgba(20,24,34,0.16);
+      transition: transform 240ms cubic-bezier(.2,.8,.2,1), background 240ms ease;
+    }
+
+    .toggle-btn.is-on {
+      background: linear-gradient(135deg, #7ba2ff, #8fd0f4);
+      box-shadow: 0 12px 26px rgba(123, 162, 255, 0.3);
+    }
+
+    .toggle-btn.is-on::before {
+      transform: translateX(26px);
+    }
+
+    .entry-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #556072;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .entry-status::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #7fa6ff;
+      box-shadow: 0 0 0 6px rgba(127, 166, 255, 0.14);
+    }
+
+    .entry-card.is-off .entry-status::before {
+      background: #b9bfcb;
+      box-shadow: 0 0 0 6px rgba(185, 191, 203, 0.16);
+    }
+
+    .dock {
+      justify-content: space-between;
+      padding: 4px 8px 0;
+    }
+
+    .dock-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 16px;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .dock-note {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .ink {
+      position: absolute;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255,255,255,0.72);
+      mix-blend-mode: soft-light;
+      pointer-events: none;
+      animation: ripple 620ms ease-out forwards;
+      z-index: 0;
+    }
+
+    @keyframes ripple {
+      from { width: 0; height: 0; opacity: 0.58; }
+      to { width: 220px; height: 220px; opacity: 0; }
+    }
+
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(117, 125, 143, 0.2);
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    @media (max-width: 1120px) {
+      html,
+      body {
+        overflow: auto;
+      }
+
+      .shell {
+        min-height: auto;
+        grid-template-columns: 1fr;
+      }
+
+      .entry-grid,
+      .hero-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        padding: 16px;
+      }
+
+      .sidebar,
+      .workspace,
+      .hero,
+      .entry-grid-wrap {
+        padding-inline: 16px;
+      }
+
+      .toolbar,
+      .entry-toolbar,
+      .dock,
+      .hero-top,
+      .toolbar-left,
+      .toolbar-right {
+        align-items: stretch;
+      }
+
+      .toolbar,
+      .entry-toolbar,
+      .dock,
+      .hero-top {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="shell">
+      <aside class="panel sidebar">
+        <div class="brand">
+          <div style="display:flex; align-items:center; gap:14px;">
+            <div class="brand-badge">Σ</div>
+            <div class="brand-copy">
+              <small>Preset Surface</small>
+              <h1>预设矩阵</h1>
+            </div>
+          </div>
+          <button class="pill ripple-target">新建</button>
+        </div>
+
+        <p class="sidebar-intro">
+          一个偏向 SillyTavern 风格的“预设页面”展示稿：切换预设、开关条目、查看层级与插入位置，整体走清透、简约、偏 iOS 的玻璃控制台路线。
+        </p>
+
+        <div class="mini-stats">
+          <div class="mini-card">
+            <div class="section-caption">Preset</div>
+            <strong id="presetCount">04</strong>
+          </div>
+          <div class="mini-card">
+            <div class="section-caption">Enabled</div>
+            <strong id="enabledCount">09</strong>
+          </div>
+          <div class="mini-card">
+            <div class="section-caption">Sections</div>
+            <strong id="groupCount">03</strong>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-caption" style="margin-bottom: 12px;">Library</div>
+          <div class="preset-stack" id="presetStack"></div>
+        </div>
+      </aside>
+
+      <main class="panel workspace">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <div class="toolbar-note">Prompt Composition · 预设 / 条目 / 开关</div>
+            <button class="ghost-btn ripple-target"><span>排序</span> 自动吸附</button>
+            <button class="ghost-btn ripple-target"><span>插入</span> 逻辑视图</button>
+          </div>
+          <div class="toolbar-right">
+            <button class="pill ripple-target">复制预设</button>
+            <button class="pill is-primary ripple-target">保存草稿</button>
+          </div>
+        </div>
+
+        <section class="hero" id="heroPanel"></section>
+
+        <section class="entry-grid-wrap">
+          <div class="entry-toolbar">
+            <div>
+              <div class="section-caption">Prompt Entries</div>
+              <div id="entryLead" style="font-size: 24px; font-weight: 700; margin-top: 6px; letter-spacing: -0.04em;">条目层</div>
+            </div>
+            <div class="filter-group" id="filterGroup"></div>
+          </div>
+          <div class="entry-grid" id="entryGrid"></div>
+        </section>
+
+        <div class="dock">
+          <div class="dock-note" id="dockNote">当前视图展示预设中所有可切换条目，支持点击卡片和滑块反馈。</div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="dock-btn ripple-target">预览输出</button>
+            <button class="dock-btn ripple-target">导出结构</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const presetLibrary = [
+      {
+        id: 'narrative',
+        index: 'Σ-01',
+        title: '零号 · 叙事舱',
+        subtitle: '适合沉浸式剧情、慢节奏互动与角色稳定表达。',
+        summary: '主系统、角色信息与后置约束保持清晰分层，适合“长记忆 + 稳定语气”的对话场景，整体偏平衡。',
+        tags: ['平衡', '长记忆', '角色稳定'],
+        mode: 'Balanced',
+        latency: '128 ms',
+        context: '12.6k',
+        filterLead: '条目层 · 结构化预设',
+        entries: [
+          { name: '主系统 Prompt', role: 'System', point: '顶部锚点', type: 'core', status: '核心约束', desc: '设定叙述边界、代词风格与整体语气，让回复在长对话中仍然稳定。', enabled: true },
+          { name: '角色描述', role: 'Profile', point: '角色层', type: 'core', status: '角色框架', desc: '保留角色身份、称呼、习惯动作与口吻，避免切换场景时人格漂移。', enabled: true },
+          { name: '场景设定', role: 'Scene', point: '前置段', type: 'memory', status: '世界信息', desc: '把当前地点、氛围与阶段目标压缩成短句，降低重复解释成本。', enabled: true },
+          { name: '世界书映射', role: 'Lore', point: '动态插槽', type: 'memory', status: '条件注入', desc: '命中关键词时补充世界信息，适合多角色、多章节与分支剧情。', enabled: true },
+          { name: '示例对话', role: 'Examples', point: '中段', type: 'style', status: '文风对齐', desc: '用少量样例固定句式节奏和语气颗粒度，增强角色的辨识度。', enabled: false },
+          { name: '后置指令', role: 'Post', point: '尾部', type: 'style', status: '细化收束', desc: '在输出前追加限制，避免越界信息，维持篇幅、格式和叙述视角。', enabled: true },
+          { name: '历史压缩', role: 'Memory', point: '历史尾', type: 'memory', status: '记忆折叠', desc: '用摘要形式保留最近转折，减轻上下文消耗，同时保留剧情连续性。', enabled: true },
+          { name: '安全栏', role: 'Guard', point: '底部锚点', type: 'core', status: '兜底规则', desc: '作为始终存在的兜底层，避免回复脱离当前设定与身份边界。', enabled: true },
+          { name: '语气微调', role: 'Tone', point: '后置修饰', type: 'style', status: '轻修饰', desc: '偏冷静、克制、自然，减少夸张表达，适合有高级感的长对白。', enabled: false }
+        ]
+      },
+      {
+        id: 'editorial',
+        index: 'Δ-02',
+        title: '镜面 · 编辑态',
+        subtitle: '适合简短高质回复、轻修辞和更干净的结构。',
+        summary: '这个预设偏向“少而准”，适合偏精品、编辑感、少废话的生成方式，强调段落形态和阅读节奏。',
+        tags: ['极简', '编辑感', '短回复'],
+        mode: 'Lean',
+        latency: '96 ms',
+        context: '8.4k',
+        filterLead: '条目层 · 极简编排',
+        entries: [
+          { name: '编辑总纲', role: 'System', point: '顶部锚点', type: 'core', status: '主控层', desc: '强调简短句子、克制修饰与清晰语义，适合更整洁的回答风格。', enabled: true },
+          { name: '人格片段', role: 'Persona', point: '前置段', type: 'core', status: '角色投影', desc: '用更轻量的角色摘要替代完整角色卡，减少重复信息对输出的拖拽。', enabled: true },
+          { name: '情绪阈值', role: 'Tone', point: '中段', type: 'style', status: '风格校准', desc: '把表达强度压到柔和范围，维持清透、冷静、无攻击性的输出肌理。', enabled: true },
+          { name: '格式约束', role: 'Format', point: '尾部', type: 'style', status: '版式控制', desc: '限制段落长度与换行频率，形成更像成稿而不是草稿的阅读质感。', enabled: true },
+          { name: '上下文摘要', role: 'Memory', point: '历史尾', type: 'memory', status: '压缩信息', desc: '将历史浓缩成编辑注释，提高短上下文场景中的续写稳定度。', enabled: true },
+          { name: '示例对照', role: 'Examples', point: '中段', type: 'style', status: '可选参考', desc: '仅在需要时启用，用少量例句帮助模型快速捕捉目标语气。', enabled: false },
+          { name: '审校尾注', role: 'Post', point: '后置修饰', type: 'style', status: '输出校正', desc: '追加最后一层收束，确保不跑题、不自说自话、不过度解释。', enabled: true }
+        ]
+      },
+      {
+        id: 'pressure',
+        index: '∷-03',
+        title: '高压 · 推进式',
+        subtitle: '适合推动剧情、制造张力、提升行动密度。',
+        summary: '减少旁白式停留，强调目标冲突、动作推进和信息明确性，适合节奏更强的章节。',
+        tags: ['推进', '张力', '行动密度'],
+        mode: 'Driven',
+        latency: '112 ms',
+        context: '10.1k',
+        filterLead: '条目层 · 推进结构',
+        entries: [
+          { name: '主控推进词', role: 'System', point: '顶部锚点', type: 'core', status: '推进核心', desc: '强制回复带来变化、抉择或反馈，减少无效寒暄和空洞重复。', enabled: true },
+          { name: '剧情节点', role: 'Scene', point: '前置段', type: 'memory', status: '阶段目标', desc: '把当前剧情要达成的节点压缩成可执行目标，帮助模型聚焦推进。', enabled: true },
+          { name: '冲突记忆', role: 'Memory', point: '历史尾', type: 'memory', status: '冲突线', desc: '记录未解决矛盾与行动代价，让角色选择更具连续性与压力感。', enabled: true },
+          { name: '对白加速器', role: 'Tone', point: '中段', type: 'style', status: '节奏增强', desc: '减少铺垫，增加明确动词和反应式表达，使对话更具电影推进感。', enabled: true },
+          { name: '示例动作层', role: 'Examples', point: '中段', type: 'style', status: '动作参照', desc: '让模型参考更紧凑的动作与反馈句式，避免慢吞吞的解释型文本。', enabled: false },
+          { name: '后置约束', role: 'Post', point: '尾部', type: 'core', status: '防跑偏', desc: '确保高压风格下仍然不破坏角色设定和世界逻辑。', enabled: true }
+        ]
+      },
+      {
+        id: 'clean',
+        index: '□-04',
+        title: '素白 · 清洁层',
+        subtitle: '适合测试、校对和查看各条目之间的基础结构。',
+        summary: '保留核心结构，去掉多余修饰层，页面上可以快速观察启用项之间的关系和密度。',
+        tags: ['测试', '清洁', '基础视图'],
+        mode: 'Clean',
+        latency: '84 ms',
+        context: '6.8k',
+        filterLead: '条目层 · 纯净视图',
+        entries: [
+          { name: '基础系统', role: 'System', point: '顶部', type: 'core', status: '最小核心', desc: '仅保留系统基础约束，用于对比其他预设中额外条目带来的影响。', enabled: true },
+          { name: '角色短摘', role: 'Persona', point: '前置段', type: 'core', status: '轻角色', desc: '一段式人物摘要，不引入额外世界信息，适合做结构干净的演示。', enabled: true },
+          { name: '历史摘要', role: 'Memory', point: '历史尾', type: 'memory', status: '轻记忆', desc: '保留最短必要历史，确保可以独立观察回复风格变化。', enabled: false },
+          { name: '格式尾注', role: 'Format', point: '尾部', type: 'style', status: '轻收束', desc: '仅用于保证输出格式整洁，不涉及额外情绪和语言风格偏置。', enabled: true }
+        ]
+      }
+    ];
+
+    const filterDefs = [
+      { key: 'all', label: '全部' },
+      { key: 'core', label: '核心层' },
+      { key: 'memory', label: '记忆层' },
+      { key: 'style', label: '修饰层' }
+    ];
+
+    let activePreset = 0;
+    let activeFilter = 'all';
+
+    const presetStack = document.getElementById('presetStack');
+    const heroPanel = document.getElementById('heroPanel');
+    const entryGrid = document.getElementById('entryGrid');
+    const filterGroup = document.getElementById('filterGroup');
+    const enabledCount = document.getElementById('enabledCount');
+    const presetCount = document.getElementById('presetCount');
+    const groupCount = document.getElementById('groupCount');
+    const entryLead = document.getElementById('entryLead');
+    const dockNote = document.getElementById('dockNote');
+
+    function currentPreset() {
+      return presetLibrary[activePreset];
+    }
+
+    function renderPresetStack() {
+      presetCount.textContent = String(presetLibrary.length).padStart(2, '0');
+      presetStack.innerHTML = presetLibrary.map((preset, index) => {
+        const enabled = preset.entries.filter(entry => entry.enabled).length;
+        return `
+          <button class="preset-card ripple-target ${index === activePreset ? 'is-active' : ''}" data-preset-index="${index}">
+            <div class="preset-head">
+              <div>
+                <div class="preset-index">${preset.index}</div>
+                <div class="preset-name">${preset.title}</div>
+              </div>
+              <div class="chip">${enabled}/${preset.entries.length}</div>
+            </div>
+            <p class="preset-desc">${preset.subtitle}</p>
+            <div class="preset-tags">
+              ${preset.tags.map(tag => `<span class="chip">${tag}</span>`).join('')}
+            </div>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function renderHero() {
+      const preset = currentPreset();
+      const enabled = preset.entries.filter(entry => entry.enabled).length;
+      enabledCount.textContent = String(enabled).padStart(2, '0');
+      groupCount.textContent = '03';
+      entryLead.textContent = preset.filterLead;
+      dockNote.textContent = `当前为「${preset.title}」：${enabled} / ${preset.entries.length} 项启用，支持切换预设与单条目即时反馈。`;
+
+      heroPanel.innerHTML = `
+        <div class="hero-top">
+          <div style="display:flex; align-items:center; gap:18px;">
+            <div class="hero-symbol">${preset.index}</div>
+            <div>
+              <div class="section-caption">Preset Header</div>
+              <div class="hero-title">${preset.title}</div>
+            </div>
+          </div>
+          <div class="hero-actions">
+            <button class="pill ripple-target">设为默认</button>
+            <button class="pill is-primary ripple-target">立即应用</button>
+          </div>
+        </div>
+        <div class="hero-grid">
+          <div>
+            <p class="hero-copy">${preset.summary}</p>
+            <div class="preset-tags" style="margin-top:18px;">
+              ${preset.tags.map(tag => `<span class="chip">${tag}</span>`).join('')}
+            </div>
+          </div>
+          <div class="hero-metrics">
+            <div class="metric-card">
+              <div class="metric-label">Enabled Entries</div>
+              <span class="metric-value">${enabled} / ${preset.entries.length}</span>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Mode · Response</div>
+              <span class="metric-value">${preset.mode}</span>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Latency · Context</div>
+              <span class="metric-value">${preset.latency} · ${preset.context}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderFilters() {
+      filterGroup.innerHTML = filterDefs.map(filter => `
+        <button class="filter-btn ripple-target ${filter.key === activeFilter ? 'is-active' : ''}" data-filter="${filter.key}">
+          ${filter.label}
+        </button>
+      `).join('');
+    }
+
+    function renderEntries() {
+      const preset = currentPreset();
+      const source = activeFilter === 'all'
+        ? preset.entries
+        : preset.entries.filter(entry => entry.type === activeFilter);
+
+      entryGrid.innerHTML = source.map((entry, index) => `
+        <article class="entry-card ripple-target ${entry.enabled ? '' : 'is-off'}" style="--delay:${index}" data-entry-index="${preset.entries.indexOf(entry)}">
+          <div class="entry-top">
+            <div>
+              <div class="entry-meta-stack">
+                <span class="entry-role">${entry.role}</span>
+                <span class="entry-point">${entry.point}</span>
+                <span class="entry-meta">${entry.type}</span>
+              </div>
+              <div class="entry-name">${entry.name}</div>
+            </div>
+            <button class="toggle-btn ${entry.enabled ? 'is-on' : ''}" aria-label="切换 ${entry.name}" data-toggle-index="${preset.entries.indexOf(entry)}"></button>
+          </div>
+          <div class="entry-desc">${entry.desc}</div>
+          <div class="entry-bottom">
+            <div class="entry-status">${entry.status}</div>
+            <div class="entry-meta">点击卡片或开关以切换</div>
+          </div>
+        </article>
+      `).join('');
+    }
+
+    function renderAll() {
+      renderPresetStack();
+      renderHero();
+      renderFilters();
+      renderEntries();
+    }
+
+    function toggleEntry(index) {
+      const preset = currentPreset();
+      preset.entries[index].enabled = !preset.entries[index].enabled;
+      renderAll();
+    }
+
+    function triggerRipple(target, event) {
+      const rect = target.getBoundingClientRect();
+      const ink = document.createElement('span');
+      ink.className = 'ink';
+      ink.style.left = `${event.clientX - rect.left}px`;
+      ink.style.top = `${event.clientY - rect.top}px`;
+      target.appendChild(ink);
+      setTimeout(() => ink.remove(), 620);
+    }
+
+    document.addEventListener('click', (event) => {
+      const presetButton = event.target.closest('[data-preset-index]');
+      const filterButton = event.target.closest('[data-filter]');
+      const toggleButton = event.target.closest('[data-toggle-index]');
+      const entryCard = event.target.closest('[data-entry-index]');
+      const rippleTarget = event.target.closest('.ripple-target, .preset-card, .entry-card, .toggle-btn');
+
+      if (rippleTarget) {
+        triggerRipple(rippleTarget, event);
+      }
+
+      if (presetButton) {
+        activePreset = Number(presetButton.dataset.presetIndex);
+        renderAll();
+        return;
+      }
+
+      if (filterButton) {
+        activeFilter = filterButton.dataset.filter;
+        renderFilters();
+        renderEntries();
+        return;
+      }
+
+      if (toggleButton) {
+        event.stopPropagation();
+        toggleEntry(Number(toggleButton.dataset.toggleIndex));
+        return;
+      }
+
+      if (entryCard) {
+        toggleEntry(Number(entryCard.dataset.entryIndex));
+      }
+    });
+
+    document.addEventListener('mousemove', (event) => {
+      const x = `${Math.round((event.clientX / window.innerWidth) * 100)}%`;
+      const y = `${Math.round((event.clientY / window.innerHeight) * 100)}%`;
+      document.body.style.setProperty('--mx', x);
+      document.body.style.setProperty('--my', y);
+    });
+
+    renderAll();
+    requestAnimationFrame(() => document.body.classList.add('ready'));
+  </script>
+</body>
+</html>

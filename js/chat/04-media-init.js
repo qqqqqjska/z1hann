@@ -2,7 +2,7 @@ function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type 
     return new Promise(resolve => {
         const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
         if (!contactId) {
-            resolve();
+            resolve(null);
             return;
         }
 
@@ -81,7 +81,7 @@ function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type 
         
         if (window.checkAndSummarize) window.checkAndSummarize(contactId);
 
-        resolve();
+        resolve(msgData);
     });
 }
 
@@ -3852,6 +3852,9 @@ function setupChatListeners() {
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     document.getElementById('chat-setting-avatar-preview').src = event.target.result;
+                    if (window.syncChatSettingsEditorialHeader) {
+                        window.syncChatSettingsEditorialHeader();
+                    }
                 };
                 reader.readAsDataURL(file);
             }
@@ -3933,6 +3936,7 @@ function setupChatListeners() {
         resetChatBgBtn.addEventListener('click', () => {
             window.iphoneSimState.tempSelectedChatBg = '';
             renderChatWallpaperGallery();
+        if (typeof previewSelectedChatWallpaper === 'function') previewSelectedChatWallpaper();
         });
     }
 
@@ -3959,8 +3963,8 @@ function setupChatListeners() {
             chatSettingTabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
             
-            if (chatSettingIndicator) {
-                chatSettingIndicator.style.transform = `translate3d(${index * 100}%, 0, 0)`;
+            if (chatSettingIndicator && typeof window.syncChatSettingsNavIndicator === 'function') {
+                window.syncChatSettingsNavIndicator(tab);
             }
 
             if (currentContent) {
@@ -4068,7 +4072,7 @@ function setupChatListeners() {
     if (aiMomentsEntry) aiMomentsEntry.addEventListener('click', window.openAiMoments);
 
     if (chatSettingsBtn) chatSettingsBtn.addEventListener('click', openChatSettings);
-    if (closeChatSettingsBtn) closeChatSettingsBtn.addEventListener('click', () => chatSettingsScreen.classList.add('hidden'));
+    if (closeChatSettingsBtn) closeChatSettingsBtn.addEventListener('click', () => { chatSettingsScreen.classList.add('hidden'); if (window.setChatSettingsFloatingSaveVisible) window.setChatSettingsFloatingSaveVisible(false); });
     if (saveChatSettingsBtn) saveChatSettingsBtn.addEventListener('click', handleSaveChatSettings);
     if (triggerAiMomentBtn) triggerAiMomentBtn.addEventListener('click', () => generateAiMoment(false));
 
@@ -4185,7 +4189,7 @@ function setupChatListeners() {
                     return;
                 }
 
-                if (item.id === 'chat-more-photo-btn' || item.id === 'chat-more-camera-btn' || item.id === 'chat-more-transfer-btn' || item.id === 'chat-more-memory-btn' || item.id === 'chat-more-location-btn' || item.id === 'chat-more-regenerate-btn' || item.id === 'chat-more-voice-btn' || item.id === 'chat-more-video-call-btn' || item.id === 'chat-more-screen-share-btn') return;
+                if (item.id === 'chat-more-photo-btn' || item.id === 'chat-more-camera-btn' || item.id === 'chat-more-transfer-btn' || item.id === 'chat-more-memory-btn' || item.id === 'chat-more-location-btn' || item.id === 'chat-more-regenerate-btn' || item.id === 'chat-more-voice-btn' || item.id === 'chat-more-video-call-btn' || item.id === 'chat-more-screen-share-btn' || item.id === 'chat-more-fire-buddy-btn') return;
                 
                 e.stopPropagation();
                 const label = item.querySelector('.more-label').textContent;

@@ -398,6 +398,14 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     msgDiv.style.position = 'relative';
     
     const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+    let fireBuddySpeakerMeta = null;
+    if (!isUser && msgId && typeof window.getFireBuddySpeakerMeta === 'function') {
+        try {
+            fireBuddySpeakerMeta = window.getFireBuddySpeakerMeta(window.iphoneSimState.currentChatContactId, msgId);
+        } catch (fireBuddyMetaError) {
+            console.warn('读取小火人发言信息失败', fireBuddyMetaError);
+        }
+    }
     
     let contentHtml = '';
     if (type === 'image' || type === 'sticker') {
@@ -1190,6 +1198,11 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         extraClass += ' html-msg no-bubble';
     }
 
+    if (fireBuddySpeakerMeta) {
+        extraClass += ' fire-buddy-msg';
+        msgDiv.classList.add('fire-buddy-message');
+    }
+
     // no-bubble card templates are often multiline strings. Trimming avoids
     // leading/trailing text nodes from creating extra vertical blank space.
     const shouldForceNoBubble = extraClass.includes('no-bubble');
@@ -1218,10 +1231,17 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
         `;
     } else if (!isUser) {
-        const avatar = contact ? contact.avatar : '';
+        const avatar = fireBuddySpeakerMeta && fireBuddySpeakerMeta.avatar
+            ? fireBuddySpeakerMeta.avatar
+            : (contact ? contact.avatar : '');
+        const avatarClass = fireBuddySpeakerMeta ? 'chat-avatar fire-buddy-chat-avatar' : 'chat-avatar';
+        const speakerLabelHtml = fireBuddySpeakerMeta
+            ? `<div class="fire-buddy-speaker-label">${fireBuddySpeakerMeta.name || '小火人'}</div>`
+            : '';
         msgDiv.innerHTML = `
-            <img src="${avatar}" class="chat-avatar" onclick="window.openAiProfile()" style="cursor: pointer;">
+            <img src="${avatar}" class="${avatarClass}">
             <div class="msg-wrapper">
+                ${speakerLabelHtml}
                 <div class="message-content ${extraClass}">${contentHtml}</div>
                 ${replyHtml}
             </div>
@@ -1245,6 +1265,18 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
             ${timeHtml}
         `;
+    }
+
+    if (!isUser) {
+        const avatarEl = msgDiv.querySelector('.chat-avatar');
+        if (avatarEl) {
+            avatarEl.style.cursor = 'pointer';
+            if (fireBuddySpeakerMeta && typeof window.openFireBuddyPanel === 'function') {
+                avatarEl.addEventListener('click', () => window.openFireBuddyPanel(fireBuddySpeakerMeta.contactId || window.iphoneSimState.currentChatContactId));
+            } else if (typeof window.openAiProfile === 'function') {
+                avatarEl.addEventListener('click', () => window.openAiProfile());
+            }
+        }
     }
 
     // Hard-lock no-bubble shells so user custom CSS cannot bring the bubble
@@ -1952,13 +1984,14 @@ function mergeSplitHtmlMessages(messagesList) {
     return merged;
 }
 
-function splitLegacyTextContentIntoResults(text, results) {
+function splitLegacyTextContentIntoResults(text, results, options = {}) {
     if (!text) return;
+    const speaker = normalizeAiMessageSpeaker(options && options.speaker);
 
     if (isHtmlPayloadForParser(text)) {
         const normalizedHtml = stripHtmlBlockMarkers(String(text || '')).trim();
         if (normalizedHtml) {
-            results.push({ type: 'text_message', content: normalizedHtml, isHtml: true });
+            results.push({ type: 'text_message', content: normalizedHtml, isHtml: true, ...(speaker ? { speaker } : {}) });
         }
         return;
     }
@@ -1974,12 +2007,12 @@ function splitLegacyTextContentIntoResults(text, results) {
                 if (/^[。！？!?]+$/.test(seg)) {
                     buffer += seg;
                     if (buffer.trim()) {
-                        results.push({ type: 'text_message', content: buffer.trim() });
+                        results.push({ type: 'text_message', content: buffer.trim(), ...(speaker ? { speaker } : {}) });
                     }
                     buffer = '';
                 } else if (/^\n+$/.test(seg)) {
                     if (buffer.trim()) {
-                        results.push({ type: 'text_message', content: buffer.trim() });
+                        results.push({ type: 'text_message', content: buffer.trim(), ...(speaker ? { speaker } : {}) });
                     }
                     buffer = '';
                 } else {
@@ -1987,7 +2020,7 @@ function splitLegacyTextContentIntoResults(text, results) {
                 }
             }
             if (buffer.trim()) {
-                results.push({ type: 'text_message', content: buffer.trim() });
+                results.push({ type: 'text_message', content: buffer.trim(), ...(speaker ? { speaker } : {}) });
             }
         } else if (normalizedType === 'sticker_message') {
             results.push({ type: 'sticker_message', sticker: String(mi.content || '').trim() });
@@ -2008,9 +2041,13 @@ function parseMixedAiResponse(content) {
 
     const pushSanitizedText = (rawText, options = {}) => {
         const atomic = !!options.atomic;
+        const speaker = normalizeAiMessageSpeaker(options && options.speaker);
         const recoveredItems = recoverContextRecordItems(rawText);
         if (recoveredItems.length > 0) {
-            recoveredItems.forEach(item => results.push(item));
+            recoveredItems.forEach(item => {
+                const recoveredSpeaker = normalizeAiMessageSpeaker(item && item.speaker) || speaker;
+                results.push(recoveredSpeaker ? { ...item, speaker: recoveredSpeaker } : item);
+            });
             return;
         }
         const sanitized = extractVisibleControlData(rawText);
@@ -2035,7 +2072,8 @@ function parseMixedAiResponse(content) {
                 targetTimestamp: quote.targetTimestamp || null,
                 targetName: quote.targetName || '',
                 targetContent: quote.targetContent || '',
-                replyContent: sanitized.cleanText
+                replyContent: sanitized.cleanText,
+                ...(speaker ? { speaker } : {})
             });
             return;
         }
@@ -2043,11 +2081,11 @@ function parseMixedAiResponse(content) {
         if (!sanitized.cleanText) return;
 
         if (atomic) {
-            results.push({ type: 'text_message', content: sanitized.cleanText });
+            results.push({ type: 'text_message', content: sanitized.cleanText, ...(speaker ? { speaker } : {}) });
             return;
         }
 
-        splitLegacyTextContentIntoResults(sanitized.cleanText, results);
+        splitLegacyTextContentIntoResults(sanitized.cleanText, results, { speaker });
     };
 
     const processItem = (item) => {
@@ -2067,6 +2105,7 @@ function parseMixedAiResponse(content) {
 
         const originalType = String(item.type || '').trim().toLowerCase();
         const normalizedType = normalizeAiSchemaType(item.type);
+        const speaker = normalizeAiMessageSpeaker(item && item.speaker);
 
         if (normalizedType === 'thought_state') {
             const displayText = getThoughtStateDisplayText(item);
@@ -2092,14 +2131,15 @@ function parseMixedAiResponse(content) {
                         : null,
                     targetName: String(item.target_name || item.targetName || '').trim(),
                     targetContent: String(item.target_content || item.targetContent || '').trim(),
-                    replyContent
+                    replyContent,
+                    ...(speaker ? { speaker } : {})
                 });
             }
             return;
         }
 
         if (normalizedType === 'text_message') {
-            pushSanitizedText(item.content || item.text || '', { atomic: originalType === 'text_message' });
+            pushSanitizedText(item.content || item.text || '', { atomic: originalType === 'text_message', speaker });
             return;
         }
 
@@ -2131,7 +2171,7 @@ function parseMixedAiResponse(content) {
             return;
         }
 
-        pushSanitizedText(item.content || item.text || '', { atomic: false });
+        pushSanitizedText(item.content || item.text || '', { atomic: false, speaker });
     };
 
     const tryParseCandidate = (candidate) => {
@@ -2465,6 +2505,22 @@ function normalizeAiSchemaType(rawType) {
     if (type === '旁白' || type === 'description') return 'description';
     if (type === 'action') return 'action';
     return type;
+}
+
+function normalizeAiMessageSpeaker(rawSpeaker) {
+    const value = String(rawSpeaker || '').trim().toLowerCase();
+    if (!value) return '';
+    if (
+        value === 'fire-buddy'
+        || value === 'fire_buddy'
+        || value === 'firebuddy'
+        || value === 'buddy'
+        || value === 'firebuddyspeaker'
+        || value === '小火人'
+    ) {
+        return 'fire-buddy';
+    }
+    return '';
 }
 
 function getThoughtStateDisplayText(item) {
@@ -3125,12 +3181,18 @@ function buildWechatRolePrompt(contact, userPromptInfo) {
 }
 
 function buildWechatProtocolPrompt(contact) {
+    const fireBuddyName = contact && contact.fireBuddy && contact.fireBuddy.profile && typeof contact.fireBuddy.profile.name === 'string' && contact.fireBuddy.profile.name.trim()
+        ? contact.fireBuddy.profile.name.trim()
+        : '小火人';
     const thoughtRule = contact.showThought
         ? '- 当前已开启“显示心声”：数组第一项必须是 thought_state；display_text 只能写用户可见的角色心理活动，不能写任务分析或AI自述。'
         : '- thought_state 可选；如果输出，display_text 只能写用户可见的角色心理活动。';
     const minimalExample = contact.showThought
         ? '[\n  {"type":"thought_state","display_text":"他终于回我了，先接住他的情绪。","emotion":"happy","intent":"先回应他的这句话"},\n  {"type":"text_message","content":"先喝点水，慢慢跟我说。"}\n]'
         : '[\n  {"type":"text_message","content":"先吃点东西，再慢慢跟我说。"}\n]';
+    const fireBuddyProtocolRule = contact && contact.fireBuddy && contact.fireBuddy.enabled !== false
+        ? `- 若本轮需要让${fireBuddyName}一起回复，可在 text_message 上额外加可选字段 speaker。你自己的消息省略 speaker 或写 "speaker":"contact"；${fireBuddyName}的消息必须写 "speaker":"fire_buddy"。同一轮里如果${fireBuddyName}加入，必须把整轮顺序一次性写在同一个 JSON 数组中，不能依赖第二次生成。${fireBuddyName}的几条消息必须连续出现。在可见正文里 @ta 时，优先使用“@${fireBuddyName}”，不要写泛称“@小火人”。示例：[{"type":"text_message","content":"@${fireBuddyName} 你也说句"},{"type":"text_message","speaker":"fire_buddy","content":"我在呀"},{"type":"text_message","speaker":"fire_buddy","content":"我也听见了"},{"type":"text_message","content":"你看，ta也来了。"}]`
+        : '';
 
     return [
         '【输出协议】',
@@ -3144,10 +3206,11 @@ function buildWechatProtocolPrompt(contact) {
         '- image：{"type":"image","content":"图片中文描述","prompt":"英文tag"}。',
         '- voice：{"type":"voice","duration":秒数,"content":"语音文本"}。',
         '- action：{"type":"action","command":"指令名","payload":"参数"}。',
+        fireBuddyProtocolRule,
         thoughtRule,
         '- 最小示例：',
         minimalExample
-    ].join('\n');
+    ].filter(Boolean).join('\n');
 }
 
 function buildWechatHumanFeelPrompt() {
@@ -3253,6 +3316,23 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         return;
     }
 
+    if (!window.__chatAiReplyLocks) {
+        window.__chatAiReplyLocks = {};
+    }
+    if (window.__chatAiReplyLocks[contactId]) {
+        if (typeof window.showChatToast === 'function') {
+            window.showChatToast('正在生成回复，请稍等', 1600);
+        }
+        return false;
+    }
+    window.__chatAiReplyLocks[contactId] = true;
+
+    const titleEl = document.getElementById('chat-title');
+    const originalTitle = titleEl ? titleEl.textContent : '';
+    if (titleEl) {
+        titleEl.textContent = '正在输入中...';
+    }
+
     const history = window.iphoneSimState.chatHistory[contactId] || [];
 
     
@@ -3277,13 +3357,8 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         }
     }
 
-    const messages = await window.buildAiPromptMessages(contactId, instruction);
-
-    const titleEl = document.getElementById('chat-title');
-    const originalTitle = titleEl.textContent;
-    titleEl.textContent = '正在输入中...';
-
     try {
+        const messages = await window.buildAiPromptMessages(contactId, instruction);
         let fetchUrl = settings.url;
         if (!fetchUrl.endsWith('/chat/completions')) {
             fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
@@ -3422,6 +3497,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
             if (normalizedType === 'quote_reply') {
                 const resolvedQuote = resolveQuoteReplyTarget(history, item, contact, { allowContentFallback: false });
+                const quoteSpeaker = normalizeAiMessageSpeaker(item && item.speaker);
                 const recoveredQuoteItems = recoverContextRecordItems(item.replyContent || '');
                 if (recoveredQuoteItems.length > 0) {
                     let hasAttachedReply = false;
@@ -3436,7 +3512,8 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                             return;
                         }
                         const replyTo = !hasAttachedReply && resolvedQuote && resolvedQuote.replyTo ? resolvedQuote.replyTo : null;
-                        messagesList.push({ type: '消息', content: recoveredText, replyTo });
+                        const recoveredSpeaker = normalizeAiMessageSpeaker(recoveredItem && recoveredItem.speaker) || quoteSpeaker;
+                        messagesList.push({ type: '消息', content: recoveredText, replyTo, ...(recoveredSpeaker ? { speaker: recoveredSpeaker } : {}) });
                         if (replyTo) {
                             hasAttachedReply = true;
                         }
@@ -3449,25 +3526,26 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     continue;
                 }
                 if (resolvedQuote && resolvedQuote.replyTo) {
-                    messagesList.push({ type: '消息', content: quoteText, replyTo: resolvedQuote.replyTo });
+                    messagesList.push({ type: '消息', content: quoteText, replyTo: resolvedQuote.replyTo, ...(quoteSpeaker ? { speaker: quoteSpeaker } : {}) });
                 } else {
-                    messagesList.push({ type: '消息', content: quoteText });
+                    messagesList.push({ type: '消息', content: quoteText, ...(quoteSpeaker ? { speaker: quoteSpeaker } : {}) });
                 }
                 continue;
             }
 
             if (normalizedType === 'text_message') {
                 const textContent = String(item.content || item.text || '').trim();
+                const speaker = normalizeAiMessageSpeaker(item && item.speaker);
                 if (!textContent) {
                     continue;
                 }
                 if (item.isHtml || isHtmlPayloadForParser(textContent)) {
                     const htmlContent = stripHtmlBlockMarkers(textContent).trim();
                     if (htmlContent) {
-                        messagesList.push({ type: '消息', content: htmlContent });
+                        messagesList.push({ type: '消息', content: htmlContent, ...(speaker ? { speaker } : {}) });
                     }
                 } else {
-                    messagesList.push({ type: '消息', content: textContent });
+                    messagesList.push({ type: '消息', content: textContent, ...(speaker ? { speaker } : {}) });
                 }
                 continue;
             }
@@ -3483,7 +3561,8 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
             if (item.type === '消息' || item.type === 'text') {
                 const subItems = forceSplitMixedContent(item.content);
-                messagesList.push(...subItems);
+                const speaker = normalizeAiMessageSpeaker(item && item.speaker);
+                messagesList.push(...subItems.map(subItem => speaker ? { ...subItem, speaker } : subItem));
                 continue;
             }
 
@@ -4443,11 +4522,56 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             updateThoughtBubble(thoughtContent);
         }
 
+        const getSpeakerAwareReplyDelay = (currentMsg, nextMsg) => {
+            if (!nextMsg) return 0;
+            const currentSpeaker = normalizeAiMessageSpeaker(currentMsg && currentMsg.speaker);
+            const nextSpeaker = normalizeAiMessageSpeaker(nextMsg && nextMsg.speaker);
+
+            if (!currentSpeaker && nextSpeaker === 'fire-buddy') {
+                return 420 + Math.random() * 240;
+            }
+            if (currentSpeaker === 'fire-buddy' && nextSpeaker === 'fire-buddy') {
+                return 220 + Math.random() * 180;
+            }
+            if (currentSpeaker === 'fire-buddy' && !nextSpeaker) {
+                return 520 + Math.random() * 280;
+            }
+
+            if (contact.replyIntervalMin !== undefined && contact.replyIntervalMin !== null && 
+                contact.replyIntervalMax !== undefined && contact.replyIntervalMax !== null) {
+                const min = contact.replyIntervalMin;
+                const max = Math.max(contact.replyIntervalMax, min);
+                return min + Math.random() * (max - min);
+            }
+
+            return (currentMsg === messagesList[0])
+                ? (900 + Math.random() * 1300)
+                : (400 + Math.random() * 400);
+        };
+
         // 逐条发送消息
         for (let i = 0; i < messagesList.length; i++) {
             const msg = messagesList[i];
             const currentThought = (i === messagesList.length - 1) ? thoughtContent : null;
             const currentReplyTo = msg.replyTo || ((i === 0) ? replyToObj : null);
+            const speaker = normalizeAiMessageSpeaker(msg && msg.speaker);
+
+            if ((msg.type === '消息' || msg.type === 'text') && typeof window.replaceGenericFireBuddyMention === 'function') {
+                msg.content = window.replaceGenericFireBuddyMention(msg.content, contactId);
+            }
+
+            if (speaker === 'fire-buddy' && typeof window.pushFireBuddySpeakerMessage === 'function') {
+                const fireBuddyText = String(msg && msg.content || '').trim();
+                if (fireBuddyText) {
+                    window.pushFireBuddySpeakerMessage(fireBuddyText, contactId, { replyTo: currentReplyTo });
+                }
+
+                if (i < messagesList.length - 1) {
+                    const delay = getSpeakerAwareReplyDelay(msg, messagesList[i + 1]);
+                    await new Promise(r => setTimeout(r, delay));
+                }
+                continue;
+            }
 
             // 检查用户是否仍在当前聊天界面
             const isChatOpen = !document.getElementById('chat-screen').classList.contains('hidden');
@@ -4734,16 +4858,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
             // 模拟间隔
             if (i < messagesList.length - 1) {
-                let delay;
-                if (contact.replyIntervalMin !== undefined && contact.replyIntervalMin !== null && 
-                    contact.replyIntervalMax !== undefined && contact.replyIntervalMax !== null) {
-                    const min = contact.replyIntervalMin;
-                    const max = Math.max(contact.replyIntervalMax, min);
-                    delay = min + Math.random() * (max - min);
-                } else {
-                    // 默认逻辑：第一条消息稍微慢一点(900-2200ms)，后续消息快一点(400-800ms)
-                    delay = (i === 0) ? (900 + Math.random() * 1300) : (400 + Math.random() * 400);
-                }
+                const delay = getSpeakerAwareReplyDelay(msg, messagesList[i + 1]);
                 await new Promise(r => setTimeout(r, delay));
             }
         }
@@ -4865,10 +4980,13 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             alert(`AI生成失败: ${error.message}\n请检查配置和API状态`);
         }
     } finally {
+        if (window.__chatAiReplyLocks) {
+            delete window.__chatAiReplyLocks[contactId];
+        }
         const currentContact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
-        if (currentContact) {
+        if (titleEl && currentContact) {
             titleEl.textContent = currentContact.remark || currentContact.name;
-        } else {
+        } else if (titleEl) {
             titleEl.textContent = originalTitle;
         }
     }
@@ -5872,6 +5990,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     appendAiPromptPart(systemPromptParts, 'systemBase', '输出协议', buildWechatProtocolPrompt(contact));
     appendAiPromptPart(systemPromptParts, 'systemBase', '活人感', buildWechatHumanFeelPrompt(contact));
     appendAiPromptPart(systemPromptParts, 'systemBase', '基础能力', buildWechatBaseCapabilityPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', '小火人', typeof window.buildFireBuddyContactSystemPrompt === 'function' ? window.buildFireBuddyContactSystemPrompt(contactId) : '');
     appendAiPromptPart(systemPromptParts, 'systemBase', '状态', importantStateContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', '朋友圈', momentContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', 'iCity', icityContext);
@@ -5959,7 +6078,24 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
             if (h._isTimeGap) {
                 return { role: 'system', content: h.content };
             }
+            if (h.speaker === 'fire-buddy' && typeof window.formatFireBuddySpeakerForContact === 'function') {
+                try {
+                    return {
+                        role: 'system',
+                        content: window.formatFireBuddySpeakerForContact(h, contactId)
+                    };
+                } catch (fireBuddySpeakerFormatError) {
+                    console.warn('格式化小火人发言上下文失败', fireBuddySpeakerFormatError);
+                }
+            }
             let content = h.content;
+            if (h.role === 'user' && h.fireBuddyMentioned && typeof window.formatFireBuddyMentionForContact === 'function') {
+                try {
+                    content = window.formatFireBuddyMentionForContact(h, contactId);
+                } catch (fireBuddyMentionFormatError) {
+                    console.warn('格式化小火人 mention 上下文失败', fireBuddyMentionFormatError);
+                }
+            }
             const contextPrefix = buildContextRecordPrefix(h);
             const quotePrefix = buildQuoteContextPrefix(h.replyTo);
             const structuredPrefix = joinContextTextParts(contextPrefix, quotePrefix);
