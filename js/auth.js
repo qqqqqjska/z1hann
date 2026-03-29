@@ -1,5 +1,10 @@
 // auth.js
 (function() {
+    // Discord Auth Config
+    const DISCORD_CLIENT_ID = '1487795213609992324';
+    const DISCORD_GUILD_ID = '1379304008157499423';
+    const DISCORD_REDIRECT_URI = 'https://qqqqqjska.github.io/z1han/';
+
     const DEVICE_ID_KEY = 'device_id';
     const DEVICE_VERIFIED_KEY = 'device_verified';
     const DEVICE_VERIFIED_AT_KEY = 'device_verified_at';
@@ -15,12 +20,25 @@
     const BMOB_API_KEY = '2382745495111111';
 
     function initAuth() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        
+        const accessToken = hashParams.get('access_token');
+        const discordError = urlParams.get('error') || hashParams.get('error');
+
         clearLegacyVerificationFlag();
         initBmobForCompatibility();
 
         const deviceId = getOrCreateDeviceId();
+        
         if (isCurrentDeviceVerified(deviceId)) {
             showContent();
+            return;
+        }
+
+        if (accessToken || discordError) {
+            createAuthUI(deviceId);
+            handleDiscordCallback(accessToken, discordError, deviceId);
             return;
         }
 
@@ -152,6 +170,76 @@
         localStorage.setItem(DEVICE_VERIFIED_AT_KEY, new Date().toISOString());
     }
 
+    function redirectToDiscord() {
+        const authUrl = `https://discord.com/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&response_type=token&redirect_uri=${encodeURIComponent(DISCORD_REDIRECT_URI)}&scope=identify+guilds`;
+        window.location.href = authUrl;
+    }
+
+    async function handleDiscordCallback(accessToken, error, deviceId) {
+        const authOverlay = document.getElementById('auth-overlay');
+        const errorMsg = authOverlay.querySelector('#error-msg');
+        const button = authOverlay.querySelector('#activation-button');
+        const discordButton = authOverlay.querySelector('#discord-login-btn');
+
+        function showMessage(msg, isError = false) {
+            errorMsg.innerText = msg;
+            errorMsg.style.color = isError ? '#ff453a' : '#8e8e93';
+            errorMsg.style.display = 'block';
+        }
+
+        if (button) button.disabled = true;
+        if (discordButton) discordButton.disabled = true;
+
+        if (error) {
+            showMessage('Discord 授权被取消或失败', true);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            if (button) button.disabled = false;
+            if (discordButton) discordButton.disabled = false;
+            return;
+        }
+
+        showMessage('正在通过 Discord 验证...');
+
+        try {
+            if (!accessToken) {
+                throw new Error('未获取到有效的授权令牌');
+            }
+
+            // 获取用户所在的服务器列表
+            const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                },
+            });
+
+            if (!guildsResponse.ok) {
+                throw new Error('无法获取 Discord 服务器列表');
+            }
+
+            const guilds = await guildsResponse.json();
+            
+            // 检查是否在指定的社区内
+            const isInGuild = guilds.some(guild => guild.id === DISCORD_GUILD_ID);
+
+            if (isInGuild) {
+                showMessage('验证成功，正在进入...');
+                markDeviceVerified(deviceId);
+                // 清除 URL 中的 hash 和 search
+                window.history.replaceState({}, document.title, window.location.pathname);
+                showContent(authOverlay);
+            } else {
+                throw new Error('验证失败：您不在指定的 Discord 社区内');
+            }
+
+        } catch (err) {
+            console.error('Discord login error:', err);
+            showMessage(err.message, true);
+            if (button) button.disabled = false;
+            if (discordButton) discordButton.disabled = false;
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
+
     function createAuthUI(deviceId) {
         const authOverlay = document.createElement('div');
         authOverlay.id = 'auth-overlay';
@@ -259,8 +347,54 @@
         button.style.fontSize = '16px';
         button.style.fontWeight = '600';
         button.style.cursor = 'pointer';
+        button.id = 'activation-button';
+
+        const orSeparator = document.createElement('div');
+        orSeparator.innerText = '或';
+        orSeparator.style.color = '#8e8e93';
+        orSeparator.style.margin = '16px 0';
+        orSeparator.style.fontSize = '12px';
+        orSeparator.style.position = 'relative';
+        orSeparator.style.display = 'flex';
+        orSeparator.style.alignItems = 'center';
+        orSeparator.style.justifyContent = 'center';
+
+        // Add lines on sides of "或"
+        const leftLine = document.createElement('span');
+        leftLine.style.flex = '1';
+        leftLine.style.height = '1px';
+        leftLine.style.background = 'rgba(255,255,255,0.1)';
+        leftLine.style.marginRight = '10px';
+        
+        const rightLine = document.createElement('span');
+        rightLine.style.flex = '1';
+        rightLine.style.height = '1px';
+        rightLine.style.background = 'rgba(255,255,255,0.1)';
+        rightLine.style.marginLeft = '10px';
+
+        orSeparator.prepend(leftLine);
+        orSeparator.appendChild(rightLine);
+
+        const discordButton = document.createElement('button');
+        discordButton.type = 'button';
+        discordButton.id = 'discord-login-btn';
+        discordButton.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" style="fill: #fff; margin-right: 8px;"><path d="M20.317 4.36981C18.799 3.13124 16.9248 2.37659 14.8677 2.16431C14.7775 2.35515 14.6933 2.55123 14.615 2.7504C13.1037 2.37659 11.4925 2.37659 9.98124 2.7504C9.90297 2.55123 9.81873 2.35515 9.72855 2.16431C7.67139 2.37659 5.79722 3.13124 4.27923 4.36981C1.49673 7.50917 0.584375 11.252 1.05563 14.8373C2.88337 16.9742 5.25338 18.261 7.84338 18.672C8.25213 18.2043 8.62313 17.6933 8.94813 17.139C8.42313 16.9742 7.92937 16.7751 7.46187 16.5373C7.61813 16.4419 7.76813 16.3344 7.91813 16.2268C11.3709 18.1009 15.3413 18.1009 18.6742 16.2268C18.8242 16.3344 18.9742 16.4419 19.1305 16.5373C18.663 16.7751 18.1692 16.9742 17.6442 17.139C17.9692 17.6933 18.3402 18.2043 18.749 18.672C21.339 18.261 23.709 16.9742 25.5367 14.8373C26.0705 10.7093 24.8192 7.08475 20.317 4.36981ZM8.73047 13.9167C7.61813 13.9167 6.69963 12.9324 6.69963 11.7C6.69963 10.4676 7.61813 9.48331 8.73047 9.48331C9.84282 9.48331 10.7613 10.4676 10.7424 11.7C10.7424 12.9324 9.84282 13.9167 8.73047 13.9167ZM15.4319 13.9167C14.3196 13.9167 13.4011 12.9324 13.4011 11.7C13.4011 10.4676 14.3196 9.48331 15.4319 9.48331C16.5442 9.48331 17.4627 10.4676 17.4439 11.7C17.4439 12.9324 16.5442 13.9167 15.4319 13.9167Z"/></svg>' + '通过 Discord 登录';
+        
+        discordButton.style.width = '100%';
+        discordButton.style.padding = '12px';
+        discordButton.style.borderRadius = '12px';
+        discordButton.style.border = 'none';
+        discordButton.style.backgroundColor = '#5865F2';
+        discordButton.style.color = '#fff';
+        discordButton.style.fontSize = '16px';
+        discordButton.style.fontWeight = '600';
+        discordButton.style.cursor = 'pointer';
+        discordButton.style.display = 'flex';
+        discordButton.style.alignItems = 'center';
+        discordButton.style.justifyContent = 'center';
 
         const errorMsg = document.createElement('div');
+        errorMsg.id = 'error-msg';
         errorMsg.style.color = '#ff453a';
         errorMsg.style.marginTop = '14px';
         errorMsg.style.fontSize = '14px';
@@ -282,6 +416,8 @@
         container.appendChild(copyButton);
         container.appendChild(input);
         container.appendChild(button);
+        container.appendChild(orSeparator);
+        container.appendChild(discordButton);
         container.appendChild(errorMsg);
         container.appendChild(tip);
         authOverlay.appendChild(container);
@@ -367,6 +503,8 @@
                 verify();
             }
         });
+
+        discordButton.addEventListener('click', redirectToDiscord);
     }
 
     function showContent(overlay) {
