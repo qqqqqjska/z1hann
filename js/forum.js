@@ -102,6 +102,7 @@
         isGeneratingReply: false,
         commentMultiSelectMode: false,
         selectedCommentIds: new Set(),
+        expandedCommentReplyIds: new Set(),
         messages: JSON.parse(localStorage.getItem('forum_messages')) || [],
         dmMultiSelectMode: false,
         selectedDmIds: new Set(),
@@ -3402,14 +3403,15 @@ ${hostModeExtra}
         const commentsListHtml = commentsData.map(comment => {
             const hasReplies = comment.replies && comment.replies.length > 0;
             const isSelected = forumState.selectedCommentIds.has(comment.id);
+            const isRepliesExpanded = forumState.expandedCommentReplyIds.has(comment.id);
             const checkboxHtml = isMultiSelect ? `<div class="comment-select-checkbox ${isSelected ? 'checked' : ''}"></div>` : '';
 
             const repliesHtml = hasReplies ? `
-                <div class="view-replies-btn" onclick="toggleReplies(${comment.id}, this)">
+                <div class="view-replies-btn ${isRepliesExpanded ? 'hidden' : ''}" onclick="toggleReplies(${comment.id}, this)">
                     <div class="view-replies-line"></div>
                     <span class="view-replies-text">查看另 ${comment.replies.length} 条回复</span>
                 </div>
-                <div class="replies-list" id="replies-${comment.id}">
+                <div class="replies-list ${isRepliesExpanded ? 'visible' : ''}" id="replies-${comment.id}">
                     ${comment.replies.map(reply => {
                         const isReplySelected = forumState.selectedCommentIds.has(reply.id);
                         const replyCheckboxHtml = isMultiSelect ? `<div class="comment-select-checkbox ${isReplySelected ? 'checked' : ''}"></div>` : '';
@@ -3516,6 +3518,7 @@ ${hostModeExtra}
                 forumState.replyingToCommentId = null;
                 forumState.commentMultiSelectMode = false;
                 forumState.selectedCommentIds = new Set();
+                forumState.expandedCommentReplyIds = new Set();
                 setTimeout(() => {
                     overlay.remove();
                     if (backdrop) backdrop.remove();
@@ -3601,6 +3604,11 @@ ${hostModeExtra}
         const scrollArea = overlay.querySelector('.comments-scroll-area');
         if (scrollArea) {
             scrollArea.innerHTML = commentsListHtml;
+            requestAnimationFrame(() => {
+                overlay.querySelectorAll('.replies-list.visible').forEach((repliesEl) => {
+                    repliesEl.style.maxHeight = `${repliesEl.scrollHeight}px`;
+                });
+            });
             // Scroll to bottom if it's a new comment being added (not initial render)
             if (!isNew && post && post.comments_list.length > comments.length) {
                  scrollArea.scrollTop = scrollArea.scrollHeight;
@@ -3743,8 +3751,11 @@ ${hostModeExtra}
     window.toggleReplies = function(id, btn) {
         const replies = document.getElementById(`replies-${id}`);
         if (replies) {
+             forumState.expandedCommentReplyIds.add(id);
              replies.classList.add('visible');
-             // Hide the button after clicking, per requirements
+             requestAnimationFrame(() => {
+                 replies.style.maxHeight = `${replies.scrollHeight}px`;
+             });
              btn.classList.add('hidden');
         }
     };
@@ -6265,9 +6276,18 @@ ${hostModeExtra}
 
     function renderPost(post) {
         // Determine images array: support both single image and multi-image posts
-        const images = post.images && post.images.length > 0 ? post.images : (post.image ? [post.image] : []);
+        const images = ((Array.isArray(post.images) && post.images.length > 0)
+            ? post.images
+            : (post.image ? [post.image] : []))
+            .filter((src) => {
+                if (typeof src === 'string') return src.trim().length > 0;
+                return Boolean(src);
+            });
         const isTextPost = images.length === 0;
         const isMultiImage = images.length > 1;
+        const imageAspectRatio = post.image_ratio === '16:9'
+            ? '16 / 9'
+            : (post.image_ratio === '4:5' ? '4 / 5' : '1 / 1');
 
         const actionsBarHtml = `
             <div class="post-actions-bar">
@@ -6318,13 +6338,13 @@ ${hostModeExtra}
             const dotsHtml = images.map((_, i) => `<span class="post-carousel-dot ${i === 0 ? 'active' : ''}"></span>`).join('');
             const slidesHtml = images.map((img, i) => `
                 <div class="post-carousel-slide">
-                    <img src="${img}" class="post-image">
+                    <img src="${img}" class="post-image" onerror="this.closest('.post-carousel-container')?.classList.add('is-image-fallback'); this.style.display='none';">
                 </div>
             `).join('');
 
             const showRefreshBtn = !!post.userId || !!post.image_description;
             contentHtml = `
-                <div class="post-carousel-container" data-post-id="${post.id}" data-total="${images.length}" data-current="0">
+                <div class="post-carousel-container" data-post-id="${post.id}" data-total="${images.length}" data-current="0" style="aspect-ratio: ${imageAspectRatio};">
                     <div class="post-carousel-track">
                         ${slidesHtml}
                     </div>
@@ -6352,8 +6372,8 @@ ${hostModeExtra}
             // Single image
             const showRefreshBtn = !!post.userId || !!post.image_description;
             contentHtml = `
-                <div class="post-image-container" style="position: relative;">
-                    <img src="${images[0]}" class="post-image">
+                <div class="post-image-container" style="position: relative; aspect-ratio: ${imageAspectRatio};">
+                    <img src="${images[0]}" class="post-image" onerror="this.closest('.post-image-container')?.classList.add('is-image-fallback'); this.style.display='none';">
                     ${post.stats.count ? `<div class="image-overlay-count">${post.stats.count}</div>` : ''}
                     <div class="post-description-overlay">
                         <div class="post-description-text">${post.image_description_zh || post.image_description || ''}</div>
@@ -7880,7 +7900,17 @@ ${charList}
                             subtitle: ''
                         };
                     }
-                    
+
+                    if (Array.isArray(post.images)) {
+                        post.images = post.images.filter((src) => {
+                            if (typeof src === 'string') return src.trim().length > 0;
+                            return Boolean(src);
+                        });
+                    }
+                    if (!post.image && Array.isArray(post.images) && post.images.length > 0) {
+                        post.image = post.images[0];
+                    }
+
                     // Generate Image if post_type is not 'text'
                     if (post.post_type === 'text') {
                         post.image = null;

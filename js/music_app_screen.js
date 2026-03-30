@@ -907,12 +907,15 @@
     const MUSIC_V2_DEFAULT_COVER = 'https://placehold.co/300x300/e5e7eb/111827?text=Music';
     const MUSIC_V2_DEFAULT_BACK_BUTTON_IMAGE = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80';
     const MUSIC_V2_API_BASE = 'https://zm.armoe.cn';
-    const MUSIC_V2_SEARCH_PRIMARY = MUSIC_V2_API_BASE + '/cloudsearch';
-    const MUSIC_V2_SEARCH_FALLBACK = MUSIC_V2_API_BASE + '/search';
-    const MUSIC_V2_SONG_URL_API = MUSIC_V2_API_BASE + '/song/url/v1';
-    const MUSIC_V2_LYRIC_API = MUSIC_V2_API_BASE + '/lyric';
-    const MUSIC_V2_PLAYLIST_DETAIL_API = MUSIC_V2_API_BASE + '/playlist/detail';
-    const MUSIC_V2_PLAYLIST_TRACK_ALL_API = MUSIC_V2_API_BASE + '/playlist/track/all';
+    const MUSIC_V2_METING_API_BASE = 'https://api.qijieya.cn/meting/';
+    const MUSIC_V2_API_BASES = [
+        MUSIC_V2_API_BASE,
+        'https://ncm.zhenxin.me',
+        'https://ncmapi.btwoa.com',
+        'http://110.42.255.106:3000',
+        'https://www.musicapi.cn'
+    ];
+    const MUSIC_V2_API_TIMEOUT_MS = 4500;
     const MUSIC_V2_IMPORT_PAGE_LIMIT = 100;
     const MUSIC_V2_IMPORT_MAX_PAGES = 60;
     const MUSIC_V2_PLAY_COMPLETE_RATIO_THRESHOLD = 0.9;
@@ -920,6 +923,7 @@
     const musicV2Runtime = {
         initialized: false,
         root: null,
+        preferredApiBase: MUSIC_V2_API_BASES[0],
         keyword: '',
         loading: false,
         error: '',
@@ -1431,6 +1435,7 @@
             cover: src.cover || src.pic || (src.al && src.al.picUrl) || (src.album && src.album.picUrl) || '',
             src: src.src || src.url || '',
             provider: src.provider || '',
+            apiBase: src.apiBase || '',
             lyricsData: Array.isArray(src.lyricsData) ? src.lyricsData : [],
             lyricsFile: typeof src.lyricsFile === 'string' ? src.lyricsFile : '',
             lyricsSource: src.lyricsSource || (hasLocalLyrics ? 'local' : ''),
@@ -1457,6 +1462,7 @@
                     src: song.src || '',
                     cover: song.cover || '',
                     provider: song.provider || '',
+                    apiBase: song.apiBase || '',
                     lyricsData: song.lyricsData || [],
                     lyricsFile: song.lyricsFile || '',
                     lyricsSource: song.lyricsSource || '',
@@ -1547,6 +1553,7 @@
             raw.cover = normalized.cover;
             raw.src = normalized.src;
             raw.provider = normalized.provider;
+            raw.apiBase = normalized.apiBase;
             raw.lyricsData = normalized.lyricsData;
             raw.lyricsFile = normalized.lyricsFile;
             raw.lyricsSource = normalized.lyricsSource;
@@ -1744,6 +1751,7 @@
         if (!song.src) merged.src = oldSong.src || '';
         if (!song.cover) merged.cover = oldSong.cover || '';
         if (!song.provider) merged.provider = oldSong.provider || '';
+        if (!song.apiBase) merged.apiBase = oldSong.apiBase || '';
         if (!song.lyricsData || song.lyricsData.length === 0) merged.lyricsData = oldSong.lyricsData || [];
         if (!song.lyricsFile) merged.lyricsFile = oldSong.lyricsFile || '';
         if (!song.lyricsSource) merged.lyricsSource = oldSong.lyricsSource || '';
@@ -2307,10 +2315,116 @@
         return value;
     }
 
-    async function musicV2FetchJson(url) {
-        const response = await fetch(url, { method: 'GET', cache: 'no-store' });
-        if (!response.ok) throw new Error('HTTP_' + response.status);
-        return response.json();
+    function musicV2NormalizeApiBase(base) {
+        return String(base || '').trim().replace(/\/+$/, '');
+    }
+
+    function musicV2BuildApiBaseOrder() {
+        const seen = new Set();
+        const ordered = [];
+        const preferred = musicV2NormalizeApiBase(musicV2Runtime.preferredApiBase);
+        [preferred].concat(MUSIC_V2_API_BASES).forEach((base) => {
+            const normalized = musicV2NormalizeApiBase(base);
+            if (!normalized || seen.has(normalized)) return;
+            seen.add(normalized);
+            ordered.push(normalized);
+        });
+        return ordered;
+    }
+
+    function musicV2RememberApiBase(base) {
+        const normalized = musicV2NormalizeApiBase(base);
+        if (normalized) musicV2Runtime.preferredApiBase = normalized;
+    }
+
+    function musicV2BuildApiUrl(base, path, params) {
+        const normalizedBase = musicV2NormalizeApiBase(base);
+        const normalizedPath = String(path || '').startsWith('/') ? String(path || '') : ('/' + String(path || ''));
+        const search = new URLSearchParams();
+        if (params && typeof params === 'object') {
+            Object.keys(params).forEach((key) => {
+                const value = params[key];
+                if (value === undefined || value === null || value === '') return;
+                search.append(key, String(value));
+            });
+        }
+        const query = search.toString();
+        return normalizedBase + normalizedPath + (query ? ('?' + query) : '');
+    }
+
+    function musicV2GetApiProviderLabel(base) {
+        const normalized = musicV2NormalizeApiBase(base);
+        if (!normalized) return 'netease-api';
+        try {
+            return new URL(normalized).host || normalized;
+        } catch (error) {
+            return normalized;
+        }
+    }
+
+    function musicV2BuildMetingUrl(songId, type) {
+        const params = new URLSearchParams();
+        params.set('server', 'netease');
+        params.set('type', String(type || 'url'));
+        params.set('id', String(songId || ''));
+        return MUSIC_V2_METING_API_BASE + '?' + params.toString();
+    }
+
+    function musicV2GetSongApiBase(song) {
+        if (!song || typeof song !== 'object') return '';
+        const direct = musicV2NormalizeApiBase(song.apiBase || '');
+        if (direct) return direct;
+        const music = musicV2EnsureModel();
+        const sid = String(song.id || '');
+        const cached = sid && music.urlCache && music.urlCache[sid] ? music.urlCache[sid] : null;
+        return musicV2NormalizeApiBase(cached && cached.apiBase ? cached.apiBase : '');
+    }
+
+    async function musicV2FetchJson(url, options) {
+        const opts = options && typeof options === 'object' ? options : {};
+        const timeoutMs = Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0
+            ? opts.timeoutMs
+            : MUSIC_V2_API_TIMEOUT_MS;
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        let timer = null;
+        try {
+            if (controller) {
+                timer = window.setTimeout(() => controller.abort(), timeoutMs);
+            }
+            const response = await fetch(url, {
+                method: 'GET',
+                cache: 'no-store',
+                signal: controller ? controller.signal : undefined
+            });
+            if (!response.ok) throw new Error('HTTP_' + response.status);
+            return response.json();
+        } catch (error) {
+            if (error && error.name === 'AbortError') throw new Error('TIMEOUT');
+            throw error;
+        } finally {
+            if (timer) window.clearTimeout(timer);
+        }
+    }
+
+    async function musicV2TryApiCandidates(candidates, options) {
+        const opts = options && typeof options === 'object' ? options : {};
+        let lastError = null;
+        for (let i = 0; i < candidates.length; i++) {
+            const candidate = candidates[i];
+            if (!candidate || !candidate.url) continue;
+            try {
+                const data = await musicV2FetchJson(candidate.url, { timeoutMs: candidate.timeoutMs || opts.timeoutMs });
+                if (musicV2IsRateLimitPayload(data)) throw new Error('RATE_LIMIT');
+                const result = typeof candidate.transform === 'function' ? candidate.transform(data, candidate) : data;
+                const isValid = typeof candidate.validate === 'function' ? candidate.validate(result, data, candidate) : Boolean(result);
+                if (!isValid) throw new Error(candidate.invalidCode || 'INVALID_PAYLOAD');
+                musicV2RememberApiBase(candidate.base);
+                return result;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+        throw lastError || new Error(opts.errorCode || 'API_REQUEST_FAILED');
     }
 
     function musicV2ParseNeteasePlaylistId(input) {
@@ -2338,37 +2452,55 @@
     async function musicV2FetchNeteasePlaylistDetail(playlistId) {
         const pid = String(playlistId || '');
         if (!pid) throw new Error('invalid_playlist_id');
-        const url = MUSIC_V2_PLAYLIST_DETAIL_API + '?id=' + encodeURIComponent(pid) + '&_t=' + Date.now();
-        const data = await musicV2FetchJson(url);
-        const playlist = data && data.playlist && typeof data.playlist === 'object'
-            ? data.playlist
-            : null;
-        if (!playlist) throw new Error('playlist_detail_invalid');
-        return {
-            name: String(playlist.name || ''),
-            coverImgUrl: String(playlist.coverImgUrl || '')
-        };
+        const candidates = musicV2BuildApiBaseOrder().map((base) => ({
+            base: base,
+            url: musicV2BuildApiUrl(base, '/playlist/detail', { id: pid, _t: Date.now() }),
+            transform: (data) => {
+                const playlist = data && data.playlist && typeof data.playlist === 'object'
+                    ? data.playlist
+                    : null;
+                if (!playlist) return null;
+                return {
+                    name: String(playlist.name || ''),
+                    coverImgUrl: String(playlist.coverImgUrl || '')
+                };
+            },
+            validate: (result) => Boolean(result && (result.name || result.coverImgUrl)),
+            invalidCode: 'playlist_detail_invalid'
+        }));
+        return musicV2TryApiCandidates(candidates, { errorCode: 'playlist_detail_invalid' });
     }
 
-    async function musicV2FetchNeteasePlaylistSongsAll(playlistId) {
+    async function musicV2FetchNeteasePlaylistSongsAllFromBase(base, playlistId) {
         const pid = String(playlistId || '');
-        if (!pid) throw new Error('invalid_playlist_id');
-
         const allSongs = [];
         const seenSongIds = new Set();
         let offset = 0;
         const limit = MUSIC_V2_IMPORT_PAGE_LIMIT;
 
         for (let page = 0; page < MUSIC_V2_IMPORT_MAX_PAGES; page++) {
-            const url = MUSIC_V2_PLAYLIST_TRACK_ALL_API
-                + '?id=' + encodeURIComponent(pid)
-                + '&limit=' + encodeURIComponent(String(limit))
-                + '&offset=' + encodeURIComponent(String(offset))
-                + '&_t=' + Date.now();
-            const data = await musicV2FetchJson(url);
-            const songs = Array.isArray(data && data.songs)
+            const data = await musicV2FetchJson(musicV2BuildApiUrl(base, '/playlist/track/all', {
+                id: pid,
+                limit: limit,
+                offset: offset,
+                _t: Date.now()
+            }));
+            if (musicV2IsRateLimitPayload(data)) throw new Error('RATE_LIMIT');
+            let songs = Array.isArray(data && data.songs)
                 ? data.songs
                 : (data && data.playlist && Array.isArray(data.playlist.tracks) ? data.playlist.tracks : []);
+
+            if (!songs.length && page === 0) {
+                const detailData = await musicV2FetchJson(musicV2BuildApiUrl(base, '/playlist/detail', {
+                    id: pid,
+                    _t: Date.now()
+                }));
+                if (musicV2IsRateLimitPayload(detailData)) throw new Error('RATE_LIMIT');
+                songs = detailData && detailData.playlist && Array.isArray(detailData.playlist.tracks)
+                    ? detailData.playlist.tracks
+                    : [];
+            }
+
             if (!songs.length) break;
 
             let pageNewCount = 0;
@@ -2386,7 +2518,26 @@
             offset += limit;
         }
 
+        if (!allSongs.length) throw new Error('playlist_tracks_empty');
         return allSongs;
+    }
+
+    async function musicV2FetchNeteasePlaylistSongsAll(playlistId) {
+        const pid = String(playlistId || '');
+        if (!pid) throw new Error('invalid_playlist_id');
+        let lastError = null;
+        const bases = musicV2BuildApiBaseOrder();
+        for (let i = 0; i < bases.length; i++) {
+            const base = bases[i];
+            try {
+                const songs = await musicV2FetchNeteasePlaylistSongsAllFromBase(base, pid);
+                musicV2RememberApiBase(base);
+                return songs;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+        throw lastError || new Error('playlist_tracks_failed');
     }
 
     function musicV2BuildImportedPlaylistTitle(baseTitle) {
@@ -2579,13 +2730,21 @@
     }
 
     async function musicV2FetchLyrics(songId) {
-        const url = MUSIC_V2_LYRIC_API + '?id=' + encodeURIComponent(String(songId)) + '&_t=' + Date.now();
-        const data = await musicV2FetchJson(url);
-        const lyricText = musicV2ExtractLyricPayload(data);
-        return {
-            lyricText: lyricText,
-            lines: musicV2ParseLyricText(lyricText)
-        };
+        const sid = String(songId || '');
+        const candidates = musicV2BuildApiBaseOrder().map((base) => ({
+            base: base,
+            url: musicV2BuildApiUrl(base, '/lyric', { id: sid, _t: Date.now() }),
+            transform: (data) => {
+                const lyricText = musicV2ExtractLyricPayload(data);
+                return {
+                    lyricText: lyricText,
+                    lines: musicV2ParseLyricText(lyricText)
+                };
+            },
+            validate: (result) => Boolean(result && Array.isArray(result.lines)),
+            invalidCode: 'lyric_invalid'
+        }));
+        return musicV2TryApiCandidates(candidates, { errorCode: 'lyric_failed' });
     }
 
     function musicV2RenderProgress(audioInput) {
@@ -2985,20 +3144,34 @@
         }));
     }
 
-    async function musicV2SearchWithRetry(baseUrl, keyword, maxRetries) {
-        let lastError = null;
-        for (let i = 0; i < maxRetries; i++) {
-            try {
-                const url = baseUrl + '?keywords=' + encodeURIComponent(keyword) + '&_t=' + Date.now();
-                const data = await musicV2FetchJson(url);
-                if (musicV2IsRateLimitPayload(data)) throw new Error('RATE_LIMIT');
-                return musicV2ParseSearchSongs(data);
-            } catch (error) {
-                lastError = error;
-                if (i < maxRetries - 1) await musicV2Sleep(900 + i * 300);
-            }
-        }
-        throw lastError || new Error('SEARCH_FAILED');
+    function musicV2BuildSearchCandidates(keyword) {
+        const kw = String(keyword || '').trim();
+        const params = { keywords: kw, _t: Date.now() };
+        const candidates = [];
+        const bases = musicV2BuildApiBaseOrder();
+        bases.forEach((base) => {
+            candidates.push({
+                base: base,
+                url: musicV2BuildApiUrl(base, '/cloudsearch', params),
+                transform: (data) => musicV2ParseSearchSongs(data),
+                validate: (result) => Array.isArray(result),
+                invalidCode: 'search_invalid'
+            });
+        });
+        bases.forEach((base) => {
+            candidates.push({
+                base: base,
+                url: musicV2BuildApiUrl(base, '/search', params),
+                transform: (data) => musicV2ParseSearchSongs(data),
+                validate: (result) => Array.isArray(result),
+                invalidCode: 'search_invalid'
+            });
+        });
+        return candidates;
+    }
+
+    async function musicV2SearchWithFallback(keyword) {
+        return musicV2TryApiCandidates(musicV2BuildSearchCandidates(keyword), { errorCode: 'SEARCH_FAILED' });
     }
 
     async function musicV2BuildInviteSongFromKeyword(keyword, options) {
@@ -3015,14 +3188,13 @@
 
         let results = [];
         try {
-            results = await musicV2SearchWithRetry(MUSIC_V2_SEARCH_PRIMARY, kw, 5);
-            musicV2DebugInvite('build-song:search-primary:ok', { count: Array.isArray(results) ? results.length : 0 });
+            results = await musicV2SearchWithFallback(kw);
+            musicV2DebugInvite('build-song:search:ok', { count: Array.isArray(results) ? results.length : 0 });
         } catch (primaryError) {
-            musicV2DebugInvite('build-song:search-primary:fail', {
+            musicV2DebugInvite('build-song:search:fail', {
                 error: String(primaryError && primaryError.message ? primaryError.message : primaryError)
             });
-            results = await musicV2SearchWithRetry(MUSIC_V2_SEARCH_FALLBACK, kw, 5);
-            musicV2DebugInvite('build-song:search-fallback:ok', { count: Array.isArray(results) ? results.length : 0 });
+            throw primaryError;
         }
 
         if (!Array.isArray(results) || !results.length) {
@@ -3107,7 +3279,7 @@
         return {
             src: src,
             cover: '',
-            provider: 'zm-armoe'
+            provider: ''
         };
     }
 
@@ -3116,6 +3288,7 @@
         const sid = String(songId);
         const song = musicV2GetSong(sid);
         if (!song) throw new Error('song_not_found');
+        const metingBase = musicV2NormalizeApiBase(MUSIC_V2_METING_API_BASE);
 
         const cached = music.urlCache[sid];
         if (!force && song.src) return { src: song.src, cover: song.cover || '', provider: song.provider || '' };
@@ -3123,29 +3296,28 @@
             song.src = cached.src;
             if (!song.cover && cached.cover) song.cover = cached.cover;
             if (!song.provider && cached.provider) song.provider = cached.provider;
-            return { src: song.src, cover: song.cover || '', provider: song.provider || '' };
+            if (!song.apiBase && cached.apiBase) song.apiBase = cached.apiBase;
+            return { src: song.src, cover: song.cover || '', provider: song.provider || '', apiBase: song.apiBase || cached.apiBase || '' };
         }
 
-        let resolved = null;
-        try {
-            const songUrl = MUSIC_V2_SONG_URL_API
-                + '?id=' + encodeURIComponent(sid)
-                + '&level=standard'
-                + '&_t=' + Date.now();
-            resolved = musicV2ParseSongUrl(await musicV2FetchJson(songUrl));
-        } catch (error) {
-            resolved = null;
-        }
+        const resolved = {
+            src: musicV2BuildMetingUrl(sid, 'url'),
+            cover: song.cover || '',
+            provider: musicV2GetApiProviderLabel(metingBase),
+            apiBase: metingBase
+        };
 
         if (!resolved || !resolved.src) throw new Error('resolve_failed');
 
         song.src = resolved.src;
         if (resolved.cover) song.cover = resolved.cover;
         if (resolved.provider) song.provider = resolved.provider;
+        if (resolved.apiBase) song.apiBase = resolved.apiBase;
         music.urlCache[sid] = {
             src: resolved.src,
             cover: resolved.cover || song.cover || '',
             provider: resolved.provider || '',
+            apiBase: resolved.apiBase || song.apiBase || '',
             updatedAt: Date.now()
         };
         return resolved;
@@ -3888,11 +4060,7 @@
         musicV2Runtime.loading = true;
         musicV2RenderSearch();
         try {
-            try {
-                musicV2Runtime.results = await musicV2SearchWithRetry(MUSIC_V2_SEARCH_PRIMARY, kw, 5);
-            } catch (error1) {
-                musicV2Runtime.results = await musicV2SearchWithRetry(MUSIC_V2_SEARCH_FALLBACK, kw, 5);
-            }
+            musicV2Runtime.results = await musicV2SearchWithFallback(kw);
             musicV2Runtime.error = '';
         } catch (error) {
             musicV2Runtime.error = '网络繁忙，请稍后重试';

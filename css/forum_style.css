@@ -76,6 +76,7 @@
     z-index: 2000; /* Ensure above everything, including Nav Bar */
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     box-shadow: 0 -5px 20px rgba(0,0,0,0.1);
     transition: transform 0.2s ease-out, height 0.2s ease;
     transform: translateY(100%);
@@ -148,10 +149,13 @@
 }
 
 .comments-scroll-area {
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     padding: 10px 15px;
-    padding-bottom: 80px; /* Space for input */
+    padding-bottom: 16px;
 }
 
 /* Comment Item */
@@ -179,6 +183,7 @@
 
 .comment-content {
     flex: 1;
+    min-width: 0;
     font-size: 14px;
     display: flex;
     flex-direction: column;
@@ -337,7 +342,7 @@
 }
 
 .replies-list.visible {
-    max-height: 1000px;
+    overflow: visible;
 }
 
 .reply-item {
@@ -358,9 +363,8 @@
 
 /* Comment Input Area */
 .comments-input-area {
-    position: absolute;
-    bottom: 0;
-    left: 0;
+    position: relative;
+    flex-shrink: 0;
     width: 100%;
     background-color: #fff;
     border-top: 1px solid #dbdbdb;
@@ -706,13 +710,32 @@
     position: relative;
     background-color: #efefef;
     cursor: pointer; /* Indicate clickable */
+    overflow: hidden;
 }
 
 .post-image {
     width: 100%;
+    height: 100%;
     display: block;
     object-fit: cover;
     transition: opacity 0.3s ease;
+}
+
+.post-image-container.is-image-fallback {
+    background: linear-gradient(135deg, #f3f5f7 0%, #e8edf3 100%);
+}
+
+.post-image-container.is-image-fallback::after {
+    content: '图片加载失败';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #8e8e8e;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
 }
 
 .image-overlay-count {
@@ -2040,6 +2063,7 @@ input:checked + .slider:before {
 .post-carousel-track {
     display: flex;
     flex-direction: row;
+    height: 100%;
     transition: transform 0.3s ease;
     will-change: transform;
 }
@@ -2047,11 +2071,31 @@ input:checked + .slider:before {
 .post-carousel-slide {
     flex: 0 0 100%;
     width: 100%;
+    height: 100%;
     position: relative;
+}
+
+.post-carousel-container.is-image-fallback {
+    background: linear-gradient(135deg, #f3f5f7 0%, #e8edf3 100%);
+}
+
+.post-carousel-container.is-image-fallback::after {
+    content: '图片加载失败';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #8e8e8e;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    z-index: 1;
 }
 
 .post-carousel-slide img {
     width: 100%;
+    height: 100%;
     display: block;
     object-fit: cover;
     pointer-events: none;

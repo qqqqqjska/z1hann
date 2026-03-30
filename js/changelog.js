@@ -5,14 +5,14 @@
  * 2. 修改 CHANGELOG_CONTENT 里的更新内容
  */
 
-const CHANGELOG_VERSION = 'v1.0.4'; // 修改这个版本号来让弹窗再次显示
+const CHANGELOG_VERSION = 'v1.0.5'; // 修改这个版本号来让弹窗再次显示
 const CHANGELOG_IMAGE = 'https://i.postimg.cc/7Lm6s43m/IMG-8241.jpg';
 const CHANGELOG_ITEMS = [
-    '修复了见面中api出错后生成不了的问题，加了预设和正则功能，可以导入文件，目前只能接入线下部分，在见面页右上角那个按钮选择接入',
-    '新增小火人功能，这个我还没具体测试',
-    '重做了聊天设置页的ui',
-
+    '修复了一点bug，但是我还没测试，有问题可以填到我发的表格里',
 ];
+const CHANGELOG_ACCESS_READY_EVENT = 'z1han:access-ready';
+
+let changelogPopupShown = false;
 
 const CHANGELOG_STYLE = `
     #changelog-overlay {
@@ -247,13 +247,31 @@ const CHANGELOG_STYLE = `
     }
 `;
 
-document.addEventListener('DOMContentLoaded', () => {
-    const hasSeenChangelog = localStorage.getItem(`changelog_seen_${CHANGELOG_VERSION}`);
+function canShowChangelogNow() {
+    return !!window.__z1hanAccessReady || !document.getElementById('auth-overlay');
+}
 
-    if (!hasSeenChangelog) {
-        showChangelogPopup();
+function tryShowChangelog() {
+    if (changelogPopupShown) {
+        return;
     }
-});
+
+    const hasSeenChangelog = localStorage.getItem(`changelog_seen_${CHANGELOG_VERSION}`);
+    if (hasSeenChangelog || !canShowChangelogNow()) {
+        return;
+    }
+
+    changelogPopupShown = true;
+    showChangelogPopup();
+}
+
+window.addEventListener(CHANGELOG_ACCESS_READY_EVENT, tryShowChangelog);
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryShowChangelog);
+} else {
+    tryShowChangelog();
+}
 
 function ensureChangelogStyles() {
     if (document.getElementById('changelog-style')) {

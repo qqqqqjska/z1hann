@@ -14,6 +14,7 @@
     const DEVICE_ID_SEGMENT_COUNT = 3;
     const ACTIVATION_SEGMENT_LENGTH = 4;
     const ACTIVATION_SEGMENT_COUNT = 3;
+    const ACCESS_READY_EVENT = 'z1han:access-ready';
 
     // 保留 Bmob 初始化配置仅作兼容说明，当前默认模式不再依赖云端校验。
     const BMOB_SECRET_KEY = '47555583581ac060';
@@ -168,6 +169,20 @@
     function markDeviceVerified(deviceId) {
         localStorage.setItem(DEVICE_VERIFIED_KEY, normalizeDeviceId(deviceId));
         localStorage.setItem(DEVICE_VERIFIED_AT_KEY, new Date().toISOString());
+    }
+
+    function notifyAccessReady(delay) {
+        const emit = function() {
+            window.__z1hanAccessReady = true;
+            window.dispatchEvent(new CustomEvent(ACCESS_READY_EVENT));
+        };
+
+        if (delay && delay > 0) {
+            window.setTimeout(emit, delay);
+            return;
+        }
+
+        emit();
     }
 
     function redirectToDiscord() {
@@ -520,6 +535,8 @@
         if (mainContent) {
             mainContent.style.filter = 'none';
         }
+
+        notifyAccessReady(overlay ? 520 : 0);
     }
 
     if (document.readyState === 'loading') {
