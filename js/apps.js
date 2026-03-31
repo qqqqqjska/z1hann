@@ -2705,6 +2705,9 @@ async function requestNaturalSummaryText(settings, requestConfig = {}) {
             messages,
             temperature: clampFloat(requestConfig.temperature, 0.45, 0, 1.5)
         };
+        if (Number.isFinite(Number(requestConfig.maxTokens))) {
+            body.max_tokens = Math.max(128, Math.min(4000, Math.round(Number(requestConfig.maxTokens))));
+        }
         if (includePenalties) {
             body.presence_penalty = clampFloat(requestConfig.presencePenalty, 0.2, -2, 2);
             body.frequency_penalty = clampFloat(requestConfig.frequencyPenalty, 0.15, -2, 2);
@@ -7640,7 +7643,7 @@ function getNaturalSummaryDetailHintByChannel(channel = 'chat', detailModeHint =
     const userHint = String(detailModeHint || '').trim();
     const presetMap = {
         chat: '当前是微信聊天总结，每一个独立事项都要交代具体时间。优先写成YYYY年MM月DD日 HH:mm；如果原聊天无法精确到分钟，也至少写成YYYY年MM月DD日+上午/中午/下午/晚上，不能只写“今天/那天/后来”。',
-        meeting: '当前是见面总结，重点写线下关键动作、情绪变化、承诺或分歧以及后续动作。',
+        meeting: '当前是线下见面总结，每一个独立事项都要交代具体时间。优先写成YYYY年MM月DD日 HH:mm；如果原剧情无法精确到分钟，也至少写成YYYY年MM月DD日+上午/中午/下午/晚上，不能只写“今天/那天/后来”。',
         call: '当前是通话总结，重点写通话中的确认点、未决点与下一次确认时点。',
         live_link: '当前是直播连线总结，重点写模式、双方互动、观众反馈、结果与后续策略。'
     };

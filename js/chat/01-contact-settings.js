@@ -51,6 +51,29 @@ function countTokensForPrompts(prompts) {
 
 const CONTACT_REST_WAKE_PROBABILITY = 0.2;
 const CONTACT_REST_OFFLINE_REGEX = /(晚安|先睡了|睡了|去睡|去睡觉|睡觉了|先休息|休息了|我先下了|先下了|下线|离线|回头聊)/;
+const CHAT_BILINGUAL_DEFAULT_SOURCE_LANG = 'zh-CN';
+const CHAT_BILINGUAL_DEFAULT_TARGET_LANG = 'en';
+const CHAT_BILINGUAL_LANGUAGE_OPTIONS = [
+    { value: 'zh-CN', label: '中文(简体)' },
+    { value: 'zh-TW', label: '中文(繁體)' },
+    { value: 'en', label: 'English' },
+    { value: 'ja', label: '日本語' },
+    { value: 'ko', label: '한국어' },
+    { value: 'fr', label: 'Français' },
+    { value: 'de', label: 'Deutsch' },
+    { value: 'es', label: 'Español' },
+    { value: 'ru', label: 'Русский' },
+    { value: 'pt', label: 'Português' },
+    { value: 'it', label: 'Italiano' },
+    { value: 'ar', label: 'العربية' },
+    { value: 'th', label: 'ไทย' },
+    { value: 'vi', label: 'Tiếng Việt' }
+];
+const CHAT_BILINGUAL_LANGUAGE_VALUE_SET = new Set(CHAT_BILINGUAL_LANGUAGE_OPTIONS.map(option => option.value));
+const CHAT_BILINGUAL_LANGUAGE_LABEL_MAP = CHAT_BILINGUAL_LANGUAGE_OPTIONS.reduce((map, option) => {
+    map[option.value] = option.label;
+    return map;
+}, {});
 
 function ensureContactRestWindowFields(contact) {
     if (!contact || typeof contact !== 'object') return contact;
@@ -198,12 +221,71 @@ function syncRestWindowSettingsVisibility() {
     panel.style.display = enabledInput.checked ? '' : 'none';
 }
 
+function normalizeChatBilingualLanguageValue(value, fallback) {
+    const rawValue = String(value || '').trim();
+    return CHAT_BILINGUAL_LANGUAGE_VALUE_SET.has(rawValue) ? rawValue : fallback;
+}
+
+function ensureContactBilingualTranslationFields(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+
+    if (typeof contact.bilingualTranslationEnabled !== 'boolean') {
+        contact.bilingualTranslationEnabled = false;
+    }
+
+    const sourceLang = normalizeChatBilingualLanguageValue(contact.bilingualSourceLang, CHAT_BILINGUAL_DEFAULT_SOURCE_LANG);
+    let targetLang = normalizeChatBilingualLanguageValue(contact.bilingualTargetLang, CHAT_BILINGUAL_DEFAULT_TARGET_LANG);
+
+    if (sourceLang === targetLang) {
+        const fallbackTarget = CHAT_BILINGUAL_LANGUAGE_OPTIONS.find(option => option.value !== sourceLang);
+        targetLang = fallbackTarget ? fallbackTarget.value : CHAT_BILINGUAL_DEFAULT_TARGET_LANG;
+    }
+
+    contact.bilingualSourceLang = sourceLang;
+    contact.bilingualTargetLang = targetLang;
+
+    return contact;
+}
+
+function getChatBilingualLanguageLabel(value) {
+    return CHAT_BILINGUAL_LANGUAGE_LABEL_MAP[String(value || '').trim()] || String(value || '').trim() || 'Unknown';
+}
+
+function populateChatSettingsBilingualLanguageSelect(selectId, selectedValue, fallbackValue) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+
+    const resolvedValue = normalizeChatBilingualLanguageValue(selectedValue, fallbackValue);
+    select.innerHTML = CHAT_BILINGUAL_LANGUAGE_OPTIONS
+        .map(option => `<option value="${option.value}">${option.label}</option>`)
+        .join('');
+    select.value = resolvedValue;
+}
+
+function syncBilingualTranslationSettingsVisibility() {
+    const enabledInput = document.getElementById('chat-setting-bilingual-translation-enabled');
+    const panel = document.getElementById('chat-setting-bilingual-translation-panel');
+    const sourceSelect = document.getElementById('chat-setting-bilingual-source-lang');
+    const targetSelect = document.getElementById('chat-setting-bilingual-target-lang');
+    if (!enabledInput || !panel) return;
+
+    const enabled = !!enabledInput.checked;
+    panel.style.display = enabled ? '' : 'none';
+    if (sourceSelect) sourceSelect.disabled = !enabled;
+    if (targetSelect) targetSelect.disabled = !enabled;
+}
+
 window.ensureContactRestWindowFields = ensureContactRestWindowFields;
 window.getContactRestWindowStatus = getContactRestWindowStatus;
 window.isContactRestOfflineText = isContactRestOfflineText;
 window.updateContactRestStateOnAssistantMessage = updateContactRestStateOnAssistantMessage;
 window.getContactRestTriggerDecision = getContactRestTriggerDecision;
 window.syncRestWindowSettingsVisibility = syncRestWindowSettingsVisibility;
+window.ensureContactBilingualTranslationFields = ensureContactBilingualTranslationFields;
+window.getChatBilingualLanguageLabel = getChatBilingualLanguageLabel;
+window.populateChatSettingsBilingualLanguageSelect = populateChatSettingsBilingualLanguageSelect;
+window.syncBilingualTranslationSettingsVisibility = syncBilingualTranslationSettingsVisibility;
+window.CHAT_BILINGUAL_LANGUAGE_OPTIONS = CHAT_BILINGUAL_LANGUAGE_OPTIONS.slice();
 
 // ====== AI 位置选择器数据 ======
 const LOCATION_DATA = {
@@ -1177,6 +1259,9 @@ function createBaseContactPayload({ name, remark = '', persona = '', avatar = ''
         autoItineraryInterval: 10,
         messagesSinceLastItinerary: 0,
         lastItineraryIndex: 0,
+        bilingualTranslationEnabled: false,
+        bilingualSourceLang: CHAT_BILINGUAL_DEFAULT_SOURCE_LANG,
+        bilingualTargetLang: CHAT_BILINGUAL_DEFAULT_TARGET_LANG,
         userPerception: [],
         thoughtDisplayMode: 'title',
         thoughtPetImage: '',
@@ -1814,7 +1899,7 @@ function shouldHideChatSyncMsg(msg) {
 
 function shouldExcludeFromAiContext(msg) {
     if (!msg) return false;
-    if (msg.type === 'system_event') return true;
+    if (msg.type === 'system_event') return msg.includeInAiContext !== true;
     if (msg.type === 'text' && typeof msg.content === 'string' && isHiddenForumWechatSyncText(msg.content)) return true;
     return false;
 }
@@ -2818,6 +2903,7 @@ function openChatSettings() {
     mountChatSettingsEditorialNav();
     bindChatSettingsHeaderInteractions();
     ensureContactRestWindowFields(contact);
+    ensureContactBilingualTranslationFields(contact);
     setChatSettingsFloatingSaveVisible(true);
     setChatSettingsFloatingSaveState(false);
 
@@ -2860,6 +2946,10 @@ function openChatSettings() {
     }
 
     document.getElementById('chat-setting-context-limit').value = contact.contextLimit || '';
+    populateChatSettingsBilingualLanguageSelect('chat-setting-bilingual-source-lang', contact.bilingualSourceLang, CHAT_BILINGUAL_DEFAULT_SOURCE_LANG);
+    populateChatSettingsBilingualLanguageSelect('chat-setting-bilingual-target-lang', contact.bilingualTargetLang, CHAT_BILINGUAL_DEFAULT_TARGET_LANG);
+    document.getElementById('chat-setting-bilingual-translation-enabled').checked = !!contact.bilingualTranslationEnabled;
+    syncBilingualTranslationSettingsVisibility();
     document.getElementById('chat-setting-summary-limit').value = contact.summaryLimit || '';
     document.getElementById('chat-setting-show-thought').checked = contact.showThought || false;
     document.getElementById('chat-setting-thought-visible').checked = contact.thoughtVisible || false;
@@ -3449,6 +3539,8 @@ function setChatSettingsFloatingSaveState(saved) {
     button.setAttribute('title', saved ? 'Saved' : 'Save');
 }
 
+window.setChatSettingsFloatingSaveState = setChatSettingsFloatingSaveState;
+
 function handleChatSettingsFloatingSave() {
     const legacySaveButton = document.getElementById('save-chat-settings-btn');
     if (!legacySaveButton) return;
@@ -3461,12 +3553,22 @@ function handleSaveChatSettings() {
     const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
     if (!contact) return;
     ensureContactRestWindowFields(contact);
+    ensureContactBilingualTranslationFields(contact);
     const previousRestWindowSnapshot = `${contact.restWindowEnabled ? '1' : '0'}|${contact.restWindowStart || ''}|${contact.restWindowEnd || ''}`;
 
     const name = document.getElementById('chat-setting-name').value;
     const remark = document.getElementById('chat-setting-remark').value;
     const persona = document.getElementById('chat-setting-persona').value;
     const contextLimit = document.getElementById('chat-setting-context-limit').value;
+    const bilingualTranslationEnabled = document.getElementById('chat-setting-bilingual-translation-enabled').checked;
+    const bilingualSourceLang = normalizeChatBilingualLanguageValue(
+        document.getElementById('chat-setting-bilingual-source-lang').value,
+        CHAT_BILINGUAL_DEFAULT_SOURCE_LANG
+    );
+    const bilingualTargetLang = normalizeChatBilingualLanguageValue(
+        document.getElementById('chat-setting-bilingual-target-lang').value,
+        CHAT_BILINGUAL_DEFAULT_TARGET_LANG
+    );
     const summaryLimit = document.getElementById('chat-setting-summary-limit').value;
     const showThought = document.getElementById('chat-setting-show-thought').checked;
     const thoughtVisible = document.getElementById('chat-setting-thought-visible').checked;
@@ -3504,6 +3606,17 @@ function handleSaveChatSettings() {
     const restWindowStart = document.getElementById('chat-setting-rest-window-start').value;
     const restWindowEnd = document.getElementById('chat-setting-rest-window-end').value;
     const novelaiPreset = document.getElementById('chat-setting-novelai-preset') ? document.getElementById('chat-setting-novelai-preset').value : '';
+
+    if (bilingualTranslationEnabled && bilingualSourceLang === bilingualTargetLang) {
+        const sameLanguageMessage = '原语种和翻译语种不能相同';
+        if (typeof window.showChatToast === 'function') {
+            window.showChatToast(sameLanguageMessage, 2200);
+        } else {
+            alert(sameLanguageMessage);
+        }
+        setChatSettingsFloatingSaveState(false);
+        return;
+    }
 
     const selectedWbCategories = [];
     document.querySelectorAll('.wb-category-checkbox').forEach(cb => {
@@ -3544,6 +3657,9 @@ function handleSaveChatSettings() {
         }
     }
     contact.contextLimit = contextLimit ? parseInt(contextLimit) : 0;
+    contact.bilingualTranslationEnabled = bilingualTranslationEnabled;
+    contact.bilingualSourceLang = bilingualSourceLang;
+    contact.bilingualTargetLang = bilingualTargetLang;
     contact.summaryLimit = summaryLimit ? parseInt(summaryLimit) : 0;
     contact.showThought = showThought;
     contact.thoughtVisible = thoughtVisible;
@@ -3746,6 +3862,15 @@ function buildChatSettingsDraftContact(contact) {
         name: nameInput ? (nameInput.value.trim() || contact.name || '') : (contact.name || ''),
         persona: personaInput ? personaInput.value : (contact.persona || ''),
         contextLimit: getChatSettingsNumberValue('chat-setting-context-limit', 0),
+        bilingualTranslationEnabled: !!(document.getElementById('chat-setting-bilingual-translation-enabled') && document.getElementById('chat-setting-bilingual-translation-enabled').checked),
+        bilingualSourceLang: normalizeChatBilingualLanguageValue(
+            document.getElementById('chat-setting-bilingual-source-lang') ? document.getElementById('chat-setting-bilingual-source-lang').value : contact.bilingualSourceLang,
+            CHAT_BILINGUAL_DEFAULT_SOURCE_LANG
+        ),
+        bilingualTargetLang: normalizeChatBilingualLanguageValue(
+            document.getElementById('chat-setting-bilingual-target-lang') ? document.getElementById('chat-setting-bilingual-target-lang').value : contact.bilingualTargetLang,
+            CHAT_BILINGUAL_DEFAULT_TARGET_LANG
+        ),
         showThought: showThoughtInput ? !!showThoughtInput.checked : !!contact.showThought,
         thoughtVisible: thoughtVisibleInput ? !!thoughtVisibleInput.checked : !!contact.thoughtVisible,
         realTimeVisible: realTimeVisibleInput ? !!realTimeVisibleInput.checked : !!contact.realTimeVisible,
@@ -3863,6 +3988,9 @@ function ensureChatSettingsTokenPreviewBindings() {
     bindRefresh('chat-setting-name', ['input']);
     bindRefresh('chat-setting-persona', ['input']);
     bindRefresh('chat-setting-context-limit', ['input', 'change']);
+    bindRefresh('chat-setting-bilingual-translation-enabled', ['change']);
+    bindRefresh('chat-setting-bilingual-source-lang', ['change']);
+    bindRefresh('chat-setting-bilingual-target-lang', ['change']);
     bindRefresh('chat-setting-show-thought', ['change']);
     bindRefresh('chat-setting-thought-visible', ['change']);
     bindRefresh('chat-setting-real-time-visible', ['change']);

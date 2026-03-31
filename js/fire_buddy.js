@@ -2099,6 +2099,17 @@
             replyTo: options.replyTo || null
         };
 
+        if (msg.type === 'text' && options && options.bilingualTranslation && typeof options.bilingualTranslation === 'object') {
+            const translatedText = String(options.bilingualTranslation.translatedText || '').trim();
+            if (translatedText) {
+                msg.bilingualTranslation = {
+                    sourceLang: String(options.bilingualTranslation.sourceLang || '').trim(),
+                    targetLang: String(options.bilingualTranslation.targetLang || '').trim(),
+                    translatedText
+                };
+            }
+        }
+
         getState().chatHistory[contactId].push(msg);
         if (typeof window.saveConfig === 'function') {
             window.saveConfig();

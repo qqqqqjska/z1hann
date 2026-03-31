@@ -319,6 +319,90 @@ function formatPlainTextMessageContent(text) {
     flushText();
     return htmlParts.join('') || escapeChatMessageHtml(source).replace(/\n/g, '<br>');
 }
+
+function findChatHistoryMessageByIdForRender(msgId) {
+    if (!msgId || !window.iphoneSimState || !window.iphoneSimState.chatHistory) return null;
+
+    const historyBuckets = [];
+    const currentContactId = window.iphoneSimState.currentChatContactId;
+    if (currentContactId && Array.isArray(window.iphoneSimState.chatHistory[currentContactId])) {
+        historyBuckets.push(window.iphoneSimState.chatHistory[currentContactId]);
+    }
+
+    Object.keys(window.iphoneSimState.chatHistory).forEach(contactId => {
+        if (String(contactId) === String(currentContactId || '')) return;
+        const history = window.iphoneSimState.chatHistory[contactId];
+        if (Array.isArray(history)) {
+            historyBuckets.push(history);
+        }
+    });
+
+    for (const history of historyBuckets) {
+        const found = history.find(message => String(message && message.id || '') === String(msgId));
+        if (found) return found;
+    }
+
+    return null;
+}
+
+function normalizeBilingualTranslatedText(rawText) {
+    const text = String(rawText || '').trim();
+    if (!text) return '';
+    if (isHtmlPayloadForParser(text)) return '';
+
+    if (typeof extractVisibleControlData === 'function') {
+        const sanitized = extractVisibleControlData(text);
+        return String(sanitized && sanitized.cleanText || '').trim();
+    }
+
+    return text;
+}
+
+function buildBilingualTranslationMeta(contact, translatedText) {
+    if (!contact || typeof contact !== 'object') return null;
+    if (typeof window.ensureContactBilingualTranslationFields === 'function') {
+        window.ensureContactBilingualTranslationFields(contact);
+    }
+    if (!contact.bilingualTranslationEnabled) return null;
+
+    const normalizedTranslatedText = normalizeBilingualTranslatedText(translatedText);
+    if (!normalizedTranslatedText) return null;
+
+    return {
+        sourceLang: String(contact.bilingualSourceLang || 'zh-CN').trim() || 'zh-CN',
+        targetLang: String(contact.bilingualTargetLang || 'en').trim() || 'en',
+        translatedText: normalizedTranslatedText
+    };
+}
+
+function getRenderableBilingualTranslationMeta(msgId, type, text) {
+    if (!msgId || type !== 'text' || typeof text !== 'string') return null;
+    if (!text.trim() || isHtmlPayloadForParser(text)) return null;
+
+    const message = findChatHistoryMessageByIdForRender(msgId);
+    if (!message || !message.bilingualTranslation || typeof message.bilingualTranslation !== 'object') return null;
+
+    const translatedText = normalizeBilingualTranslatedText(message.bilingualTranslation.translatedText);
+    if (!translatedText) return null;
+
+    return {
+        sourceLang: String(message.bilingualTranslation.sourceLang || '').trim(),
+        targetLang: String(message.bilingualTranslation.targetLang || '').trim(),
+        translatedText
+    };
+}
+
+function formatTextMessageContentWithTranslation(text, msgId, type = 'text') {
+    const originalHtml = formatPlainTextMessageContent(text);
+    const translationMeta = getRenderableBilingualTranslationMeta(msgId, type, text);
+    if (!translationMeta) return originalHtml;
+
+    const translatedHtml = formatPlainTextMessageContent(translationMeta.translatedText);
+    if (!translatedHtml) return originalHtml;
+
+    return `<div class="message-original-text">${originalHtml}</div><div class="message-translated-text">${translatedHtml}</div>`;
+}
+
 function appendMessageToUI(text, isUser, type = 'text', description = null, replyTo = null, msgId = null, timestamp = null, isHistory = false) {
     if (type === 'text' && text && typeof text === 'string') {
         // Strip hidden image data from display
@@ -560,7 +644,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         contentHtml = text;
     } else {
         contentHtml = (type === 'text' && !isHtmlPayloadForParser(text))
-            ? formatPlainTextMessageContent(text)
+            ? formatTextMessageContentWithTranslation(text, msgId, type)
             : text;
     }
 
@@ -2084,11 +2168,19 @@ function parseMixedAiResponse(content) {
     const pushSanitizedText = (rawText, options = {}) => {
         const atomic = !!options.atomic;
         const speaker = normalizeAiMessageSpeaker(options && options.speaker);
+        const translatedText = normalizeBilingualTranslatedText(options && options.translatedText);
         const recoveredItems = recoverContextRecordItems(rawText);
         if (recoveredItems.length > 0) {
+            let translatedTextAttached = false;
             recoveredItems.forEach(item => {
                 const recoveredSpeaker = normalizeAiMessageSpeaker(item && item.speaker) || speaker;
-                results.push(recoveredSpeaker ? { ...item, speaker: recoveredSpeaker } : item);
+                const nextItem = recoveredSpeaker ? { ...item, speaker: recoveredSpeaker } : item;
+                const normalizedRecoveredType = normalizeAiSchemaType(nextItem && nextItem.type);
+                if (!translatedTextAttached && translatedText && normalizedRecoveredType === 'text_message') {
+                    nextItem.translatedContent = translatedText;
+                    translatedTextAttached = true;
+                }
+                results.push(nextItem);
             });
             return;
         }
@@ -2115,6 +2207,7 @@ function parseMixedAiResponse(content) {
                 targetName: quote.targetName || '',
                 targetContent: quote.targetContent || '',
                 replyContent: sanitized.cleanText,
+                ...(translatedText ? { translatedReplyContent: translatedText } : {}),
                 ...(speaker ? { speaker } : {})
             });
             return;
@@ -2123,7 +2216,12 @@ function parseMixedAiResponse(content) {
         if (!sanitized.cleanText) return;
 
         if (atomic) {
-            results.push({ type: 'text_message', content: sanitized.cleanText, ...(speaker ? { speaker } : {}) });
+            results.push({
+                type: 'text_message',
+                content: sanitized.cleanText,
+                ...(translatedText ? { translatedContent: translatedText } : {}),
+                ...(speaker ? { speaker } : {})
+            });
             return;
         }
 
@@ -2164,6 +2262,7 @@ function parseMixedAiResponse(content) {
 
         if (normalizedType === 'quote_reply') {
             const replyContent = String(item.reply_content || item.replyContent || item.content || '').trim();
+            const translatedReplyContent = normalizeBilingualTranslatedText(item.translated_reply_content || item.translatedReplyContent || '');
             if (replyContent) {
                 results.push({
                     type: 'quote_reply',
@@ -2174,6 +2273,7 @@ function parseMixedAiResponse(content) {
                     targetName: String(item.target_name || item.targetName || '').trim(),
                     targetContent: String(item.target_content || item.targetContent || '').trim(),
                     replyContent,
+                    ...(translatedReplyContent ? { translatedReplyContent } : {}),
                     ...(speaker ? { speaker } : {})
                 });
             }
@@ -2181,7 +2281,11 @@ function parseMixedAiResponse(content) {
         }
 
         if (normalizedType === 'text_message') {
-            pushSanitizedText(item.content || item.text || '', { atomic: originalType === 'text_message', speaker });
+            pushSanitizedText(item.content || item.text || '', {
+                atomic: originalType === 'text_message',
+                speaker,
+                translatedText: item.translated_content || item.translatedContent || ''
+            });
             return;
         }
 
@@ -3377,17 +3481,39 @@ function buildWechatRolePrompt(contact, userPromptInfo) {
 }
 
 function buildWechatProtocolPrompt(contact) {
+    if (typeof window.ensureContactBilingualTranslationFields === 'function') {
+        window.ensureContactBilingualTranslationFields(contact);
+    }
     const fireBuddyName = contact && contact.fireBuddy && contact.fireBuddy.profile && typeof contact.fireBuddy.profile.name === 'string' && contact.fireBuddy.profile.name.trim()
         ? contact.fireBuddy.profile.name.trim()
         : '小火人';
+    const bilingualEnabled = !!(contact && contact.bilingualTranslationEnabled);
+    const bilingualSourceLang = contact && contact.bilingualSourceLang ? String(contact.bilingualSourceLang).trim() : 'zh-CN';
+    const bilingualTargetLang = contact && contact.bilingualTargetLang ? String(contact.bilingualTargetLang).trim() : 'en';
+    const bilingualSourceLabel = typeof window.getChatBilingualLanguageLabel === 'function'
+        ? window.getChatBilingualLanguageLabel(bilingualSourceLang)
+        : bilingualSourceLang;
+    const bilingualTargetLabel = typeof window.getChatBilingualLanguageLabel === 'function'
+        ? window.getChatBilingualLanguageLabel(bilingualTargetLang)
+        : bilingualTargetLang;
     const thoughtRule = contact.showThought
         ? '- 当前已开启“显示心声”：数组第一项必须是 thought_state；display_text 只能写用户可见的角色心理活动，不能写任务分析或AI自述。'
         : '- thought_state 可选；如果输出，display_text 只能写用户可见的角色心理活动。';
-    const minimalExample = contact.showThought
-        ? '[\n  {"type":"thought_state","display_text":"他终于回我了，先接住他的情绪。","emotion":"happy","intent":"先回应他的这句话"},\n  {"type":"text_message","content":"先喝点水，慢慢跟我说。"}\n]'
-        : '[\n  {"type":"text_message","content":"先吃点东西，再慢慢跟我说。"}\n]';
+    const minimalExample = bilingualEnabled
+        ? (contact.showThought
+            ? '[\n  {"type":"thought_state","display_text":"他终于回我了，先接住他的情绪。","emotion":"happy","intent":"先回应他的这句话"},\n  {"type":"text_message","content":"先喝点水，慢慢跟我说。","translated_content":"Drink some water first, then tell me slowly."}\n]'
+            : '[\n  {"type":"text_message","content":"先吃点东西，再慢慢跟我说。","translated_content":"Eat something first, then tell me slowly."}\n]')
+        : (contact.showThought
+            ? '[\n  {"type":"thought_state","display_text":"他终于回我了，先接住他的情绪。","emotion":"happy","intent":"先回应他的这句话"},\n  {"type":"text_message","content":"先喝点水，慢慢跟我说。"}\n]'
+            : '[\n  {"type":"text_message","content":"先吃点东西，再慢慢跟我说。"}\n]');
     const fireBuddyProtocolRule = contact && contact.fireBuddy && contact.fireBuddy.enabled !== false
         ? `- 若本轮需要让${fireBuddyName}一起回复，可在 text_message 上额外加可选字段 speaker。你自己的消息省略 speaker 或写 "speaker":"contact"；${fireBuddyName}的消息必须写 "speaker":"fire_buddy"。同一轮里如果${fireBuddyName}加入，必须把整轮顺序一次性写在同一个 JSON 数组中，不能依赖第二次生成。${fireBuddyName}的几条消息必须连续出现。在可见正文里 @ta 时，优先使用“@${fireBuddyName}”，不要写泛称“@小火人”。示例：[{"type":"text_message","content":"@${fireBuddyName} 你也说句"},{"type":"text_message","speaker":"fire_buddy","content":"我在呀"},{"type":"text_message","speaker":"fire_buddy","content":"我也听见了"},{"type":"text_message","content":"你看，ta也来了。"}]`
+        : '';
+    const bilingualRule = bilingualEnabled
+        ? `- 当前已开启双语翻译模式：每条 text_message 必须同时返回原文 content 和译文 translated_content。原文必须使用 ${bilingualSourceLabel}（${bilingualSourceLang}），译文必须使用 ${bilingualTargetLabel}（${bilingualTargetLang}）。不要把原文和译文拼在同一个字段里。`
+        : '';
+    const bilingualQuoteRule = bilingualEnabled
+        ? `- 当输出 quote_reply 时，可同时返回 translated_reply_content。reply_content 使用 ${bilingualSourceLabel}（${bilingualSourceLang}），translated_reply_content 使用 ${bilingualTargetLabel}（${bilingualTargetLang}）。`
         : '';
 
     return [
@@ -3396,13 +3522,19 @@ function buildWechatProtocolPrompt(contact) {
         '- 严禁输出 Markdown 代码块，严禁在 JSON 数组之外输出任何文本。',
         '- 严禁把控制信息写进可见正文，例如 [引用回复: ...]、(内心独白: ...)、ACTION: ...、[发送了一个表情包: ...]。',
         '- 允许的 type 只有：thought_state、text_message、sticker_message、quote_reply、image、voice、action。',
-        '- text_message：{"type":"text_message","content":"单条可见消息正文"}。一个对象只代表一条消息；长回复请拆成多条短消息。只有在输出完整 HTML 时，才允许单条 text_message 承载完整 HTML。',
+        bilingualEnabled
+            ? '- text_message：{"type":"text_message","content":"原语种正文","translated_content":"译文正文"}。一个对象只代表一条消息；长回复请拆成多条短消息。只有在输出完整 HTML 时，才允许单条 text_message 承载完整 HTML，且 HTML 消息不要附带译文字段。'
+            : '- text_message：{"type":"text_message","content":"单条可见消息正文"}。一个对象只代表一条消息；长回复请拆成多条短消息。只有在输出完整 HTML 时，才允许单条 text_message 承载完整 HTML。',
         '- sticker_message：{"type":"sticker_message","sticker":"表情包名称"}。只能使用下方表情包列表中的名称。',
-        '- quote_reply：{"type":"quote_reply","target_msg_id":"消息ID","target_timestamp":消息时间戳,"reply_content":"引用后的回复"}。优先使用 target_msg_id，缺失时再用 target_timestamp；一次只能精确引用一条真实消息。',
+        bilingualEnabled
+            ? '- quote_reply：{"type":"quote_reply","target_msg_id":"消息ID","target_timestamp":消息时间戳,"reply_content":"原语种回复","translated_reply_content":"译文回复"}。优先使用 target_msg_id，缺失时再用 target_timestamp；一次只能精确引用一条真实消息。'
+            : '- quote_reply：{"type":"quote_reply","target_msg_id":"消息ID","target_timestamp":消息时间戳,"reply_content":"引用后的回复"}。优先使用 target_msg_id，缺失时再用 target_timestamp；一次只能精确引用一条真实消息。',
         '- image：{"type":"image","content":"图片中文描述","prompt":"英文tag"}。',
         '- voice：{"type":"voice","duration":秒数,"content":"语音文本"}。',
         '- action：{"type":"action","command":"指令名","payload":"参数"}。',
         fireBuddyProtocolRule,
+        bilingualRule,
+        bilingualQuoteRule,
         thoughtRule,
         '- 最小示例：',
         minimalExample
@@ -3695,9 +3827,11 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             if (normalizedType === 'quote_reply') {
                 const resolvedQuote = resolveQuoteReplyTarget(history, item, contact, { allowContentFallback: false });
                 const quoteSpeaker = normalizeAiMessageSpeaker(item && item.speaker);
+                const translatedReplyContent = normalizeBilingualTranslatedText(item.translatedReplyContent || item.translated_reply_content || '');
                 const recoveredQuoteItems = recoverContextRecordItems(item.replyContent || '');
                 if (recoveredQuoteItems.length > 0) {
                     let hasAttachedReply = false;
+                    let translatedReplyAttached = false;
                     recoveredQuoteItems.forEach(recoveredItem => {
                         const recoveredType = normalizeAiSchemaType(recoveredItem.type);
                         if (recoveredType === 'sticker_message') {
@@ -3710,7 +3844,12 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         }
                         const replyTo = !hasAttachedReply && resolvedQuote && resolvedQuote.replyTo ? resolvedQuote.replyTo : null;
                         const recoveredSpeaker = normalizeAiMessageSpeaker(recoveredItem && recoveredItem.speaker) || quoteSpeaker;
-                        messagesList.push({ type: '消息', content: recoveredText, replyTo, ...(recoveredSpeaker ? { speaker: recoveredSpeaker } : {}) });
+                        const nextMessage = { type: '消息', content: recoveredText, replyTo, ...(recoveredSpeaker ? { speaker: recoveredSpeaker } : {}) };
+                        if (!translatedReplyAttached && translatedReplyContent) {
+                            nextMessage.translatedContent = translatedReplyContent;
+                            translatedReplyAttached = true;
+                        }
+                        messagesList.push(nextMessage);
                         if (replyTo) {
                             hasAttachedReply = true;
                         }
@@ -3723,15 +3862,27 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     continue;
                 }
                 if (resolvedQuote && resolvedQuote.replyTo) {
-                    messagesList.push({ type: '消息', content: quoteText, replyTo: resolvedQuote.replyTo, ...(quoteSpeaker ? { speaker: quoteSpeaker } : {}) });
+                    messagesList.push({
+                        type: '消息',
+                        content: quoteText,
+                        ...(translatedReplyContent ? { translatedContent: translatedReplyContent } : {}),
+                        replyTo: resolvedQuote.replyTo,
+                        ...(quoteSpeaker ? { speaker: quoteSpeaker } : {})
+                    });
                 } else {
-                    messagesList.push({ type: '消息', content: quoteText, ...(quoteSpeaker ? { speaker: quoteSpeaker } : {}) });
+                    messagesList.push({
+                        type: '消息',
+                        content: quoteText,
+                        ...(translatedReplyContent ? { translatedContent: translatedReplyContent } : {}),
+                        ...(quoteSpeaker ? { speaker: quoteSpeaker } : {})
+                    });
                 }
                 continue;
             }
 
             if (normalizedType === 'text_message') {
                 const textContent = String(item.content || item.text || '').trim();
+                const translatedText = normalizeBilingualTranslatedText(item.translatedContent || item.translated_content || '');
                 const speaker = normalizeAiMessageSpeaker(item && item.speaker);
                 if (!textContent) {
                     continue;
@@ -3742,7 +3893,12 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         messagesList.push({ type: '消息', content: htmlContent, ...(speaker ? { speaker } : {}) });
                     }
                 } else {
-                    messagesList.push({ type: '消息', content: textContent, ...(speaker ? { speaker } : {}) });
+                    messagesList.push({
+                        type: '消息',
+                        content: textContent,
+                        ...(translatedText ? { translatedContent: translatedText } : {}),
+                        ...(speaker ? { speaker } : {})
+                    });
                 }
                 continue;
             }
@@ -3849,6 +4005,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 ...msg,
                 type: '消息',
                 content: cleanContent,
+                ...(msg && msg.translatedContent ? { translatedContent: normalizeBilingualTranslatedText(msg.translatedContent) } : {}),
                 replyTo: resolvedReplyTo
             });
         }
@@ -4743,6 +4900,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             const currentThought = (i === messagesList.length - 1) ? thoughtContent : null;
             const currentReplyTo = msg.replyTo || ((i === 0) ? replyToObj : null);
             const speaker = normalizeAiMessageSpeaker(msg && msg.speaker);
+            const bilingualTranslationMeta = buildBilingualTranslationMeta(contact, msg && msg.translatedContent);
 
             if ((msg.type === '消息' || msg.type === 'text') && typeof window.replaceGenericFireBuddyMention === 'function') {
                 msg.content = window.replaceGenericFireBuddyMention(msg.content, contactId);
@@ -4751,7 +4909,10 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             if (speaker === 'fire-buddy' && typeof window.pushFireBuddySpeakerMessage === 'function') {
                 const fireBuddyText = String(msg && msg.content || '').trim();
                 if (fireBuddyText) {
-                    window.pushFireBuddySpeakerMessage(fireBuddyText, contactId, { replyTo: currentReplyTo });
+                    window.pushFireBuddySpeakerMessage(fireBuddyText, contactId, {
+                        replyTo: currentReplyTo,
+                        bilingualTranslation: bilingualTranslationMeta
+                    });
                 }
 
                 if (i < messagesList.length - 1) {
@@ -4786,7 +4947,9 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
                 // 用户在聊天界面，使用打字机效果或直接发送
                 if (msg.type === '消息' || msg.type === 'text') {
-                    await typewriterEffect(msg.content, contact.avatar, currentThought, currentReplyTo, 'text', contactId);
+                    await typewriterEffect(msg.content, contact.avatar, currentThought, currentReplyTo, 'text', contactId, {
+                        bilingualTranslation: bilingualTranslationMeta
+                    });
                 } else if (msg.type === '表情包' || msg.type === 'sticker') {
                     const stickerAsset = resolveStickerAssetForContact(contact, msg.content);
                     if (stickerAsset) {
@@ -4988,6 +5151,14 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 
                 if (currentThought) {
                     msgData.thought = currentThought;
+                }
+
+                if (typeToSave === 'text' && bilingualTranslationMeta) {
+                    msgData.bilingualTranslation = {
+                        sourceLang: bilingualTranslationMeta.sourceLang,
+                        targetLang: bilingualTranslationMeta.targetLang,
+                        translatedText: bilingualTranslationMeta.translatedText
+                    };
                 }
                 
                 if (msg.type === '图片' || msg.type === 'sticker') {
@@ -5868,6 +6039,9 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     const contact = options && options.contactOverride
         ? { ...baseContact, ...options.contactOverride }
         : baseContact;
+    if (typeof window.ensureContactBilingualTranslationFields === 'function') {
+        window.ensureContactBilingualTranslationFields(contact);
+    }
     const history = window.iphoneSimState.chatHistory[contactId] || [];
 
     let userPromptInfo = '';

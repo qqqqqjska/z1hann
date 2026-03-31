@@ -904,6 +904,30 @@
                                 <input type="number" id="chat-setting-context-limit" class="mag-input" placeholder="0 为不限" min="0">
                             </div>
 
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">Bilingual Translation <span class="separator">/</span> <span class="mag-zh">双语翻译</span></span>
+                                <label><input type="checkbox" id="chat-setting-bilingual-translation-enabled" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div id="chat-setting-bilingual-translation-panel" class="mag-field" style="display: none; margin-top: 10px;">
+                                <label class="mag-label">Language Pair <span class="separator">/</span> <span class="mag-zh">语言组合</span></label>
+                                <div class="chat-setting-bilingual-pair-row">
+                                    <div class="chat-setting-bilingual-select-wrap mag-field is-compact">
+                                        <select id="chat-setting-bilingual-source-lang" class="mag-select">
+                                            <option value="zh-CN">中文(简体)</option>
+                                        </select>
+                                    </div>
+                                    <div class="chat-setting-bilingual-pair-icon" aria-hidden="true" title="原语言 → 翻译语言">
+                                        <i class="ri-arrow-right-line"></i>
+                                    </div>
+                                    <div class="chat-setting-bilingual-select-wrap mag-field is-compact">
+                                        <select id="chat-setting-bilingual-target-lang" class="mag-select">
+                                            <option value="en">English</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="mag-field">
                                 <label class="mag-label">Prompt Token Overview <span class="separator">/</span> <span class="mag-zh">提示词 Token 概览</span></label>
                                 <div id="chat-setting-token-preview" class="chat-token-preview editorial-token-overview is-loading">

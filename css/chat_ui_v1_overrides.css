@@ -87,6 +87,31 @@
     transform: scale(0.96);
 }
 
+#chat-screen .message-original-text,
+#chat-screen .message-translated-text {
+    display: block;
+}
+
+#chat-screen .message-original-text + .message-translated-text {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(28, 28, 30, 0.08);
+}
+
+#chat-screen .message-translated-text {
+    font-size: 0.88em;
+    line-height: 1.45;
+    opacity: 0.72;
+}
+
+#chat-screen .chat-message.user .message-original-text + .message-translated-text {
+    border-top-color: rgba(255, 255, 255, 0.18);
+}
+
+#chat-screen .chat-message.user .message-translated-text {
+    opacity: 0.82;
+}
+
 #chat-screen .chat-message.other .message-content:not(.no-bubble):not(.voice-msg):not(.sticker-msg):not(.image-msg):not(.virtual-image-msg):not(.description-msg):not(.transfer-msg):not(.gift-card-msg):not(.shopping-gift-msg):not(.delivery-share-msg):not(.order-progress-msg) {
     background: var(--v1-bubble-received);
     color: var(--v1-text-primary);

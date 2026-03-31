@@ -1,4 +1,4 @@
-﻿function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null) {
+﻿function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null, options = {}) {
     return new Promise(resolve => {
         const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
         if (!contactId) {
@@ -22,7 +22,16 @@
         if (thought) {
             msgData.thought = thought;
         }
-        
+        if (type === 'text' && options && options.bilingualTranslation && typeof options.bilingualTranslation === 'object') {
+            const translatedText = String(options.bilingualTranslation.translatedText || '').trim();
+            if (translatedText) {
+                msgData.bilingualTranslation = {
+                    sourceLang: String(options.bilingualTranslation.sourceLang || '').trim(),
+                    targetLang: String(options.bilingualTranslation.targetLang || '').trim(),
+                    translatedText
+                };
+            }
+        }
         window.iphoneSimState.chatHistory[contactId].push(msgData);
         if (type === 'text' && window.FloraEngine && typeof window.FloraEngine.analyzeChat === 'function') {
             window.FloraEngine.analyzeChat(text, true, { contactId, type });
@@ -3702,7 +3711,9 @@ function handleSaveEditedChatMessage() {
 
     if (msgIndex !== -1) {
         messages[msgIndex].content = newContent;
-        
+        if (messages[msgIndex].bilingualTranslation) {
+            delete messages[msgIndex].bilingualTranslation;
+        }
         saveConfig();
         renderChatHistory(window.iphoneSimState.currentChatContactId);
         
@@ -3914,6 +3925,9 @@ function setupChatListeners() {
     const thoughtPetSizeSlider = document.getElementById('chat-setting-thought-pet-size');
     const thoughtPetSizeValue = document.getElementById('chat-setting-thought-pet-size-value');
     const restWindowEnabledInput = document.getElementById('chat-setting-rest-window-enabled');
+    const bilingualTranslationEnabledInput = document.getElementById('chat-setting-bilingual-translation-enabled');
+    const bilingualSourceLangSelect = document.getElementById('chat-setting-bilingual-source-lang');
+    const bilingualTargetLangSelect = document.getElementById('chat-setting-bilingual-target-lang');
 
     const syncThoughtPetPreviewSize = () => {
         const rawSize = thoughtPetSizeSlider ? parseInt(thoughtPetSizeSlider.value, 10) : 88;
@@ -3965,9 +3979,34 @@ function setupChatListeners() {
             window.syncRestWindowSettingsVisibility();
         });
     }
-
+    const markChatSettingsDirty = () => {
+        if (typeof window.setChatSettingsFloatingSaveState === 'function') {
+            window.setChatSettingsFloatingSaveState(false);
+        }
+    };
+    if (bilingualTranslationEnabledInput) {
+        bilingualTranslationEnabledInput.addEventListener('change', () => {
+            if (typeof window.syncBilingualTranslationSettingsVisibility === 'function') {
+                window.syncBilingualTranslationSettingsVisibility();
+            }
+            markChatSettingsDirty();
+        });
+    }
+    if (bilingualSourceLangSelect) {
+        bilingualSourceLangSelect.addEventListener('change', () => {
+            markChatSettingsDirty();
+        });
+    }
+    if (bilingualTargetLangSelect) {
+        bilingualTargetLangSelect.addEventListener('change', () => {
+            markChatSettingsDirty();
+        });
+    }
     syncThoughtPetPanelVisibility();
     syncThoughtPetPreviewSize();
+    if (typeof window.syncBilingualTranslationSettingsVisibility === 'function') {
+        window.syncBilingualTranslationSettingsVisibility();
+    }
     if (thoughtPetPreview && !thoughtPetPreview.src) {
         thoughtPetPreview.src = window.DEFAULT_THOUGHT_PET_IMAGE || '';
     }

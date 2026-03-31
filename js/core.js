@@ -1216,27 +1216,51 @@ function showChatToast(message, duration = 2000) {
     }, duration);
 }
 
+let summaryNotificationTimeout = null;
+
 function showNotification(message, duration = 0, type = 'info') {
     const notification = document.getElementById('summary-notification');
     const textEl = document.getElementById('summary-notification-text');
+    if (!notification || !textEl) return;
+
     const iconEl = notification.querySelector('i');
 
-    if (!notification || !textEl) return;
+    if (summaryNotificationTimeout) {
+        clearTimeout(summaryNotificationTimeout);
+        summaryNotificationTimeout = null;
+    }
 
     textEl.textContent = message;
     notification.classList.remove('hidden');
     
     notification.classList.remove('success');
-    iconEl.className = 'fas fa-spinner fa-spin';
+    notification.classList.remove('warning');
+    notification.classList.remove('error');
+    if (iconEl) {
+        iconEl.className = 'fas fa-spinner fa-spin';
+    }
 
     if (type === 'success') {
         notification.classList.add('success');
-        iconEl.className = 'fas fa-check-circle';
+        if (iconEl) {
+            iconEl.className = 'fas fa-check-circle';
+        }
+    } else if (type === 'warning') {
+        notification.classList.add('warning');
+        if (iconEl) {
+            iconEl.className = 'fas fa-exclamation-triangle';
+        }
+    } else if (type === 'error') {
+        notification.classList.add('error');
+        if (iconEl) {
+            iconEl.className = 'fas fa-times-circle';
+        }
     }
 
     if (duration > 0) {
-        setTimeout(() => {
+        summaryNotificationTimeout = setTimeout(() => {
             notification.classList.add('hidden');
+            summaryNotificationTimeout = null;
         }, duration);
     }
 }
@@ -1432,6 +1456,9 @@ async function loadConfig() {
             if (!state.chatWallpapers) state.chatWallpapers = [];
             if (!state.contacts) state.contacts = [];
             if (!state.chatHistory) state.chatHistory = {};
+            if (typeof window.ensureContactBilingualTranslationFields === 'function') {
+                state.contacts.forEach(contact => window.ensureContactBilingualTranslationFields(contact));
+            }
             if (!state.worldbook) state.worldbook = [];
             if (!state.userPersonas) state.userPersonas = [];
             if (!state.moments) state.moments = [];
