@@ -1633,17 +1633,93 @@ window.pickMeetingActionSuggestion = function(encodedText) {
     window.toggleMeetingActionSuggestionMenu(false);
 };
 
+function getMeetingWorldbookCategories() {
+    return Array.isArray(window.iphoneSimState?.wbCategories) ? window.iphoneSimState.wbCategories : [];
+}
+
+function normalizeMeetingLinkedWorldbookIds(ids) {
+    const availableIdSet = new Set(getMeetingWorldbookCategories().map(category => Number(category.id)).filter(Number.isFinite));
+    if (!Array.isArray(ids)) {
+        return [];
+    }
+
+    return Array.from(new Set(ids
+        .map(id => Number(id))
+        .filter(id => Number.isFinite(id) && availableIdSet.has(id))));
+}
+
+function getMeetingStyleSelectedWorldbookIds() {
+    return normalizeMeetingLinkedWorldbookIds(
+        Array.from(document.querySelectorAll('#meeting-worldbook-list .meeting-worldbook-checkbox:checked'))
+            .map(checkbox => checkbox.dataset.id)
+    );
+}
+
+function renderMeetingStyleWorldbookList(selectedIds) {
+    const container = document.getElementById('meeting-worldbook-list');
+    if (!container) {
+        return;
+    }
+
+    const categories = getMeetingWorldbookCategories();
+    const selectedIdSet = new Set(normalizeMeetingLinkedWorldbookIds(selectedIds));
+
+    if (!categories.length) {
+        container.innerHTML = '<div style="font-size:13px;line-height:1.6;color:#8e8e93;text-align:center;">暂无世界书分类</div>';
+        return;
+    }
+
+    container.innerHTML = categories.map(category => {
+        return `
+            <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+                <input type="checkbox" class="meeting-worldbook-checkbox" data-id="${escapeMeetingHtml(category.id)}" ${selectedIdSet.has(Number(category.id)) ? 'checked' : ''} style="margin-top:2px;">
+                <span style="font-size:15px;font-weight:600;color:#111;line-height:1.35;word-break:break-all;">${escapeMeetingHtml(category.name || '未命名世界书')}</span>
+            </label>
+        `;
+    }).join('');
+}
+
+function getMeetingLinkedWorldbookEntries(contact) {
+    const selectedIds = new Set(normalizeMeetingLinkedWorldbookIds(contact?.meetingLinkedWbCategories));
+    if (!selectedIds.size) {
+        return [];
+    }
+
+    return (Array.isArray(window.iphoneSimState?.worldbook) ? window.iphoneSimState.worldbook : []).filter(entry => {
+        return selectedIds.has(Number(entry?.categoryId)) && entry?.enabled !== false && String(entry?.content || '').trim();
+    });
+}
+
+function buildMeetingWorldbookPrompt(contact) {
+    const entries = getMeetingLinkedWorldbookEntries(contact);
+    if (!entries.length) {
+        return '';
+    }
+
+    const categoryNameMap = new Map(getMeetingWorldbookCategories().map(category => [Number(category.id), String(category.name || '未命名世界书')]));
+    const lines = entries.map((entry, index) => {
+        const categoryName = categoryNameMap.get(Number(entry.categoryId)) || '未分类';
+        const title = String(entry.remark || (Array.isArray(entry.keys) && entry.keys.length ? entry.keys.join(' / ') : '') || `条目${index + 1}`).trim();
+        const content = String(entry.content || '').trim();
+        return `${index + 1}. [${categoryName}] ${title}${content ? `：${content}` : ''}`;
+    });
+
+    return `【见面关联世界书】\n以下内容来自用户为见面模式单独关联的世界书，且这些条目当前在世界书应用中处于开启状态。请将它们视为本轮线下见面的背景设定、事实约束、人物关系或世界信息，创作时尽量保持一致，不要逐条复述规则本身。\n${lines.join('\n')}\n\n`;
+}
+
 // 7. 保存文风
 function saveMeetingStyle() {
     const style = document.getElementById('meeting-style-input').value.trim();
     const minWords = document.getElementById('meeting-min-words').value;
     const maxWords = document.getElementById('meeting-max-words').value;
+    const meetingLinkedWbCategories = getMeetingStyleSelectedWorldbookIds();
 
     const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
     if (contact) {
         contact.meetingStyle = style;
         contact.meetingMinWords = minWords;
         contact.meetingMaxWords = maxWords;
+        contact.meetingLinkedWbCategories = meetingLinkedWbCategories;
         saveConfig();
         document.getElementById('meeting-style-modal').classList.add('hidden');
     }
@@ -1960,6 +2036,7 @@ function constructMeetingPrompt(contactId, newUserInput) {
     const meetings = window.iphoneSimState.meetings[contactId];
     const currentMeeting = meetings.find(m => m.id === meetingId);
     const hasPresetInstructions = buildMeetingPresetMessages(currentMeeting).length > 0;
+    const meetingWorldbookPrompt = buildMeetingWorldbookPrompt(contact);
     
     // 获取线上聊天背景摘要（不直接拼接聊天原文，避免串回消息语境）
     let chatContext = '';
@@ -2002,6 +2079,10 @@ function constructMeetingPrompt(contactId, newUserInput) {
     
     if (chatContext) {
         prompt += `【关系背景摘要】(仅作人物关系和熟悉度参考，不代表当前仍在线上聊天)\n${chatContext}\n\n`;
+    }
+
+    if (meetingWorldbookPrompt) {
+        prompt += meetingWorldbookPrompt;
     }
 
     prompt += `【规则】\n`;
@@ -2505,6 +2586,7 @@ function setupMeetingListeners() {
             const style = document.getElementById('meeting-style-input').value.trim();
             const minWords = document.getElementById('meeting-min-words').value;
             const maxWords = document.getElementById('meeting-max-words').value;
+            const linkedWbCategories = getMeetingStyleSelectedWorldbookIds();
             
             if (!style) {
                 alert('请先输入描写风格内容');
@@ -2518,7 +2600,8 @@ function setupMeetingListeners() {
                     name: name,
                     style: style,
                     minWords: minWords,
-                    maxWords: maxWords
+                    maxWords: maxWords,
+                    linkedWbCategories: linkedWbCategories
                 });
                 saveConfig();
                 loadMeetingStylePresets();
@@ -2554,6 +2637,7 @@ function setupMeetingListeners() {
                     document.getElementById('meeting-style-input').value = preset.style || '';
                     document.getElementById('meeting-min-words').value = preset.minWords || '';
                     document.getElementById('meeting-max-words').value = preset.maxWords || '';
+                    renderMeetingStyleWorldbookList(preset.linkedWbCategories || []);
                 }
             }
         });
@@ -2565,7 +2649,11 @@ function setupMeetingListeners() {
             document.getElementById('meeting-style-input').value = contact.meetingStyle || '';
             document.getElementById('meeting-min-words').value = contact.meetingMinWords || '';
             document.getElementById('meeting-max-words').value = contact.meetingMaxWords || '';
+            renderMeetingStyleWorldbookList(contact.meetingLinkedWbCategories || []);
+        } else {
+            renderMeetingStyleWorldbookList([]);
         }
+        if (meetingStylePresetSelect) meetingStylePresetSelect.value = '';
         loadMeetingStylePresets(); // 加载预设列表
         meetingStyleModal.classList.remove('hidden');
     });

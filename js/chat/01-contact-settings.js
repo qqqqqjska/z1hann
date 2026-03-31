@@ -1156,25 +1156,16 @@ function compressImagePreserveAlpha(file, maxEdge = 512, quality = 0.85) {
     });
 }
 
-function handleSaveContact() {
-    const name = document.getElementById('contact-name').value;
-    const remark = document.getElementById('contact-remark').value;
-    const persona = document.getElementById('contact-persona').value;
-    const avatarInput = document.getElementById('contact-avatar-upload');
-    
-    if (!name) {
-        alert('请输入姓名');
-        return;
-    }
-
-    const contact = {
-        id: Date.now(),
-        name,
-        nickname: name,
-        remark,
-        persona,
+function createBaseContactPayload({ name, remark = '', persona = '', avatar = '' }) {
+    const resolvedName = String(name || '').trim();
+    return {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        name: resolvedName,
+        nickname: resolvedName,
+        remark: String(remark || '').trim(),
+        persona: String(persona || '').trim(),
         style: '正常',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + name,
+        avatar: avatar || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(resolvedName || 'contact')),
         activeReplyEnabled: false,
         activeReplyInterval: 60,
         restWindowEnabled: false,
@@ -1192,8 +1183,541 @@ function handleSaveContact() {
         thoughtPetSize: 88,
         thoughtPetPosition: { xRatio: 0.86, yRatio: 0.72 },
         linkedWbCategories: [],
+        meetingLinkedWbCategories: [],
         linkedStickerCategories: []
     };
+}
+
+function resetAddContactForm() {
+    const nameInput = document.getElementById('contact-name');
+    const remarkInput = document.getElementById('contact-remark');
+    const personaInput = document.getElementById('contact-persona');
+    const avatarInput = document.getElementById('contact-avatar-upload');
+    const preview = document.getElementById('contact-avatar-preview');
+    if (nameInput) nameInput.value = '';
+    if (remarkInput) remarkInput.value = '';
+    if (personaInput) personaInput.value = '';
+    if (avatarInput) avatarInput.value = '';
+    if (preview) {
+        preview.innerHTML = '<i class="fas fa-camera"></i>';
+    }
+}
+
+function closeAddContactModeChooser() {
+    const modal = document.getElementById('add-contact-entry-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function openAddContactModeChooser() {
+    const modal = document.getElementById('add-contact-entry-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function openManualAddContactModal() {
+    closeAddContactModeChooser();
+    const modal = document.getElementById('add-contact-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function triggerImportContactFilePicker() {
+    closeAddContactModeChooser();
+    const input = document.getElementById('contact-import-file-input');
+    if (input) input.click();
+}
+
+window.openAddContactModeChooser = openAddContactModeChooser;
+window.closeAddContactModeChooser = closeAddContactModeChooser;
+window.openManualAddContactModal = openManualAddContactModal;
+window.triggerImportContactFilePicker = triggerImportContactFilePicker;
+
+function splitImportedListValue(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== 'string') return [];
+    return value.split(/[\n,，]/);
+}
+
+function uniqueImportedStringList(values) {
+    return Array.from(new Set((Array.isArray(values) ? values : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean)));
+}
+
+function getImportFileBaseName(fileName) {
+    return String(fileName || '导入角色').replace(/\.[^.]+$/, '').trim() || '导入角色';
+}
+
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = event => resolve(String(event?.target?.result || ''));
+        reader.onerror = reject;
+        reader.readAsText(file);
+    });
+}
+
+function readFileAsArrayBuffer(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = event => resolve(event?.target?.result);
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = event => resolve(String(event?.target?.result || ''));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function decodeBase64Utf8(text) {
+    const normalized = String(text || '').replace(/\s+/g, '');
+    const binary = atob(normalized);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index++) {
+        bytes[index] = binary.charCodeAt(index);
+    }
+    return new TextDecoder('utf-8').decode(bytes);
+}
+
+function looksLikeBase64Payload(text) {
+    const normalized = String(text || '').trim().replace(/\s+/g, '');
+    if (!normalized || normalized.length < 16 || normalized.length % 4 !== 0) return false;
+    return /^[A-Za-z0-9+/=]+$/.test(normalized);
+}
+
+function tryParseJsonCandidate(raw) {
+    const initial = String(raw || '').trim();
+    if (!initial) return null;
+
+    const candidates = [initial];
+    try {
+        const uriDecoded = decodeURIComponent(initial);
+        if (uriDecoded && !candidates.includes(uriDecoded)) candidates.push(uriDecoded);
+    } catch (err) {
+    }
+
+    candidates.slice().forEach(candidate => {
+        if (looksLikeBase64Payload(candidate)) {
+            try {
+                const decoded = decodeBase64Utf8(candidate);
+                if (decoded && !candidates.includes(decoded)) candidates.push(decoded);
+            } catch (err) {
+            }
+        }
+    });
+
+    for (const candidate of candidates) {
+        try {
+            return JSON.parse(candidate);
+        } catch (err) {
+        }
+    }
+
+    return null;
+}
+
+function findNullByteIndex(bytes, start = 0) {
+    for (let index = start; index < bytes.length; index++) {
+        if (bytes[index] === 0) return index;
+    }
+    return -1;
+}
+
+async function inflatePngTextBytes(bytes) {
+    if (typeof DecompressionStream !== 'function') {
+        throw new Error('当前浏览器不支持解压 PNG 角色卡元数据');
+    }
+    const stream = new DecompressionStream('deflate');
+    const writer = stream.writable.getWriter();
+    await writer.write(bytes);
+    await writer.close();
+    const outputBuffer = await new Response(stream.readable).arrayBuffer();
+    return new Uint8Array(outputBuffer);
+}
+
+async function extractPngTextChunks(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (signature.some((value, index) => bytes[index] !== value)) {
+        throw new Error('不是有效的 PNG 文件');
+    }
+
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const latin1Decoder = new TextDecoder('latin1');
+    const utf8Decoder = new TextDecoder('utf-8');
+    const chunks = [];
+
+    let offset = 8;
+    while (offset + 12 <= bytes.length) {
+        const length = view.getUint32(offset);
+        const type = latin1Decoder.decode(bytes.subarray(offset + 4, offset + 8));
+        const dataStart = offset + 8;
+        const dataEnd = dataStart + length;
+        if (dataEnd + 4 > bytes.length) break;
+        const data = bytes.subarray(dataStart, dataEnd);
+
+        if (type === 'tEXt') {
+            const keywordEnd = findNullByteIndex(data);
+            if (keywordEnd > -1) {
+                chunks.push({
+                    keyword: latin1Decoder.decode(data.subarray(0, keywordEnd)),
+                    value: latin1Decoder.decode(data.subarray(keywordEnd + 1))
+                });
+            }
+        } else if (type === 'zTXt') {
+            const keywordEnd = findNullByteIndex(data);
+            if (keywordEnd > -1 && data.length > keywordEnd + 2) {
+                const inflated = await inflatePngTextBytes(data.subarray(keywordEnd + 2));
+                chunks.push({
+                    keyword: latin1Decoder.decode(data.subarray(0, keywordEnd)),
+                    value: utf8Decoder.decode(inflated)
+                });
+            }
+        } else if (type === 'iTXt') {
+            const keywordEnd = findNullByteIndex(data);
+            if (keywordEnd > -1 && data.length > keywordEnd + 2) {
+                const compressionFlag = data[keywordEnd + 1];
+                let cursor = keywordEnd + 3;
+                const languageEnd = findNullByteIndex(data, cursor);
+                cursor = languageEnd > -1 ? languageEnd + 1 : cursor;
+                const translatedEnd = findNullByteIndex(data, cursor);
+                cursor = translatedEnd > -1 ? translatedEnd + 1 : cursor;
+                const textBytes = data.subarray(cursor);
+                const resolvedText = compressionFlag === 1
+                    ? utf8Decoder.decode(await inflatePngTextBytes(textBytes))
+                    : utf8Decoder.decode(textBytes);
+                chunks.push({
+                    keyword: latin1Decoder.decode(data.subarray(0, keywordEnd)),
+                    value: resolvedText
+                });
+            }
+        }
+
+        offset = dataEnd + 4;
+        if (type === 'IEND') break;
+    }
+
+    return chunks;
+}
+
+async function parseContactImportFile(file) {
+    const lowerName = String(file?.name || '').toLowerCase();
+    const isPngFile = (file && file.type === 'image/png') || lowerName.endsWith('.png');
+
+    if (isPngFile) {
+        const [arrayBuffer, avatarDataUrl] = await Promise.all([
+            readFileAsArrayBuffer(file),
+            readFileAsDataUrl(file)
+        ]);
+        const chunks = await extractPngTextChunks(arrayBuffer);
+        const priority = ['chara', 'ccv3', 'ccv2', 'character'];
+        const orderedChunks = chunks.slice().sort((left, right) => {
+            const leftIndex = priority.findIndex(item => String(left?.keyword || '').toLowerCase().includes(item));
+            const rightIndex = priority.findIndex(item => String(right?.keyword || '').toLowerCase().includes(item));
+            const resolvedLeft = leftIndex === -1 ? priority.length : leftIndex;
+            const resolvedRight = rightIndex === -1 ? priority.length : rightIndex;
+            return resolvedLeft - resolvedRight;
+        });
+
+        for (const chunk of orderedChunks) {
+            const parsed = tryParseJsonCandidate(chunk?.value);
+            if (parsed) {
+                return { payload: parsed, avatarDataUrl, sourceType: 'png' };
+            }
+        }
+        throw new Error('未在 PNG 中找到可识别的角色数据');
+    }
+
+    const text = await readFileAsText(file);
+    const parsed = tryParseJsonCandidate(text);
+    if (!parsed) {
+        throw new Error('文件格式错误，未找到可识别的 JSON 数据');
+    }
+    return { payload: parsed, avatarDataUrl: '', sourceType: 'json' };
+}
+
+function getImportedPayloadRoot(payload) {
+    if (payload && payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+        return payload.data;
+    }
+    return payload || {};
+}
+
+function extractImportedWorldbookEntries(payload, root) {
+    const candidates = [
+        payload?.worldbookEntries,
+        root?.worldbookEntries,
+        payload?.worldbook,
+        root?.worldbook,
+        root?.character_book?.entries,
+        payload?.character_book?.entries,
+        root?.characterBook?.entries,
+        payload?.characterBook?.entries,
+        root?.lorebook?.entries,
+        payload?.lorebook?.entries
+    ];
+
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate)) {
+            return candidate;
+        }
+    }
+
+    return [];
+}
+
+function extractImportedRegexEntries(payload, root) {
+    const candidates = [
+        payload?.regexEntries,
+        root?.regexEntries,
+        payload?.regex,
+        root?.regex,
+        root?.extensions?.regex_scripts,
+        payload?.extensions?.regex_scripts
+    ];
+
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate)) {
+            return candidate;
+        }
+    }
+
+    return [];
+}
+
+function buildImportedPersonaText(payload, root) {
+    const sections = [];
+    const appendSection = (label, value) => {
+        const text = String(value || '').trim();
+        if (!text) return;
+        sections.push(`【${label}】\n${text}`);
+    };
+
+    appendSection('角色设定', root?.description || payload?.description);
+    appendSection('性格特点', root?.personality || payload?.personality);
+    appendSection('场景背景', root?.scenario || payload?.scenario);
+    appendSection('示例对话', root?.mes_example || payload?.mes_example);
+    appendSection('补充说明', root?.creator_notes || payload?.creator_notes || root?.system_prompt || payload?.system_prompt);
+
+    return sections.join('\n\n').trim();
+}
+
+function normalizeImportedMessage(message, index, fallbackRole = 'assistant') {
+    const content = String(message?.content ?? message?.mes ?? message?.text ?? '').trim();
+    if (!content) return null;
+    const role = message?.role === 'user' ? 'user' : (message?.role === 'assistant' ? 'assistant' : fallbackRole);
+    return Object.assign({}, message, {
+        id: message?.id || (Date.now() + index + Math.random().toString(36).slice(2, 8)),
+        time: Number.isFinite(Number(message?.time)) ? Number(message.time) : (Date.now() + index),
+        role,
+        content
+    });
+}
+
+function normalizeImportedChatHistory(chatHistory, fallbackAssistantText = '') {
+    const normalized = Array.isArray(chatHistory)
+        ? chatHistory.map((message, index) => normalizeImportedMessage(message, index)).filter(Boolean)
+        : [];
+
+    if (normalized.length) {
+        return normalized;
+    }
+
+    const greeting = String(fallbackAssistantText || '').trim();
+    if (!greeting) {
+        return [];
+    }
+
+    return [normalizeImportedMessage({ role: 'assistant', content: greeting }, 0, 'assistant')].filter(Boolean);
+}
+
+function buildImportedContactBundle(payload, options = {}) {
+    const root = getImportedPayloadRoot(payload);
+    const sourceContact = payload?.contact && typeof payload.contact === 'object'
+        ? payload.contact
+        : (root?.contact && typeof root.contact === 'object' ? root.contact : null);
+
+    const resolvedName = String(
+        sourceContact?.name
+        || root?.name
+        || payload?.name
+        || root?.char_name
+        || payload?.char_name
+        || getImportFileBaseName(options.fileName)
+    ).trim();
+
+    if (!resolvedName) {
+        throw new Error('未识别到角色名称');
+    }
+
+    const resolvedRemark = String(sourceContact?.remark || sourceContact?.nickname || '').trim();
+    const resolvedPersona = String(sourceContact?.persona || buildImportedPersonaText(payload, root) || '').trim();
+    const fallbackContact = createBaseContactPayload({
+        name: resolvedName,
+        remark: resolvedRemark,
+        persona: resolvedPersona,
+        avatar: sourceContact?.avatar || root?.avatar || payload?.avatar || options.avatarDataUrl || ''
+    });
+
+    const contact = Object.assign({}, fallbackContact, sourceContact || {});
+    contact.id = Date.now() + Math.floor(Math.random() * 1000);
+    contact.name = resolvedName;
+    contact.nickname = String(contact.nickname || resolvedName).trim() || resolvedName;
+    contact.remark = resolvedRemark;
+    contact.persona = resolvedPersona;
+    contact.avatar = String(contact.avatar || options.avatarDataUrl || fallbackContact.avatar);
+    contact.linkedWbCategories = [];
+    contact.linkedStickerCategories = [];
+
+    const firstMessage = String(root?.first_mes || payload?.first_mes || '').trim();
+    const chatHistory = normalizeImportedChatHistory(payload?.chatHistory || root?.chatHistory, firstMessage);
+
+    return {
+        contact,
+        chatHistory,
+        moments: Array.isArray(payload?.moments) ? payload.moments : [],
+        memories: Array.isArray(payload?.memories) ? payload.memories : [],
+        meetings: payload?.meetings || null,
+        phoneLayout: payload?.phoneLayout || null,
+        phoneContent: payload?.phoneContent || null,
+        itinerary: payload?.itinerary || null,
+        worldbookEntries: extractImportedWorldbookEntries(payload, root),
+        worldbookDescription: String(root?.character_book?.description || payload?.character_book?.description || '').trim(),
+        regexEntries: extractImportedRegexEntries(payload, root)
+    };
+}
+
+async function finalizeImportedContactBundle(bundle) {
+    const state = window.iphoneSimState;
+    if (!state) throw new Error('应用状态未初始化');
+
+    if (!Array.isArray(state.contacts)) state.contacts = [];
+    if (!state.chatHistory || typeof state.chatHistory !== 'object') state.chatHistory = {};
+    if (!Array.isArray(state.moments)) state.moments = [];
+    if (!Array.isArray(state.memories)) state.memories = [];
+
+    const contact = bundle.contact;
+    state.contacts.push(contact);
+    state.chatHistory[contact.id] = Array.isArray(bundle.chatHistory) ? bundle.chatHistory : [];
+
+    (Array.isArray(bundle.moments) ? bundle.moments : []).forEach((item, index) => {
+        state.moments.push(Object.assign({}, item, {
+            id: item?.id || (Date.now() + index + Math.floor(Math.random() * 1000)),
+            contactId: contact.id
+        }));
+    });
+
+    (Array.isArray(bundle.memories) ? bundle.memories : []).forEach((item, index) => {
+        state.memories.push(Object.assign({}, item, {
+            id: item?.id || (Date.now() + index + Math.floor(Math.random() * 1000)),
+            contactId: contact.id
+        }));
+    });
+
+    if (bundle.meetings) {
+        if (!state.meetings || typeof state.meetings !== 'object') state.meetings = {};
+        state.meetings[contact.id] = bundle.meetings;
+    }
+    if (bundle.phoneLayout) {
+        if (!state.phoneLayouts || typeof state.phoneLayouts !== 'object') state.phoneLayouts = {};
+        state.phoneLayouts[contact.id] = bundle.phoneLayout;
+    }
+    if (bundle.phoneContent) {
+        if (!state.phoneContent || typeof state.phoneContent !== 'object') state.phoneContent = {};
+        state.phoneContent[contact.id] = bundle.phoneContent;
+    }
+    if (bundle.itinerary) {
+        if (!state.itineraries || typeof state.itineraries !== 'object') state.itineraries = {};
+        state.itineraries[contact.id] = bundle.itinerary;
+    }
+
+    let worldbookResult = null;
+    if (Array.isArray(bundle.worldbookEntries) && bundle.worldbookEntries.length > 0 && typeof window.upsertWorldbookImportBundle === 'function') {
+        try {
+            worldbookResult = window.upsertWorldbookImportBundle({
+                categoryName: contact.name,
+                description: bundle.worldbookDescription || `来自 ${contact.name} 的导入资料`,
+                entries: bundle.worldbookEntries,
+                replaceExisting: true
+            });
+            if (worldbookResult?.categoryId) {
+                contact.linkedWbCategories = [worldbookResult.categoryId];
+            }
+        } catch (err) {
+            console.error('Worldbook import failed', err);
+        }
+    }
+
+    let regexResult = null;
+    if (Array.isArray(bundle.regexEntries) && bundle.regexEntries.length > 0 && window.PresetApp && typeof window.PresetApp.upsertImportedRegexBundle === 'function') {
+        try {
+            regexResult = await window.PresetApp.upsertImportedRegexBundle({
+                presetTitle: contact.name,
+                categoryName: contact.name,
+                regexEntries: bundle.regexEntries,
+                replaceExisting: true
+            });
+        } catch (err) {
+            console.error('Regex import failed', err);
+        }
+    }
+
+    await Promise.resolve(saveConfig());
+    if (window.renderContactList) {
+        window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
+    }
+
+    resetAddContactForm();
+    closeAddContactModeChooser();
+    const addContactModal = document.getElementById('add-contact-modal');
+    if (addContactModal) addContactModal.classList.add('hidden');
+
+    const summary = [
+        `联系人：${contact.name}`,
+        worldbookResult ? `世界书：${worldbookResult.entryCount} 条` : '世界书：0 条',
+        regexResult ? `正则：${regexResult.entryCount} 条` : '正则：0 条'
+    ];
+    alert(`导入成功\n${summary.join('\n')}`);
+    openChat(contact.id);
+}
+
+async function handleImportContactFileSelection(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+
+    try {
+        const parsedResult = await parseContactImportFile(file);
+        const bundle = buildImportedContactBundle(parsedResult.payload, {
+            fileName: file.name,
+            avatarDataUrl: parsedResult.avatarDataUrl
+        });
+        await finalizeImportedContactBundle(bundle);
+    } catch (err) {
+        console.error('Import contact bundle failed', err);
+        alert(`导入失败：${err && err.message ? err.message : '文件格式错误'}`);
+    } finally {
+        if (event && event.target) {
+            event.target.value = '';
+        }
+    }
+}
+
+function handleSaveContact() {
+    const name = document.getElementById('contact-name').value;
+    const remark = document.getElementById('contact-remark').value;
+    const persona = document.getElementById('contact-persona').value;
+    const avatarInput = document.getElementById('contact-avatar-upload');
+    
+    if (!name) {
+        alert('请输入姓名');
+        return;
+    }
+
+    const contact = createBaseContactPayload({ name, remark, persona });
 
     if (avatarInput.files && avatarInput.files[0]) {
         compressImage(avatarInput.files[0], 300, 0.7).then(base64 => {
@@ -1212,16 +1736,7 @@ function saveContactAndClose(contact) {
     window.iphoneSimState.contacts.push(contact);
     saveConfig();
     renderContactList(window.iphoneSimState.currentContactGroup || 'all');
-    
-    document.getElementById('contact-name').value = '';
-    document.getElementById('contact-remark').value = '';
-    document.getElementById('contact-persona').value = '';
-    document.getElementById('contact-avatar-upload').value = '';
-    const preview = document.getElementById('contact-avatar-preview');
-    if (preview) {
-        preview.innerHTML = '<i class="fas fa-camera"></i>';
-    }
-    
+    resetAddContactForm();
     document.getElementById('add-contact-modal').classList.add('hidden');
     openChat(contact.id);
 }
@@ -3139,6 +3654,16 @@ function handleSaveChatSettings() {
                 resolve();
             });
         }));
+    }
+
+    if (typeof window.persistFireBuddySettings === 'function') {
+        promises.push(
+            Promise.resolve()
+                .then(() => window.persistFireBuddySettings())
+                .catch(err => {
+                    console.error('保存小火人设置失败', err);
+                })
+        );
     }
 
     Promise.all(promises).then(() => {

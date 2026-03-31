@@ -836,6 +836,205 @@ function compressImage(file, maxWidth = 1024, quality = 0.7) {
     });
 }
 
+const CHAT_MEDIA_REF_PREFIX = 'chat-media://';
+const CHAT_MEDIA_PIXEL_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+const chatMediaObjectUrlCache = new Map();
+
+function getChatMediaStore() {
+    if (typeof localforage === 'undefined' || typeof localforage.createInstance !== 'function') {
+        return null;
+    }
+    if (!window.__iphoneSimChatMediaStore) {
+        window.__iphoneSimChatMediaStore = localforage.createInstance({
+            name: 'iphoneSimChatMedia'
+        });
+    }
+    return window.__iphoneSimChatMediaStore;
+}
+
+function isChatMediaReference(value) {
+    return typeof value === 'string' && value.startsWith(CHAT_MEDIA_REF_PREFIX);
+}
+
+function buildChatMediaReference(key) {
+    return `${CHAT_MEDIA_REF_PREFIX}${String(key || '').trim()}`;
+}
+
+function getChatMediaKeyFromReference(reference) {
+    if (!isChatMediaReference(reference)) return '';
+    return reference.slice(CHAT_MEDIA_REF_PREFIX.length).trim();
+}
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        if (!(blob instanceof Blob)) {
+            reject(new Error('invalid blob'));
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = (err) => reject(err || new Error('blob read failed'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+function loadImageElement(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = (err) => reject(err || new Error('image load failed'));
+        img.src = src;
+    });
+}
+
+function canvasToBlob(canvas, type = 'image/jpeg', quality = 0.7) {
+    return new Promise((resolve, reject) => {
+        if (!canvas || typeof canvas.toBlob !== 'function') {
+            reject(new Error('canvas.toBlob unavailable'));
+            return;
+        }
+        canvas.toBlob((blob) => {
+            if (blob) {
+                resolve(blob);
+            } else {
+                reject(new Error('canvas blob conversion failed'));
+            }
+        }, type, quality);
+    });
+}
+
+async function compressImageToBlob(file, maxEdge = 1024, quality = 0.7) {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+        const img = await loadImageElement(objectUrl);
+        let width = img.width;
+        let height = img.height;
+        const longestEdge = Math.max(width, height);
+        if (longestEdge > maxEdge) {
+            const ratio = maxEdge / longestEdge;
+            width = Math.max(1, Math.round(width * ratio));
+            height = Math.max(1, Math.round(height * ratio));
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        return await canvasToBlob(canvas, 'image/jpeg', quality);
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+}
+
+async function dataUrlToBlob(dataUrl) {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) {
+        throw new Error('invalid data url');
+    }
+    const response = await fetch(dataUrl);
+    return response.blob();
+}
+
+async function saveChatMediaBlob(blob, metadata = {}) {
+    if (!(blob instanceof Blob)) {
+        throw new Error('invalid chat media blob');
+    }
+
+    const store = getChatMediaStore();
+    if (!store) {
+        throw new Error('chat media store unavailable');
+    }
+
+    const key = `chat-image-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    await store.setItem(key, {
+        blob,
+        createdAt: Date.now(),
+        type: blob.type || metadata.type || 'image/jpeg',
+        name: metadata.name || ''
+    });
+    return buildChatMediaReference(key);
+}
+
+async function getChatMediaBlob(reference) {
+    const store = getChatMediaStore();
+    const key = getChatMediaKeyFromReference(reference);
+    if (!store || !key) return null;
+
+    const stored = await store.getItem(key);
+    if (!stored) return null;
+    if (stored instanceof Blob) return stored;
+    if (stored.blob instanceof Blob) return stored.blob;
+    return null;
+}
+
+async function resolveChatMediaSrc(reference) {
+    if (!isChatMediaReference(reference)) return typeof reference === 'string' ? reference : '';
+    if (chatMediaObjectUrlCache.has(reference)) {
+        return chatMediaObjectUrlCache.get(reference);
+    }
+
+    const blob = await getChatMediaBlob(reference);
+    if (!(blob instanceof Blob)) return '';
+
+    const objectUrl = URL.createObjectURL(blob);
+    chatMediaObjectUrlCache.set(reference, objectUrl);
+    return objectUrl;
+}
+
+async function resolveChatMediaDataUrl(reference) {
+    if (!isChatMediaReference(reference)) return typeof reference === 'string' ? reference : '';
+    const blob = await getChatMediaBlob(reference);
+    if (!(blob instanceof Blob)) return '';
+    return blobToDataUrl(blob);
+}
+
+async function migrateLegacyChatImageMessages() {
+    if (!state.chatHistory || typeof state.chatHistory !== 'object') return false;
+
+    let changed = false;
+    for (const contactId in state.chatHistory) {
+        const messages = Array.isArray(state.chatHistory[contactId]) ? state.chatHistory[contactId] : [];
+        for (const msg of messages) {
+            if (!msg || (msg.type !== 'image' && msg.type !== 'sticker')) continue;
+            const content = typeof msg.content === 'string' ? msg.content.trim() : '';
+            if (!content || !content.startsWith('data:image')) continue;
+
+            try {
+                const blob = await dataUrlToBlob(content);
+                msg.content = await saveChatMediaBlob(blob, {
+                    type: blob.type || 'image/jpeg'
+                });
+                changed = true;
+            } catch (error) {
+                console.warn('迁移历史聊天图片失败', error);
+            }
+        }
+    }
+
+    return changed;
+}
+
+function revokeCachedChatMediaUrls() {
+    chatMediaObjectUrlCache.forEach((objectUrl) => {
+        try {
+            URL.revokeObjectURL(objectUrl);
+        } catch (error) {
+            console.warn('释放聊天图片缓存失败', error);
+        }
+    });
+    chatMediaObjectUrlCache.clear();
+}
+
+window.CHAT_MEDIA_PIXEL_PLACEHOLDER = CHAT_MEDIA_PIXEL_PLACEHOLDER;
+window.isChatMediaReference = isChatMediaReference;
+window.compressImageToBlob = compressImageToBlob;
+window.saveChatMediaBlob = saveChatMediaBlob;
+window.resolveChatMediaSrc = resolveChatMediaSrc;
+window.resolveChatMediaDataUrl = resolveChatMediaDataUrl;
+window.getChatMediaBlob = getChatMediaBlob;
+
 function compressBase64(base64, maxWidth = 1024, quality = 0.7) {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -1338,7 +1537,8 @@ async function loadConfig() {
 
             const memoryMigrationChanged = migrateMemorySchemaV2();
             const socialContentSanitized = sanitizeAutoGeneratedSocialContent();
-            if (memoryMigrationChanged || socialContentSanitized) {
+            const chatMediaMigrated = await migrateLegacyChatImageMessages();
+            if (memoryMigrationChanged || socialContentSanitized || chatMediaMigrated) {
                 saveConfig();
             }
         }
@@ -1378,7 +1578,14 @@ window.updateAudioSession = function() {
 
 function handleClearAllData() {
     if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
-        localforage.clear().then(() => {
+        Promise.all([
+            localforage.clear(),
+            (() => {
+                const store = getChatMediaStore();
+                return store ? store.clear() : Promise.resolve();
+            })()
+        ]).then(() => {
+            revokeCachedChatMediaUrls();
             localStorage.removeItem('iphoneSimConfig');
             alert('Operation completed.');
             location.reload();

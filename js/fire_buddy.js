@@ -1002,7 +1002,7 @@
 
     function persistFireBuddySettings() {
         const contact = getFireBuddySettingsContact();
-        if (!contact) return;
+        if (!contact) return Promise.resolve(null);
 
         const fireBuddy = ensureFireBuddy(contact);
         const enabledEl = document.getElementById('chat-setting-fire-buddy-enabled');
@@ -1027,6 +1027,22 @@
         fireBuddy.ui.petSize = clampFireBuddyPetSize(petSizeSlider ? petSizeSlider.value : fireBuddy.ui.petSize);
         fireBuddy.ui.petPosition = normalizeFireBuddyPetPosition(fireBuddy.ui.petPosition);
 
+        const refreshFireBuddyChatSurfaces = () => {
+            if (String(getState().currentChatContactId || '') !== String(contact.id)) {
+                return;
+            }
+
+            if (typeof window.renderChatHistory === 'function') {
+                window.renderChatHistory(contact.id, true);
+            }
+
+            syncFireBuddyComposer(contact.id);
+
+            if (typeof syncFireBuddyMentionMenu === 'function') {
+                syncFireBuddyMentionMenu();
+            }
+        };
+
         const finalizePersist = () => {
             if (typeof window.saveConfig === 'function') {
                 window.saveConfig();
@@ -1036,19 +1052,20 @@
             if (typeof window.renderContactList === 'function') {
                 window.renderContactList(getState().currentContactGroup || 'all');
             }
+            refreshFireBuddyChatSurfaces();
+            return contact;
         };
 
         const file = petImageInput && petImageInput.files ? petImageInput.files[0] : null;
         if (!file) {
-            finalizePersist();
-            return;
+            return Promise.resolve(finalizePersist());
         }
 
-        loadFireBuddyPetImage(file).then((base64) => {
+        return loadFireBuddyPetImage(file).then((base64) => {
             if (base64) {
                 fireBuddy.ui.petImage = base64;
             }
-            finalizePersist();
+            return finalizePersist();
         });
     }
 
@@ -1063,7 +1080,6 @@
         const petSizeSlider = document.getElementById('chat-setting-fire-buddy-pet-size');
         const chatSettingsBtn = document.getElementById('chat-settings-btn');
         const aiProfileMoreBtn = document.getElementById('ai-profile-more');
-        const saveBtn = document.getElementById('save-chat-settings-btn');
         const settingsScreen = document.getElementById('chat-settings-screen');
 
         if (enabledEl) {
@@ -1128,7 +1144,6 @@
 
         if (chatSettingsBtn) chatSettingsBtn.addEventListener('click', delayedHydrate);
         if (aiProfileMoreBtn) aiProfileMoreBtn.addEventListener('click', delayedHydrate);
-        if (saveBtn) saveBtn.addEventListener('click', () => window.setTimeout(persistFireBuddySettings, 0));
 
         if (settingsScreen && typeof MutationObserver !== 'undefined') {
             const observer = new MutationObserver(() => {
@@ -2577,6 +2592,7 @@
     window.buildFireBuddyContactSystemPrompt = buildFireBuddyContactSystemPrompt;
     window.runPendingFireBuddyReplyBurst = runPendingFireBuddyReplyBurst;
     window.runFireBuddyReplyBurstForAssistantMessage = runFireBuddyReplyBurstForAssistantMessage;
+    window.persistFireBuddySettings = persistFireBuddySettings;
     window.handleFireBuddyAction = function handleFireBuddyAction(action) {
         if (action === 'bind') {
             bindFireBuddyCurrentContact();

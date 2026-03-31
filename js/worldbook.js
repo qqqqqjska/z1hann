@@ -509,8 +509,89 @@ function setupWorldbookListeners() {
 }
 
 // 暴露给 core.js 调用
+function normalizeImportedWbKeys(entry) {
+    const buckets = [];
+    if (Array.isArray(entry?.keys)) buckets.push(entry.keys);
+    if (Array.isArray(entry?.secondary_keys)) buckets.push(entry.secondary_keys);
+    if (typeof entry?.keys === 'string') buckets.push(entry.keys.split(/[\n,，]/));
+    if (typeof entry?.secondary_keys === 'string') buckets.push(entry.secondary_keys.split(/[\n,，]/));
+    if (typeof entry?.key === 'string') buckets.push(entry.key.split(/[\n,，]/));
+    return Array.from(new Set(buckets.flat().map(key => String(key || '').trim()).filter(Boolean)));
+}
+
+function normalizeImportedWbEntries(entries, categoryId) {
+    if (!Array.isArray(entries)) return [];
+    return entries.map((entry, index) => {
+        const keys = normalizeImportedWbKeys(entry);
+        const content = String(entry?.content ?? entry?.text ?? entry?.value ?? '').trim();
+        if (!content) return null;
+        return {
+            id: Date.now() + index + Math.floor(Math.random() * 1000),
+            categoryId,
+            remark: String(entry?.remark ?? entry?.comment ?? entry?.title ?? entry?.name ?? keys[0] ?? `条目 ${index + 1}`).trim(),
+            keys,
+            content,
+            enabled: entry?.enabled !== false
+        };
+    }).filter(Boolean);
+}
+
+function upsertWorldbookImportBundle(bundle = {}) {
+    const state = window.iphoneSimState;
+    if (!state) return null;
+
+    const categoryName = String(bundle.categoryName || '').trim();
+    if (!categoryName) return null;
+
+    if (!Array.isArray(state.wbCategories)) state.wbCategories = [];
+    if (!Array.isArray(state.worldbook)) state.worldbook = [];
+
+    const replaceExisting = bundle.replaceExisting !== false;
+    const categoryDesc = String(bundle.description || '').trim();
+
+    let category = state.wbCategories.find(cat => String(cat?.name || '').trim() === categoryName);
+    const existed = !!category;
+
+    if (!category) {
+        category = {
+            id: Date.now() + Math.floor(Math.random() * 1000),
+            name: categoryName,
+            desc: categoryDesc
+        };
+        state.wbCategories.push(category);
+    } else if (categoryDesc) {
+        category.desc = categoryDesc;
+    }
+
+    if (replaceExisting) {
+        state.worldbook = state.worldbook.filter(entry => entry.categoryId !== category.id);
+    }
+
+    const normalizedEntries = normalizeImportedWbEntries(bundle.entries, category.id);
+    if (normalizedEntries.length) {
+        state.worldbook.push(...normalizedEntries);
+    }
+
+    saveConfig();
+
+    if (typeof renderWbCategories === 'function') {
+        renderWbCategories();
+    }
+    if (wbCurrentCategory && wbCurrentCategory.id === category.id && typeof renderWbEntries === 'function') {
+        renderWbEntries(category.id);
+    }
+
+    return {
+        categoryId: category.id,
+        categoryName: category.name,
+        entryCount: normalizedEntries.length,
+        existed
+    };
+}
+
 window.renderWorldbookCategoryList = renderWbCategories;
 window.migrateWorldbookData = migrateWorldbookData;
+window.upsertWorldbookImportBundle = upsertWorldbookImportBundle;
 
 // 注册初始化函数
 if (window.appInitFunctions) {

@@ -2346,6 +2346,108 @@
             : [];
     }
 
+    function upsertImportedRegexBundle(bundle) {
+        const payload = bundle || {};
+        const presetTitle = String(payload.presetTitle || payload.categoryName || 'Imported Preset').trim() || 'Imported Preset';
+        const categoryName = String(payload.categoryName || presetTitle).trim() || presetTitle;
+        const replaceExisting = payload.replaceExisting !== false;
+
+        return Promise.resolve(presetReadyPromise || Promise.resolve()).then(function () {
+            const sourceEntries = Array.isArray(payload.regexEntries) ? payload.regexEntries : [];
+            const normalizedEntries = cloneRegexEntries(sourceEntries).map(function (entry) {
+                return Object.assign({}, entry, {
+                    id: createEntityId('regex')
+                });
+            });
+
+            if (!normalizedEntries.length) {
+                return {
+                    presetId: null,
+                    presetTitle: presetTitle,
+                    categoryId: null,
+                    categoryName: categoryName,
+                    entryCount: 0
+                };
+            }
+
+            let presetIndex = presetState.data.findIndex(function (preset) {
+                return String(preset?.title || '').trim() === presetTitle;
+            });
+
+            if (presetIndex < 0) {
+                presetState.data.push({
+                    uid: createEntityId('preset'),
+                    id: getNextPresetId(),
+                    title: presetTitle,
+                    items: [],
+                    regexEntries: [],
+                    regexCategories: [],
+                    activeRegexCategoryId: null
+                });
+                presetIndex = presetState.data.length - 1;
+            }
+
+            const preset = presetState.data[presetIndex];
+            preset.items = Array.isArray(preset.items) ? preset.items : [];
+            preset.regexEntries = cloneRegexEntries(preset.regexEntries);
+            preset.regexCategories = cloneRegexCategories(preset.regexCategories, preset.regexEntries.map(function (entry) {
+                return entry.id;
+            }));
+
+            if (replaceExisting) {
+                const existingCategory = preset.regexCategories.find(function (category) {
+                    return String(category?.name || '').trim() === categoryName;
+                });
+                if (existingCategory) {
+                    const removeIds = new Set(uniqueStringList(existingCategory.regexEntryIds));
+                    preset.regexEntries = preset.regexEntries.filter(function (entry) {
+                        return !removeIds.has(String(entry?.id || ''));
+                    });
+                    preset.regexCategories = preset.regexCategories
+                        .filter(function (category) {
+                            return category.id !== existingCategory.id;
+                        })
+                        .map(function (category) {
+                            return Object.assign({}, category, {
+                                regexEntryIds: uniqueStringList(category.regexEntryIds).filter(function (entryId) {
+                                    return !removeIds.has(entryId);
+                                })
+                            });
+                        });
+                }
+            }
+
+            let category = null;
+            if (normalizedEntries.length) {
+                category = {
+                    id: createEntityId('regex-category'),
+                    name: categoryName,
+                    regexEntryIds: normalizedEntries.map(function (entry) {
+                        return entry.id;
+                    })
+                };
+                preset.regexEntries = preset.regexEntries.concat(normalizedEntries);
+                preset.regexCategories.push(category);
+                preset.activeRegexCategoryId = category.id;
+            }
+
+            presetState.currentIndex = presetIndex;
+            persistState();
+            renderPresetHeader();
+            renderPresetList(presetState.currentIndex);
+            renderRegexGrid();
+            setActiveTab(presetState.activeTab);
+
+            return {
+                presetId: preset.uid || preset.id,
+                presetTitle: preset.title,
+                categoryId: category ? category.id : null,
+                categoryName: category ? category.name : categoryName,
+                entryCount: normalizedEntries.length
+            };
+        });
+    }
+
     window.PresetApp = {
         init: init,
         openApp: openApp,
@@ -2361,6 +2463,7 @@
         getActivePresetItemsById: getActivePresetItemsById,
         getRegexEntriesByPresetId: getRegexEntriesByPresetId,
         getRegexCategoriesByPresetId: getRegexCategoriesByPresetId,
+        upsertImportedRegexBundle: upsertImportedRegexBundle,
         getActivePresetPrompts: getActivePresetPrompts,
         getPresetContextString: getPresetContextString
     };

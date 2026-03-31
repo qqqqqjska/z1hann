@@ -409,7 +409,14 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     
     let contentHtml = '';
     if (type === 'image' || type === 'sticker') {
-        contentHtml = `<img src="${text}" style="max-width: 200px; border-radius: 4px;">`;
+        const isDeferredChatMedia = typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(text);
+        const initialImageSrc = isDeferredChatMedia
+            ? (window.CHAT_MEDIA_PIXEL_PLACEHOLDER || '')
+            : text;
+        const deferredAttr = isDeferredChatMedia
+            ? ` data-chat-media-ref="${encodeURIComponent(text)}"`
+            : '';
+        contentHtml = `<img src="${initialImageSrc}"${deferredAttr} onclick="showImagePreview(this.src)" loading="lazy" decoding="async" style="max-width: 200px; border-radius: 4px;">`;
     } else if (type === 'voice') {
         let duration = '0:01';
         let transText = '[语音]';
@@ -575,7 +582,10 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         extraClass += ' family-card-msg';
     } else if (type === 'sticker') {
         extraClass = 'sticker-msg';
-        contentHtml = `<img src="${text}" onclick="showImagePreview(this.src)">`;
+        const isDeferredSticker = typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(text);
+        const stickerSrc = isDeferredSticker ? (window.CHAT_MEDIA_PIXEL_PLACEHOLDER || '') : text;
+        const stickerRefAttr = isDeferredSticker ? ` data-chat-media-ref="${encodeURIComponent(text)}"` : '';
+        contentHtml = `<img src="${stickerSrc}"${stickerRefAttr} onclick="showImagePreview(this.src)">`;
     } else if (type === 'voice') {
         extraClass = 'voice-msg'; 
     } else if (type === 'description') {
@@ -1212,9 +1222,20 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
 
     let replyHtml = '';
     if (replyTo) {
+        let replyPreviewText = String(replyTo.content || '').trim();
+        if (replyTo.type === 'image' || replyTo.type === 'virtual_image') {
+            replyPreviewText = '[图片]';
+        } else if (replyTo.type === 'sticker') {
+            replyPreviewText = '[表情包]';
+        } else if (replyTo.type === 'voice') {
+            replyPreviewText = '[语音]';
+        } else if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(replyPreviewText)) {
+            replyPreviewText = '[图片]';
+        }
+
         replyHtml = `
             <div class="quote-container">
-                回复 ${replyTo.name}: ${replyTo.content}
+                回复 ${escapeChatMessageHtml(replyTo.name)}: ${escapeChatMessageHtml(replyPreviewText)}
             </div>
         `;
     }
@@ -1395,6 +1416,27 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     container.appendChild(msgDiv);
+    hydrateDeferredChatMedia(msgDiv);
+}
+
+function hydrateDeferredChatMedia(messageNode) {
+    if (!messageNode || typeof window.resolveChatMediaSrc !== 'function') return;
+
+    messageNode.querySelectorAll('img[data-chat-media-ref]').forEach(img => {
+        if (img.dataset.chatMediaHydrated === '1') return;
+        img.dataset.chatMediaHydrated = '1';
+
+        const encodedRef = img.getAttribute('data-chat-media-ref');
+        if (!encodedRef) return;
+
+        const mediaRef = decodeURIComponent(encodedRef);
+        window.resolveChatMediaSrc(mediaRef).then((resolvedSrc) => {
+            if (!resolvedSrc) return;
+            img.src = resolvedSrc;
+        }).catch((error) => {
+            console.warn('聊天图片加载失败', error);
+        });
+    });
 }
 
 function enterMultiSelectMode(preselectMsgId) {
@@ -1655,7 +1697,7 @@ function showContextMenu(targetEl, msgData) {
     };
     const setAvatarBtn = menu.querySelector('#menu-set-avatar');
     if (setAvatarBtn) {
-        setAvatarBtn.onclick = () => {
+        setAvatarBtn.onclick = async () => {
             menu.remove();
             if (!window.iphoneSimState.currentChatContactId) return;
             const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
@@ -1663,13 +1705,9 @@ function showContextMenu(targetEl, msgData) {
 
             if (confirm(`确定要将这张图片设为 "${contact.remark || contact.name}" 的头像吗？`)) {
                 let newAvatar = msgData.content;
-                // If it's a sticker or virtual image with complex structure, handle it?
-                // Usually msgData.content is the URL/Base64 for these types in appendMessageToUI calls
-                // But for virtual_image in showContextMenu caller, content passed might be just URL if extracted correctly.
-                // handleMessageLongPress passes 'content' which is 'text' from appendMessageToUI args.
-                // In appendMessageToUI:
-                // if type is image/sticker, text is URL.
-                // if type is virtual_image, text is URL.
+                if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(newAvatar)) {
+                    newAvatar = await window.resolveChatMediaDataUrl(newAvatar) || await window.resolveChatMediaSrc(newAvatar) || newAvatar;
+                }
                 
                 contact.avatar = newAvatar;
                 saveConfig();
@@ -1712,7 +1750,11 @@ function showContextMenu(targetEl, msgData) {
             try {
                 const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
                 const sourceLabel = contact ? `Saved from ${contact.remark || contact.name}` : 'Saved from Chat';
-                const result = await window.savePhotoToAlbumLibrary(fullMsg.content, {
+                let imageSource = fullMsg.content;
+                if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(imageSource)) {
+                    imageSource = await window.resolveChatMediaSrc(imageSource) || await window.resolveChatMediaDataUrl(imageSource) || imageSource;
+                }
+                const result = await window.savePhotoToAlbumLibrary(imageSource, {
                     location: sourceLabel
                 });
 
@@ -2294,6 +2336,16 @@ async function convertAiRequestImageUrlToDataUrl(url) {
     }
 
     const pendingTask = (async () => {
+        if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(normalizedUrl)) {
+            if (typeof window.resolveChatMediaDataUrl === 'function') {
+                const dataUrl = await window.resolveChatMediaDataUrl(normalizedUrl);
+                if (dataUrl) {
+                    return dataUrl;
+                }
+            }
+            throw new Error('chat media reference could not be resolved');
+        }
+
         const response = await fetch(normalizedUrl);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -2457,13 +2509,157 @@ function escapeContextAttrText(text) {
         .trim();
 }
 
-function buildContextRecordPrefix(msg) {
+function buildContextRecordPrefix(msg, extraAttrs = null) {
     if (!msg) return '';
-    const msgId = escapeContextAttrText(msg.id || '');
-    const timestamp = Number.isFinite(Number(msg.time)) ? Number(msg.time) : '';
-    const role = escapeContextAttrText(msg.role || 'assistant');
-    const type = escapeContextAttrText(msg.type || 'text');
-    return `[context_record msg_id="${msgId}" timestamp="${timestamp}" role="${role}" type="${type}"]`;
+    const attrs = [
+        `msg_id="${escapeContextAttrText(msg.id || '')}"`,
+        `timestamp="${escapeContextAttrText(Number.isFinite(Number(msg.time)) ? Number(msg.time) : '')}"`,
+        `role="${escapeContextAttrText(msg.role || 'assistant')}"`,
+        `type="${escapeContextAttrText(msg.type || 'text')}"`
+    ];
+    if (extraAttrs && typeof extraAttrs === 'object') {
+        Object.entries(extraAttrs).forEach(([key, value]) => {
+            if (!key) return;
+            if (value === undefined || value === null || value === '') return;
+            attrs.push(`${key}="${escapeContextAttrText(value)}"`);
+        });
+    }
+    return `[context_record ${attrs.join(' ')}]`;
+}
+
+function getAllUserImageMessages(history) {
+    if (!Array.isArray(history) || history.length === 0) return [];
+    return history.filter(msg => msg && msg.role === 'user' && msg.type === 'image' && msg.content);
+}
+
+function getLatestUserImageTurnCandidates(history) {
+    if (!Array.isArray(history) || history.length === 0) return [];
+    let startIndex = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i];
+        if (!msg) continue;
+        if (msg.role === 'assistant') {
+            startIndex = i + 1;
+            break;
+        }
+    }
+    return history.slice(startIndex).filter(msg => msg && msg.role === 'user' && msg.type === 'image' && msg.content);
+}
+
+function buildLatestUserImageSelectionMetaMap(history) {
+    const candidates = getLatestUserImageTurnCandidates(history);
+    const metaMap = new Map();
+    const total = candidates.length;
+    candidates.forEach((msg, index) => {
+        if (!msg || !msg.id) return;
+        metaMap.set(String(msg.id), {
+            index: index + 1,
+            total,
+            msg
+        });
+    });
+    return metaMap;
+}
+
+function resolveAvatarUpdateTargetImage(history, payloadRaw = '') {
+    const allUserImages = getAllUserImageMessages(history);
+    if (allUserImages.length === 0) return null;
+
+    const latestTurnCandidates = getLatestUserImageTurnCandidates(history);
+    const rawPayload = String(payloadRaw || '').trim();
+    const normalizedPayload = rawPayload.replace(/^["'`\s]+|["'`\s]+$/g, '').trim();
+
+    const findByExactId = (targetId) => {
+        const safeTargetId = String(targetId || '').trim();
+        if (!safeTargetId) return null;
+        return allUserImages.find(msg => String(msg.id || '') === safeTargetId) || null;
+    };
+
+    const findByUniqueIdPrefix = (targetId) => {
+        const safeTargetId = String(targetId || '').trim();
+        if (!safeTargetId) return null;
+        const matched = allUserImages.filter(msg => String(msg.id || '').startsWith(safeTargetId));
+        return matched.length === 1 ? matched[0] : null;
+    };
+
+    const findByLatestTurnIndex = (targetIndex) => {
+        const imageIndex = Number.parseInt(targetIndex, 10);
+        if (!Number.isFinite(imageIndex) || imageIndex < 1) return null;
+        return latestTurnCandidates[imageIndex - 1] || null;
+    };
+
+    const findByReverseImageOffset = (offset = 0) => {
+        const safeOffset = Number.parseInt(offset, 10);
+        if (!Number.isFinite(safeOffset) || safeOffset < 0) return null;
+        const target = allUserImages[allUserImages.length - 1 - safeOffset];
+        return target || null;
+    };
+
+    const tryResolveCandidate = (candidate) => {
+        const text = String(candidate || '').trim();
+        if (!text) return null;
+
+        const exactIdMatch = findByExactId(text);
+        if (exactIdMatch) return exactIdMatch;
+
+        const uniquePrefixMatch = findByUniqueIdPrefix(text);
+        if (uniquePrefixMatch) return uniquePrefixMatch;
+
+        let match = text.match(/^(?:avatar_pick_index|image_index|index)\s*[:=]\s*(\d+)$/i);
+        if (match) {
+            return findByLatestTurnIndex(match[1]);
+        }
+
+        match = text.match(/^(?:msg_id|message_id|id)\s*[:=]\s*(.+)$/i);
+        if (match) {
+            return findByExactId(match[1]) || findByUniqueIdPrefix(match[1]);
+        }
+
+        match = text.match(/^(?:latest|last)(?:\s*[-:]\s*(\d+))?$/i);
+        if (match) {
+            return findByReverseImageOffset(match[1] || 0);
+        }
+
+        if (/^\d+$/.test(text)) {
+            return findByLatestTurnIndex(text);
+        }
+
+        return null;
+    };
+
+    if (normalizedPayload) {
+        if ((normalizedPayload.startsWith('{') && normalizedPayload.endsWith('}'))
+            || (normalizedPayload.startsWith('[') && normalizedPayload.endsWith(']'))) {
+            try {
+                const parsedPayload = JSON.parse(normalizedPayload);
+                if (parsedPayload && typeof parsedPayload === 'object' && !Array.isArray(parsedPayload)) {
+                    const imageIndex = parsedPayload.avatar_pick_index ?? parsedPayload.image_index ?? parsedPayload.index;
+                    const msgId = parsedPayload.msg_id ?? parsedPayload.message_id ?? parsedPayload.id;
+                    const byIndex = imageIndex !== undefined && imageIndex !== null
+                        ? findByLatestTurnIndex(imageIndex)
+                        : null;
+                    if (byIndex) return byIndex;
+                    const byId = msgId ? (findByExactId(msgId) || findByUniqueIdPrefix(msgId)) : null;
+                    if (byId) return byId;
+                }
+            } catch (error) {
+                console.warn('Failed to parse UPDATE_AVATAR payload as JSON.', error);
+            }
+        }
+
+        if (normalizedPayload.startsWith('[context_record')) {
+            const attrs = parseBracketAttributes(normalizedPayload);
+            const byIndex = attrs.avatar_pick_index ? findByLatestTurnIndex(attrs.avatar_pick_index) : null;
+            if (byIndex) return byIndex;
+            const byId = attrs.msg_id ? (findByExactId(attrs.msg_id) || findByUniqueIdPrefix(attrs.msg_id)) : null;
+            if (byId) return byId;
+        }
+
+        const directMatch = tryResolveCandidate(normalizedPayload);
+        if (directMatch) return directMatch;
+    }
+
+    return allUserImages[allUserImages.length - 1] || null;
 }
 
 function buildQuoteContextPrefix(replyTo) {
@@ -3246,10 +3442,11 @@ function buildWechatBaseCapabilityPrompt() {
         '  {"type":"action","command":"SAVINGS_DEPOSIT","payload":"金额 | 备注(可选)"}',
         '  {"type":"action","command":"SEND_GIFT","payload":"物品名称 | 价格 | 备注"}',
         '  {"type":"action","command":"SEND_DELIVERY","payload":"餐品名称 | 价格 | 备注"}',
-        '  {"type":"action","command":"UPDATE_NAME","payload":"新网名"} / UPDATE_WXID / UPDATE_SIGNATURE / UPDATE_AVATAR',
+        '  {"type":"action","command":"UPDATE_NAME","payload":"新网名"} / UPDATE_WXID / UPDATE_SIGNATURE / {"type":"action","command":"UPDATE_AVATAR","payload":"候选图片编号或 msg_id"}',
         '  {"type":"action","command":"PDD_CASH_HELP","payload":""}、{"type":"action","command":"PDD_BARGAIN_HELP","payload":"商品ID"}（仅在用户发送对应链接时使用）',
         '- 表情包请优先直接输出 sticker_message，不要改用旧式 SEND_STICKER。',
         '- 一次回复最多只发起一笔转账；发送图片时请给出具体画面描述；发朋友圈时可用 [图片描述: ...] 追加配图，纯图片朋友圈也可以只写图片描述标签；不想执行操作就不要输出 action。',
+        '- 当用户这一轮发来多张图片并让你换头像时，你可以自己挑最适合的一张；候选图片对应的 context_record 会带有 avatar_pick_index="1/2/3..."。此时请把 UPDATE_AVATAR 的 payload 写成你选中的 avatar_pick_index（优先）或该图的 msg_id；如果只有一张候选图，payload 可以留空。',
         '【状态动作】',
         '- {"type":"action","command":"RECORD_USER_STATE","payload":"reasonType | 标准化状态内容"}',
         '- {"type":"action","command":"RESOLVE_USER_STATE","payload":"reasonType | 状态结束描述"}',
@@ -3683,7 +3880,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         const updateNameRegex = /ACTION:\s*UPDATE_NAME:\s*(.*?)(?:\n|$)/;
         const updateWxidRegex = /ACTION:\s*UPDATE_WXID:\s*(.*?)(?:\n|$)/;
         const updateSignatureRegex = /ACTION:\s*UPDATE_SIGNATURE:\s*(.*?)(?:\n|$)/;
-        const updateAvatarRegex = /ACTION:\s*UPDATE_AVATAR(?:\s*|$)/;
+        const updateAvatarRegex = /ACTION:\s*UPDATE_AVATAR(?:\s*:\s*(.*?))?(?:\n|$)/;
         const quoteMessageRegex = /ACTION:\s*QUOTE_MESSAGE:\s*(.*?)(?:\n|$)/;
         const recordUserStateRegex = /ACTION:\s*RECORD_USER_STATE:\s*(.*?)(?:\n|$)/;
         const resolveUserStateRegex = /ACTION:\s*RESOLVE_USER_STATE:\s*(.*?)(?:\n|$)/;
@@ -4076,36 +4273,27 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
             let updateAvatarMatch;
             while ((updateAvatarMatch = processedSegment.match(updateAvatarRegex)) !== null) {
-                // Find the last image sent by user
-                let lastImageMsg = null;
-                for (let j = history.length - 1; j >= 0; j--) {
-                    if (history[j].role === 'user' && history[j].type === 'image') {
-                        lastImageMsg = history[j];
-                        break;
-                    }
-                }
+                const avatarPayload = (updateAvatarMatch[1] || '').trim();
+                const lastImageMsg = resolveAvatarUpdateTargetImage(history, avatarPayload);
 
                 if (lastImageMsg && lastImageMsg.content) {
-                    contact.avatar = lastImageMsg.content;
-                    saveConfig();
-                    
-                    // Refresh UI
-                    if (window.renderContactList) window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
-                    
-                    // Update header avatar if needed
-                    // (Header usually updates on chat open, but we can try to find the element)
-                    // Actually, re-opening chat or just updating the img src in DOM would be better.
-                    // But for simplicity, we rely on the system message to prompt user attention, 
-                    // and next render will show new avatar.
-                    // Or we can try to update the avatar in the message list if any are visible? 
-                    // The messages use contact.avatar when rendering 'other' messages.
-                    // We might need to refresh the current chat view to reflect the new avatar on old messages?
-                    // renderChatHistory(contact.id, true); // Preserve scroll
-                    
-                    setTimeout(() => {
+                    setTimeout(async () => {
+                        let nextAvatar = lastImageMsg.content;
+                        if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(nextAvatar)) {
+                            nextAvatar = await window.resolveChatMediaDataUrl(nextAvatar) || await window.resolveChatMediaSrc(nextAvatar) || nextAvatar;
+                        }
+
+                        contact.avatar = nextAvatar;
+                        saveConfig();
+                        if (window.renderContactList) window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
                         renderChatHistory(contact.id, true);
                         sendMessage(`[系统消息]: 对方更换了头像`, false, 'text');
                     }, 500);
+                } else if (avatarPayload) {
+                    console.warn('UPDATE_AVATAR payload did not resolve to a user image.', {
+                        contactId: contact.id,
+                        payload: avatarPayload
+                    });
                 }
                 processedSegment = processedSegment.replace(updateAvatarMatch[0], '');
             }
@@ -6071,6 +6259,8 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         contextMessages = messagesWithTimeGaps;
     }
 
+    const latestUserImageSelectionMetaMap = buildLatestUserImageSelectionMetaMap(history);
+
     const messages = [
         { role: 'system', content: systemPrompt },
         ...contextMessages.map(h => {
@@ -6096,7 +6286,16 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
                     console.warn('格式化小火人 mention 上下文失败', fireBuddyMentionFormatError);
                 }
             }
-            const contextPrefix = buildContextRecordPrefix(h);
+            const avatarSelectionMeta = latestUserImageSelectionMetaMap.get(String(h && h.id || ''));
+            const contextPrefix = buildContextRecordPrefix(
+                h,
+                avatarSelectionMeta
+                    ? {
+                        avatar_pick_index: avatarSelectionMeta.index,
+                        avatar_pick_total: avatarSelectionMeta.total
+                    }
+                    : null
+            );
             const quotePrefix = buildQuoteContextPrefix(h.replyTo);
             const structuredPrefix = joinContextTextParts(contextPrefix, quotePrefix);
             

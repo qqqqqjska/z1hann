@@ -5,10 +5,11 @@
  * 2. 修改 CHANGELOG_CONTENT 里的更新内容
  */
 
-const CHANGELOG_VERSION = 'v1.0.5'; // 修改这个版本号来让弹窗再次显示
+const CHANGELOG_VERSION = 'v1.0.6'; // 修改这个版本号来让弹窗再次显示
 const CHANGELOG_IMAGE = 'https://i.postimg.cc/7Lm6s43m/IMG-8241.jpg';
 const CHANGELOG_ITEMS = [
     '修复了一点bug，但是我还没测试，有问题可以填到我发的表格里',
+    '增加了导入角色卡、线下关联世界书功能'
 ];
 const CHANGELOG_ACCESS_READY_EVENT = 'z1han:access-ready';
 
