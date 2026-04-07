@@ -150,12 +150,12 @@
 }
 
 #chat-screen .food-invite-card {
-    width: min(260px, 72vw);
-    padding: 14px 15px 13px;
-    border-radius: 22px;
+    width: min(236px, 66vw);
+    padding: 12px 13px 11px;
+    border-radius: 20px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 247, 250, 0.96) 100%);
     border: 1px solid rgba(17, 24, 39, 0.08);
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
     color: #111827;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -165,14 +165,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 12px;
+    gap: 8px;
+    margin-bottom: 10px;
 }
 
 #chat-screen .food-invite-card-icon {
-    width: 34px;
-    height: 34px;
-    border-radius: 12px;
+    width: 30px;
+    height: 30px;
+    border-radius: 11px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -182,48 +182,48 @@
 }
 
 #chat-screen .food-invite-card-chip {
-    padding: 5px 10px;
+    padding: 4px 9px;
     border-radius: 999px;
     background: rgba(17, 24, 39, 0.05);
     color: #6b7280;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
 }
 
 #chat-screen .food-invite-card-title {
-    font-size: 17px;
-    line-height: 1.42;
+    font-size: 15px;
+    line-height: 1.38;
     font-weight: 600;
     color: #111827;
     letter-spacing: -0.01em;
 }
 
 #chat-screen .food-invite-card-subtitle {
-    margin-top: 8px;
-    font-size: 12px;
-    line-height: 1.55;
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.5;
     color: #8e8e93;
 }
 
 #chat-screen .food-invite-card-foot {
-    margin-top: 13px;
+    margin-top: 11px;
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    font-size: 11px;
+    gap: 6px;
+    font-size: 10px;
     line-height: 1;
     color: #9ca3af;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
 #chat-screen .food-invite-card-dot {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
     background: #34c759;
-    box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.12);
+    box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.12);
 }
 
 /* Keep card wrappers aligned without extra vertical offset */
