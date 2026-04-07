@@ -390,6 +390,9 @@
                         if (timeDiff !== 0) return timeDiff;
                         return String(left && left.id || '').localeCompare(String(right && right.id || ''));
                     });
+                    if (typeof window.persistChatHistory === 'function') {
+                        window.persistChatHistory(contactId);
+                    }
                 });
                 if (typeof window.renderContactList === 'function') {
                     window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
@@ -890,10 +893,13 @@
     function setupVisibilitySync() {
         if (window.__offlinePushVisibilitySyncSetup) return;
         window.__offlinePushVisibilitySyncSetup = true;
-        const flushStateToBackend = () => {
+        const flushStateToBackend = async () => {
             try {
                 const state = getState();
                 if (!state.enabled || !state.apiBaseUrl || !window.iphoneSimState) return;
+                if (typeof window.flushChatPersistence === 'function') {
+                    await window.flushChatPersistence();
+                }
                 const currentId = window.iphoneSimState.currentChatContactId;
                 if (currentId) {
                     const currentContact = typeof getContactById === 'function' ? getContactById(currentId) : null;
@@ -922,12 +928,14 @@
         };
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
-                flushStateToBackend();
+                flushStateToBackend().catch(err => console.error('[offline-push-sync] hidden flush failed', err));
             } else {
                 scheduleForegroundCatchUpSync();
             }
         });
-        window.addEventListener('pagehide', flushStateToBackend);
+        window.addEventListener('pagehide', () => {
+            flushStateToBackend().catch(err => console.error('[offline-push-sync] pagehide flush failed', err));
+        });
         window.addEventListener('focus', () => {
             scheduleForegroundCatchUpSync();
         });

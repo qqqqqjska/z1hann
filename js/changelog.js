@@ -5,11 +5,11 @@
  * 2. 修改 CHANGELOG_CONTENT 里的更新内容
  */
 
-const CHANGELOG_VERSION = 'v1.0.6'; // 修改这个版本号来让弹窗再次显示
+const CHANGELOG_VERSION = 'v1.0.8'; // 修改这个版本号来让弹窗再次显示
 const CHANGELOG_IMAGE = 'https://i.postimg.cc/7Lm6s43m/IMG-8241.jpg';
 const CHANGELOG_ITEMS = [
-    '修复了一点bug，但是我还没测试，有问题可以填到我发的表格里',
-    '增加了导入角色卡、线下关联世界书、双语翻译功能'
+    '查手机中加了一些应用，但是微博和icity还是懒得没做、、',
+    '在微信功能菜单中增加了“吃什么”和“导航”的功能，可以让char帮你看附近有什么吃的以及帮你规划路线，需要一个另外的高德地图apikey（申请key时选择web服务，lookus的地图部分用的是web端js api）'
 ];
 const CHANGELOG_ACCESS_READY_EVENT = 'z1han:access-ready';
 

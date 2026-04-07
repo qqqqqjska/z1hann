@@ -9,6 +9,15 @@ let amapContactMarker = null;
 let amapPolyline = null;
 let currentUserLocation = null; // { lat, lng, address }
 
+window.getLookusCurrentUserLocation = function() {
+    if (!currentUserLocation) return null;
+    return {
+        lat: Number(currentUserLocation.lat),
+        lng: Number(currentUserLocation.lng),
+        address: currentUserLocation.address || ''
+    };
+};
+
 // 城市坐标映射表 (经度, 纬度)
 const CITY_COORDINATES = {
     // 中国主要城市
@@ -511,22 +520,34 @@ function initLookusApp() {
 }
 
 function setupAmapSettings() {
-    const keyInput = document.getElementById('amap-api-key');
+    const jsKeyInput = document.getElementById('amap-js-key');
+    const webKeyInput = document.getElementById('amap-web-key');
     const codeInput = document.getElementById('amap-security-code');
+    const settings = window.iphoneSimState.amapSettings || {};
+    const legacyKey = String(settings.key || '').trim();
 
-    if (keyInput) {
-        keyInput.value = window.iphoneSimState.amapSettings?.key || '';
-        keyInput.addEventListener('change', (e) => {
+    if (jsKeyInput) {
+        jsKeyInput.value = String(settings.jsKey || legacyKey || '').trim();
+        jsKeyInput.addEventListener('change', (e) => {
             if (!window.iphoneSimState.amapSettings) window.iphoneSimState.amapSettings = {};
-            window.iphoneSimState.amapSettings.key = e.target.value.trim();
+            window.iphoneSimState.amapSettings.jsKey = e.target.value.trim();
             saveConfig();
             loadAmap(); // Reload if key changes
             renderLookusApp(); // Re-render to show/hide map container
         });
     }
 
+    if (webKeyInput) {
+        webKeyInput.value = String(settings.webKey || legacyKey || '').trim();
+        webKeyInput.addEventListener('change', (e) => {
+            if (!window.iphoneSimState.amapSettings) window.iphoneSimState.amapSettings = {};
+            window.iphoneSimState.amapSettings.webKey = e.target.value.trim();
+            saveConfig();
+        });
+    }
+
     if (codeInput) {
-        codeInput.value = window.iphoneSimState.amapSettings?.securityCode || '';
+        codeInput.value = settings.securityCode || '';
         codeInput.addEventListener('change', (e) => {
             if (!window.iphoneSimState.amapSettings) window.iphoneSimState.amapSettings = {};
             window.iphoneSimState.amapSettings.securityCode = e.target.value.trim();
@@ -537,7 +558,8 @@ function setupAmapSettings() {
 
 function loadAmap() {
     const settings = window.iphoneSimState.amapSettings;
-    if (!settings || !settings.key) return;
+    const jsKey = String((settings && (settings.jsKey || settings.key)) || '').trim();
+    if (!jsKey) return;
 
     if (window.AMap) {
         return;
@@ -550,7 +572,7 @@ function loadAmap() {
     }
 
     const script = document.createElement('script');
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${settings.key}&plugin=AMap.Geolocation,AMap.Geocoder`;
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${jsKey}&plugin=AMap.Geolocation,AMap.Geocoder`;
     script.async = true;
     script.onload = () => {
         console.log('AMap loaded');
@@ -1872,17 +1894,18 @@ function testAmapAPI() {
     
     // Check if API key is configured
     const settings = window.iphoneSimState.amapSettings;
-    if (!settings || !settings.key) {
+    const jsKey = String((settings && (settings.jsKey || settings.key)) || '').trim();
+    if (!jsKey) {
         statusEl.style.color = '#FF3B30';
-        statusEl.textContent = '❌ 未配置高德地图 API Key，请在设置中填写';
+        statusEl.textContent = '❌ 未配置高德 JS 地图 Key，请在设置中填写';
         mapContainer.style.display = 'none';
-        console.error('[Amap Test] No API key configured');
+        console.error('[Amap Test] No JS map key configured');
         return;
     }
     
     statusEl.style.color = '#FF9500';
     statusEl.textContent = '⏳ 正在加载高德地图 SDK...';
-    console.log('[Amap Test] API Key:', settings.key.substring(0, 6) + '***');
+    console.log('[Amap Test] JS Map Key:', jsKey.substring(0, 6) + '***');
     console.log('[Amap Test] Security Code:', settings.securityCode ? '已配置' : '未配置');
     
     // Set security config
@@ -1907,7 +1930,7 @@ function testAmapAPI() {
     btn.textContent = '加载中...';
     
     const script = document.createElement('script');
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${settings.key}&plugin=AMap.Geolocation,AMap.Geocoder`;
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${jsKey}&plugin=AMap.Geolocation,AMap.Geocoder`;
     script.async = true;
     
     script.onload = () => {
@@ -2268,7 +2291,8 @@ window.hideLookusNotification = hideLookusNotification;
 // 导出 UI 更新函数
 window.updateLookusUi = function() {
     setupAmapSettings();
-    if (window.iphoneSimState.amapSettings && window.iphoneSimState.amapSettings.key) {
+    const settings = window.iphoneSimState.amapSettings || {};
+    if (String(settings.jsKey || settings.key || '').trim()) {
         loadAmap();
         // 延迟渲染以确保状态已更新
         setTimeout(() => {

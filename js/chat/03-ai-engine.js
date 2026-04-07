@@ -613,6 +613,40 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 </div>
             </div>
         `;
+    } else if (type === 'food_invite') {
+        const cardTitle = String(text || '我正在邀请你帮我挑选美食').trim() || '我正在邀请你帮我挑选晚饭';
+        const cardSubtitle = String(description || '将结合附近餐厅与外卖给你建议').trim() || '将结合附近餐厅与外卖给你建议';
+        contentHtml = `
+            <div class="food-invite-card">
+                <div class="food-invite-card-head">
+                    <div class="food-invite-card-icon"><i class="fas fa-utensils"></i></div>
+                    <div class="food-invite-card-chip">Dinner Assist</div>
+                </div>
+                <div class="food-invite-card-title">${cardTitle}</div>
+                <div class="food-invite-card-subtitle">${cardSubtitle}</div>
+                <div class="food-invite-card-foot">
+                    <span class="food-invite-card-dot"></span>
+                    <span>美食邀请</span>
+                </div>
+            </div>
+        `;
+    } else if (type === 'route_invite') {
+        const cardTitle = String(text || '我正在邀请你帮我规划路线').trim() || '我正在邀请你帮我规划路线';
+        const cardSubtitle = String(description || '输入目的地和出行方式后为你生成路线建议').trim() || '输入目的地和出行方式后为你生成路线建议';
+        contentHtml = `
+            <div class="food-invite-card">
+                <div class="food-invite-card-head">
+                    <div class="food-invite-card-icon"><i class="fas fa-route"></i></div>
+                    <div class="food-invite-card-chip">Route Assist</div>
+                </div>
+                <div class="food-invite-card-title">${cardTitle}</div>
+                <div class="food-invite-card-subtitle">${cardSubtitle}</div>
+                <div class="food-invite-card-foot">
+                    <span class="food-invite-card-dot"></span>
+                    <span>路线规划</span>
+                </div>
+            </div>
+        `;
     } else if (type === 'virtual_image') {
         const imgId = `virtual-img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const overlayId = `overlay-${imgId}`;
@@ -650,7 +684,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
 
     let extraClass = '';
     const isHtmlTextMessage = type === 'text' && isHtmlPayloadForParser(text);
-    const cardTypes = ['transfer', 'family_card', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite'];
+    const cardTypes = ['transfer', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
     }
@@ -664,6 +698,8 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         } catch(e) {}
     } else if (type === 'family_card') {
         extraClass += ' family-card-msg';
+    } else if (type === 'food_invite' || type === 'route_invite') {
+        extraClass += ' food-invite-msg';
     } else if (type === 'sticker') {
         extraClass = 'sticker-msg';
         const isDeferredSticker = typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(text);
@@ -3687,7 +3723,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
     }
 
     try {
-        const messages = await window.buildAiPromptMessages(contactId, instruction);
+        const messages = await window.buildAiPromptMessages(contactId, instruction, options);
         let fetchUrl = settings.url;
         if (!fetchUrl.endsWith('/chat/completions')) {
             fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
@@ -5731,7 +5767,8 @@ const CHAT_AMAP_CACHE_TTL = {
     myLocationMs: 30 * 60 * 1000,
     weatherMs: 30 * 60 * 1000,
     geocodeMs: 12 * 60 * 60 * 1000,
-    routeMs: 10 * 60 * 1000
+    routeMs: 10 * 60 * 1000,
+    nearbyFoodMs: 5 * 60 * 1000
 };
 
 function ensureChatAmapRuntime() {
@@ -5741,7 +5778,8 @@ function ensureChatAmapRuntime() {
             myLocation: null,
             lastWeather: {},
             lastResolvedContacts: {},
-            lastRoutes: {}
+            lastRoutes: {},
+            lastNearbyFoods: {}
         };
     }
     if (!window.iphoneSimState.amapRuntime.lastWeather || typeof window.iphoneSimState.amapRuntime.lastWeather !== 'object') {
@@ -5752,6 +5790,9 @@ function ensureChatAmapRuntime() {
     }
     if (!window.iphoneSimState.amapRuntime.lastRoutes || typeof window.iphoneSimState.amapRuntime.lastRoutes !== 'object') {
         window.iphoneSimState.amapRuntime.lastRoutes = {};
+    }
+    if (!window.iphoneSimState.amapRuntime.lastNearbyFoods || typeof window.iphoneSimState.amapRuntime.lastNearbyFoods !== 'object') {
+        window.iphoneSimState.amapRuntime.lastNearbyFoods = {};
     }
     return window.iphoneSimState.amapRuntime;
 }
@@ -5803,13 +5844,63 @@ function buildChatAmapShortLabel(meta) {
     ]) || String(meta.formattedAddress || '').trim();
 }
 
+function formatChatAmapDistance(distance) {
+    const value = Number(distance || 0);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    if (value >= 1000) {
+        const km = value / 1000;
+        return km >= 10 ? `${km.toFixed(0)}km` : `${km.toFixed(1)}km`;
+    }
+    return `${Math.round(value)}m`;
+}
+
+function normalizeChatAmapFoodKeyword(seedText) {
+    const text = String(seedText || '').trim();
+    if (!text) return '美食';
+    const mappings = [
+        { regex: /(咖啡|咖啡厅|拿铁|美式|espresso)/i, keyword: '咖啡' },
+        { regex: /(奶茶|果茶|茶饮|饮品)/i, keyword: '奶茶' },
+        { regex: /(甜品|蛋糕|面包|烘焙|dessert)/i, keyword: '甜品' },
+        { regex: /(火锅|麻辣烫|串串)/i, keyword: '火锅' },
+        { regex: /(烧烤|烤肉|烤串)/i, keyword: '烧烤' },
+        { regex: /(日料|寿司|拉面|乌冬)/i, keyword: '日料' },
+        { regex: /(韩餐|韩式|部队锅)/i, keyword: '韩餐' },
+        { regex: /(西餐|牛排|披萨|意面|汉堡|炸鸡|brunch)/i, keyword: '西餐' },
+        { regex: /(面|面条|米线|米粉|粉面|拉面|螺蛳粉)/i, keyword: '面馆' },
+        { regex: /(早餐|早饭|包子|豆浆|油条)/i, keyword: '早餐' }
+    ];
+    const matched = mappings.find(item => item.regex.test(text));
+    return matched ? matched.keyword : '美食';
+}
+
+function normalizeChatAmapFoodTypeLabel(typeValue) {
+    const parts = String(typeValue || '')
+        .split(';')
+        .map(part => String(part || '').trim())
+        .filter(Boolean);
+    return parts.slice(0, 2).join('/');
+}
+
+function trimChatAmapFoodAddress(address) {
+    const text = String(address || '').trim();
+    if (!text) return '';
+    return text.length > 26 ? `${text.slice(0, 26)}…` : text;
+}
+
+function normalizeChatAmapPhotoUrl(url) {
+    const text = String(url || '').trim();
+    if (!text) return '';
+    return text.replace(/^http:\/\//i, 'https://');
+}
+
 async function fetchChatAmapJson(path, params = {}) {
     const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
-    if (!settings || !String(settings.key || '').trim()) {
-        throw new Error('AMap Key 未配置');
+    const webKey = String((settings && (settings.webKey || settings.key)) || '').trim();
+    if (!webKey) {
+        throw new Error('AMap Web 服务 Key 未配置');
     }
     const url = new URL(`https://restapi.amap.com${path}`);
-    url.searchParams.set('key', String(settings.key || '').trim());
+    url.searchParams.set('key', webKey);
     url.searchParams.set('output', 'json');
     Object.keys(params).forEach(key => {
         const value = params[key];
@@ -5817,33 +5908,122 @@ async function fetchChatAmapJson(path, params = {}) {
             url.searchParams.set(key, String(value));
         }
     });
-    const response = await fetch(url.toString(), { method: 'GET' });
+
+    const maskedUrl = new URL(url.toString());
+    const maskedKey = String(maskedUrl.searchParams.get('key') || '');
+    if (maskedKey) {
+        maskedUrl.searchParams.set('key', maskedKey.length > 6
+            ? `${maskedKey.slice(0, 3)}***${maskedKey.slice(-3)}`
+            : '***');
+    }
+    console.log('[Food Debug] AMap request', {
+        path,
+        url: maskedUrl.toString(),
+        hasSecurityCode: !!String(settings.securityCode || '').trim()
+    });
+
+    let response = null;
+    try {
+        response = await fetch(url.toString(), { method: 'GET' });
+    } catch (error) {
+        console.error('[Food Debug] AMap network error', {
+            path,
+            url: maskedUrl.toString(),
+            message: error && error.message ? error.message : String(error)
+        });
+        throw error;
+    }
+
+    const rawText = await response.text().catch(() => '');
     if (!response.ok) {
+        console.error('[Food Debug] AMap HTTP error', {
+            path,
+            status: response.status,
+            url: maskedUrl.toString(),
+            body: rawText.slice(0, 600)
+        });
         throw new Error(`AMap HTTP ${response.status}`);
     }
-    const data = await response.json();
+
+    let data = null;
+    try {
+        data = rawText ? JSON.parse(rawText) : {};
+    } catch (error) {
+        console.error('[Food Debug] AMap JSON parse error', {
+            path,
+            url: maskedUrl.toString(),
+            rawText: rawText.slice(0, 600),
+            message: error && error.message ? error.message : String(error)
+        });
+        throw new Error('AMap 返回非 JSON');
+    }
+
     if (String(data.status || '') !== '1') {
+        console.error('[Food Debug] AMap business error', {
+            path,
+            url: maskedUrl.toString(),
+            info: String(data.info || ''),
+            infocode: String(data.infocode || ''),
+            data
+        });
         throw new Error(String(data.info || 'AMap 调用失败'));
     }
+
+    console.log('[Food Debug] AMap response ok', {
+        path,
+        url: maskedUrl.toString(),
+        infocode: String(data.infocode || ''),
+        count: Number(data.count) || 0
+    });
     return data;
 }
 
 async function getChatAmapMyLocation(force = false) {
     const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
-    if (!settings || !String(settings.key || '').trim()) return null;
+    if (!String((settings && (settings.webKey || settings.key)) || '').trim()) return null;
     const runtime = ensureChatAmapRuntime();
     if (!force && runtime.myLocation && isChatAmapCacheFresh(runtime.myLocation, CHAT_AMAP_CACHE_TTL.myLocationMs)) {
+        console.log('[Food Debug] using cached AMap myLocation', runtime.myLocation);
         return runtime.myLocation;
     }
-    if (!navigator.geolocation) return runtime.myLocation || null;
+    const lookusLocation = typeof window.getLookusCurrentUserLocation === 'function'
+        ? window.getLookusCurrentUserLocation()
+        : null;
+    const lookusCoords = lookusLocation
+        && Number.isFinite(Number(lookusLocation.lat))
+        && Number.isFinite(Number(lookusLocation.lng))
+        ? {
+            lat: Number(lookusLocation.lat),
+            lng: Number(lookusLocation.lng),
+            address: String(lookusLocation.address || '').trim()
+        }
+        : null;
+    if (lookusCoords) {
+        console.log('[Food Debug] LookUs location fallback available', lookusCoords);
+    } else {
+        console.log('[Food Debug] LookUs location fallback unavailable');
+    }
+    if (!navigator.geolocation && !lookusCoords) return runtime.myLocation || null;
     const coords = await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            resolve(lookusCoords);
+            return;
+        }
         navigator.geolocation.getCurrentPosition(
             position => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
             error => reject(error),
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
         );
-    }).catch(() => null);
+    }).catch(() => lookusCoords);
     if (!coords) return runtime.myLocation || null;
+    console.log('[Food Debug] resolved coords for food search', {
+        force,
+        lat: coords.lat,
+        lng: coords.lng,
+        source: lookusCoords && Number(coords.lat) === Number(lookusCoords.lat) && Number(coords.lng) === Number(lookusCoords.lng)
+            ? 'lookus'
+            : 'browser-geolocation'
+    });
 
     const data = await fetchChatAmapJson('/v3/geocode/regeo', {
         location: `${coords.lng},${coords.lat}`,
@@ -5855,7 +6035,25 @@ async function getChatAmapMyLocation(force = false) {
     const component = regeocode && regeocode.addressComponent ? regeocode.addressComponent : {};
     const pois = regeocode && Array.isArray(regeocode.pois) ? regeocode.pois : [];
     const businessAreas = component && Array.isArray(component.businessAreas) ? component.businessAreas : [];
-    if (!regeocode) return runtime.myLocation || null;
+    if (!regeocode) {
+        if (!lookusCoords) return runtime.myLocation || null;
+        const fallbackLocation = {
+            lat: coords.lat,
+            lng: coords.lng,
+            formattedAddress: lookusCoords.address || '',
+            city: '',
+            district: '',
+            adcode: '',
+            poi: '',
+            businessArea: '',
+            updateTime: Date.now()
+        };
+        fallbackLocation.shortLabel = buildChatAmapShortLabel(fallbackLocation) || fallbackLocation.formattedAddress || '当前位置';
+        runtime.myLocation = fallbackLocation;
+        persistChatAmapRuntimeSoon();
+        console.log('[Food Debug] AMap regeo failed, using LookUs-only fallback location', fallbackLocation);
+        return fallbackLocation;
+    }
 
     const myLocation = {
         lat: coords.lat,
@@ -5871,12 +6069,13 @@ async function getChatAmapMyLocation(force = false) {
     myLocation.shortLabel = buildChatAmapShortLabel(myLocation);
     runtime.myLocation = myLocation;
     persistChatAmapRuntimeSoon();
+    console.log('[Food Debug] resolved AMap myLocation', myLocation);
     return myLocation;
 }
 
 async function getChatAmapContactLocation(contactId, force = false) {
     const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
-    if (!settings || !String(settings.key || '').trim()) return null;
+    if (!String((settings && (settings.webKey || settings.key)) || '').trim()) return null;
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return null;
     const runtime = ensureChatAmapRuntime();
@@ -5984,14 +6183,529 @@ async function getChatAmapEtaToContact(contactId, mode = 'driving') {
     return route;
 }
 
+function normalizeChatAmapRouteMode(modeValue) {
+    const text = String(modeValue || '').trim().toLowerCase();
+    if (!text) return { key: 'driving', label: '驾车' };
+    if (/(公交|地铁|巴士|公车|公共交通|transit|bus|metro|subway)/i.test(text)) {
+        return { key: 'transit', label: '公交地铁' };
+    }
+    if (/(步行|走路|徒步|walking|walk)/i.test(text)) {
+        return { key: 'walking', label: '步行' };
+    }
+    if (/(骑行|骑车|单车|自行车|电瓶车|电动车|bike|bicycle|cycling|ride)/i.test(text)) {
+        return { key: 'bicycling', label: '骑行' };
+    }
+    return { key: 'driving', label: '驾车' };
+}
+
+function buildChatAmapRouteInstructionText(step) {
+    if (!step || typeof step !== 'object') return '';
+    const parts = [
+        String(step.instruction || '').trim(),
+        step.distanceText ? `约 ${step.distanceText}` : ''
+    ].filter(Boolean);
+    return parts.join('，');
+}
+
+function buildChatAmapCommonRouteSteps(path, limit = 5) {
+    const steps = Array.isArray(path && path.steps) ? path.steps : [];
+    return steps
+        .map(step => ({
+            instruction: String(step && step.instruction || '').trim(),
+            road: String(step && step.road || '').trim(),
+            distanceText: formatChatAmapDistance(step && step.distance),
+            durationMin: Number(step && step.duration) > 0 ? Math.max(1, Math.round(Number(step.duration) / 60)) : null
+        }))
+        .filter(step => step.instruction)
+        .slice(0, limit);
+}
+
+function buildChatAmapTransitRouteSteps(transit, limit = 6) {
+    const segments = Array.isArray(transit && transit.segments) ? transit.segments : [];
+    const steps = [];
+
+    segments.forEach(segment => {
+        if (steps.length >= limit) return;
+
+        const walkingSteps = Array.isArray(segment && segment.walking && segment.walking.steps)
+            ? segment.walking.steps
+            : [];
+        walkingSteps.forEach(step => {
+            if (steps.length >= limit) return;
+            const instruction = String(step && step.instruction || '').trim();
+            if (!instruction) return;
+            steps.push({
+                instruction,
+                distanceText: formatChatAmapDistance(step && step.distance)
+            });
+        });
+
+        const busLines = Array.isArray(segment && segment.bus && segment.bus.buslines)
+            ? segment.bus.buslines
+            : [];
+        busLines.forEach(line => {
+            if (steps.length >= limit) return;
+            const name = String(line && line.name || '').trim();
+            if (!name) return;
+            const viaNum = Number(line && line.via_num);
+            const departure = String(line && line.departure_stop && line.departure_stop.name || '').trim();
+            const arrival = String(line && line.arrival_stop && line.arrival_stop.name || '').trim();
+            const instruction = [
+                `乘坐 ${name}`,
+                Number.isFinite(viaNum) && viaNum > 0 ? `${viaNum} 站` : '',
+                departure && arrival ? `${departure} 上车，${arrival} 下车` : ''
+            ].filter(Boolean).join('，');
+            steps.push({ instruction, distanceText: '' });
+        });
+
+        const railway = segment && segment.railway ? segment.railway : null;
+        if (railway && steps.length < limit) {
+            const name = String(railway.name || railway.trip || '').trim();
+            if (name) {
+                const departure = String(railway.departure_stop && railway.departure_stop.name || '').trim();
+                const arrival = String(railway.arrival_stop && railway.arrival_stop.name || '').trim();
+                steps.push({
+                    instruction: [
+                        `乘坐 ${name}`,
+                        departure && arrival ? `${departure} 上车，${arrival} 下车` : ''
+                    ].filter(Boolean).join('，'),
+                    distanceText: ''
+                });
+            }
+        }
+    });
+
+    return steps.slice(0, limit);
+}
+
+async function geocodeChatAmapDestination(query, options = {}) {
+    const text = String(query || '').trim();
+    if (!text) return null;
+
+    const data = await fetchChatAmapJson('/v3/geocode/geo', {
+        address: text,
+        city: String(options.city || '').trim()
+    }).catch(error => {
+        console.error('[Route Debug] destination geocode failed', {
+            query: text,
+            city: String(options.city || '').trim(),
+            message: error && error.message ? error.message : String(error)
+        });
+        return null;
+    });
+
+    const geocode = data && Array.isArray(data.geocodes) ? data.geocodes[0] : null;
+    if (!geocode || !geocode.location) return null;
+
+    const [lngStr, latStr] = String(geocode.location).split(',');
+    const destination = {
+        query: text,
+        lng: Number(lngStr),
+        lat: Number(latStr),
+        formattedAddress: String(geocode.formatted_address || '').trim(),
+        city: normalizeChatAmapCity(geocode.city) || String(geocode.province || '').trim(),
+        district: String(geocode.district || '').trim(),
+        adcode: String(geocode.adcode || '').trim(),
+        updateTime: Date.now()
+    };
+    destination.shortLabel = joinChatAmapText([
+        destination.district,
+        destination.query
+    ]) || destination.formattedAddress || destination.query;
+    return destination;
+}
+
+async function fetchChatAmapBicyclingJson(params = {}) {
+    const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
+    const webKey = String((settings && (settings.webKey || settings.key)) || '').trim();
+    if (!webKey) {
+        throw new Error('AMap Web 服务 Key 未配置');
+    }
+    const url = new URL('https://restapi.amap.com/v4/direction/bicycling');
+    url.searchParams.set('key', webKey);
+    Object.keys(params).forEach(key => {
+        const value = params[key];
+        if (value !== undefined && value !== null && value !== '') {
+            url.searchParams.set(key, String(value));
+        }
+    });
+
+    const response = await fetch(url.toString(), { method: 'GET' });
+    const rawText = await response.text().catch(() => '');
+    if (!response.ok) {
+        throw new Error(`AMap HTTP ${response.status}`);
+    }
+    const data = rawText ? JSON.parse(rawText) : {};
+    if (String(data.errcode || '0') !== '0') {
+        throw new Error(String(data.errmsg || 'AMap 骑行路线调用失败'));
+    }
+    return data;
+}
+
+window.planAmapRouteToDestination = async function(destinationText, mode = 'driving', options = {}) {
+    const myLocation = await getChatAmapMyLocation(!!options.force).catch(() => null);
+    if (!myLocation || !Number.isFinite(Number(myLocation.lng)) || !Number.isFinite(Number(myLocation.lat))) {
+        throw new Error('未获取到当前位置，请先允许定位');
+    }
+
+    const modeMeta = normalizeChatAmapRouteMode(mode);
+    const destination = await geocodeChatAmapDestination(destinationText, {
+        city: myLocation.city || String(options.city || '').trim()
+    });
+    if (!destination || !Number.isFinite(Number(destination.lng)) || !Number.isFinite(Number(destination.lat))) {
+        throw new Error('未识别到目的地，请换个更具体的地点名');
+    }
+
+    console.log('[Route Debug] planning route', {
+        destinationText,
+        mode: modeMeta,
+        origin: {
+            lat: myLocation.lat,
+            lng: myLocation.lng,
+            label: myLocation.shortLabel || myLocation.formattedAddress || ''
+        },
+        destination: {
+            lat: destination.lat,
+            lng: destination.lng,
+            label: destination.shortLabel || destination.formattedAddress || destination.query
+        }
+    });
+
+    let route = null;
+    if (modeMeta.key === 'walking') {
+        const data = await fetchChatAmapJson('/v3/direction/walking', {
+            origin: `${myLocation.lng},${myLocation.lat}`,
+            destination: `${destination.lng},${destination.lat}`
+        });
+        const path = data && data.route && Array.isArray(data.route.paths) ? data.route.paths[0] : null;
+        if (!path) throw new Error('未获取到步行路线');
+        route = {
+            mode: modeMeta.key,
+            modeLabel: modeMeta.label,
+            distanceKm: Number(path.distance || 0) > 0 ? Number((Number(path.distance) / 1000).toFixed(1)) : null,
+            etaMin: Number(path.duration || 0) > 0 ? Math.max(1, Math.round(Number(path.duration) / 60)) : null,
+            steps: buildChatAmapCommonRouteSteps(path)
+        };
+    } else if (modeMeta.key === 'transit') {
+        const data = await fetchChatAmapJson('/v3/direction/transit/integrated', {
+            origin: `${myLocation.lng},${myLocation.lat}`,
+            destination: `${destination.lng},${destination.lat}`,
+            city: myLocation.city || destination.city || '',
+            strategy: 0,
+            nightflag: 0,
+            extensions: 'all'
+        });
+        const transit = data && data.route && Array.isArray(data.route.transits) ? data.route.transits[0] : null;
+        if (!transit) throw new Error('未获取到公交地铁路线');
+        route = {
+            mode: modeMeta.key,
+            modeLabel: modeMeta.label,
+            distanceKm: Number(transit.distance || 0) > 0 ? Number((Number(transit.distance) / 1000).toFixed(1)) : null,
+            etaMin: Number(transit.duration || 0) > 0 ? Math.max(1, Math.round(Number(transit.duration) / 60)) : null,
+            cost: Number(transit.cost || 0) > 0 ? `¥${Number(transit.cost).toFixed(0)}` : '',
+            walkingDistanceText: formatChatAmapDistance(transit.walking_distance),
+            steps: buildChatAmapTransitRouteSteps(transit)
+        };
+    } else if (modeMeta.key === 'bicycling') {
+        const data = await fetchChatAmapBicyclingJson({
+            origin: `${myLocation.lng},${myLocation.lat}`,
+            destination: `${destination.lng},${destination.lat}`
+        });
+        const path = data && data.data && Array.isArray(data.data.paths) ? data.data.paths[0] : null;
+        if (!path) throw new Error('未获取到骑行路线');
+        route = {
+            mode: modeMeta.key,
+            modeLabel: modeMeta.label,
+            distanceKm: Number(path.distance || 0) > 0 ? Number((Number(path.distance) / 1000).toFixed(1)) : null,
+            etaMin: Number(path.duration || 0) > 0 ? Math.max(1, Math.round(Number(path.duration) / 60)) : null,
+            steps: buildChatAmapCommonRouteSteps(path)
+        };
+    } else {
+        const data = await fetchChatAmapJson('/v3/direction/driving', {
+            origin: `${myLocation.lng},${myLocation.lat}`,
+            destination: `${destination.lng},${destination.lat}`,
+            strategy: 0,
+            extensions: 'all'
+        });
+        const path = data && data.route && Array.isArray(data.route.paths) ? data.route.paths[0] : null;
+        if (!path) throw new Error('未获取到驾车路线');
+        route = {
+            mode: modeMeta.key,
+            modeLabel: modeMeta.label,
+            distanceKm: Number(path.distance || 0) > 0 ? Number((Number(path.distance) / 1000).toFixed(1)) : null,
+            etaMin: Number(path.duration || 0) > 0 ? Math.max(1, Math.round(Number(path.duration) / 60)) : null,
+            taxiCost: Number(data && data.route && data.route.taxi_cost || 0) > 0 ? `¥${Number(data.route.taxi_cost).toFixed(0)}` : '',
+            steps: buildChatAmapCommonRouteSteps(path)
+        };
+    }
+
+    const result = {
+        destinationQuery: String(destinationText || '').trim(),
+        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '当前位置',
+        originAddress: myLocation.formattedAddress || '',
+        destinationLabel: destination.shortLabel || destination.formattedAddress || destination.query || '目的地',
+        destinationAddress: destination.formattedAddress || destination.query || '',
+        destination,
+        ...route,
+        updateTime: Date.now()
+    };
+
+    console.log('[Route Debug] route result', {
+        destination: result.destinationLabel,
+        mode: result.mode,
+        distanceKm: result.distanceKm,
+        etaMin: result.etaMin,
+        cost: result.cost || result.taxiCost || '',
+        steps: result.steps || []
+    });
+    return result;
+};
+
+window.buildAmapNavigationPromptContext = function(routeResult, userQuestion = '') {
+    if (!routeResult) return '';
+
+    const lines = [
+        '【导航路线缓存】',
+        userQuestion ? `- 用户原始需求：${userQuestion}` : '',
+        `- 出发地：${routeResult.originLabel || '当前位置'}`,
+        `- 目的地：${routeResult.destinationLabel || routeResult.destinationQuery || '未知目的地'}`,
+        `- 出行方式：${routeResult.modeLabel || '驾车'}`
+    ].filter(Boolean);
+
+    const summary = [];
+    if (routeResult.distanceKm !== null && routeResult.distanceKm !== undefined) {
+        summary.push(`全程约 ${routeResult.distanceKm} km`);
+    }
+    if (routeResult.etaMin !== null && routeResult.etaMin !== undefined) {
+        summary.push(`预计 ${routeResult.etaMin} 分钟`);
+    }
+    if (routeResult.cost) summary.push(`花费约 ${routeResult.cost}`);
+    if (routeResult.taxiCost) summary.push(`打车约 ${routeResult.taxiCost}`);
+    if (routeResult.walkingDistanceText) summary.push(`步行约 ${routeResult.walkingDistanceText}`);
+    if (summary.length > 0) {
+        lines.push(`- 路线概览：${summary.join('，')}`);
+    }
+
+    if (Array.isArray(routeResult.steps) && routeResult.steps.length > 0) {
+        lines.push('- 路线步骤（前几步）：');
+        routeResult.steps.slice(0, 5).forEach((step, index) => {
+            const stepText = buildChatAmapRouteInstructionText(step);
+            if (stepText) {
+                lines.push(`  ${index + 1}. ${stepText}`);
+            }
+        });
+    }
+
+    lines.push('⚠️ 仅当用户在继续问导航、路线、多久到、怎么走、哪种方式更合适时，才引用这份缓存；平时不要主动复述。');
+    return lines.join('\n');
+};
+
 window.getAmapMyLocation = getChatAmapMyLocation;
 window.getAmapContactLocation = getChatAmapContactLocation;
 window.getAmapWeatherForContact = getChatAmapWeatherForContact;
 window.getAmapEtaToContact = getChatAmapEtaToContact;
 
+window.searchAmapNearbyFood = async function(seedText = '', options = {}) {
+    const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
+    if (!String((settings && (settings.webKey || settings.key)) || '').trim()) {
+        throw new Error('AMap Web 服务 Key 未配置');
+    }
+
+    const myLocation = await getChatAmapMyLocation(!!options.force).catch(() => null);
+    if (!myLocation || !Number.isFinite(Number(myLocation.lng)) || !Number.isFinite(Number(myLocation.lat))) {
+        throw new Error('未获取到当前位置，请先允许定位');
+    }
+
+    const runtime = ensureChatAmapRuntime();
+    const keyword = normalizeChatAmapFoodKeyword(options.keyword || seedText);
+    const radius = Math.max(500, Math.min(5000, Number(options.radius) || 3000));
+    const limit = Math.max(3, Math.min(12, Number(options.limit) || 8));
+    const roundedLng = Number(myLocation.lng).toFixed(4);
+    const roundedLat = Number(myLocation.lat).toFixed(4);
+    const cacheKey = `${roundedLng},${roundedLat}|${keyword}|${radius}|${limit}`;
+    const cached = runtime && runtime.lastNearbyFoods ? runtime.lastNearbyFoods[cacheKey] : null;
+    if (!options.force && cached && isChatAmapCacheFresh(cached, CHAT_AMAP_CACHE_TTL.nearbyFoodMs)) {
+        console.log('[Food Debug] using cached nearby food result', {
+            keyword,
+            radius,
+            limit,
+            itemCount: Array.isArray(cached.items) ? cached.items.length : 0,
+            items: cached.items || []
+        });
+        return cached;
+    }
+
+    console.log('[Food Debug] searching nearby food', {
+        seedText,
+        keyword,
+        radius,
+        limit,
+        origin: {
+            lat: myLocation.lat,
+            lng: myLocation.lng,
+            label: myLocation.shortLabel || myLocation.formattedAddress || ''
+        }
+    });
+
+    const requestBase = {
+        location: `${myLocation.lng},${myLocation.lat}`,
+        radius,
+        sortrule: 'distance',
+        offset: limit,
+        page: 1,
+        extensions: 'all',
+        types: '050000'
+    };
+
+    let data = await fetchChatAmapJson('/v3/place/around', {
+        ...requestBase,
+        keywords: keyword
+    }).catch(error => {
+        console.error('[Food Debug] nearby food primary search failed', {
+            keyword,
+            radius,
+            limit,
+            message: error && error.message ? error.message : String(error)
+        });
+        return null;
+    });
+    let pois = data && Array.isArray(data.pois) ? data.pois : [];
+
+    if (pois.length === 0 && keyword !== '美食') {
+        data = await fetchChatAmapJson('/v3/place/around', {
+            ...requestBase,
+            keywords: '美食'
+        }).catch(error => {
+            console.error('[Food Debug] nearby food fallback search failed', {
+                keyword: '美食',
+                radius,
+                limit,
+                message: error && error.message ? error.message : String(error)
+            });
+            return null;
+        });
+        pois = data && Array.isArray(data.pois) ? data.pois : [];
+    }
+
+    const items = pois
+        .map(poi => {
+            const bizExt = poi && poi.biz_ext && typeof poi.biz_ext === 'object' ? poi.biz_ext : {};
+            const distanceMeters = Number(poi && poi.distance);
+            const businessArea = String((poi && (poi.business_area || poi.businessArea)) || '').trim();
+            const address = joinChatAmapText([
+                businessArea,
+                poi && poi.address
+            ]);
+            const photos = Array.isArray(poi && poi.photos)
+                ? poi.photos
+                    .map(photo => ({
+                        title: String((photo && photo.title) || '').trim(),
+                        url: normalizeChatAmapPhotoUrl(photo && photo.url)
+                    }))
+                    .filter(photo => photo.url)
+                : [];
+            return {
+                id: String((poi && poi.id) || '').trim(),
+                name: String((poi && poi.name) || '').trim(),
+                typeLabel: normalizeChatAmapFoodTypeLabel(poi && poi.type),
+                distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : null,
+                distanceText: formatChatAmapDistance(distanceMeters),
+                rating: String(bizExt.rating || '').trim(),
+                cost: String(bizExt.cost || '').trim() ? `¥${String(bizExt.cost || '').trim()}` : '',
+                businessArea,
+                address: String(address || '').trim(),
+                shortAddress: trimChatAmapFoodAddress(address),
+                location: String((poi && poi.location) || '').trim(),
+                photos,
+                coverImage: photos[0] ? photos[0].url : '',
+                updateTime: Date.now()
+            };
+        })
+        .filter(item => item.name)
+        .slice(0, limit);
+
+    const result = {
+        cacheKey,
+        keyword,
+        radius,
+        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '当前位置',
+        originAddress: myLocation.formattedAddress || '',
+        items,
+        total: Number(data && data.count) || items.length,
+        updateTime: Date.now()
+    };
+
+    if (!items.length) {
+        console.warn('[Food Debug] nearby food empty result', {
+            keyword,
+            radius,
+            limit,
+            total: Number(data && data.count) || 0,
+            originLabel: result.originLabel,
+            originAddress: result.originAddress
+        });
+    }
+
+    console.log('[Food Debug] nearby food result', {
+        keyword,
+        radius,
+        total: result.total,
+        itemCount: items.length,
+        items
+    });
+
+    if (runtime && runtime.lastNearbyFoods) {
+        runtime.lastNearbyFoods[cacheKey] = result;
+        persistChatAmapRuntimeSoon();
+    }
+
+    return result;
+};
+
+window.buildNearbyFoodPromptContext = function(searchResult, userQuestion = '') {
+    if (!searchResult) return '';
+
+    const lines = [
+        '【附近餐饮候选】',
+        `- 我当前所在：${searchResult.originLabel || '当前位置'}`,
+        `- 搜索范围：附近 ${formatChatAmapDistance(searchResult.radius) || `${searchResult.radius || 3000}m`}，关键词“${searchResult.keyword || '美食'}”`
+    ];
+
+    if (!Array.isArray(searchResult.items) || searchResult.items.length === 0) {
+        lines.push('- 这次没有查到合适的附近餐饮候选。若用户问今天吃什么，请先追问口味、预算或就餐场景，不要假装已经查到了附近店铺。');
+    } else {
+        searchResult.items.forEach((item, index) => {
+            const meta = [];
+            if (item.distanceText) meta.push(`距离约 ${item.distanceText}`);
+            if (item.rating) meta.push(`评分 ${item.rating}`);
+            if (item.cost) meta.push(`人均 ${item.cost}`);
+            if (item.typeLabel) meta.push(item.typeLabel);
+            if (item.businessArea) meta.push(item.businessArea);
+            lines.push(`${index + 1}. ${item.name}${meta.length ? `｜${meta.join('｜')}` : ''}`);
+            if (item.shortAddress) {
+                lines.push(`   位置：${item.shortAddress}`);
+            }
+        });
+        lines.push('- 请优先基于这些候选做 1~3 个具体推荐，理由结合距离、类型、评分、价格和聊天语气。');
+        lines.push('- 不要编造不存在的店铺、距离、评分、配送时长或营业状态；拿不准就明确说不确定。');
+    }
+
+    if (userQuestion) {
+        lines.push(`- 用户当前想问：${String(userQuestion).trim()}`);
+    }
+
+    const contextText = lines.join('\n');
+    console.log('[Food Debug] built nearby food prompt context', {
+        userQuestion,
+        itemCount: Array.isArray(searchResult.items) ? searchResult.items.length : 0,
+        preview: contextText.slice(0, 500)
+    });
+    return contextText;
+};
+
 window.buildAmapPromptContext = async function(contactId) {
     const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
-    if (!settings || !String(settings.key || '').trim()) return '';
+    if (!String((settings && (settings.webKey || settings.key)) || '').trim()) return '';
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return '';
 
@@ -6043,6 +6757,12 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         window.ensureContactBilingualTranslationFields(contact);
     }
     const history = window.iphoneSimState.chatHistory[contactId] || [];
+    const extraSystemPrompt = options && typeof options.extraSystemPrompt === 'string'
+        ? String(options.extraSystemPrompt).trim()
+        : '';
+    const extraSystemPromptLabel = options && typeof options.extraSystemPromptLabel === 'string'
+        ? String(options.extraSystemPromptLabel).trim()
+        : '附加场景';
 
     let userPromptInfo = '';
     let currentPersona = null;
@@ -6364,6 +7084,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     appendAiPromptPart(systemPromptParts, 'systemBase', '日历', calendarContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', '高德', amapContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', '行程', itineraryContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', extraSystemPromptLabel || '附加场景', extraSystemPrompt);
     appendAiPromptPart(systemPromptParts, 'systemBase', '条件能力', conditionalCapabilityPrompt);
     appendAiPromptPart(systemPromptParts, 'systemBase', '回复指令', '请回复对方的消息。');
     appendAiPromptPart(systemPromptParts, 'systemBase', '表情包', buildWechatStickerPrompt(contact));

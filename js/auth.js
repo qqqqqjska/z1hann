@@ -3,7 +3,7 @@
     // Discord Auth Config
     const DISCORD_CLIENT_ID = '1487795213609992324';
     const DISCORD_GUILD_ID = '1379304008157499423';
-    const DISCORD_REDIRECT_URI = 'https://qqqqqjska.github.io/z1han/';
+    const DISCORD_REDIRECT_URI = buildDiscordRedirectUri();
 
     const DEVICE_ID_KEY = 'device_id';
     const DEVICE_VERIFIED_KEY = 'device_verified';
@@ -15,6 +15,10 @@
     const ACTIVATION_SEGMENT_LENGTH = 4;
     const ACTIVATION_SEGMENT_COUNT = 3;
     const ACCESS_READY_EVENT = 'z1han:access-ready';
+
+    function buildDiscordRedirectUri() {
+        return window.location.origin + window.location.pathname;
+    }
 
     // 保留 Bmob 初始化配置仅作兼容说明，当前默认模式不再依赖云端校验。
     const BMOB_SECRET_KEY = '47555583581ac060';

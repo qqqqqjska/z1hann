@@ -1752,6 +1752,9 @@ async function finalizeImportedContactBundle(bundle) {
     }
 
     await Promise.resolve(saveConfig());
+    if (typeof window.flushChatPersistence === 'function') {
+        await window.flushChatPersistence();
+    }
     if (window.renderContactList) {
         window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
     }
@@ -1879,6 +1882,7 @@ function isHiddenForumWechatSyncText(text) {
 
 function shouldHideChatSyncMsg(msg) {
     if (!msg) return false;
+    if (msg.hiddenFromUi === true) return true;
     if (msg.type === 'system_event' || msg.type === 'live_sync_hidden' || msg.type === 'family_card_spend_notice_hidden' || msg.type === 'screen_share_hidden') return true;
     if (
         msg.role === 'system'
@@ -2393,6 +2397,10 @@ function applyChatSettingsCustomCssPreview() {
 window.applyChatSettingsCustomCssPreview = applyChatSettingsCustomCssPreview;
 
 function openChat(contactId) {
+    const previousContactId = window.iphoneSimState.currentChatContactId;
+    if (previousContactId && previousContactId !== contactId && typeof window.flushChatPersistence === 'function') {
+        window.flushChatPersistence().catch(err => console.error('切换聊天前 flush 失败', err));
+    }
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return;
     
@@ -3385,6 +3393,9 @@ function handleImportCharacterData(e) {
             }
 
             saveConfig();
+            if (typeof window.flushChatPersistence === 'function') {
+                window.flushChatPersistence().catch(err => console.error('角色数据导入 flush 失败', err));
+            }
             alert('角色数据导入成功！');
             
             openChatSettings(); 
@@ -3497,6 +3508,9 @@ function handleImportCharacterData(e) {
             }
 
             saveConfig();
+            if (typeof window.flushChatPersistence === 'function') {
+                window.flushChatPersistence().catch(err => console.error('角色数据导入 flush 失败', err));
+            }
             alert('角色数据导入成功！');
             
             openChatSettings(); 

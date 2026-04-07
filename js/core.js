@@ -416,6 +416,8 @@ window.migrateMemorySchemaV2 = migrateMemorySchemaV2;
 
 const state = {
     amapSettings: {
+        jsKey: '',
+        webKey: '',
         key: '',
         securityCode: ''
     },
@@ -584,6 +586,344 @@ const state = {
 };
 
 window.iphoneSimState = state;
+
+const CHAT_HISTORY_STORE_NAME = 'iphoneSimChatHistory';
+const CHAT_HISTORY_STORAGE_KEY_PREFIX = 'contact:';
+const CHAT_HISTORY_MUTATING_ARRAY_METHODS = new Set([
+    'copyWithin',
+    'fill',
+    'pop',
+    'push',
+    'reverse',
+    'shift',
+    'sort',
+    'splice',
+    'unshift'
+]);
+const rawChatHistoryState = {};
+const chatHistoryProxyCache = new WeakMap();
+const chatHistoryRawTargetCache = new WeakMap();
+let chatHistoryRootProxy = null;
+let chatHistoryPersistenceSuspended = false;
+let chatHistoryPersistenceQueue = Promise.resolve();
+let chatHistoryPersistenceDrainScheduled = false;
+const pendingChatHistoryPersistence = new Map();
+
+function getChatHistoryStore() {
+    if (typeof localforage === 'undefined' || typeof localforage.createInstance !== 'function') {
+        return null;
+    }
+    if (!window.__iphoneSimChatHistoryStore) {
+        window.__iphoneSimChatHistoryStore = localforage.createInstance({
+            name: CHAT_HISTORY_STORE_NAME
+        });
+    }
+    return window.__iphoneSimChatHistoryStore;
+}
+
+function buildChatHistoryStorageKey(contactId) {
+    return `${CHAT_HISTORY_STORAGE_KEY_PREFIX}${String(contactId || '').trim()}`;
+}
+
+function getContactIdFromChatHistoryStorageKey(storageKey) {
+    const key = String(storageKey || '');
+    return key.startsWith(CHAT_HISTORY_STORAGE_KEY_PREFIX)
+        ? key.slice(CHAT_HISTORY_STORAGE_KEY_PREFIX.length)
+        : '';
+}
+
+function isChatHistoryProxiable(value) {
+    return !!value && typeof value === 'object';
+}
+
+function unwrapChatHistoryValue(value) {
+    return chatHistoryRawTargetCache.get(value) || value;
+}
+
+function cloneChatHistoryValue(value) {
+    const rawValue = unwrapChatHistoryValue(value);
+    if (Array.isArray(rawValue)) {
+        return rawValue.map(item => cloneChatHistoryValue(item));
+    }
+    if (rawValue && typeof rawValue === 'object') {
+        const cloned = {};
+        Object.keys(rawValue).forEach((key) => {
+            cloned[key] = cloneChatHistoryValue(rawValue[key]);
+        });
+        return cloned;
+    }
+    return rawValue;
+}
+
+function normalizeChatHistoryMessages(value) {
+    return Array.isArray(value)
+        ? value.map(item => cloneChatHistoryValue(item)).filter(item => item !== undefined)
+        : [];
+}
+
+function normalizeChatHistoryMap(value) {
+    const rawValue = unwrapChatHistoryValue(value);
+    if (!rawValue || typeof rawValue !== 'object') return {};
+    const normalized = {};
+    Object.keys(rawValue).forEach((contactId) => {
+        normalized[String(contactId)] = normalizeChatHistoryMessages(rawValue[contactId]);
+    });
+    return normalized;
+}
+
+function persistChatHistorySnapshot(contactId, mode = 'save') {
+    const normalizedContactId = String(contactId || '').trim();
+    if (!normalizedContactId) return chatHistoryPersistenceQueue.catch(() => {});
+    pendingChatHistoryPersistence.set(normalizedContactId, mode === 'remove' ? 'remove' : 'save');
+    if (!chatHistoryPersistenceDrainScheduled) {
+        chatHistoryPersistenceDrainScheduled = true;
+        Promise.resolve().then(() => {
+            drainPendingChatHistoryPersistence().catch(err => {
+                console.error('聊天记录持久化失败', err);
+            });
+        });
+    }
+    return chatHistoryPersistenceQueue.catch(() => {});
+}
+
+function wrapChatHistoryValue(contactId, value) {
+    const rawValue = unwrapChatHistoryValue(value);
+    if (!isChatHistoryProxiable(rawValue)) return rawValue;
+    if (chatHistoryProxyCache.has(rawValue)) {
+        return chatHistoryProxyCache.get(rawValue);
+    }
+
+    const proxy = new Proxy(rawValue, {
+        get(target, prop, receiver) {
+            if (Array.isArray(target) && typeof prop === 'string' && CHAT_HISTORY_MUTATING_ARRAY_METHODS.has(prop)) {
+                return (...args) => {
+                    const normalizedArgs = args.map(arg => cloneChatHistoryValue(arg));
+                    const result = Array.prototype[prop].apply(target, normalizedArgs);
+                    persistChatHistorySnapshot(contactId, 'save');
+                    return result;
+                };
+            }
+
+            const result = Reflect.get(target, prop, receiver);
+            return isChatHistoryProxiable(result)
+                ? wrapChatHistoryValue(contactId, result)
+                : result;
+        },
+        set(target, prop, nextValue) {
+            target[prop] = cloneChatHistoryValue(nextValue);
+            persistChatHistorySnapshot(contactId, 'save');
+            return true;
+        },
+        deleteProperty(target, prop) {
+            const deleted = Reflect.deleteProperty(target, prop);
+            persistChatHistorySnapshot(contactId, 'save');
+            return deleted;
+        }
+    });
+
+    chatHistoryProxyCache.set(rawValue, proxy);
+    chatHistoryRawTargetCache.set(proxy, rawValue);
+    return proxy;
+}
+
+function getChatHistoryRootProxy() {
+    if (chatHistoryRootProxy) return chatHistoryRootProxy;
+    chatHistoryRootProxy = new Proxy(rawChatHistoryState, {
+        get(target, prop, receiver) {
+            const result = Reflect.get(target, prop, receiver);
+            if (typeof prop !== 'string') return result;
+            return isChatHistoryProxiable(result)
+                ? wrapChatHistoryValue(prop, result)
+                : result;
+        },
+        set(target, prop, nextValue) {
+            if (typeof prop !== 'string') {
+                target[prop] = nextValue;
+                return true;
+            }
+            target[prop] = normalizeChatHistoryMessages(nextValue);
+            if (!chatHistoryPersistenceSuspended) {
+                persistChatHistorySnapshot(prop, 'save');
+            }
+            return true;
+        },
+        deleteProperty(target, prop) {
+            const deleted = Reflect.deleteProperty(target, prop);
+            if (deleted && typeof prop === 'string' && !chatHistoryPersistenceSuspended) {
+                persistChatHistorySnapshot(prop, 'remove');
+            }
+            return deleted;
+        }
+    });
+    chatHistoryRawTargetCache.set(chatHistoryRootProxy, rawChatHistoryState);
+    return chatHistoryRootProxy;
+}
+
+function replaceChatHistoryState(nextValue, options = {}) {
+    const suppressPersist = !!options.suppressPersist;
+    const normalized = normalizeChatHistoryMap(nextValue);
+    const existingContactIds = new Set(Object.keys(rawChatHistoryState));
+    const nextContactIds = new Set(Object.keys(normalized));
+
+    existingContactIds.forEach((contactId) => {
+        if (!nextContactIds.has(contactId)) {
+            delete rawChatHistoryState[contactId];
+            if (!suppressPersist) {
+                persistChatHistorySnapshot(contactId, 'remove');
+            }
+        }
+    });
+
+    nextContactIds.forEach((contactId) => {
+        rawChatHistoryState[contactId] = normalizeChatHistoryMessages(normalized[contactId]);
+        if (!suppressPersist) {
+            persistChatHistorySnapshot(contactId, 'save');
+        }
+    });
+}
+
+function installChatHistoryAccessor() {
+    replaceChatHistoryState(state.chatHistory, { suppressPersist: true });
+    Object.defineProperty(state, 'chatHistory', {
+        configurable: true,
+        enumerable: true,
+        get() {
+            return getChatHistoryRootProxy();
+        },
+        set(nextValue) {
+            replaceChatHistoryState(nextValue, { suppressPersist: chatHistoryPersistenceSuspended });
+        }
+    });
+}
+
+function assignLoadedState(loadedState) {
+    chatHistoryPersistenceSuspended = true;
+    try {
+        Object.assign(state, loadedState || {});
+    } finally {
+        chatHistoryPersistenceSuspended = false;
+    }
+}
+
+async function drainPendingChatHistoryPersistence() {
+    if (!chatHistoryPersistenceDrainScheduled && pendingChatHistoryPersistence.size === 0) {
+        return chatHistoryPersistenceQueue.catch(() => {});
+    }
+
+    chatHistoryPersistenceDrainScheduled = false;
+    if (pendingChatHistoryPersistence.size === 0) {
+        return chatHistoryPersistenceQueue.catch(() => {});
+    }
+
+    const entries = Array.from(pendingChatHistoryPersistence.entries());
+    pendingChatHistoryPersistence.clear();
+    const store = getChatHistoryStore();
+    if (!store) {
+        return chatHistoryPersistenceQueue.catch(() => {});
+    }
+
+    const scheduled = chatHistoryPersistenceQueue
+        .catch(() => {})
+        .then(async () => {
+            for (const [contactId, mode] of entries) {
+                if (mode === 'remove') {
+                    await store.removeItem(buildChatHistoryStorageKey(contactId));
+                    continue;
+                }
+                const snapshot = normalizeChatHistoryMessages(rawChatHistoryState[contactId]);
+                await store.setItem(buildChatHistoryStorageKey(contactId), snapshot);
+            }
+        });
+
+    chatHistoryPersistenceQueue = scheduled.catch((err) => {
+        console.error('聊天记录持久化失败', err);
+    });
+    return scheduled;
+}
+
+function persistChatHistory(contactId, options = {}) {
+    if (contactId === undefined || contactId === null || contactId === '') {
+        Object.keys(rawChatHistoryState).forEach((id) => {
+            persistChatHistorySnapshot(id, 'save');
+        });
+    } else {
+        persistChatHistorySnapshot(contactId, options.remove ? 'remove' : 'save');
+    }
+    return options.immediate
+        ? flushChatPersistence()
+        : chatHistoryPersistenceQueue.catch(() => {});
+}
+
+async function flushChatPersistence() {
+    while (chatHistoryPersistenceDrainScheduled || pendingChatHistoryPersistence.size > 0) {
+        await drainPendingChatHistoryPersistence();
+    }
+    await chatHistoryPersistenceQueue.catch((err) => {
+        console.error('聊天记录 flush 失败', err);
+    });
+}
+
+async function loadPersistedChatHistories(fallbackChatHistory = null) {
+    const store = getChatHistoryStore();
+    const normalizedFallback = normalizeChatHistoryMap(fallbackChatHistory);
+    if (!store) {
+        replaceChatHistoryState(normalizedFallback, { suppressPersist: true });
+        return { source: 'memory', migrated: false, contactCount: Object.keys(normalizedFallback).length };
+    }
+
+    const storageKeys = await store.keys();
+    const contactStorageKeys = storageKeys.filter(key => String(key || '').startsWith(CHAT_HISTORY_STORAGE_KEY_PREFIX));
+    if (contactStorageKeys.length === 0) {
+        replaceChatHistoryState(normalizedFallback, { suppressPersist: true });
+        if (Object.keys(normalizedFallback).length > 0) {
+            Object.keys(normalizedFallback).forEach((contactId) => {
+                persistChatHistorySnapshot(contactId, 'save');
+            });
+            await flushChatPersistence();
+            return {
+                source: 'legacy-config',
+                migrated: true,
+                contactCount: Object.keys(normalizedFallback).length
+            };
+        }
+        return { source: 'store', migrated: false, contactCount: 0 };
+    }
+
+    const loadedChatHistory = {};
+    for (const storageKey of contactStorageKeys) {
+        const contactId = getContactIdFromChatHistoryStorageKey(storageKey);
+        if (!contactId) continue;
+        const storedHistory = await store.getItem(storageKey);
+        loadedChatHistory[contactId] = normalizeChatHistoryMessages(storedHistory);
+    }
+    replaceChatHistoryState(loadedChatHistory, { suppressPersist: true });
+    return {
+        source: 'store',
+        migrated: false,
+        contactCount: Object.keys(loadedChatHistory).length
+    };
+}
+
+function setupChatPersistenceLifecycleGuards() {
+    if (window.__chatPersistenceLifecycleGuardsInstalled) return;
+    window.__chatPersistenceLifecycleGuardsInstalled = true;
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            flushChatPersistence().catch(err => console.error('聊天记录隐藏态 flush 失败', err));
+        }
+    });
+
+    window.addEventListener('pagehide', () => {
+        flushChatPersistence().catch(err => console.error('聊天记录 pagehide flush 失败', err));
+    });
+}
+
+installChatHistoryAccessor();
+setupChatPersistenceLifecycleGuards();
+window.persistChatHistory = persistChatHistory;
+window.loadPersistedChatHistories = loadPersistedChatHistories;
+window.flushChatPersistence = flushChatPersistence;
 
 function normalizeAutoPostTextValue(text) {
     return String(text || '')
@@ -791,6 +1131,7 @@ window.appInitFunctions = [];
 let currentEditingChatMsgId = null;
 
 const knownApps = {
+    'messages-app': { name: 'Messages', icon: 'fas fa-comment-dots', color: '#34C759' },
     'wechat-app': { name: 'WeChat', icon: 'fab fa-weixin', color: '#07C160' },
     'worldbook-app': { name: 'Worldbook', icon: 'fas fa-globe', color: '#007AFF' },
     'settings-app': { name: 'Settings', icon: 'fas fa-cog', color: '#8E8E93' },
@@ -834,6 +1175,39 @@ function compressImage(file, maxWidth = 1024, quality = 0.7) {
         };
         reader.onerror = (err) => reject(err);
     });
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        if (!(file instanceof Blob)) {
+            reject(new Error('invalid file'));
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = (err) => reject(err || new Error('file read failed'));
+        reader.readAsDataURL(file);
+    });
+}
+
+function shouldPreferInlineChatImageStorage(file) {
+    const userAgent = navigator.userAgent || '';
+    if (/MicroMessenger/i.test(userAgent)) return true;
+    if (/iPhone|iPad|iPod/i.test(userAgent)) return true;
+    if (!window.isSecureContext) return true;
+    if (!file || !(file instanceof Blob)) return false;
+    const fileType = String(file.type || '').toLowerCase();
+    if (fileType.includes('heic') || fileType.includes('heif')) return true;
+    return false;
+}
+
+async function buildInlineChatImagePayload(file, maxWidth = 1024, quality = 0.7) {
+    try {
+        return await compressImage(file, maxWidth, quality);
+    } catch (compressionError) {
+        console.warn('聊天图片压缩失败，回退原图 data URL', compressionError);
+        return readFileAsDataUrl(file);
+    }
 }
 
 const CHAT_MEDIA_REF_PREFIX = 'chat-media://';
@@ -1028,6 +1402,9 @@ function revokeCachedChatMediaUrls() {
 }
 
 window.CHAT_MEDIA_PIXEL_PLACEHOLDER = CHAT_MEDIA_PIXEL_PLACEHOLDER;
+window.readFileAsDataUrl = readFileAsDataUrl;
+window.shouldPreferInlineChatImageStorage = shouldPreferInlineChatImageStorage;
+window.buildInlineChatImagePayload = buildInlineChatImagePayload;
 window.isChatMediaReference = isChatMediaReference;
 window.compressImageToBlob = compressImageToBlob;
 window.saveChatMediaBlob = saveChatMediaBlob;
@@ -1376,6 +1753,7 @@ window.analyzeStorageUsage = function() {
 function saveConfig() {
     try {
         const persistState = Object.assign({}, state);
+        try { delete persistState.chatHistory; } catch (e) {}
         try { delete persistState.selectedMessages; } catch (e) {}
         try { delete persistState.isMultiSelectMode; } catch (e) {}
         try { delete persistState.selectedStickers; } catch (e) {}
@@ -1395,12 +1773,14 @@ function saveConfig() {
 async function loadConfig() {
     try {
         let loadedState = await localforage.getItem('iphoneSimConfig');
+        let loadedFromLegacyLocalStorage = false;
         
         if (!loadedState) {
             const localSaved = localStorage.getItem('iphoneSimConfig');
             if (localSaved) {
                 try {
                     loadedState = JSON.parse(localSaved);
+                    loadedFromLegacyLocalStorage = true;
                     console.log('Config migration completed.');
                     await localforage.setItem('iphoneSimConfig', loadedState);
                     localStorage.removeItem('iphoneSimConfig');
@@ -1412,7 +1792,7 @@ async function loadConfig() {
         }
 
         if (loadedState) {
-            Object.assign(state, loadedState);
+            assignLoadedState(loadedState);
             
             if (!state.fontPresets) state.fontPresets = [];
             if (!state.cssPresets) state.cssPresets = [];
@@ -1439,7 +1819,11 @@ async function loadConfig() {
                 negativePrompt: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
                 corsProxy: 'corsproxy.io'
             };
-            if (!state.amapSettings) state.amapSettings = { key: '', securityCode: '' };
+            if (!state.amapSettings) state.amapSettings = { jsKey: '', webKey: '', key: '', securityCode: '' };
+            if (typeof state.amapSettings.jsKey !== 'string') state.amapSettings.jsKey = '';
+            if (typeof state.amapSettings.webKey !== 'string') state.amapSettings.webKey = '';
+            if (typeof state.amapSettings.key !== 'string') state.amapSettings.key = '';
+            if (typeof state.amapSettings.securityCode !== 'string') state.amapSettings.securityCode = '';
             if (!state.amapRuntime || typeof state.amapRuntime !== 'object') {
                 state.amapRuntime = {
                     myLocation: null,
@@ -1562,12 +1946,19 @@ async function loadConfig() {
                 state.currentStickerCategoryId = 'all';
             }
 
+            const chatHistoryLoadResult = await loadPersistedChatHistories(loadedState.chatHistory || rawChatHistoryState);
+            if (chatHistoryLoadResult && (chatHistoryLoadResult.migrated || loadedFromLegacyLocalStorage)) {
+                await Promise.resolve(saveConfig());
+            }
+
             const memoryMigrationChanged = migrateMemorySchemaV2();
             const socialContentSanitized = sanitizeAutoGeneratedSocialContent();
             const chatMediaMigrated = await migrateLegacyChatImageMessages();
             if (memoryMigrationChanged || socialContentSanitized || chatMediaMigrated) {
                 saveConfig();
             }
+        } else {
+            await loadPersistedChatHistories(rawChatHistoryState);
         }
     } catch (e) {
         console.error('Operation failed. See details below.', e);
@@ -1608,6 +1999,10 @@ function handleClearAllData() {
         Promise.all([
             localforage.clear(),
             (() => {
+                const store = getChatHistoryStore();
+                return store ? store.clear() : Promise.resolve();
+            })(),
+            (() => {
                 const store = getChatMediaStore();
                 return store ? store.clear() : Promise.resolve();
             })()
@@ -1621,6 +2016,54 @@ function handleClearAllData() {
             alert('Operation completed.');
         });
     }
+}
+
+async function handleForceRefreshPage() {
+    if (!confirm('这会尝试更新页面缓存并重新加载最新版本，不会清空本地数据。确定继续吗？')) {
+        return;
+    }
+
+    const forceRefreshBtn = document.getElementById('force-refresh-page');
+    const originalLabel = forceRefreshBtn ? forceRefreshBtn.textContent : '';
+
+    if (forceRefreshBtn) {
+        forceRefreshBtn.disabled = true;
+        forceRefreshBtn.textContent = '刷新中...';
+    }
+
+    try {
+        if (typeof saveConfig === 'function') {
+            await Promise.resolve(saveConfig());
+        }
+
+        if ('serviceWorker' in navigator) {
+            try {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(registrations.map(registration => registration.update().catch(err => {
+                    console.warn('Failed to update service worker registration:', err);
+                })));
+            } catch (err) {
+                console.warn('Failed to inspect service worker registrations:', err);
+            }
+        }
+
+        if ('caches' in window) {
+            try {
+                const cacheKeys = await caches.keys();
+                await Promise.all(cacheKeys.map(cacheKey => caches.delete(cacheKey).catch(err => {
+                    console.warn(`Failed to delete cache: ${cacheKey}`, err);
+                })));
+            } catch (err) {
+                console.warn('Failed to clear Cache Storage:', err);
+            }
+        }
+    } catch (err) {
+        console.warn('Force refresh preparation failed:', err);
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('_refresh', Date.now().toString());
+    window.location.replace(url.toString());
 }
 
 function exportJSON() {
@@ -1676,15 +2119,15 @@ function importJSON(e) {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
         try {
             const loadedState = JSON.parse(event.target.result);
-            Object.assign(state, loadedState);
-            
-            saveConfig().then(() => {
-                alert('Operation completed.');
-                location.reload();
-            });
+            assignLoadedState(loadedState);
+            await loadPersistedChatHistories(loadedState.chatHistory || rawChatHistoryState);
+            await Promise.resolve(saveConfig());
+            await flushChatPersistence();
+            alert('Operation completed.');
+            location.reload();
         } catch (err) {
             alert('Operation completed.');
             console.error(err);
@@ -1773,15 +2216,18 @@ async function init() {
     const analyzeStorageBtn = document.getElementById('analyze-storage');
     if (analyzeStorageBtn) analyzeStorageBtn.addEventListener('click', window.analyzeStorageUsage);
 
-    window.appInitFunctions.forEach(func => {
-        if (typeof func === 'function') func();
-    });
+    const forceRefreshPageBtn = document.getElementById('force-refresh-page');
+    if (forceRefreshPageBtn) forceRefreshPageBtn.addEventListener('click', handleForceRefreshPage);
 
     try {
         await loadConfig();
     } catch (e) {
         console.error('Operation failed. See details below.', e);
     }
+
+    window.appInitFunctions.forEach(func => {
+        if (typeof func === 'function') func();
+    });
 
     if (window.reloadAlbumAppState) window.reloadAlbumAppState();
 

@@ -1,4 +1,4 @@
-﻿function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null, options = {}) {
+function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null, options = {}) {
     return new Promise(resolve => {
         const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
         if (!contactId) {
@@ -124,6 +124,595 @@ function handleRegenerateReply() {
     generateAiReply('请基于当前协议重新生成上一轮回复：保持人设、自然聊天感和正确 JSON 格式；如果已开启显示心声，仍需先输出 thought_state；避免重复上一版的不自然表达。');
 }
 
+const CHAT_FOOD_ASSIST_TTL_MS = 10 * 60 * 1000;
+const CHAT_ROUTE_ASSIST_TTL_MS = 10 * 60 * 1000;
+const CHAT_NAVIGATION_MODE_META = {
+    driving: { key: 'driving', label: '驾车' },
+    transit: { key: 'transit', label: '公交地铁' },
+    walking: { key: 'walking', label: '步行' },
+    bicycling: { key: 'bicycling', label: '骑行' }
+};
+
+function getChatNavigationModeMeta(modeKey) {
+    const normalizedKey = String(modeKey || 'driving').trim().toLowerCase();
+    return CHAT_NAVIGATION_MODE_META[normalizedKey] || CHAT_NAVIGATION_MODE_META.driving;
+}
+
+function ensureChatFoodAssistStore() {
+    if (!window.__chatFoodAssistStateStore || typeof window.__chatFoodAssistStateStore !== 'object') {
+        window.__chatFoodAssistStateStore = {};
+    }
+    return window.__chatFoodAssistStateStore;
+}
+
+function setChatFoodAssistState(contactId, nextState) {
+    if (!contactId) return;
+    const store = ensureChatFoodAssistStore();
+    store[contactId] = {
+        ...nextState,
+        updatedAt: Date.now()
+    };
+}
+
+function getChatFoodAssistState(contactId) {
+    if (!contactId) return null;
+    const store = ensureChatFoodAssistStore();
+    const entry = store[contactId];
+    if (!entry) return null;
+    if ((Date.now() - Number(entry.updatedAt || 0)) > CHAT_FOOD_ASSIST_TTL_MS) {
+        delete store[contactId];
+        return null;
+    }
+    return entry;
+}
+
+function clearChatFoodAssistState(contactId) {
+    if (!contactId) return;
+    const store = ensureChatFoodAssistStore();
+    delete store[contactId];
+}
+
+function ensureChatRouteAssistStore() {
+    if (!window.__chatRouteAssistStateStore || typeof window.__chatRouteAssistStateStore !== 'object') {
+        window.__chatRouteAssistStateStore = {};
+    }
+    return window.__chatRouteAssistStateStore;
+}
+
+function setChatRouteAssistState(contactId, nextState) {
+    if (!contactId) return;
+    const store = ensureChatRouteAssistStore();
+    store[contactId] = {
+        ...nextState,
+        updatedAt: Date.now()
+    };
+}
+
+function getChatRouteAssistState(contactId) {
+    if (!contactId) return null;
+    const store = ensureChatRouteAssistStore();
+    const entry = store[contactId];
+    if (!entry) return null;
+    if ((Date.now() - Number(entry.updatedAt || 0)) > CHAT_ROUTE_ASSIST_TTL_MS) {
+        delete store[contactId];
+        return null;
+    }
+    return entry;
+}
+
+function clearChatRouteAssistState(contactId) {
+    if (!contactId) return;
+    const store = ensureChatRouteAssistStore();
+    delete store[contactId];
+}
+
+function normalizeChatNavigationMode(text) {
+    const raw = String(text || '').trim();
+    if (/(公交|地铁|巴士|公车|公共交通|metro|bus|subway)/i.test(raw)) {
+        return { key: 'transit', label: '公交地铁' };
+    }
+    if (/(步行|走路|徒步|walking|walk)/i.test(raw)) {
+        return { key: 'walking', label: '步行' };
+    }
+    if (/(骑行|骑车|单车|自行车|电瓶车|电动车|bike|bicycle|cycling|ride)/i.test(raw)) {
+        return { key: 'bicycling', label: '骑行' };
+    }
+    return { key: 'driving', label: '驾车' };
+}
+
+function extractChatNavigationIntent(text) {
+    const raw = String(text || '').trim();
+    const mode = normalizeChatNavigationMode(raw);
+    if (!raw) {
+        return { rawText: '', destination: '', modeKey: mode.key, modeLabel: mode.label };
+    }
+
+    const modePhrasePattern = /(坐地铁|地铁|公交|公车|巴士|公共交通|驾车|开车|打车|自驾|骑行|骑车|步行|走路|徒步|bike|bicycle|cycling|ride|walking|walk|transit|bus|metro|subway)/ig;
+    const fillerPattern = /(帮我|请|麻烦|想|我要|我想|给我|规划|导航|查一下|看一下|路线|怎么去|怎么走|多久到|多长时间到|需要多久|大概|一下|一下子|从这里|从这儿|从我这里|从当前位置|从我这|出发|前往|到达)/ig;
+    const extractPatterns = [
+        /(?:去|到|前往|导航去|导航到|目的地(?:是|到)?)(.+?)(?=(?:坐地铁|地铁|公交|驾车|开车|打车|骑行|骑车|步行|走路|怎么去|怎么走|路线|多久到|多长时间到|$))/i,
+        /(.+?)(?=(?:坐地铁|地铁|公交|驾车|开车|打车|骑行|骑车|步行|走路|怎么去|怎么走|路线|多久到|多长时间到|$))/i
+    ];
+
+    let destination = '';
+    extractPatterns.some(pattern => {
+        const matched = raw.match(pattern);
+        if (!matched || !matched[1]) return false;
+        destination = String(matched[1] || '').trim();
+        return !!destination;
+    });
+
+    if (!destination) {
+        const candidates = raw
+            .split(/[，,。.!！?？\n]/)
+            .map(part => String(part || '').trim())
+            .filter(Boolean)
+            .map(part => part.replace(modePhrasePattern, ' ').replace(fillerPattern, ' ').replace(/^(去|到|前往)+/g, ' ').trim())
+            .filter(Boolean)
+            .sort((left, right) => right.length - left.length);
+        destination = candidates[0] || '';
+    }
+
+    destination = destination
+        .replace(modePhrasePattern, ' ')
+        .replace(fillerPattern, ' ')
+        .replace(/^(去|到|前往)+/g, ' ')
+        .replace(/[，,。.!！?？]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    return {
+        rawText: raw,
+        destination,
+        modeKey: mode.key,
+        modeLabel: mode.label
+    };
+}
+
+function upsertHiddenFoodContextMessage(contactId, contextText, options = {}) {
+    if (!contactId || !window.iphoneSimState || !window.iphoneSimState.chatHistory) return null;
+    const text = String(contextText || '').trim();
+    if (!window.iphoneSimState.chatHistory[contactId]) {
+        window.iphoneSimState.chatHistory[contactId] = [];
+    }
+
+    const history = window.iphoneSimState.chatHistory[contactId];
+    const nextHistory = history.filter(msg => !(msg && msg.type === 'food_context_hidden'));
+    window.iphoneSimState.chatHistory[contactId] = nextHistory;
+
+    if (!text) {
+        if (typeof saveConfig === 'function') saveConfig();
+        return null;
+    }
+
+    const payload = [
+        '【附近餐饮缓存】',
+        '这是最近一次附近餐饮搜索结果，供后续聊天继续参考。若用户继续追问“还有别的吗”“哪个更近”“便宜点”“不要辣”等，请优先基于这份列表回答。',
+        text
+    ].join('\n');
+
+    const hiddenMsg = {
+        id: Date.now() + Math.random().toString(36).substr(2, 9),
+        time: Date.now(),
+        role: 'system',
+        type: 'food_context_hidden',
+        hiddenFromUi: true,
+        includeInAiContext: true,
+        content: payload,
+        metaType: 'food_context',
+        meta: {
+            ready: options.ready === true,
+            source: 'nearby_food_search',
+            items: Array.isArray(options.items) ? options.items.map(item => ({
+                id: String((item && item.id) || '').trim(),
+                name: String((item && item.name) || '').trim(),
+                coverImage: String((item && item.coverImage) || '').trim(),
+                distanceText: String((item && item.distanceText) || '').trim(),
+                rating: String((item && item.rating) || '').trim(),
+                cost: String((item && item.cost) || '').trim()
+            })) : []
+        }
+    };
+
+    window.iphoneSimState.chatHistory[contactId].push(hiddenMsg);
+    if (typeof saveConfig === 'function') saveConfig();
+    console.log('[Food Debug] hidden food context message stored', {
+        contactId,
+        ready: hiddenMsg.meta.ready,
+        preview: payload.slice(0, 300)
+    });
+    return hiddenMsg;
+}
+
+function normalizeFoodImageMatchText(text) {
+    return String(text || '')
+        .toLowerCase()
+        .replace(/[\s\-—_·•()（）\[\]【】,.，。!！?？:：;；'"“”‘’/\\]/g, '');
+}
+
+function pickRecommendedFoodImageItems(searchResult, assistantText) {
+    const items = searchResult && Array.isArray(searchResult.items) ? searchResult.items : [];
+    if (!items.length) return [];
+
+    const rawText = String(assistantText || '').trim();
+    if (!rawText) return [];
+    const normalizedReply = normalizeFoodImageMatchText(rawText);
+
+    return items
+        .map((item, index) => {
+            const name = String((item && item.name) || '').trim();
+            const coverImage = String((item && item.coverImage) || '').trim();
+            if (!name || !coverImage) return null;
+
+            const normalizedName = normalizeFoodImageMatchText(name);
+            let score = 0;
+            if (rawText.includes(name)) score += 100;
+            if (normalizedName && normalizedReply.includes(normalizedName)) score += 80;
+            if (item.distanceMeters && Number.isFinite(Number(item.distanceMeters))) {
+                score += Math.max(0, 20 - Math.min(20, Math.round(Number(item.distanceMeters) / 300)));
+            }
+            return score > 0 ? { item, index, score } : null;
+        })
+        .filter(Boolean)
+        .sort((left, right) => {
+            if (right.score !== left.score) return right.score - left.score;
+            return left.index - right.index;
+        })
+        .slice(0, 2)
+        .map(entry => entry.item);
+}
+
+function sendRecommendedFoodImages(contactId, searchResult, replyStartedAt) {
+    if (!contactId || !searchResult || !Array.isArray(searchResult.items) || !searchResult.items.length) {
+        return [];
+    }
+    const history = window.iphoneSimState && window.iphoneSimState.chatHistory
+        ? (window.iphoneSimState.chatHistory[contactId] || [])
+        : [];
+    const recentAssistantText = history
+        .filter(msg => msg && msg.role === 'assistant' && Number(msg.time || 0) >= Number(replyStartedAt || 0))
+        .map(msg => String(msg.content || '').trim())
+        .filter(Boolean)
+        .join('\n');
+
+    const matchedItems = pickRecommendedFoodImageItems(searchResult, recentAssistantText);
+    matchedItems.forEach(item => {
+        const meta = [item.distanceText, item.rating ? `评分 ${item.rating}` : '', item.cost ? `人均 ${item.cost}` : '']
+            .filter(Boolean)
+            .join(' · ');
+        sendMessage(item.coverImage, false, 'image', meta ? `${item.name} · ${meta}` : item.name, contactId);
+    });
+
+    console.log('[Food Debug] recommended food images sent', {
+        contactId,
+        matchedCount: matchedItems.length,
+        matchedItems: matchedItems.map(item => ({ name: item.name, coverImage: item.coverImage }))
+    });
+    return matchedItems;
+}
+
+function upsertHiddenRouteContextMessage(contactId, contextText, routeResult = null) {
+    if (!contactId || !window.iphoneSimState || !window.iphoneSimState.chatHistory) return null;
+    const text = String(contextText || '').trim();
+    if (!window.iphoneSimState.chatHistory[contactId]) {
+        window.iphoneSimState.chatHistory[contactId] = [];
+    }
+
+    const history = window.iphoneSimState.chatHistory[contactId];
+    const nextHistory = history.filter(msg => !(msg && msg.type === 'route_context_hidden'));
+    window.iphoneSimState.chatHistory[contactId] = nextHistory;
+
+    if (!text) {
+        if (typeof saveConfig === 'function') saveConfig();
+        return null;
+    }
+
+    const payload = [
+        '【导航路线缓存】',
+        '这是最近一次路线规划结果，仅在用户继续讨论导航、路线、多久到、怎么走、哪种方式更合适时引用。',
+        text
+    ].join('\n');
+
+    const hiddenMsg = {
+        id: Date.now() + Math.random().toString(36).substr(2, 9),
+        time: Date.now(),
+        role: 'system',
+        type: 'route_context_hidden',
+        hiddenFromUi: true,
+        includeInAiContext: true,
+        content: payload,
+        metaType: 'route_context',
+        meta: routeResult ? {
+            destinationLabel: String(routeResult.destinationLabel || routeResult.destinationQuery || '').trim(),
+            mode: String(routeResult.mode || '').trim(),
+            modeLabel: String(routeResult.modeLabel || '').trim(),
+            etaMin: Number(routeResult.etaMin || 0) || null,
+            distanceKm: Number(routeResult.distanceKm || 0) || null
+        } : null
+    };
+
+    window.iphoneSimState.chatHistory[contactId].push(hiddenMsg);
+    if (typeof saveConfig === 'function') saveConfig();
+    console.log('[Route Debug] hidden route context message stored', {
+        contactId,
+        preview: payload.slice(0, 300)
+    });
+    return hiddenMsg;
+}
+
+async function handleChatNavigationAssistEntry(chatInput) {
+    const contactId = window.iphoneSimState.currentChatContactId;
+    if (!contactId) return;
+
+    clearChatFoodAssistState(contactId);
+    setChatRouteAssistState(contactId, {
+        promptText: '请告诉我目的地和出行方式，例如：去南京南站，地铁。',
+        awaitingInput: true
+    });
+
+    sendMessage('我正在邀请你帮我规划路线', true, 'route_invite', '请输入目的地和出行方式后为你生成路线建议');
+    if (chatInput) {
+        chatInput.focus();
+    }
+    if (typeof window.showChatToast === 'function') {
+        window.showChatToast('请输入目的地和出行方式，例如：去南京南站，地铁', 2600);
+    }
+}
+
+async function submitChatNavigationAssistRequest(destination, modeKey) {
+    const contactId = window.iphoneSimState.currentChatContactId;
+    if (!contactId) {
+        return false;
+    }
+
+    const destinationText = String(destination || '').trim();
+    if (!destinationText) {
+        return false;
+    }
+
+    const modeMeta = getChatNavigationModeMeta(modeKey);
+    const promptText = `去${destinationText}，${modeMeta.label}`;
+
+    clearChatFoodAssistState(contactId);
+    setChatRouteAssistState(contactId, {
+        promptText,
+        destination: destinationText,
+        modeKey: modeMeta.key,
+        modeLabel: modeMeta.label,
+        awaitingInput: false,
+        fromModal: true
+    });
+
+    sendMessage('我正在邀请你帮我规划路线', true, 'route_invite', `目的地：${destinationText} · ${modeMeta.label}`);
+    if (typeof window.showChatToast === 'function') {
+        window.showChatToast('正在整理路线并生成建议', 2200);
+    }
+
+    await tryRunChatNavigationAssistReply(null);
+    return true;
+}
+
+async function tryRunChatNavigationAssistReply(chatInput) {
+    const contactId = window.iphoneSimState.currentChatContactId;
+    const routeState = getChatRouteAssistState(contactId);
+    if (!contactId || !routeState) {
+        return false;
+    }
+
+    const typedText = chatInput ? String(chatInput.value || '').trim() : '';
+    if (typedText) {
+        const sentMsg = sendMessage(typedText, true);
+        if (!sentMsg) {
+            return true;
+        }
+        if (chatInput) {
+            chatInput.value = '';
+        }
+    }
+
+    const history = window.iphoneSimState.chatHistory[contactId] || [];
+    const latestUserText = [...history]
+        .reverse()
+        .find(msg => msg
+            && msg.role === 'user'
+            && (msg.type === 'text' || msg.type === '消息')
+            && !msg.hiddenFromUi
+            && Number(msg.time || 0) >= Number(routeState.updatedAt || 0));
+    const visibleQuestion = typedText || String((latestUserText && latestUserText.content) || routeState.promptText || '').trim();
+    const intent = extractChatNavigationIntent(visibleQuestion);
+
+    if (!visibleQuestion || !intent.destination) {
+        await generateAiReply('用户刚点了导航功能，但还没说清楚目的地。请用当前语气简短追问目的地和出行方式，例如步行、地铁、骑行或驾车。', null, {
+            triggerSource: 'manual'
+        });
+        return true;
+    }
+
+    console.log('[Route Debug] navigation assist reply starting', {
+        contactId,
+        visibleQuestion,
+        intent
+    });
+
+    let routeResult = null;
+    let contextText = '';
+    try {
+        if (typeof window.planAmapRouteToDestination !== 'function' || typeof window.buildAmapNavigationPromptContext !== 'function') {
+            throw new Error('导航路线功能未加载');
+        }
+        routeResult = await window.planAmapRouteToDestination(intent.destination, intent.modeKey);
+        contextText = window.buildAmapNavigationPromptContext(routeResult, visibleQuestion);
+        upsertHiddenRouteContextMessage(contactId, contextText, routeResult);
+        setChatRouteAssistState(contactId, {
+            queryText: visibleQuestion,
+            intent,
+            routeResult,
+            contextText,
+            ready: true
+        });
+        if (typeof window.showChatToast === 'function') {
+            window.showChatToast('已整理路线，正在请 TA 帮你规划', 2200);
+        }
+    } catch (error) {
+        console.error('[Route Debug] route planning failed', error);
+        contextText = [
+            '【导航路线缓存】',
+            `- 暂未成功获取路线数据：${error && error.message ? error.message : '未知错误'}`,
+            '- 若用户继续问路线，请先追问更具体的目的地或更明确的出行方式，不要假装已经拿到了路线。'
+        ].join('\n');
+        upsertHiddenRouteContextMessage(contactId, contextText, null);
+        setChatRouteAssistState(contactId, {
+            queryText: visibleQuestion,
+            intent,
+            contextText,
+            ready: false,
+            error: error && error.message ? error.message : '未知错误'
+        });
+        if (typeof window.showChatToast === 'function') {
+            window.showChatToast(`路线规划失败：${error && error.message ? error.message : '未知错误'}`, 3200);
+        }
+    }
+
+    const instruction = routeResult
+        ? `用户想去“${routeResult.destinationLabel || intent.destination}”，偏好${routeResult.modeLabel || intent.modeLabel}。请结合已经拿到的路线缓存，用当前人设自然地给出 1 段好懂的路线规划建议，可以补充多久能到、怎么走、是否值得换别的方式。用户问题：${visibleQuestion}`
+        : `用户想让你帮忙规划路线，但这次还没拿到可用的路线数据。请不要假装已经查到路线；先追问更具体的目的地或出行方式，再给一个保守的临时建议。用户问题：${visibleQuestion}`;
+
+    if (routeResult) {
+        clearChatRouteAssistState(contactId);
+    }
+    await generateAiReply(instruction, null, {
+        triggerSource: 'manual'
+    });
+    console.log('[Route Debug] navigation assist reply finished', { contactId });
+    return true;
+}
+
+async function handleChatFoodAssistEntry(chatInput) {
+    const contactId = window.iphoneSimState.currentChatContactId;
+    if (!contactId) return;
+
+    clearChatRouteAssistState(contactId);
+
+    const promptText = '帮我挑选今晚吃什么，优先结合附近的外卖和餐厅。';
+    console.log('[Food Debug] food assist entry clicked', {
+        contactId,
+        promptText,
+        currentChatTitle: document.getElementById('chat-title') ? document.getElementById('chat-title').textContent : ''
+    });
+    sendMessage('我正在邀请你帮我挑选晚饭', true, 'food_invite', '将结合附近餐厅与外卖给你建议');
+
+    if (typeof window.showChatToast === 'function') {
+        window.showChatToast('正在查找附近餐饮...', 1600);
+    }
+
+    try {
+        if (typeof window.searchAmapNearbyFood !== 'function' || typeof window.buildNearbyFoodPromptContext !== 'function') {
+            throw new Error('附近餐饮功能未加载');
+        }
+
+        const searchResult = await window.searchAmapNearbyFood(promptText, {
+            limit: 8,
+            radius: 3000
+        });
+        const contextText = window.buildNearbyFoodPromptContext(searchResult, promptText);
+
+        console.log('[Food Debug] nearby food search succeeded before AI reply', {
+            contactId,
+            itemCount: Array.isArray(searchResult.items) ? searchResult.items.length : 0,
+            items: searchResult.items || []
+        });
+
+        setChatFoodAssistState(contactId, {
+            promptText,
+            contextText,
+            searchResult,
+            ready: true
+        });
+        upsertHiddenFoodContextMessage(contactId, contextText, {
+            ready: true,
+            items: searchResult.items || []
+        });
+
+        if (typeof window.showChatToast === 'function') {
+            window.showChatToast('已整理附近餐厅，正在请 TA 帮你挑晚饭', 2200);
+        }
+    } catch (error) {
+        console.error('Nearby food search failed:', error);
+        console.log('[Food Debug] nearby food search failed before AI reply', {
+            contactId,
+            error: error && error.message ? error.message : String(error)
+        });
+        const fallbackContextText = [
+            '【附近餐饮候选】',
+            `- 暂未成功获取附近餐饮数据：${error && error.message ? error.message : '未知错误'}`,
+            '- 若用户问今天吃什么，请先追问口味、预算或就餐场景，不要假装已经查到了附近店铺。'
+        ].join('\n');
+
+        setChatFoodAssistState(contactId, {
+            promptText,
+            contextText: fallbackContextText,
+            ready: false,
+            error: error && error.message ? error.message : '未知错误'
+        });
+        upsertHiddenFoodContextMessage(contactId, fallbackContextText, { ready: false });
+
+        if (typeof window.showChatToast === 'function') {
+            window.showChatToast(`附近搜索失败，先让 TA 追问你口味：${error && error.message ? error.message : '未知错误'}`, 3200);
+        }
+    }
+
+    await tryRunChatFoodAssistReply(null);
+}
+
+async function tryRunChatFoodAssistReply(chatInput) {
+    const contactId = window.iphoneSimState.currentChatContactId;
+    const foodState = getChatFoodAssistState(contactId);
+    if (!contactId || !foodState) {
+        console.log('[Food Debug] food assist reply skipped', {
+            contactId,
+            hasFoodState: !!foodState
+        });
+        return false;
+    }
+
+    const typedText = chatInput ? String(chatInput.value || '').trim() : '';
+    if (typedText) {
+        const sentMsg = sendMessage(typedText, true);
+        if (!sentMsg) {
+            return true;
+        }
+        if (chatInput) {
+            chatInput.value = '';
+        }
+    }
+
+    const visibleQuestion = typedText || foodState.promptText || '我今天吃什么比较好？';
+    const instruction = foodState.ready
+        ? `用户正在问“今天吃什么”。如果聊天里刚出现一条用户消息，请直接接住那条消息；请结合附加的附近餐饮候选，用当前人设和语气帮用户推荐 1~3 个更合适的选择，并简要说明理由。用户问题：${visibleQuestion}`
+        : `用户正在问“今天吃什么”。这次没有拿到附近餐饮数据，请不要假装已经查到附近店铺；先追问口味、预算或就餐场景，再给出临时建议。用户问题：${visibleQuestion}`;
+
+    console.log('[Food Debug] food assist reply starting', {
+        contactId,
+        ready: !!foodState.ready,
+        visibleQuestion,
+        itemCount: foodState.searchResult && Array.isArray(foodState.searchResult.items)
+            ? foodState.searchResult.items.length
+            : 0,
+        contextPreview: String(foodState.contextText || '').slice(0, 500)
+    });
+
+    clearChatFoodAssistState(contactId);
+    const replyStartedAt = Date.now();
+    await generateAiReply(instruction, null, {
+        triggerSource: 'manual'
+    });
+    if (foodState.ready && foodState.searchResult) {
+        sendRecommendedFoodImages(contactId, foodState.searchResult, replyStartedAt);
+    }
+    console.log('[Food Debug] food assist reply finished', { contactId });
+    return true;
+}
+
 function handleTransfer() {
     const amountStr = document.getElementById('transfer-amount').value.trim();
     const remark = document.getElementById('transfer-remark').value.trim();
@@ -181,12 +770,22 @@ function handleChatPhotoUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    const fallbackToBase64 = () => compressImage(file, 800, 0.7).then(base64 => {
+    const fallbackToBase64 = async () => {
+        if (typeof window.buildInlineChatImagePayload === 'function') {
+            const base64 = await window.buildInlineChatImagePayload(file, 1280, 0.72);
+            sendMessage(base64, true, 'image');
+            return;
+        }
+        const base64 = await compressImage(file, 1280, 0.72);
         sendMessage(base64, true, 'image');
-    });
+    };
 
     Promise.resolve()
         .then(async () => {
+            if (typeof window.shouldPreferInlineChatImageStorage === 'function' && window.shouldPreferInlineChatImageStorage(file)) {
+                return fallbackToBase64();
+            }
+
             if (typeof window.compressImageToBlob !== 'function' || typeof window.saveChatMediaBlob !== 'function') {
                 return fallbackToBase64();
             }
@@ -4178,15 +4777,31 @@ function setupChatListeners() {
             if (e.key === 'Enter') {
                 const text = chatInput.value.trim();
                 if (text) {
-                    sendMessage(text, true);
-                    chatInput.value = '';
+                    const sentMsg = sendMessage(text, true);
+                    if (sentMsg) {
+                        chatInput.value = '';
+                        if (getChatRouteAssistState(window.iphoneSimState.currentChatContactId) && typeof window.showChatToast === 'function') {
+                            window.showChatToast('已发送，点右侧 AI 按钮规划路线', 2200);
+                        } else if (getChatFoodAssistState(window.iphoneSimState.currentChatContactId) && typeof window.showChatToast === 'function') {
+                            window.showChatToast('已发送，点右侧 AI 按钮获取推荐', 2200);
+                        }
+                    }
                 }
             }
         });
     }
 
     if (triggerAiReplyBtn) {
-        triggerAiReplyBtn.addEventListener('click', () => generateAiReply(null, null, { triggerSource: 'manual' }));
+        triggerAiReplyBtn.addEventListener('click', async () => {
+            const handledByRouteAssist = await tryRunChatNavigationAssistReply(chatInput);
+            if (handledByRouteAssist) {
+                return;
+            }
+            const handledByFoodAssist = await tryRunChatFoodAssistReply(chatInput);
+            if (!handledByFoodAssist) {
+                generateAiReply(null, null, { triggerSource: 'manual' });
+            }
+        });
     }
 
     const chatMoreBtn = document.getElementById('chat-more-btn');
@@ -4274,7 +4889,20 @@ function setupChatListeners() {
                     return;
                 }
 
-                if (item.id === 'chat-more-photo-btn' || item.id === 'chat-more-camera-btn' || item.id === 'chat-more-transfer-btn' || item.id === 'chat-more-memory-btn' || item.id === 'chat-more-location-btn' || item.id === 'chat-more-regenerate-btn' || item.id === 'chat-more-voice-btn' || item.id === 'chat-more-video-call-btn' || item.id === 'chat-more-screen-share-btn' || item.id === 'chat-more-fire-buddy-btn') return;
+                if (item.id === 'chat-more-food-btn') {
+                    e.stopPropagation();
+                    closeAllPanels();
+                    handleChatFoodAssistEntry(chatInput);
+                    return;
+                }
+                if (item.id === 'chat-more-nav-btn') {
+                    e.stopPropagation();
+                    closeAllPanels();
+                    openChatNavigationModal();
+                    return;
+                }
+
+                if (item.id === 'chat-more-photo-btn' || item.id === 'chat-more-camera-btn' || item.id === 'chat-more-transfer-btn' || item.id === 'chat-more-memory-btn' || item.id === 'chat-more-location-btn' || item.id === 'chat-more-regenerate-btn' || item.id === 'chat-more-voice-btn' || item.id === 'chat-more-video-call-btn' || item.id === 'chat-more-screen-share-btn' || item.id === 'chat-more-fire-buddy-btn' || item.id === 'chat-more-food-btn' || item.id === 'chat-more-nav-btn') return;
                 
                 e.stopPropagation();
                 const label = item.querySelector('.more-label').textContent;
@@ -4514,6 +5142,99 @@ function setupChatListeners() {
         doTransferBtn.addEventListener('click', handleTransfer);
     }
 
+    const chatNavModal = document.getElementById('chat-nav-modal');
+    const closeChatNavModalBtn = document.getElementById('close-chat-nav-modal');
+    const confirmChatNavBtn = document.getElementById('confirm-chat-nav-btn');
+    const chatNavDestinationInput = document.getElementById('chat-nav-destination');
+    const chatNavModeGroup = document.getElementById('chat-nav-mode-group');
+
+    function setActiveChatNavMode(modeKey) {
+        if (!chatNavModeGroup) return;
+        const nextMode = getChatNavigationModeMeta(modeKey).key;
+        chatNavModeGroup.querySelectorAll('.chat-nav-mode-chip').forEach(chip => {
+            const chipMode = chip && chip.dataset ? String(chip.dataset.mode || '').trim() : '';
+            chip.classList.toggle('active', chipMode === nextMode);
+        });
+    }
+
+    function getActiveChatNavMode() {
+        if (!chatNavModeGroup) return 'driving';
+        const activeChip = chatNavModeGroup.querySelector('.chat-nav-mode-chip.active');
+        const activeMode = activeChip && activeChip.dataset ? String(activeChip.dataset.mode || '').trim() : '';
+        return getChatNavigationModeMeta(activeMode || 'driving').key;
+    }
+
+    function closeChatNavigationModal() {
+        if (!chatNavModal) return;
+        chatNavModal.classList.add('hidden');
+    }
+
+    function openChatNavigationModal() {
+        if (!chatNavModal) return;
+        if (chatNavDestinationInput) {
+            chatNavDestinationInput.value = '';
+        }
+        setActiveChatNavMode('driving');
+        chatNavModal.classList.remove('hidden');
+        window.setTimeout(() => {
+            if (chatNavDestinationInput) {
+                chatNavDestinationInput.focus();
+            }
+        }, 20);
+    }
+
+    async function submitChatNavigationModal() {
+        const destinationText = chatNavDestinationInput ? String(chatNavDestinationInput.value || '').trim() : '';
+        if (!destinationText) {
+            if (typeof window.showChatToast === 'function') {
+                window.showChatToast('请先输入目的地', 2200);
+            }
+            if (chatNavDestinationInput) {
+                chatNavDestinationInput.focus();
+            }
+            return;
+        }
+
+        closeChatNavigationModal();
+        const submitted = await submitChatNavigationAssistRequest(destinationText, getActiveChatNavMode());
+        if (!submitted && typeof window.showChatToast === 'function') {
+            window.showChatToast('当前没有可发送的聊天窗口', 2200);
+        }
+    }
+
+    if (chatNavModeGroup) {
+        chatNavModeGroup.querySelectorAll('.chat-nav-mode-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const modeKey = chip && chip.dataset ? chip.dataset.mode : 'driving';
+                setActiveChatNavMode(modeKey);
+            });
+        });
+    }
+
+    if (chatNavDestinationInput) {
+        chatNavDestinationInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitChatNavigationModal();
+            }
+        });
+    }
+
+    if (closeChatNavModalBtn) {
+        closeChatNavModalBtn.addEventListener('click', closeChatNavigationModal);
+    }
+
+    if (confirmChatNavBtn) {
+        confirmChatNavBtn.addEventListener('click', submitChatNavigationModal);
+    }
+
+    if (chatNavModal) {
+        chatNavModal.addEventListener('click', (e) => {
+            if (e.target === chatNavModal) {
+                closeChatNavigationModal();
+            }
+        });
+    }
     const closeReplyBarBtn = document.getElementById('close-reply-bar');
     if (closeReplyBarBtn) {
         closeReplyBarBtn.addEventListener('click', cancelQuote);

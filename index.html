@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <title>iPhone Simulator</title>
@@ -27,6 +27,7 @@
     <link rel="manifest" href="manifest.json">
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&display=swap">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/whisper_challenge_palette.css">
@@ -53,6 +54,8 @@
     <link rel="stylesheet" href="css/chat_settings_editorial.css">
     <link rel="stylesheet" href="css/chat_oracle_quick_replies.css">
     <link rel="stylesheet" href="css/preset_app.css">
+    <link rel="stylesheet" href="css/messages_app.css">
+    <link rel="stylesheet" href="css/phone_delivery_app.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -558,11 +561,23 @@
             </div>
             <div class="option-group">
                 <div class="option-card">
-                    <div class="input-wrapper">
-                        <input type="password" id="amap-api-key" placeholder="Web API Key">
+                    <div class="option-header">
+                        <span class="option-label">JS 地图 Key</span>
                     </div>
                     <div class="input-wrapper">
-                        <input type="password" id="amap-security-code" placeholder="Security Code">
+                        <input type="password" id="amap-js-key" placeholder="用于前端地图 SDK 加载">
+                    </div>
+                    <div class="option-header" style="margin-top: 15px;">
+                        <span class="option-label">Web 服务 Key</span>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="amap-web-key" placeholder="用于定位、逆地理编码、周边搜索">
+                    </div>
+                    <div class="option-header" style="margin-top: 15px;">
+                        <span class="option-label">Security Code</span>
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="password" id="amap-security-code" placeholder="JS 安全密钥（可选）">
                     </div>
                 </div>
             </div>
@@ -658,6 +673,10 @@
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
                         <button class="btn-secondary" id="optimize-storage">压缩图片</button>
                         <button class="btn-secondary" id="analyze-storage">存储分析</button>
+                    </div>
+                    <button class="btn-secondary" id="force-refresh-page" style="width:100%; margin-top:10px;">强制刷新网页</button>
+                    <div style="margin-top:8px; font-size:12px; color:#666; line-height:1.5;">
+                        部署后如果还显示旧版本，可用它尝试更新页面缓存并重新加载最新资源，不会清空本地数据。
                     </div>
                     <button class="btn-text btn-danger" id="clear-all-data" style="width:100%; margin-top:10px;">清空所有数据</button>
                 </div>
@@ -1464,6 +1483,32 @@
                     </div>
                 </div>
             </div>
+            <!-- 导航弹窗 -->
+            <div id="chat-nav-modal" class="modal hidden" style="z-index: 205; align-items: center;">
+                <div class="modal-content chat-nav-modal-card">
+                    <div class="modal-header" style="border-bottom: none; padding-bottom: 0;">
+                        <h3 style="width: 100%; text-align: center;">路线规划</h3>
+                        <button class="close-btn" id="close-chat-nav-modal" style="position: absolute; right: 15px;">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 20px;">
+                        <div class="chat-nav-modal-copy">输入目的地，并选择你想要的出行方式</div>
+                        <div class="setting-group" style="margin-top: 14px;">
+                            <label for="chat-nav-destination">目的地</label>
+                            <input type="text" id="chat-nav-destination" placeholder="例如：南京南站 / 新街口 / 夫子庙" maxlength="60">
+                        </div>
+                        <div class="setting-group" style="margin-top: 16px;">
+                            <label>出行方式</label>
+                            <div id="chat-nav-mode-group" class="chat-nav-mode-group">
+                                <button type="button" class="chat-nav-mode-chip active" data-mode="driving">驾车</button>
+                                <button type="button" class="chat-nav-mode-chip" data-mode="transit">公交地铁</button>
+                                <button type="button" class="chat-nav-mode-chip" data-mode="walking">步行</button>
+                                <button type="button" class="chat-nav-mode-chip" data-mode="bicycling">骑行</button>
+                            </div>
+                        </div>
+                        <button id="confirm-chat-nav-btn" class="ios-btn-block" style="margin-top: 16px;">发送导航请求</button>
+                    </div>
+                </div>
+            </div>
         <!-- 发送语音弹窗 -->
         <div id="voice-input-modal" class="modal hidden">
             <div class="modal-content">
@@ -1722,6 +1767,14 @@
                             <div class="more-item" id="chat-more-edit-msg-btn">
                                 <div class="more-icon"><i class="fas fa-edit"></i></div>
                                 <div class="more-label">编辑</div>
+                            </div>
+                            <div class="more-item" id="chat-more-food-btn">
+                                <div class="more-icon"><i class="fas fa-utensils"></i></div>
+                                <div class="more-label">吃什么</div>
+                            </div>
+                            <div class="more-item" id="chat-more-nav-btn">
+                                <div class="more-icon"><i class="fas fa-route"></i></div>
+                                <div class="more-label">导航</div>
                             </div>
                             <div class="more-item" id="chat-more-screen-share-btn" onclick="window.startScreenShare(); event.stopPropagation();">
                                 <div class="more-icon"><i class="fas fa-desktop"></i></div>
@@ -5227,6 +5280,378 @@
         </div>
     </div>
 
+    <!-- Phone Check - Notes -->
+    <div id="phone-notes" class="sub-screen hidden" style="z-index: 200; background-color: #f2f2f7; overflow: hidden;">
+        <div id="phone-notes-content" style="width: 100%; height: 100%; overflow-y: auto; background: #f2f2f7;"></div>
+    </div>
+
+    <!-- 查手机 - 短信 -->
+    <div id="phone-messages" class="sub-screen hidden messages-app-screen" style="z-index: 200;">
+        <div class="messages-app-shell">
+            <section class="messages-view messages-list-view" aria-label="查手机短信列表页面">
+                <div class="messages-list-header">
+                    <div class="messages-list-topbar">
+                        <button class="messages-edit-pill" type="button">编辑</button>
+                        <button id="phone-messages-compact-back" class="messages-compact-title" type="button" aria-label="&#x8FD4;&#x56DE;&#x67E5;&#x624B;&#x673A;&#x4E3B;&#x5C4F;&#x5E55;">&#x4FE1;&#x606F;</button>
+                        <button id="phone-messages-generate-btn" class="messages-list-menu-btn" type="button" aria-label="生成短信内容">
+                            <i class="fas fa-bars"></i>
+                        </button>
+                    </div>
+
+                    <button id="phone-messages-home-back" class="messages-large-title messages-title-back" type="button" aria-label="返回查手机主屏幕">
+                        信息
+                    </button>
+                </div>
+
+                <div class="messages-list-scroll" id="phone-messages-thread-list"></div>
+
+                <div class="messages-list-bottom-bar">
+                    <label class="messages-bottom-search" for="phone-messages-search-input">
+                        <i class="fas fa-search"></i>
+                        <input id="phone-messages-search-input" type="text" placeholder="搜索">
+                    </label>
+                    <button class="messages-bottom-compose-btn" id="phone-messages-compose-btn" type="button" aria-label="新建消息">
+                        <img src="https://i.postimg.cc/3wtXMDHd/wu-biao-ti127-20260405215314.png" alt="新建消息图标">
+                    </button>
+                </div>
+            </section>
+
+            <section class="messages-view messages-chat-view" aria-label="查手机短信聊天页面">
+                <div class="messages-chat-header">
+                    <div class="messages-chat-header-inner">
+                        <button id="phone-messages-chat-back" class="messages-chat-back" type="button" aria-label="返回短信列表">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="m15 18-6-6 6-6"></path>
+                            </svg>
+                        </button>
+
+                        <div class="messages-chat-pill">
+                            <div id="phone-messages-chat-avatar" class="messages-chat-avatar"></div>
+                            <div id="phone-messages-chat-name" class="messages-chat-name"></div>
+                        </div>
+
+                        <button class="messages-chat-video" type="button" aria-label="视频通话">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M23 7l-7 5 7 5V7z"></path>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="messages-chat-scroll" id="phone-messages-chat-scroll"></div>
+
+                <div class="messages-input-bar">
+                    <button id="phone-messages-plus-btn" class="messages-plus-btn" type="button" aria-label="更多功能">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 5v14m-7-7h14"></path>
+                        </svg>
+                    </button>
+
+                    <div class="messages-compose-shell">
+                        <input id="phone-messages-compose-input" type="text" placeholder="iMessage">
+                        <button id="phone-messages-mic-btn" class="messages-mic-btn" type="button" aria-label="语音输入">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="22"></line>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- 查手机 - 外卖 -->
+    <div id="phone-delivery" class="sub-screen hidden" style="z-index: 200; background-color: #ffffff;">
+        <div class="phone-delivery-shell">
+            <header>
+                <div class="animate-enter phone-delivery-title-back" id="phone-delivery-page-header" role="button" tabindex="0" aria-label="返回查手机主屏幕">
+                    <span id="phone-delivery-header-subtitle" class="page-subtitle">Current Status</span>
+                    <h1 id="phone-delivery-header-title" class="page-title display-font">Delivery</h1>
+                </div>
+                <button id="generate-phone-delivery-btn" class="profile-btn interactive animate-enter" type="button" aria-label="Generate delivery content" title="Generate">
+                    <i class="ri-user-smile-line"></i>
+                </button>
+            </header>
+
+            <div id="page-home" class="page-view active phone-delivery-page" data-page="home">
+                <div class="nav-pills animate-enter d-1">
+                    <button class="pill active interactive" type="button">Delivery </button>
+                    <button class="pill interactive" type="button">Gift </button>
+                    <button class="pill interactive" type="button">Pick-up </button>
+                </div>
+
+                <div class="container">
+                    <div class="utility-group animate-enter d-1">
+                        <div class="utility-item interactive">
+                            <div class="item-icon"><i class="ri-map-pin-user-line"></i></div>
+                            <div class="item-content">
+                                <div class="item-label">Delivery Address 送达地址</div>
+                                <div id="phone-delivery-address-value" class="item-value">静安区愚园路 120 号 8F</div>
+                            </div>
+                            <i class="ri-arrow-right-s-line arrow-icon"></i>
+                        </div>
+                        <div class="utility-item interactive" style="border-top: 1px solid var(--border);">
+                            <div class="item-icon"><i class="ri-sticky-note-line"></i></div>
+                            <div class="item-content">
+                                <div class="item-label">Taste Notes 口味备注</div>
+                                <div id="phone-delivery-note-value" class="item-value">无接触配送，多放葱花</div>
+                            </div>
+                            <i class="ri-arrow-right-s-line arrow-icon"></i>
+                        </div>
+                    </div>
+
+                    <button id="phone-delivery-featured-card" class="featured-card interactive animate-enter d-2" type="button">
+                        <div class="deco-circle"></div>
+
+                        <div class="featured-header">
+                            <div class="status-pill">
+                                <div class="pulse-dot"></div>
+                                <span id="phone-delivery-featured-status">Arriving Soon</span>
+                            </div>
+                            <div id="phone-delivery-featured-icon" class="brand-icon">
+                                <i class="ri-restaurant-2-line"></i>
+                            </div>
+                        </div>
+
+                        <div class="featured-content">
+                            <h2 id="phone-delivery-featured-name" class="featured-title display-font">Wagas<br>10 mins away</h2>
+                            <div id="phone-delivery-featured-summary" class="featured-subtitle">Chicken Pesto Penne, Iced Americano</div>
+                        </div>
+
+                        <div class="featured-action">
+                            <div id="phone-delivery-featured-courier" class="courier-text" style="font-size: 13px; font-weight: 500;">
+                                <i class="ri-ebike-2-line" style="margin-right: 6px;"></i><span>Li Ming</span>
+                            </div>
+                            <div class="btn-track interactive">
+                                Track <i class="ri-arrow-right-up-line"></i>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <div id="page-shops" class="page-view phone-delivery-page" data-page="discover">
+                <div class="container" style="padding-top: 20px;">
+                    <div class="section-label animate-enter d-1">
+                        Frequent &amp; Favorites
+                        <span>常点 / 收藏</span>
+                    </div>
+                    <div id="phone-delivery-favorites-list" class="item-grid animate-enter d-2"></div>
+
+                    <div class="section-label animate-enter d-3" style="margin-top: 24px;">
+                        For You
+                        <span>猜你想吃</span>
+                    </div>
+                    <div id="phone-delivery-recommend-list" class="item-grid animate-enter d-3"></div>
+                </div>
+            </div>
+
+            <div id="page-orders" class="page-view phone-delivery-page" data-page="orders">
+                <div class="container" style="padding-top: 20px;">
+                    <div class="section-label animate-enter d-1">
+                        Recent Orders
+                        <span>最近订单</span>
+                    </div>
+                    <div id="phone-delivery-order-list" class="item-grid animate-enter d-2"></div>
+                </div>
+            </div>
+
+            <div class="shop-info-modal" id="phone-delivery-shop-modal" aria-hidden="true">
+                <button id="phone-delivery-shop-modal-backdrop" class="shop-info-backdrop" type="button" aria-label="关闭店铺信息弹窗"></button>
+                <div class="shop-info-card">
+                    <div class="shop-info-top">
+                        <div class="shop-info-tag-group">
+                            <div id="phone-delivery-shop-modal-badge" class="shop-info-badge">常点店铺</div>
+                            <div class="shop-info-badge shop-info-badge-secondary">最近活跃</div>
+                        </div>
+                        <button id="phone-delivery-shop-modal-close" class="shop-info-close" type="button" aria-label="关闭店铺信息弹窗"><i class="ri-close-line"></i></button>
+                    </div>
+
+                    <div class="shop-info-brand">
+                        <div id="phone-delivery-shop-modal-icon" class="shop-info-icon"><i class="ri-store-2-line"></i></div>
+                        <div class="shop-info-heading">
+                            <div id="phone-delivery-shop-modal-name" class="shop-info-name">Wagas</div>
+                            <div class="shop-info-category"><span id="phone-delivery-shop-modal-category">健康轻食</span><span class="shop-info-category-separator"> · </span><span id="phone-delivery-shop-modal-address">上海市静安区</span></div>
+                        </div>
+                    </div>
+
+                    <div class="shop-info-stats">
+                        <div class="shop-info-stat-main">
+                            <div class="shop-info-stat-label">最近下单时间</div>
+                            <div id="phone-delivery-shop-modal-last-order" class="shop-info-stat-main-value">12:18 <span>Today</span></div>
+                            <div id="phone-delivery-shop-modal-meta" class="shop-info-meta"></div>
+                        </div>
+                        <div class="shop-info-stat-side">
+                            <div class="shop-info-mini-stat">
+                                <div class="shop-info-stat-label">下单次数</div>
+                                <div id="phone-delivery-shop-modal-order-count" class="shop-info-stat-value">6 次</div>
+                            </div>
+                            <div class="shop-info-mini-stat">
+                                <div class="shop-info-stat-label">平均消费</div>
+                                <div id="phone-delivery-shop-modal-avg-spend" class="shop-info-stat-value">¥42</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="shop-info-block">
+                        <div class="shop-info-block-label">常点套餐组合</div>
+                        <div id="phone-delivery-shop-modal-items" class="shop-info-block-value">Chicken Pesto Penne<br><span>&amp; Iced Americano</span></div>
+                    </div>
+
+                    <div class="shop-info-note">
+                        <div id="phone-delivery-shop-modal-reason" class="shop-info-note-text">“最近总能翻到这家，像是忙的时候会顺手下单，已经有点变成固定选项了。”</div>
+                    </div>
+
+                    <div class="shop-info-actions">
+                        <button id="phone-delivery-shop-modal-dismiss" class="shop-info-btn shop-info-btn-secondary" type="button">稍后再说</button>
+                        <button id="phone-delivery-shop-modal-action" class="shop-info-btn shop-info-btn-primary" type="button">查看完整订单</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="order-detail-overlay" id="phone-delivery-detail" aria-hidden="true">
+                <div class="detail-header">
+                    <button id="phone-delivery-detail-back" class="back-btn interactive" type="button" aria-label="返回订单列表"><i class="ri-arrow-down-s-line"></i></button>
+                    <div id="phone-delivery-detail-title" class="detail-title phone-delivery-title-back" role="button" tabindex="0" aria-label="返回订单列表">Order Details</div>
+                </div>
+
+                <div class="detail-content">
+                    <div class="review-note note-grid phone-delivery-note-card">
+                        <div id="phone-delivery-detail-stickers" class="phone-delivery-note-stickers" aria-hidden="true"></div>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                            <i class="ri-double-quotes-l review-quote-icon" style="color: #000; opacity: 0.3; margin-bottom: 0; font-size: 28px;"></i>
+                            <div id="phone-delivery-detail-note-title" style="font-size: 22px; font-weight: 600; padding-top: 4px;">我的随手记 ✦</div>
+                        </div>
+                        <div id="phone-delivery-detail-preview" style="font-size: 18px; font-weight: 400; text-indent: 1em; line-height: 1.6;">骑手已送达，记得及时取餐。</div>
+                    </div>
+
+                    <div class="detail-shop">
+                        <div id="phone-delivery-detail-icon" class="detail-shop-img"><i class="ri-goblet-line"></i></div>
+                        <div style="flex:1;">
+                            <div id="phone-delivery-detail-shop-name" style="font-size:20px; font-weight:700;">Blue Bottle Coffee</div>
+                            <div class="status-pill" style="display:inline-flex; margin-top:8px; background:var(--surface); border:1px solid var(--border); box-shadow:none;">
+                                <span id="phone-delivery-detail-status" style="color:var(--text-muted);">Completed</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section-label" style="margin-bottom:0; font-size:18px;">Items</div>
+                    <div id="phone-delivery-detail-items" class="detail-items"></div>
+
+                    <div class="detail-summary">
+                        <div class="summary-row"><span>Subtotal</span><span id="phone-delivery-detail-subtotal">¥68</span></div>
+                        <div class="summary-row"><span>Delivery Fee</span><span id="phone-delivery-detail-fee">¥0</span></div>
+                        <div class="summary-row total"><span>Total</span><span id="phone-delivery-detail-total">¥68</span></div>
+                    </div>
+
+                    <div class="section-label" style="margin-bottom:0; margin-top:8px; font-size:18px;">Delivery Info</div>
+                    <div style="background:var(--surface); border-radius:24px; padding:24px; border:1px solid var(--border); display:flex; flex-direction:column; gap:16px;">
+                        <div style="display:flex; justify-content:space-between; font-size:14px; gap:12px;">
+                            <span style="color:var(--text-muted);">Recipient 收货人</span>
+                            <span id="phone-delivery-detail-recipient" style="font-weight:600; text-align:right;">J. Smith · 138****8888</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; font-size:14px; gap:12px;">
+                            <span style="color:var(--text-muted);">Address 地址</span>
+                            <span id="phone-delivery-detail-address" style="font-weight:600; text-align:right; max-width: 60%;">静安区愚园路 120 号</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; font-size:14px; gap:12px;">
+                            <span style="color:var(--text-muted);">Status 配送状态</span>
+                            <span id="phone-delivery-detail-delivery-status" style="font-weight:600; color:var(--text-main); text-align:right;">Delivered On Time</span>
+                        </div>
+                    </div>
+
+                    <div class="section-label" style="margin-bottom:0; margin-top:8px; font-size:18px;">Order Info</div>
+                    <div style="background:var(--surface); border-radius:24px; padding:24px; border:1px solid var(--border); display:flex; flex-direction:column; gap:16px;">
+                        <div style="display:flex; justify-content:space-between; font-size:14px; gap:12px;">
+                            <span style="color:var(--text-muted);">Order ID</span>
+                            <span id="phone-delivery-detail-order-id" style="font-weight:600; text-align:right;">8892 1204 43</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; font-size:14px; gap:12px;">
+                            <span style="color:var(--text-muted);">Time</span>
+                            <span id="phone-delivery-detail-time" style="font-weight:600; text-align:right;">Yesterday, 14:30</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; font-size:14px; gap:12px;">
+                            <span style="color:var(--text-muted);">Notes 备注</span>
+                            <span id="phone-delivery-detail-note" style="font-weight:600; text-align:right; max-width: 60%;">无接触配送，多放葱花</span>
+                        </div>
+                    </div>
+
+                    <button id="phone-delivery-detail-action" class="btn-track interactive" type="button" style="justify-content:center; padding:18px; font-size:16px; margin-top:10px; width:100%;">
+                        Reorder 再来一单
+                    </button>
+                </div>
+            </div>
+
+            <nav class="bottom-nav" aria-label="外卖底部导航">
+                <button class="nav-item active interactive" data-page="home" type="button" aria-label="外卖首页">
+                    <i class="ri-home-5-fill"></i>
+                </button>
+                <button class="nav-item interactive" data-page="discover" type="button" aria-label="发现商家">
+                    <i class="ri-compass-3-line"></i>
+                </button>
+                <button class="nav-item interactive" data-page="orders" type="button" aria-label="最近订单">
+                    <i class="ri-file-list-3-line"></i>
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <!-- 查手机 - 快递 -->
+    <div id="phone-parcel" class="sub-screen hidden" style="z-index: 200; background-color: #eef2f5;">
+        <div class="phone-mockup">
+            <div class="blob blob-1"></div>
+            <div class="blob blob-2"></div>
+            <div class="blob blob-3"></div>
+
+            <div class="page active" id="phone-parcel-view-home">
+                <div class="header">
+                    <div id="phone-parcel-home-close" class="btn-icon" role="button" tabindex="0" aria-label="返回查手机主屏幕"><i class="ri-search-line"></i></div>
+                    <div class="header-title">TRACKING</div>
+                    <button id="generate-phone-parcel-btn" class="btn-icon" type="button" aria-label="生成快递内容" title="生成快递内容"><i class="ri-sparkling-2-line"></i></button>
+                </div>
+
+                <div class="scroll-area">
+                    <div class="title-xl">Your<br>Packages</div>
+
+                    <div class="tabs" role="tablist" aria-label="快递筛选">
+                        <div class="tab active" data-tab-index="0" role="tab" aria-selected="true">ALL</div>
+                        <div class="tab" data-tab-index="1" role="tab" aria-selected="false">TRANSIT</div>
+                        <div class="tab" data-tab-index="2" role="tab" aria-selected="false">DELIVERED</div>
+                        <div class="tab-indicator" id="phone-parcel-tab-line"></div>
+                    </div>
+
+                    <div id="phone-parcel-home-content"></div>
+                </div>
+            </div>
+
+            <div class="page" id="phone-parcel-view-detail">
+                <div class="header">
+                    <div class="btn-icon" data-parcel-back="home" role="button" tabindex="0" aria-label="返回快递首页"><i class="ri-arrow-left-line"></i></div>
+                    <div class="header-title">DETAILS</div>
+                    <div class="btn-icon" role="button" tabindex="0" aria-label="更多操作"><i class="ri-more-line"></i></div>
+                </div>
+
+                <div id="phone-parcel-detail-content" class="scroll-area"></div>
+            </div>
+
+            <div class="page" id="phone-parcel-view-address">
+                <div class="header">
+                    <div class="btn-icon" data-parcel-back="home" role="button" tabindex="0" aria-label="返回快递首页"><i class="ri-arrow-left-line"></i></div>
+                    <div class="header-title">ADDRESSES</div>
+                    <div class="btn-icon" role="button" tabindex="0" aria-label="筛选地址"><i class="ri-equalizer-line"></i></div>
+                </div>
+
+                <div class="scroll-area">
+                    <div class="title-xl">Frequent<br>Spots</div>
+                    <div id="phone-parcel-address-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 查手机 - 微信 -->
     <div id="phone-wechat" class="sub-screen hidden" style="z-index: 200;">
         <div class="app-header" id="phone-wechat-header" style="background: transparent; border: none; position: absolute; top: 0; left: 0; width: 100%; z-index: 10; padding-left: 20px; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; height: auto; padding-top: max(47px, env(safe-area-inset-top)); justify-content: space-between;">
@@ -8069,6 +8494,86 @@
         </div>
     </div>
 
+    <div id="messages-app" class="app-screen hidden messages-app-screen">
+        <button id="close-messages-app" class="messages-app-close" type="button" aria-label="关闭信息应用">
+            <i class="fas fa-times"></i>
+        </button>
+
+        <div class="messages-app-shell">
+            <section class="messages-view messages-list-view" aria-label="信息列表页面">
+                <div class="messages-list-header">
+                    <div class="messages-list-topbar">
+                        <button class="messages-edit-pill" type="button">&#x7F16;&#x8F91;</button>
+                        <button class="messages-list-menu-btn" type="button" aria-label="筛选菜单">
+                            <i class="fas fa-bars"></i>
+                        </button>
+                    </div>
+
+                    <button id="messages-home-back" class="messages-large-title messages-title-back" type="button" aria-label="返回桌面">
+                        &#x4FE1;&#x606F;
+                    </button>
+                </div>
+
+                <div class="messages-list-scroll" id="messages-thread-list"></div>
+
+                <div class="messages-list-bottom-bar">
+                    <label class="messages-bottom-search" for="messages-search-input">
+                        <i class="fas fa-search"></i>
+                        <input id="messages-search-input" type="text" placeholder="&#x641C;&#x7D22;">
+                    </label>
+                    <button class="messages-bottom-compose-btn" id="messages-compose-btn" type="button" aria-label="新建消息">
+                        <img src="https://i.postimg.cc/3wtXMDHd/wu-biao-ti127-20260405215314.png" alt="新建消息图标">
+                    </button>
+                </div>
+            </section>
+
+            <section class="messages-view messages-chat-view" aria-label="信息聊天页面">
+                <div class="messages-chat-header">
+                    <div class="messages-chat-header-inner">
+                        <button id="messages-chat-back" class="messages-chat-back" type="button" aria-label="返回信息列表">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="m15 18-6-6 6-6"></path>
+                            </svg>
+                        </button>
+
+                        <div class="messages-chat-pill">
+                            <div id="messages-chat-avatar" class="messages-chat-avatar"></div>
+                            <div id="messages-chat-name" class="messages-chat-name"></div>
+                        </div>
+
+                        <button class="messages-chat-video" type="button" aria-label="视频通话">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M23 7l-7 5 7 5V7z"></path>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="messages-chat-scroll" id="messages-chat-scroll"></div>
+
+                <div class="messages-input-bar">
+                    <button id="messages-plus-btn" class="messages-plus-btn" type="button" aria-label="更多功能">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 5v14m-7-7h14"></path>
+                        </svg>
+                    </button>
+
+                    <div class="messages-compose-shell">
+                        <input id="messages-compose-input" type="text" placeholder="iMessage">
+                        <button id="messages-mic-btn" class="messages-mic-btn" type="button" aria-label="语音输入">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="22"></line>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
     <!-- 音频元素 -->
     <audio id="bg-music" loop></audio>
 
@@ -8093,6 +8598,7 @@
     <script src="js/calendar_app.js"></script>
     <script src="js/music_app_screen.js"></script>
     <script src="js/check_phone.js"></script>
+    <script src="js/check_phone_health.js"></script>
     <script src="js/chat/01-contact-settings.js"></script>
     <script src="js/chat/02-message-bank.js"></script>
     <script src="js/chat/03-ai-engine.js"></script>
@@ -8113,6 +8619,8 @@
     <script src="js/screen_share.js"></script>
     <script src="js/changelog.js"></script>
     <script src="js/whisper_challenge.js"></script>
+    <script src="js/messages_app.js"></script>
+    <script src="js/phone_messages_app.js"></script>
 <!-- 在 index.html 中找到 <!-- 编辑记忆弹窗 --> 附近，添加以下代码 -->
 
             <!-- 编辑消息弹窗 -->
@@ -8558,6 +9066,8 @@
 
 </body>
 </html>
+
+
 
 
 

@@ -32,6 +32,7 @@ let homeScreenData = [
     { index: 28, type: 'app', name: 'LookUS', iconClass: 'fas fa-eye', color: '#FF2D55', appId: 'lookus-app' },
     { index: 10, type: 'app', name: '微信', iconClass: 'fab fa-weixin', color: '#07C160', appId: 'wechat-app' },
     { index: 11, type: 'app', name: '世界书', iconClass: 'fas fa-globe', color: '#007AFF', appId: 'worldbook-app' },
+    { index: 12, type: 'app', name: '信息', iconClass: 'fas fa-comment-dots', color: '#34C759', appId: 'messages-app' },
     { index: 13, type: 'app', name: '银行', iconClass: 'fas fa-building-columns', color: '#1E66F5', appId: 'bank-app' },
     { index: 14, type: 'app', name: '设置', iconClass: 'fas fa-cog', color: '#8E8E93', appId: 'settings-app' },
     { index: 15, type: 'app', name: '美化', iconClass: 'fas fa-paint-brush', color: '#5856D6', appId: 'theme-app' },
@@ -212,6 +213,34 @@ function initGrid() {
             iconClass: 'fas fa-building-columns',
             color: '#1E66F5',
             appId: 'bank-app',
+            _internalId: generateId()
+        });
+    }
+
+    // 强制添加信息应用 (如果不存在)
+    if (!homeScreenData.some(item => item.appId === 'messages-app')) {
+        let targetIndex = 12;
+        const isOccupied = (idx) => homeScreenData.some(item => {
+            const slots = getOccupiedSlots(item.index, item.size || '1x1');
+            return slots && slots.includes(idx);
+        });
+
+        if (isOccupied(targetIndex)) {
+            for (let i = 0; i < SLOTS_PER_PAGE * totalPages; i++) {
+                if (!isOccupied(i)) {
+                    targetIndex = i;
+                    break;
+                }
+            }
+        }
+
+        homeScreenData.push({
+            index: targetIndex,
+            type: 'app',
+            name: '信息',
+            iconClass: 'fas fa-comment-dots',
+            color: '#34C759',
+            appId: 'messages-app',
             _internalId: generateId()
         });
     }
