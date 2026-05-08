@@ -1,6 +1,9 @@
 // Settings App V3 Logic
 
 function initSettingsApp() {
+    if (window.__settingsV3InitDone) return;
+    window.__settingsV3InitDone = true;
+
     // Initial tab
     switchSettingsTab('ai');
     
@@ -77,48 +80,72 @@ window.initSettingsApp = initSettingsApp;
 // Enable Drag to Scroll for Nav Scroller
 // Must be called AFTER settings-app is visible (not display:none)
 let _dragScrollInited = false;
+let _dragScrollCleanup = null;
 function enableDragScroll() {
     if (_dragScrollInited) return;
     const slider = document.querySelector('#settings-app .nav-scroller');
     if (!slider) return;
     _dragScrollInited = true;
 
-    // Mouse drag support
+    // Mouse drag support (bind global listeners only while dragging)
     let isMouseDown = false;
-    let startX, scrollLeft;
+    let startX;
+    let scrollLeft;
+
+    const onMouseMove = (e) => {
+        if (!isMouseDown) return;
+        e.preventDefault();
+        const walk = (e.pageX - startX) * 1.5;
+        slider.scrollLeft = scrollLeft - walk;
+    };
+
+    const stopMouseDrag = () => {
+        if (!isMouseDown) return;
+        isMouseDown = false;
+        slider.style.cursor = 'grab';
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', stopMouseDrag);
+        window.removeEventListener('mouseleave', stopMouseDrag);
+    };
 
     slider.addEventListener('mousedown', (e) => {
         isMouseDown = true;
         startX = e.pageX;
         scrollLeft = slider.scrollLeft;
         slider.style.cursor = 'grabbing';
-    });
-
-    document.addEventListener('mouseup', () => {
-        isMouseDown = false;
-        slider.style.cursor = 'grab';
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!isMouseDown) return;
-        e.preventDefault();
-        const walk = (e.pageX - startX) * 1.5;
-        slider.scrollLeft = scrollLeft - walk;
+        window.addEventListener('mousemove', onMouseMove, { passive: false });
+        window.addEventListener('mouseup', stopMouseDrag);
+        window.addEventListener('mouseleave', stopMouseDrag);
     });
 
     // Touch drag support (for mobile / DevTools mobile simulation)
     let touchStartX = 0;
     let touchScrollLeft = 0;
+    let touchDragging = false;
 
     slider.addEventListener('touchstart', (e) => {
+        touchDragging = true;
         touchStartX = e.touches[0].clientX;
         touchScrollLeft = slider.scrollLeft;
     }, { passive: true });
 
     slider.addEventListener('touchmove', (e) => {
+        if (!touchDragging) return;
         const walk = (touchStartX - e.touches[0].clientX) * 1.5;
         slider.scrollLeft = touchScrollLeft + walk;
     }, { passive: true });
+    slider.addEventListener('touchend', () => {
+        touchDragging = false;
+    }, { passive: true });
+    slider.addEventListener('touchcancel', () => {
+        touchDragging = false;
+    }, { passive: true });
+
+    _dragScrollCleanup = () => {
+        touchDragging = false;
+        stopMouseDrag();
+        slider.style.cursor = 'grab';
+    };
 
     slider.style.cursor = 'grab';
 }
@@ -131,6 +158,8 @@ function watchSettingsAppOpen() {
     const observer = new MutationObserver(() => {
         if (!settingsApp.classList.contains('hidden')) {
             enableDragScroll();
+        } else if (typeof _dragScrollCleanup === 'function') {
+            _dragScrollCleanup();
         }
     });
     observer.observe(settingsApp, { attributes: true, attributeFilter: ['class'] });

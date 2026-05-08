@@ -205,6 +205,9 @@
     }
 
     function detectFireBuddyMentionState(text, contact) {
+        if (contact && typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)) {
+            return null;
+        }
         if (!contact || !isFireBuddyEnabled(contact) || typeof text !== 'string' || !text) return null;
         const mentionToken = getFireBuddyMentionToken(contact);
         if (!text.includes(mentionToken)) return null;
@@ -1852,60 +1855,198 @@
         delete menu.dataset.contactId;
     }
 
+    function escapeMentionMenuHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getChatInputMentionMatch(input) {
+        if (!input) return null;
+        const cursorPos = Number.isFinite(input.selectionStart) ? input.selectionStart : String(input.value || '').length;
+        const beforeCursor = String(input.value || '').slice(0, cursorPos);
+        const match = /(^|\s)@([^\s@]*)$/.exec(beforeCursor);
+        if (!match) return null;
+        const leading = match[1] || '';
+        const start = beforeCursor.length - match[0].length + leading.length;
+        const end = beforeCursor.length;
+        const query = String(match[2] || '').trim().toLowerCase();
+        return { start, end, query };
+    }
+
+    function getGroupMentionDisplayName(groupContact, memberContact) {
+        if (!memberContact) return '群成员';
+        const nickname = typeof window.getGroupMemberNickname === 'function'
+            ? String(window.getGroupMemberNickname(groupContact, memberContact.id) || '').trim()
+            : '';
+        return nickname || memberContact.remark || memberContact.nickname || memberContact.name || '群成员';
+    }
+
+    function buildGroupMentionCandidates(groupContact, query = '') {
+        if (!groupContact || typeof window.getGroupMemberContacts !== 'function') return [];
+        const normalizedQuery = String(query || '').trim().toLowerCase();
+        const members = window.getGroupMemberContacts(groupContact) || [];
+        const candidates = members.map(member => {
+            const baseName = String(member.remark || member.nickname || member.name || '群成员').trim() || '群成员';
+            const groupNickname = typeof window.getGroupMemberNickname === 'function'
+                ? String(window.getGroupMemberNickname(groupContact, member.id) || '').trim()
+                : '';
+            const mentionName = groupNickname || getGroupMentionDisplayName(groupContact, member);
+            const title = typeof window.getGroupMemberTitle === 'function'
+                ? String(window.getGroupMemberTitle(groupContact, member.id) || '').trim()
+                : '';
+            const aliases = [mentionName, groupNickname, baseName, member.remark, member.nickname, member.name, title]
+                .map(item => String(item || '').trim())
+                .filter(Boolean);
+            return {
+                kind: 'group-member',
+                contactId: String(groupContact.id),
+                memberId: String(member.id),
+                insertText: `@${mentionName} `,
+                avatar: member.avatar || '',
+                name: baseName,
+                desc: groupNickname,
+                aliases
+            };
+        }).filter(option => {
+            if (!normalizedQuery) return true;
+            return option.aliases.some(alias => alias.toLowerCase().includes(normalizedQuery));
+        });
+
+        const isOwner = typeof window.getGroupRole === 'function'
+            ? window.getGroupRole(groupContact, 'me') === 'owner'
+            : false;
+        if (isOwner) {
+            const allAliases = ['所有人', 'all', 'everyone', 'all members'];
+            if (!normalizedQuery || allAliases.some(alias => alias.includes(normalizedQuery))) {
+                candidates.unshift({
+                    kind: 'group-all',
+                    contactId: String(groupContact.id),
+                    memberId: 'all',
+                    insertText: '@所有人 ',
+                    avatar: '',
+                    name: '所有人',
+                    desc: '',
+                    aliases: allAliases
+                });
+            }
+        }
+        return candidates;
+    }
+
+    function renderChatMentionMenuOptions(menu, options, state = {}) {
+        if (!menu) return;
+        const items = Array.isArray(options) ? options : [];
+        if (items.length === 0) {
+            hideFireBuddyMentionMenu();
+            return;
+        }
+        menu.dataset.rangeStart = String(Number(state.rangeStart || 0));
+        menu.dataset.rangeEnd = String(Number(state.rangeEnd || 0));
+        menu.dataset.contactId = String(state.contactId || '');
+        menu.innerHTML = items.map((item) => {
+            const avatarHtml = item.kind === 'group-all'
+                ? '<span class="fire-buddy-mention-avatar fire-buddy-mention-avatar-all">@</span>'
+                : `<img class="fire-buddy-mention-avatar" src="${escapeMentionMenuHtml(item.avatar || '')}" alt="头像">`;
+            return `
+                <button
+                    class="fire-buddy-mention-option${item.kind === 'group-all' ? ' fire-buddy-mention-option-all' : ''}"
+                    type="button"
+                    data-contact-id="${escapeMentionMenuHtml(item.contactId || '')}"
+                    data-member-id="${escapeMentionMenuHtml(item.memberId || '')}"
+                    data-insert-text="${escapeMentionMenuHtml(item.insertText || '')}">
+                    ${avatarHtml}
+                    <div class="fire-buddy-mention-copy">
+                        <div class="fire-buddy-mention-name">${escapeMentionMenuHtml(item.name || '')}</div>
+                        ${item.desc ? `<div class="fire-buddy-mention-desc">${escapeMentionMenuHtml(item.desc || '')}</div>` : ''}
+                    </div>
+                </button>
+            `;
+        }).join('');
+        menu.classList.remove('hidden');
+    }
+
     function syncFireBuddyMentionMenu() {
         const menu = document.getElementById('fire-buddy-mention-menu');
-        const option = document.getElementById('fire-buddy-mention-option');
-        const avatarEl = document.getElementById('fire-buddy-mention-avatar');
-        const nameEl = document.getElementById('fire-buddy-mention-name');
         const input = document.getElementById('chat-input');
         const contact = getContactById(getState().currentChatContactId);
-        if (!menu || !option || !avatarEl || !nameEl || !input || !contact || !isFireBuddyEnabled(contact)) {
+        if (!menu || !input || !contact) {
+            hideFireBuddyMentionMenu();
+            return null;
+        }
+
+        const mentionMatch = getChatInputMentionMatch(input);
+        if (!mentionMatch) {
+            hideFireBuddyMentionMenu();
+            return null;
+        }
+
+        const { start, end, query } = mentionMatch;
+        const isGroupChat = typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact);
+        if (isGroupChat) {
+            const groupOptions = buildGroupMentionCandidates(contact, query);
+            if (groupOptions.length === 0) {
+                hideFireBuddyMentionMenu();
+                return null;
+            }
+            renderChatMentionMenuOptions(menu, groupOptions, {
+                rangeStart: start,
+                rangeEnd: end,
+                contactId: contact.id
+            });
+            return { start, end, options: groupOptions };
+        }
+
+        if (!isFireBuddyEnabled(contact)) {
             hideFireBuddyMentionMenu();
             return null;
         }
 
         const profile = getFireBuddySpeakerProfile(contact.id);
-        const cursorPos = Number.isFinite(input.selectionStart) ? input.selectionStart : String(input.value || '').length;
-        const beforeCursor = String(input.value || '').slice(0, cursorPos);
-        const match = /(^|\s)@([^\s@]*)$/.exec(beforeCursor);
-        if (!match || !profile) {
+        if (!profile) {
             hideFireBuddyMentionMenu();
             return null;
         }
 
-        const query = String(match[2] || '').trim().toLowerCase();
         const displayName = String(profile.name || '').trim();
         if (query && !displayName.toLowerCase().includes(query)) {
             hideFireBuddyMentionMenu();
             return null;
         }
 
-        const leading = match[1] || '';
-        const start = beforeCursor.length - match[0].length + leading.length;
-        const end = beforeCursor.length;
-        avatarEl.src = profile.avatar;
-        nameEl.textContent = profile.name;
-        menu.dataset.rangeStart = String(start);
-        menu.dataset.rangeEnd = String(end);
-        menu.dataset.contactId = String(contact.id);
-        option.dataset.contactId = String(contact.id);
-        menu.classList.remove('hidden');
+        renderChatMentionMenuOptions(menu, [{
+            kind: 'fire-buddy',
+            contactId: String(contact.id),
+            memberId: 'fire-buddy',
+            insertText: `${getFireBuddyMentionToken(contact)} `,
+            avatar: profile.avatar,
+            name: profile.name,
+            desc: '@TA 后可触发小火人连发回复'
+        }], {
+            rangeStart: start,
+            rangeEnd: end,
+            contactId: contact.id
+        });
         return { start, end, profile };
     }
 
-    function applyFireBuddyMentionSelection(contactId) {
+    function applyFireBuddyMentionSelection(contactId, explicitInsertText = '') {
         const menu = document.getElementById('fire-buddy-mention-menu');
         const input = document.getElementById('chat-input');
         const contact = getContactById(contactId || (menu && menu.dataset.contactId) || getState().currentChatContactId);
-        if (!menu || !input || !contact || !isFireBuddyEnabled(contact)) {
+        if (!menu || !input || !contact) {
             hideFireBuddyMentionMenu();
             return;
         }
 
-        const profile = getFireBuddySpeakerProfile(contact.id);
         const rangeStart = Number(menu.dataset.rangeStart || 0);
         const rangeEnd = Number(menu.dataset.rangeEnd || 0);
-        const insertText = `${getFireBuddyMentionToken(contact)} `;
+        const insertText = String(explicitInsertText || '').trim()
+            ? explicitInsertText
+            : `${getFireBuddyMentionToken(contact)} `;
         const rawValue = String(input.value || '');
         input.value = `${rawValue.slice(0, rangeStart)}${insertText}${rawValue.slice(rangeEnd)}`;
         const nextCursor = rangeStart + insertText.length;
@@ -1914,7 +2055,7 @@
             input.setSelectionRange(nextCursor, nextCursor);
         }
         hideFireBuddyMentionMenu();
-        return profile;
+        return { insertText };
     }
 
     function splitFireBuddyReplyBurst(text) {
@@ -2204,7 +2345,7 @@
         window.__fireBuddyMentionBound = true;
 
         const chatInput = document.getElementById('chat-input');
-        const mentionOption = document.getElementById('fire-buddy-mention-option');
+        const mentionMenu = document.getElementById('fire-buddy-mention-menu');
         if (chatInput) {
             ['input', 'click', 'focus', 'keyup'].forEach(eventName => {
                 chatInput.addEventListener(eventName, () => {
@@ -2213,10 +2354,15 @@
             });
         }
 
-        if (mentionOption) {
-            mentionOption.addEventListener('mousedown', (event) => {
+        if (mentionMenu) {
+            mentionMenu.addEventListener('mousedown', (event) => {
+                const option = event.target.closest('.fire-buddy-mention-option');
+                if (!option) return;
                 event.preventDefault();
-                applyFireBuddyMentionSelection(mentionOption.dataset.contactId || getState().currentChatContactId);
+                applyFireBuddyMentionSelection(
+                    option.dataset.contactId || getState().currentChatContactId,
+                    option.dataset.insertText || ''
+                );
             });
         }
 

@@ -1,4 +1,4 @@
-﻿function createDefaultMemorySettingsV2() {
+function createDefaultMemorySettingsV2() {
     return {
         extractMode: 'hybrid',
         injectQuota: {
@@ -28,6 +28,16 @@
             other: 7
         },
         dedupeThreshold: 0.75,
+        vectorRetrieval: {
+            enabled: false,
+            endpoint: 'https://api.siliconflow.cn/v1',
+            apiKey: 'sk-tpkfgtmytrfvabkejzzyccvfeqkgwvnqxobpendlnmokojik',
+            model: 'BAAI/bge-m3',
+            topK: 8,
+            minSimilarity: 0.35,
+            queryTimeoutMs: 600,
+            useChatKeyFallback: false
+        },
         stateExtractV2: {
             enabled: true,
             strategy: 'rule_plus_ai',
@@ -53,6 +63,9 @@ function normalizeMemorySettingsV2(raw) {
     const recentDays = src.injectRecentDays && typeof src.injectRecentDays === 'object' ? src.injectRecentDays : {};
     const importanceMin = src.injectImportanceMin && typeof src.injectImportanceMin === 'object' ? src.injectImportanceMin : {};
     const ttl = src.stateTtlDays && typeof src.stateTtlDays === 'object' ? src.stateTtlDays : {};
+    const vectorRetrieval = src.vectorRetrieval && typeof src.vectorRetrieval === 'object'
+        ? src.vectorRetrieval
+        : {};
     const stateExtract = src.stateExtractV2 && typeof src.stateExtractV2 === 'object' ? src.stateExtractV2 : {};
     const stateThresholds = stateExtract.thresholds && typeof stateExtract.thresholds === 'object'
         ? stateExtract.thresholds
@@ -99,6 +112,18 @@ function normalizeMemorySettingsV2(raw) {
             other: toInt(ttl.other, defaults.stateTtlDays.other, 1, 365)
         },
         dedupeThreshold: toFloat(src.dedupeThreshold, defaults.dedupeThreshold, 0.3, 0.99),
+        vectorRetrieval: {
+            enabled: vectorRetrieval.enabled === undefined
+                ? !!defaults.vectorRetrieval.enabled
+                : !!vectorRetrieval.enabled,
+            endpoint: String(vectorRetrieval.endpoint || defaults.vectorRetrieval.endpoint || '').trim(),
+            apiKey: String(vectorRetrieval.apiKey || defaults.vectorRetrieval.apiKey || '').trim(),
+            model: String(vectorRetrieval.model || defaults.vectorRetrieval.model || '').trim(),
+            topK: toInt(vectorRetrieval.topK, defaults.vectorRetrieval.topK, 1, 30),
+            minSimilarity: toFloat(vectorRetrieval.minSimilarity, defaults.vectorRetrieval.minSimilarity, 0.05, 0.99),
+            queryTimeoutMs: toInt(vectorRetrieval.queryTimeoutMs, defaults.vectorRetrieval.queryTimeoutMs, 200, 5000),
+            useChatKeyFallback: false
+        },
         stateExtractV2: {
             enabled: stateExtract.enabled === undefined ? true : !!stateExtract.enabled,
             strategy: ['rule_plus_ai', 'rule_only'].includes(stateExtract.strategy)
@@ -440,6 +465,7 @@ const state = {
     currentWallpaper: null,
     fontPresets: [],
     cssPresets: [],
+    studioAppearancePresets: [],
     meetingCss: '',
     meetingCssPresets: [],
     meetingIcons: {
@@ -494,7 +520,7 @@ const state = {
     chatWallpapers: [], // { id, data }
     tempSelectedChatBg: null,
     tempSelectedGroup: null,
-    contacts: [], // { id, name, remark, avatar, persona, style, myAvatar, chatBg, group }
+    contacts: [], // { id, name, remark, avatar, persona, style, myAvatar, chatBg, group, chatType, groupMeta }
     contactGroups: [],
     currentChatContactId: null,
     chatHistory: {}, // { contactId: [{ role: 'user'|'assistant', content: '...' }] }
@@ -520,6 +546,16 @@ const state = {
     memorySettingsV2: createDefaultMemorySettingsV2(),
     defaultVirtualImageUrl: '',
     defaultMomentVirtualImageUrl: '',
+    deviceUsageSync: {
+        enabled: false,
+        apiBaseUrl: '',
+        userId: 'default-user',
+        deviceId: 'phone-main',
+        secret: '',
+        sharedContactIds: [],
+        lastFetchedAt: 0,
+        cacheTtlMs: 60000
+    },
     wallet: {
         balance: 0.00,
         transactions: [] // { id, type: 'income'|'expense', amount, title, time, relatedId }
@@ -586,6 +622,224 @@ const state = {
 };
 
 window.iphoneSimState = state;
+
+const GROUP_CHAT_CONTACT_GROUP = '群聊';
+const GROUP_CHAT_MEMORY_MODES = new Set(['group_only', 'bidirectional']);
+const GROUP_CHAT_STATUS = new Set(['active', 'left', 'dissolved']);
+
+function normalizeGroupParticipantId(value) {
+    if (value === 'me') return 'me';
+    const raw = String(value === undefined || value === null ? '' : value).trim();
+    if (!raw) return '';
+    const asNumber = Number(raw);
+    return Number.isFinite(asNumber) && /^-?\d+(?:\.0+)?$/.test(raw)
+        ? asNumber
+        : raw;
+}
+
+function ensureGroupChatTabRegistered() {
+    if (!Array.isArray(state.contactGroups)) state.contactGroups = [];
+    const hasGroupChat = Array.isArray(state.contacts)
+        && state.contacts.some(contact => contact && contact.chatType === 'group');
+    if (hasGroupChat && !state.contactGroups.includes(GROUP_CHAT_CONTACT_GROUP)) {
+        state.contactGroups.push(GROUP_CHAT_CONTACT_GROUP);
+    }
+}
+
+function ensureGroupChatMeta(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+
+    const meta = contact.groupMeta && typeof contact.groupMeta === 'object'
+        ? contact.groupMeta
+        : {};
+
+    const fallbackName = String(meta.name || contact.remark || contact.nickname || contact.name || '未命名群聊').trim() || '未命名群聊';
+    const fallbackAvatar = String(meta.avatar || contact.avatar || '').trim();
+    const rawMemberIds = Array.isArray(meta.memberIds) ? meta.memberIds : [];
+    const memberIds = [];
+
+    rawMemberIds.forEach((item) => {
+        const normalized = normalizeGroupParticipantId(item);
+        if (!normalized || normalized === 'me' || memberIds.includes(normalized)) return;
+        memberIds.push(normalized);
+    });
+
+    const ownerId = (() => {
+        const normalized = normalizeGroupParticipantId(meta.ownerId);
+        if (normalized === 'me') return 'me';
+        if (memberIds.includes(normalized)) return normalized;
+        return 'me';
+    })();
+
+    const adminIds = [];
+    (Array.isArray(meta.adminIds) ? meta.adminIds : []).forEach((item) => {
+        const normalized = normalizeGroupParticipantId(item);
+        if (!normalized) return;
+        if (normalized !== 'me' && !memberIds.includes(normalized)) return;
+        if (!adminIds.includes(normalized)) adminIds.push(normalized);
+    });
+    if (ownerId === 'me' && !adminIds.includes('me')) {
+        adminIds.push('me');
+    }
+
+    const memoryMode = GROUP_CHAT_MEMORY_MODES.has(meta.memoryMode)
+        ? meta.memoryMode
+        : 'group_only';
+    const status = GROUP_CHAT_STATUS.has(meta.status)
+        ? meta.status
+        : 'active';
+    const memberTitles = {};
+    if (meta.memberTitles && typeof meta.memberTitles === 'object') {
+        Object.keys(meta.memberTitles).forEach((rawKey) => {
+            const normalizedKey = normalizeGroupParticipantId(rawKey);
+            if (!normalizedKey) return;
+            if (normalizedKey !== 'me' && !memberIds.includes(normalizedKey)) return;
+            const title = String(meta.memberTitles[rawKey] || '').replace(/\s+/g, ' ').trim();
+            if (!title) return;
+            memberTitles[String(normalizedKey)] = title.slice(0, 24);
+        });
+    }
+    const memberNicknames = {};
+    if (meta.memberNicknames && typeof meta.memberNicknames === 'object') {
+        Object.keys(meta.memberNicknames).forEach((rawKey) => {
+            const normalizedKey = normalizeGroupParticipantId(rawKey);
+            if (!normalizedKey) return;
+            if (normalizedKey !== 'me' && !memberIds.includes(normalizedKey)) return;
+            const nickname = String(meta.memberNicknames[rawKey] || '').replace(/\s+/g, ' ').trim();
+            if (!nickname) return;
+            memberNicknames[String(normalizedKey)] = nickname.slice(0, 30);
+        });
+    }
+    const pendingInviteMemberIds = [];
+    (Array.isArray(meta.pendingInviteMemberIds) ? meta.pendingInviteMemberIds : []).forEach((item) => {
+        const normalized = normalizeGroupParticipantId(item);
+        if (!normalized || normalized === 'me' || !memberIds.includes(normalized)) return;
+        if (!pendingInviteMemberIds.includes(normalized)) {
+            pendingInviteMemberIds.push(normalized);
+        }
+    });
+    const relationshipMemberIds = [];
+    (Array.isArray(meta.relationshipMemberIds) ? meta.relationshipMemberIds : []).forEach((item) => {
+        const normalized = normalizeGroupParticipantId(item);
+        if (!normalized) return;
+        if (normalized !== 'me' && !memberIds.includes(normalized)) return;
+        if (!relationshipMemberIds.includes(normalized)) {
+            relationshipMemberIds.push(normalized);
+        }
+    });
+    const relationshipNodePositions = {};
+    if (meta.relationshipNodePositions && typeof meta.relationshipNodePositions === 'object') {
+        Object.keys(meta.relationshipNodePositions).forEach((rawKey) => {
+            const normalizedKey = normalizeGroupParticipantId(rawKey);
+            if (!normalizedKey || !relationshipMemberIds.includes(normalizedKey)) return;
+            const rawPosition = meta.relationshipNodePositions[rawKey];
+            if (!rawPosition || typeof rawPosition !== 'object') return;
+            const xRatio = Number(rawPosition.xRatio);
+            const yRatio = Number(rawPosition.yRatio);
+            if (!Number.isFinite(xRatio) || !Number.isFinite(yRatio)) return;
+            relationshipNodePositions[String(normalizedKey)] = {
+                xRatio: Math.min(0.92, Math.max(0.08, xRatio)),
+                yRatio: Math.min(0.88, Math.max(0.12, yRatio))
+            };
+        });
+    }
+    const relationshipLinks = [];
+    (Array.isArray(meta.relationshipLinks) ? meta.relationshipLinks : []).forEach((link) => {
+        if (!link || typeof link !== 'object') return;
+        const sourceId = normalizeGroupParticipantId(link.sourceId);
+        const targetId = normalizeGroupParticipantId(link.targetId);
+        if (!sourceId || !targetId || sourceId === targetId) return;
+        if (!relationshipMemberIds.includes(sourceId) || !relationshipMemberIds.includes(targetId)) return;
+        const relation = String(link.relation || '').replace(/\s+/g, ' ').trim();
+        if (!relation) return;
+        relationshipLinks.push({
+            sourceId,
+            targetId,
+            relation: relation.slice(0, 32)
+        });
+    });
+    const relationshipNotes = String(meta.relationshipNotes || '')
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .map((line) => String(line || '').replace(/\s+/g, ' ').trim())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+        .slice(0, 500);
+    const lastInviteAt = Number(meta.lastInviteAt);
+    const announcementText = String(meta.announcementText || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    const announcementUpdatedAt = Number(meta.announcementUpdatedAt);
+    const announcementUpdatedByRaw = normalizeGroupParticipantId(meta.announcementUpdatedBy);
+    const announcementUpdatedBy = announcementUpdatedByRaw === 'me' || memberIds.includes(announcementUpdatedByRaw)
+        ? announcementUpdatedByRaw
+        : '';
+    const pinnedMessageId = String(meta.pinnedMessageId || '').trim();
+    const pinnedUpdatedAt = Number(meta.pinnedUpdatedAt);
+    const pinnedUpdatedByRaw = normalizeGroupParticipantId(meta.pinnedUpdatedBy);
+    const pinnedUpdatedBy = pinnedUpdatedByRaw === 'me' || memberIds.includes(pinnedUpdatedByRaw)
+        ? pinnedUpdatedByRaw
+        : '';
+
+    contact.groupMeta = {
+        name: fallbackName,
+        avatar: fallbackAvatar,
+        memberIds,
+        ownerId,
+        adminIds,
+        memberNicknames,
+        memberTitles,
+        pendingInviteMemberIds,
+        relationshipMemberIds,
+        relationshipNodePositions,
+        relationshipLinks,
+        relationshipNotes,
+        lastInviteAt: Number.isFinite(lastInviteAt) && lastInviteAt > 0 ? lastInviteAt : 0,
+        announcementText,
+        announcementUpdatedAt: Number.isFinite(announcementUpdatedAt) && announcementUpdatedAt > 0 ? announcementUpdatedAt : 0,
+        announcementUpdatedBy,
+        pinnedMessageId,
+        pinnedUpdatedAt: Number.isFinite(pinnedUpdatedAt) && pinnedUpdatedAt > 0 ? pinnedUpdatedAt : 0,
+        pinnedUpdatedBy,
+        memoryMode,
+        status
+    };
+
+    contact.group = GROUP_CHAT_CONTACT_GROUP;
+    contact.name = fallbackName;
+    contact.remark = fallbackName;
+    if (fallbackAvatar) {
+        contact.avatar = fallbackAvatar;
+    }
+    contact.activeReplyEnabled = false;
+    contact.wechatBlockedByUser = false;
+    contact.wechatBlockedAt = null;
+    return contact;
+}
+
+function ensureContactChatTypeFields(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+    contact.chatType = contact.chatType === 'group' ? 'group' : 'direct';
+    if (typeof contact.allowRealPhotoSend !== 'boolean') {
+        contact.allowRealPhotoSend = false;
+    }
+    if (contact.chatType === 'group') {
+        ensureGroupChatMeta(contact);
+    } else if (contact.groupMeta && typeof contact.groupMeta === 'object') {
+        contact.groupMeta = null;
+    }
+    return contact;
+}
+
+window.ensureGroupChatMeta = ensureGroupChatMeta;
+window.ensureContactChatTypeFields = ensureContactChatTypeFields;
+window.isGroupChatContact = function(contactOrId) {
+    const contact = typeof contactOrId === 'object' && contactOrId
+        ? contactOrId
+        : (Array.isArray(state.contacts)
+            ? state.contacts.find(item => String(item && item.id) === String(contactOrId))
+            : null);
+    return !!(contact && contact.chatType === 'group');
+};
 
 const CHAT_HISTORY_STORE_NAME = 'iphoneSimChatHistory';
 const CHAT_HISTORY_STORAGE_KEY_PREFIX = 'contact:';
@@ -1144,7 +1398,8 @@ const knownApps = {
     'bank-app': { name: 'Bank', icon: 'fas fa-building-columns', color: '#1E66F5' },
     'icity-app': { name: 'iCity', icon: 'fas fa-city', color: '#000000' },
     'lookus-app': { name: 'LookUS', icon: 'fas fa-eye', color: '#FF2D55' },
-    'music-app': { name: 'Music', icon: 'fas fa-music', color: '#FF2D55' }
+    'music-app': { name: 'Music', icon: 'fas fa-music', color: '#FF2D55' },
+    'studio-app': { name: '工作室', icon: 'fas fa-pen-ruler', color: '#8B5CF6' }
 };
 
 function compressImage(file, maxWidth = 1024, quality = 0.7) {
@@ -1364,6 +1619,83 @@ async function resolveChatMediaDataUrl(reference) {
     return blobToDataUrl(blob);
 }
 
+async function persistInlineChatImagePayload(value, metadata = {}) {
+    const inlineDataUrl = typeof value === 'string' ? value.trim() : '';
+    if (!inlineDataUrl || !inlineDataUrl.startsWith('data:image')) return inlineDataUrl;
+    try {
+        const blob = await dataUrlToBlob(inlineDataUrl);
+        return await saveChatMediaBlob(blob, {
+            type: blob.type || metadata.type || 'image/jpeg',
+            name: metadata.name || ''
+        });
+    } catch (error) {
+        console.warn('聊天图片转存失败，继续使用内联图片', error);
+        return inlineDataUrl;
+    }
+}
+
+const chatMediaOffloadInFlight = new Set();
+
+function refreshRenderedChatMessageMedia(contactId, msgId, mediaRef) {
+    if (!mediaRef || !isChatMediaReference(mediaRef)) return false;
+    if (String((state && state.currentChatContactId) || '') !== String(contactId || '')) return false;
+
+    const container = document.getElementById('chat-messages');
+    if (!container) return false;
+
+    const messageNode = Array.from(container.querySelectorAll('.chat-message[data-msg-id]')).find((node) => {
+        return String(node && node.dataset && node.dataset.msgId || '') === String(msgId || '');
+    });
+    if (!messageNode) return false;
+
+    const imageNode = messageNode.querySelector('.message-content img');
+    if (!imageNode) return false;
+
+    imageNode.setAttribute('data-chat-media-ref', encodeURIComponent(mediaRef));
+    imageNode.dataset.chatMediaHydrated = '0';
+    imageNode.src = CHAT_MEDIA_PIXEL_PLACEHOLDER;
+
+    resolveChatMediaSrc(mediaRef).then((resolvedSrc) => {
+        if (!resolvedSrc) return;
+        imageNode.dataset.chatMediaHydrated = '1';
+        imageNode.src = resolvedSrc;
+    }).catch((error) => {
+        console.warn('刷新聊天图片引用失败', error);
+    });
+
+    return true;
+}
+
+async function offloadInlineChatMediaMessage(contactId, msgId, metadata = {}) {
+    const safeContactId = String(contactId || '').trim();
+    const safeMsgId = String(msgId || '').trim();
+    if (!safeContactId || !safeMsgId || !state.chatHistory || !state.chatHistory[safeContactId]) return '';
+
+    const lockKey = `${safeContactId}::${safeMsgId}`;
+    if (chatMediaOffloadInFlight.has(lockKey)) return '';
+
+    const history = state.chatHistory[safeContactId];
+    const targetMessage = Array.isArray(history)
+        ? history.find((item) => item && String(item.id || '') === safeMsgId)
+        : null;
+    if (!targetMessage) return '';
+
+    const currentContent = typeof targetMessage.content === 'string' ? targetMessage.content.trim() : '';
+    if (!currentContent || !currentContent.startsWith('data:image')) return currentContent;
+
+    chatMediaOffloadInFlight.add(lockKey);
+    try {
+        const nextContent = await persistInlineChatImagePayload(currentContent, metadata);
+        if (nextContent && nextContent !== currentContent) {
+            targetMessage.content = nextContent;
+            refreshRenderedChatMessageMedia(safeContactId, safeMsgId, nextContent);
+        }
+        return nextContent;
+    } finally {
+        chatMediaOffloadInFlight.delete(lockKey);
+    }
+}
+
 async function migrateLegacyChatImageMessages() {
     if (!state.chatHistory || typeof state.chatHistory !== 'object') return false;
 
@@ -1408,6 +1740,8 @@ window.buildInlineChatImagePayload = buildInlineChatImagePayload;
 window.isChatMediaReference = isChatMediaReference;
 window.compressImageToBlob = compressImageToBlob;
 window.saveChatMediaBlob = saveChatMediaBlob;
+window.persistInlineChatImagePayload = persistInlineChatImagePayload;
+window.offloadInlineChatMediaMessage = offloadInlineChatMediaMessage;
 window.resolveChatMediaSrc = resolveChatMediaSrc;
 window.resolveChatMediaDataUrl = resolveChatMediaDataUrl;
 window.getChatMediaBlob = getChatMediaBlob;
@@ -1542,9 +1876,22 @@ function handleAppClick(appId, appName) {
         }
     }
 
+    if (appId === 'messages-app') {
+        if (window.MessagesApp && typeof window.MessagesApp.open === 'function') {
+            window.MessagesApp.open();
+            return;
+        }
+    }
+
     const screen = document.getElementById(appId);
     if (screen) {
         screen.classList.remove('hidden');
+        if (appId === 'studio-app' && typeof window.renderStudioChatDemo === 'function') {
+            window.renderStudioChatDemo();
+        }
+        if (appId === 'studio-app' && typeof window.refreshStudioToolbarLayout === 'function') {
+            window.refreshStudioToolbarLayout(false);
+        }
         if (appId === 'wechat-app') {
             const chatScreen = document.getElementById('chat-screen');
             if (chatScreen) chatScreen.classList.add('hidden');
@@ -1796,8 +2143,19 @@ async function loadConfig() {
             
             if (!state.fontPresets) state.fontPresets = [];
             if (!state.cssPresets) state.cssPresets = [];
+            if (!state.studioAppearancePresets) state.studioAppearancePresets = [];
             if (!state.aiSettings) state.aiSettings = { url: '', key: '', model: '', temperature: 0.7 };
             if (!state.aiPresets) state.aiPresets = [];
+            state.deviceUsageSync = Object.assign({
+                enabled: false,
+                apiBaseUrl: '',
+                userId: 'default-user',
+                deviceId: 'phone-main',
+                secret: '',
+                sharedContactIds: [],
+                lastFetchedAt: 0,
+                cacheTtlMs: 60000
+            }, state.deviceUsageSync || {});
             if (!state.aiSettings2) state.aiSettings2 = { url: '', key: '', model: '', temperature: 0.7 };
             if (!state.aiPresets2) state.aiPresets2 = [];
             if (!state.whisperSettings) state.whisperSettings = { url: '', key: '', model: 'whisper-1' };
@@ -1839,6 +2197,8 @@ async function loadConfig() {
             }
             if (!state.chatWallpapers) state.chatWallpapers = [];
             if (!state.contacts) state.contacts = [];
+            state.contacts.forEach(ensureContactChatTypeFields);
+            ensureGroupChatTabRegistered();
             if (!state.chatHistory) state.chatHistory = {};
             if (typeof window.ensureContactBilingualTranslationFields === 'function') {
                 state.contacts.forEach(contact => window.ensureContactBilingualTranslationFields(contact));
@@ -1858,6 +2218,7 @@ async function loadConfig() {
             if (!state.iconPresets) state.iconPresets = [];
             if (!state.stickerCategories) state.stickerCategories = [];
             if (!state.contactGroups) state.contactGroups = [];
+            ensureGroupChatTabRegistered();
             if (!state.itineraries) state.itineraries = {};
             if (!state.music) state.music = {
                 playing: false,
@@ -2299,4 +2660,3 @@ async function init() {
         }
     });
 }
-

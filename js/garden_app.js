@@ -4599,8 +4599,8 @@ ${taskCard.action}`;
         window.addEventListener('moodflora:contactchange', handleFloraContactEvent);
 
         initEditor();
-        initFarmScreen();
-        initPastureScreen();
+        initFarmScreen({ startTimers: false });
+        initPastureScreen({ startTimers: false });
         initKitchenScreen();
         syncGardenLayoutFromActiveContact();
         syncFloraFromEngine();
@@ -4836,7 +4836,7 @@ ${taskCard.action}`;
         openKitchenScreen();
     }
 
-    function initFarmScreen() {
+    function initFarmScreen(options = {}) {
         if (!farmGridEl || !farmSeedListEl) return;
         if (!state.farmGame.initialized) {
             farmGridEl.innerHTML = '';
@@ -4866,7 +4866,8 @@ ${taskCard.action}`;
             state.farmGame.initialized = true;
         }
 
-        ensureFarmProgressTimer();
+        const shouldStartTimers = !(options && options.startTimers === false);
+        if (shouldStartTimers) ensureFarmProgressTimer();
         renderFarmPlots();
         syncFarmStats();
         syncFarmToolUi();
@@ -4891,10 +4892,17 @@ ${taskCard.action}`;
     function ensureFarmProgressTimer() {
         if (state.farmGame.progressTimer) return;
         state.farmGame.progressTimer = window.setInterval(() => {
+            if (!state.farmScreenOpen) return;
             const changed = advanceFarmPlotsByClock();
             renderFarmPlots();
             if (changed) saveGardenGameState();
         }, 250);
+    }
+
+    function stopFarmProgressTimer() {
+        if (!state.farmGame.progressTimer) return;
+        window.clearInterval(state.farmGame.progressTimer);
+        state.farmGame.progressTimer = null;
     }
 
     function advanceFarmPlotsByClock() {
@@ -5073,6 +5081,7 @@ ${taskCard.action}`;
         if (!farmScreenEl) return;
         const silent = !!(options && options.silent);
         state.farmScreenOpen = false;
+        stopFarmProgressTimer();
         if (editorHost) editorHost.style.display = '';
         state.currentHomeSection = 'home';
         farmScreenEl.classList.remove('is-open');
@@ -5313,7 +5322,7 @@ ${taskCard.action}`;
         }, 2000);
     }
 
-    function initPastureScreen() {
+    function initPastureScreen(options = {}) {
         if (!pastureFieldEl || !pastureShopPanelEl || !pastureCoinsEl || !pastureExpEl) return;
         if (!state.pastureGame.initialized) {
             state.pastureGame.shopMarkup = pastureShopPanelEl.innerHTML;
@@ -5333,7 +5342,8 @@ ${taskCard.action}`;
             state.pastureGame.initialized = true;
         }
 
-        ensurePastureTimers();
+        const shouldStartTimers = !(options && options.startTimers === false);
+        if (shouldStartTimers) ensurePastureTimers();
         syncPastureStats();
         syncPastureToolUi();
         selectPastureAnimalToBuy(state.pastureGame.selectedAnimalToBuy, false);
@@ -5504,6 +5514,7 @@ ${taskCard.action}`;
         if (!pastureScreenEl) return;
         const silent = !!(options && options.silent);
         state.pastureScreenOpen = false;
+        stopPastureTimers();
         if (editorHost) editorHost.style.display = '';
         state.currentHomeSection = 'home';
         pastureScreenEl.classList.remove('is-open');
@@ -5515,6 +5526,7 @@ ${taskCard.action}`;
     function ensurePastureTimers() {
         if (!state.pastureGame.progressTimer) {
             state.pastureGame.progressTimer = window.setInterval(() => {
+                if (!state.pastureScreenOpen) return;
                 const changed = advancePastureAnimalsProgress();
                 renderPastureAnimals();
                 if (changed) saveActiveGardenModeState();
@@ -5522,8 +5534,20 @@ ${taskCard.action}`;
         }
         if (!state.pastureGame.roamTimer) {
             state.pastureGame.roamTimer = window.setInterval(() => {
+                if (!state.pastureScreenOpen) return;
                 roamPastureAnimals();
             }, 2000);
+        }
+    }
+
+    function stopPastureTimers() {
+        if (state.pastureGame.progressTimer) {
+            window.clearInterval(state.pastureGame.progressTimer);
+            state.pastureGame.progressTimer = null;
+        }
+        if (state.pastureGame.roamTimer) {
+            window.clearInterval(state.pastureGame.roamTimer);
+            state.pastureGame.roamTimer = null;
         }
     }
 

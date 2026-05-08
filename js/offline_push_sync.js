@@ -11,7 +11,81 @@
         pushPermission: 'default'
     };
     const AUTO_SYNC_INTERVAL_MS = 12000;
+    const STARTUP_CATCH_UP_SYNC_DELAYS_MS = [0, 600, 1800, 3600];
+    const SYNC_LOOKBACK_MS = 5 * 60 * 1000;
+    const SYNC_FUTURE_SKEW_TOLERANCE_MS = 2 * 60 * 1000;
+    const OFFLINE_PUSH_SETTINGS_BACKUP_KEY = 'offlinePushSyncSettings';
     let syncInFlightPromise = null;
+
+    function readLocalBackupState() {
+        try {
+            const raw = localStorage.getItem(OFFLINE_PUSH_SETTINGS_BACKUP_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (err) {
+            console.error('[offline-push-sync] readLocalBackupState failed', err);
+            return null;
+        }
+    }
+
+    function tryHydrateStateFromBackup(state) {
+        if (!state || typeof state !== 'object') return false;
+
+        const appearsToBeFreshDefault = !state.enabled
+            && !String(state.apiBaseUrl || '').trim()
+            && !String(state.vapidPublicKey || '').trim()
+            && String(state.userId || '').trim() === DEFAULT_STATE.userId
+            && !Number(state.lastSyncAt || 0)
+            && (!Array.isArray(state.deletedRemoteMessageIds) || state.deletedRemoteMessageIds.length === 0);
+        if (!appearsToBeFreshDefault) return false;
+
+        const backup = readLocalBackupState();
+        if (!backup || typeof backup !== 'object') return false;
+
+        let changed = false;
+        if (backup.enabled === true && state.enabled !== true) {
+            state.enabled = true;
+            changed = true;
+        }
+
+        const backupApiBaseUrl = String(backup.apiBaseUrl || '').trim();
+        if (!state.apiBaseUrl && backupApiBaseUrl) {
+            state.apiBaseUrl = backupApiBaseUrl;
+            changed = true;
+        }
+
+        const backupVapidPublicKey = String(backup.vapidPublicKey || '').trim();
+        if (!state.vapidPublicKey && backupVapidPublicKey) {
+            state.vapidPublicKey = backupVapidPublicKey;
+            changed = true;
+        }
+
+        const backupUserId = String(backup.userId || '').trim();
+        if (backupUserId && String(state.userId || '').trim() === DEFAULT_STATE.userId) {
+            state.userId = backupUserId;
+            changed = true;
+        }
+
+        if (typeof backup.disableLocalActiveReplyScheduler === 'boolean') {
+            state.disableLocalActiveReplyScheduler = backup.disableLocalActiveReplyScheduler;
+            changed = true;
+        }
+
+        if (changed) {
+            console.log('[offline-push-sync] restored runtime state from local backup');
+        }
+        return changed;
+    }
+
+    function normalizeSyncAnchorMs(value, now = Date.now()) {
+        const parsed = Number(value || 0);
+        if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+        if (parsed > (now + SYNC_FUTURE_SKEW_TOLERANCE_MS)) {
+            return Math.max(0, now - SYNC_LOOKBACK_MS);
+        }
+        return parsed;
+    }
 
     function getState() {
         if (!window.iphoneSimState) window.iphoneSimState = {};
@@ -20,6 +94,7 @@
         } else {
             window.iphoneSimState.offlinePushSync = Object.assign({}, DEFAULT_STATE, window.iphoneSimState.offlinePushSync);
         }
+        tryHydrateStateFromBackup(window.iphoneSimState.offlinePushSync);
         if (!window.iphoneSimState.offlinePushSync.deviceId) {
             window.iphoneSimState.offlinePushSync.deviceId = `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
         }
@@ -55,6 +130,33 @@
         }
         const contentType = response.headers.get('content-type') || '';
         return contentType.includes('application/json') ? response.json() : response.text();
+    }
+
+    async function fetchBackendHealth() {
+        const state = getState();
+        if (!state.apiBaseUrl) return null;
+        const response = await fetch(`${state.apiBaseUrl.replace(/\/$/, '')}/health`, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json().catch(() => null);
+    }
+
+    async function ensureVapidPublicKey() {
+        const state = getState();
+        if (state.vapidPublicKey) return state.vapidPublicKey;
+        try {
+            const health = await fetchBackendHealth();
+            const backendKey = health && typeof health.vapidPublicKey === 'string' ? health.vapidPublicKey.trim() : '';
+            if (backendKey) {
+                state.vapidPublicKey = backendKey;
+                saveState();
+                return backendKey;
+            }
+        } catch (err) {
+            console.error('[offline-push-sync] ensureVapidPublicKey failed', err);
+        }
+        return '';
     }
 
     function getContactById(contactId) {
@@ -96,6 +198,18 @@
             .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
             .replace(/<think>[\s\S]*?<\/think>/g, '')
             .trim();
+    }
+
+    function isRealConversationSnapshotMessage(message) {
+        if (!message) return false;
+        if (message.role !== 'user' && message.role !== 'assistant') return false;
+        if (message.type === 'system_event' || message.type === 'live_sync_hidden' || message.type === 'voice_call_text') return false;
+        if (typeof message.content !== 'string') return false;
+        if (message.type === 'text') {
+            if (typeof window.isHiddenForumWechatSyncText === 'function' && window.isHiddenForumWechatSyncText(message.content)) return false;
+            if (message.content.startsWith('[系统消息]:') || message.content.startsWith('[系统]:') || message.content.startsWith('[系统错误]:') || message.content.startsWith('[系统诊断]:')) return false;
+        }
+        return true;
     }
 
     function isGenericUnknownImageText(value) {
@@ -464,8 +578,13 @@
 
     async function subscribePush() {
         const state = getState();
-        if (!state.enabled || !state.apiBaseUrl || !state.vapidPublicKey) return null;
+        if (!state.enabled || !state.apiBaseUrl) return null;
         if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+
+        if (!state.vapidPublicKey) {
+            await ensureVapidPublicKey();
+        }
+        if (!state.vapidPublicKey) return null;
 
         const permission = await Notification.requestPermission();
         state.pushPermission = permission;
@@ -502,17 +621,23 @@
         const state = getState();
         if (!state.enabled || !state.apiBaseUrl) return { added: 0, skipped: true };
         syncInFlightPromise = (async () => {
+            const now = Date.now();
+            const previousAnchor = normalizeSyncAnchorMs(state.lastSyncAt, now);
+            const requestSince = Math.max(0, previousAnchor - SYNC_LOOKBACK_MS);
             const payload = await apiFetch('/api/messages/sync', {
                 method: 'POST',
                 body: JSON.stringify({
                     userId: state.userId,
                     deviceId: state.deviceId,
-                    since: state.lastSyncAt || 0
+                    since: requestSince
                 })
             });
             const messages = (payload && payload.messages) || [];
             const added = injectRemoteMessages(messages);
-            state.lastSyncAt = Number((payload && payload.serverTime) || Date.now()) || Date.now();
+            const serverTime = Number(payload && payload.serverTime || 0);
+            const nextAnchorCandidate = Number.isFinite(serverTime) && serverTime > 0 ? serverTime : Date.now();
+            const boundedNextAnchor = Math.min(nextAnchorCandidate, Date.now() + SYNC_FUTURE_SKEW_TOLERANCE_MS);
+            state.lastSyncAt = Math.max(previousAnchor, boundedNextAnchor);
             saveState();
             return { added, skipped: false };
         })();
@@ -628,6 +753,16 @@
         if (typeof window.ensureContactRestWindowFields === 'function') {
             window.ensureContactRestWindowFields(contact);
         }
+        const normalizedActiveReplyEnabled = !!contact.activeReplyEnabled;
+        const currentActiveReplyStartTime = Number(contact.activeReplyStartTime || 0);
+        const normalizedActiveReplyStartTime = normalizedActiveReplyEnabled
+            ? (Number.isFinite(currentActiveReplyStartTime) && currentActiveReplyStartTime > 0
+                ? Math.round(currentActiveReplyStartTime)
+                : Date.now())
+            : 0;
+        if (normalizedActiveReplyEnabled && (!Number.isFinite(currentActiveReplyStartTime) || currentActiveReplyStartTime <= 0)) {
+            contact.activeReplyStartTime = normalizedActiveReplyStartTime;
+        }
         try {
             await apiFetch('/api/contacts', {
                 method: 'POST',
@@ -640,9 +775,9 @@
                     personaPrompt: contact.persona || '',
                     timezoneOffsetMinutes: -new Date().getTimezoneOffset(),
                     contextLimit: Number(contact.contextLimit || 0),
-                    activeReplyEnabled: !!contact.activeReplyEnabled,
+                    activeReplyEnabled: normalizedActiveReplyEnabled,
                     activeReplyInterval: Number(contact.activeReplyInterval || 1),
-                    activeReplyStartTime: Number(contact.activeReplyStartTime || 0),
+                    activeReplyStartTime: normalizedActiveReplyStartTime,
                     lastActiveReplyTriggeredMsgId: contact.lastActiveReplyTriggeredMsgId || null,
                     restWindowEnabled: !!contact.restWindowEnabled,
                     restWindowStart: contact.restWindowStart || '',
@@ -846,7 +981,7 @@
         const state = getState();
         if (!state.enabled || !state.apiBaseUrl || !contactId) return;
         const history = (((window.iphoneSimState || {}).chatHistory || {})[contactId]) || [];
-        const lastMessage = history.length ? history[history.length - 1] : null;
+        const lastMessage = history.length ? [...history].reverse().find(isRealConversationSnapshotMessage) : null;
         if (!lastMessage) return;
         const serializedLastMessage = serializeMessageForOfflineContext(lastMessage);
         try {
@@ -900,21 +1035,34 @@
                 if (typeof window.flushChatPersistence === 'function') {
                     await window.flushChatPersistence();
                 }
+                const contacts = Array.isArray(window.iphoneSimState.contacts) ? window.iphoneSimState.contacts : [];
                 const currentId = window.iphoneSimState.currentChatContactId;
+                const targetContacts = [];
+                const seenContactIds = new Set();
+                const addTarget = (contact) => {
+                    if (!contact || contact.id === undefined || contact.id === null) return;
+                    const key = String(contact.id);
+                    if (seenContactIds.has(key)) return;
+                    seenContactIds.add(key);
+                    targetContacts.push(contact);
+                };
+
                 if (currentId) {
-                    const currentContact = typeof getContactById === 'function' ? getContactById(currentId) : null;
-                    if (currentContact) {
-                        uploadContactConfig(currentContact, { keepalive: true });
-                    }
-                    uploadChatSnapshot(currentId, { keepalive: true, skipContext: true });
-                    return;
+                    addTarget(typeof getContactById === 'function' ? getContactById(currentId) : null);
                 }
-                if (Array.isArray(window.iphoneSimState.contacts)) {
-                    const activeContact = (window.iphoneSimState.contacts || []).find(contact => contact && contact.activeReplyEnabled);
-                    if (activeContact) {
-                        uploadContactConfig(activeContact, { keepalive: true });
+
+                contacts
+                    .filter(contact => contact && contact.activeReplyEnabled)
+                    .forEach(addTarget);
+
+                await Promise.allSettled(targetContacts.flatMap((contact) => {
+                    const tasks = [uploadContactConfig(contact, { keepalive: true })];
+                    const history = ((((window.iphoneSimState || {}).chatHistory || {})[contact.id]) || []);
+                    if (history.length) {
+                        tasks.push(uploadChatSnapshot(contact.id, { keepalive: true, skipContext: true }));
                     }
-                }
+                    return tasks;
+                }));
             } catch (err) {
                 console.error('[offline-push-sync] flushStateToBackend failed', err);
             }
@@ -979,6 +1127,14 @@
         }
     }
 
+    function scheduleStartupCatchUpSync() {
+        STARTUP_CATCH_UP_SYNC_DELAYS_MS.forEach((delay) => {
+            window.setTimeout(() => {
+                syncMessages().catch(err => console.error('[offline-push-sync] startup catch-up sync failed', err));
+            }, delay);
+        });
+    }
+
     async function initOfflinePushSync() {
         const state = getState();
         patchSaveConfig();
@@ -1001,6 +1157,11 @@
             await registerServiceWorker();
         } catch (err) {
             console.error('[offline-push-sync] registerServiceWorker failed', err);
+        }
+        try {
+            await ensureVapidPublicKey();
+        } catch (err) {
+            console.error('[offline-push-sync] initial ensureVapidPublicKey failed', err);
         }
         try {
             if (state.vapidPublicKey && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
@@ -1048,6 +1209,7 @@
         } catch (err) {
             console.error('[offline-push-sync] initial sync failed', err);
         }
+        scheduleStartupCatchUpSync();
         startAutoSyncLoop();
     }
 
@@ -1067,6 +1229,8 @@
         init: initOfflinePushSync,
         enableWithConfig,
         subscribePush,
+        fetchBackendHealth,
+        ensureVapidPublicKey,
         syncMessages,
         deleteMessages,
         syncActiveReplyConfig,

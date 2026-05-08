@@ -491,6 +491,37 @@
     width: 300px;
 }
 
+#album-app .album-action-modal-content,
+#album-app .album-bind-modal-content {
+    width: 300px;
+}
+
+#album-app .album-photo-meta-modal-content {
+    width: 320px;
+}
+
+#album-app .album-photo-meta-body {
+    text-align: left;
+}
+
+#album-app .album-photo-meta-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--album-text-primary);
+}
+
+#album-app .album-photo-meta-textarea {
+    min-height: 92px;
+    resize: none;
+    margin-bottom: 12px;
+}
+
+#album-app .album-photo-meta-select {
+    margin-bottom: 0;
+}
+
 #album-app .album-move-options {
     max-height: 300px;
     overflow-y: auto;
@@ -508,6 +539,11 @@
     align-items: center;
     color: var(--album-text-primary);
     cursor: pointer;
+}
+
+#album-app .album-move-option:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 #album-app .album-move-option.is-selected .album-move-option-name {

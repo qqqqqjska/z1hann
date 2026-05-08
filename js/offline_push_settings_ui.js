@@ -166,12 +166,21 @@
                 return;
             }
             setStatus('Checking backend health...');
-            const response = await fetch(`${form.apiBaseUrl.replace(/\/$/, '')}/health`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+            const data = window.offlinePushSync && typeof window.offlinePushSync.fetchBackendHealth === 'function'
+                ? await window.offlinePushSync.fetchBackendHealth()
+                : await (async () => {
+                    const response = await fetch(`${form.apiBaseUrl.replace(/\/$/, '')}/health`, { cache: 'no-store' });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                })();
+            const backendKey = data && typeof data.vapidPublicKey === 'string' ? data.vapidPublicKey.trim() : '';
+            if (backendKey) {
+                const state = getStateObject();
+                state.vapidPublicKey = backendKey;
+                writeLocalBackup(state);
+                writeFormFromState();
             }
-            const data = await response.json();
-            setStatus(`Backend OK: ${data.ok ? 'healthy' : 'unexpected'}; time ${data.now || '-'}`, 'success');
+            setStatus(`Backend OK: ${data && data.ok ? 'healthy' : 'unexpected'}; push ${data && data.pushEnabled ? 'on' : 'off'}; time ${data && data.now ? data.now : '-'}`, 'success');
         } catch (err) {
             console.error(err);
             setStatus(`Health check failed: ${err.message || err}`, 'error');

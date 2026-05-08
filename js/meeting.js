@@ -3,6 +3,203 @@
 let currentEditingMeetingMsgIndex = null;
 let isMeetingSelectionMode = false;
 let selectedMeetingIds = new Set();
+let meetingDialogRuntime = null;
+let meetingDialogHideTimer = null;
+
+function ensureMeetingDialogRuntime() {
+    if (meetingDialogRuntime && meetingDialogRuntime.root && document.body.contains(meetingDialogRuntime.root)) {
+        return meetingDialogRuntime;
+    }
+
+    const root = document.createElement('div');
+    root.id = 'meeting-ios-dialog-root';
+    root.className = 'meeting-ios-dialog-root hidden';
+    root.innerHTML = `
+        <div class="meeting-ios-dialog-mask"></div>
+        <div class="meeting-ios-dialog-card" role="dialog" aria-modal="true" tabindex="-1">
+            <div class="meeting-ios-dialog-kicker">Meeting</div>
+            <div class="meeting-ios-dialog-title"></div>
+            <div class="meeting-ios-dialog-message"></div>
+            <div class="meeting-ios-dialog-input-wrap hidden">
+                <input type="text" class="meeting-ios-dialog-input" autocomplete="off">
+            </div>
+            <div class="meeting-ios-dialog-actions"></div>
+        </div>
+    `;
+    document.body.appendChild(root);
+
+    const runtime = {
+        root,
+        mask: root.querySelector('.meeting-ios-dialog-mask'),
+        card: root.querySelector('.meeting-ios-dialog-card'),
+        kicker: root.querySelector('.meeting-ios-dialog-kicker'),
+        title: root.querySelector('.meeting-ios-dialog-title'),
+        message: root.querySelector('.meeting-ios-dialog-message'),
+        inputWrap: root.querySelector('.meeting-ios-dialog-input-wrap'),
+        input: root.querySelector('.meeting-ios-dialog-input'),
+        actions: root.querySelector('.meeting-ios-dialog-actions'),
+        resolver: null,
+        mode: 'alert',
+        closeOnMask: true
+    };
+
+    const settle = (result) => {
+        if (!runtime.resolver) return;
+        const resolve = runtime.resolver;
+        runtime.resolver = null;
+
+        runtime.root.classList.remove('is-visible');
+        if (meetingDialogHideTimer) {
+            clearTimeout(meetingDialogHideTimer);
+            meetingDialogHideTimer = null;
+        }
+        meetingDialogHideTimer = window.setTimeout(() => {
+            runtime.root.classList.add('hidden');
+            runtime.actions.innerHTML = '';
+            runtime.input.value = '';
+            runtime.input.classList.remove('is-error');
+        }, 190);
+
+        resolve(result);
+    };
+
+    runtime.mask.addEventListener('click', () => {
+        if (!runtime.closeOnMask) return;
+        if (runtime.mode === 'alert') {
+            settle({ action: 'confirm', value: '' });
+            return;
+        }
+        settle({ action: 'cancel', value: null });
+    });
+
+    runtime.root.addEventListener('keydown', (event) => {
+        if (!runtime.resolver) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            if (runtime.mode === 'alert') {
+                settle({ action: 'confirm', value: '' });
+                return;
+            }
+            settle({ action: 'cancel', value: null });
+            return;
+        }
+        if (event.key === 'Enter') {
+            if (runtime.mode === 'prompt' && document.activeElement === runtime.input) {
+                event.preventDefault();
+                settle({ action: 'confirm', value: runtime.input.value });
+                return;
+            }
+            if (runtime.mode === 'confirm' || runtime.mode === 'alert') {
+                event.preventDefault();
+                settle({ action: 'confirm', value: runtime.mode === 'prompt' ? runtime.input.value : '' });
+            }
+        }
+    });
+
+    runtime.settle = settle;
+    meetingDialogRuntime = runtime;
+    return runtime;
+}
+
+function openMeetingDialog(options = {}) {
+    const runtime = ensureMeetingDialogRuntime();
+
+    if (runtime.resolver) {
+        const previousResolve = runtime.resolver;
+        runtime.resolver = null;
+        previousResolve({ action: 'cancel', value: null });
+    }
+
+    const mode = options.mode === 'prompt' ? 'prompt' : (options.mode === 'confirm' ? 'confirm' : 'alert');
+    const title = String(options.title || (mode === 'alert' ? '提示' : (mode === 'prompt' ? '输入内容' : '请确认'))).trim();
+    const message = String(options.message || '').trim();
+    const confirmText = String(options.confirmText || (mode === 'alert' ? '知道了' : '确定')).trim() || '确定';
+    const cancelText = String(options.cancelText || '取消').trim() || '取消';
+    const closeOnMask = options.closeOnMask !== false;
+    const defaultValue = options.defaultValue === undefined || options.defaultValue === null ? '' : String(options.defaultValue);
+    const placeholder = options.placeholder === undefined || options.placeholder === null ? '' : String(options.placeholder);
+    const kicker = String(options.kicker || 'Meeting').trim() || 'Meeting';
+
+    runtime.mode = mode;
+    runtime.closeOnMask = closeOnMask;
+    runtime.kicker.textContent = kicker;
+    runtime.title.textContent = title;
+    runtime.message.textContent = message;
+    runtime.inputWrap.classList.toggle('hidden', mode !== 'prompt');
+    runtime.input.value = defaultValue;
+    runtime.input.placeholder = placeholder;
+    runtime.input.classList.remove('is-error');
+    runtime.actions.innerHTML = '';
+
+    const appendButton = (text, action, extraClass = '') => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `meeting-ios-dialog-btn ${extraClass}`.trim();
+        button.textContent = text;
+        button.addEventListener('click', () => {
+            if (action === 'cancel') {
+                runtime.settle({ action: 'cancel', value: null });
+                return;
+            }
+            runtime.settle({ action: 'confirm', value: mode === 'prompt' ? runtime.input.value : '' });
+        });
+        runtime.actions.appendChild(button);
+        return button;
+    };
+
+    let focusTarget = null;
+    if (mode === 'alert') {
+        focusTarget = appendButton(confirmText, 'confirm', 'primary');
+    } else {
+        appendButton(cancelText, 'cancel', 'secondary');
+        focusTarget = appendButton(confirmText, 'confirm', 'primary');
+    }
+
+    runtime.root.classList.remove('hidden');
+    if (meetingDialogHideTimer) {
+        clearTimeout(meetingDialogHideTimer);
+        meetingDialogHideTimer = null;
+    }
+    requestAnimationFrame(() => {
+        runtime.root.classList.add('is-visible');
+        if (mode === 'prompt') {
+            runtime.input.focus();
+            runtime.input.select();
+        } else if (focusTarget) {
+            focusTarget.focus();
+        } else {
+            runtime.card.focus();
+        }
+    });
+
+    return new Promise((resolve) => {
+        runtime.resolver = resolve;
+    });
+}
+
+async function showMeetingAlert(message, options = {}) {
+    await openMeetingDialog(Object.assign({}, options, {
+        mode: 'alert',
+        message
+    }));
+}
+
+async function showMeetingConfirm(message, options = {}) {
+    const result = await openMeetingDialog(Object.assign({}, options, {
+        mode: 'confirm',
+        message
+    }));
+    return !!(result && result.action === 'confirm');
+}
+
+async function showMeetingPrompt(message, options = {}) {
+    const result = await openMeetingDialog(Object.assign({}, options, {
+        mode: 'prompt',
+        message
+    }));
+    if (!result || result.action !== 'confirm') return null;
+    return String(result.value || '');
+}
 
 function toRomanNumeral(number) {
     const numerals = [
@@ -530,11 +727,16 @@ function updateMeetingSelectionUI() {
     }
 }
 
-function toggleMeetingSelectionMode() {
+async function toggleMeetingSelectionMode() {
     if (!window.iphoneSimState.currentChatContactId) return;
 
     if (isMeetingSelectionMode && selectedMeetingIds.size > 0) {
-        const confirmed = confirm(`确定删除已选中的 ${selectedMeetingIds.size} 条见面记录吗？`);
+        const confirmed = await showMeetingConfirm(`确定删除已选中的 ${selectedMeetingIds.size} 条见面记录吗？`, {
+            title: '删除见面记录',
+            confirmText: '删除',
+            cancelText: '取消',
+            kicker: 'Meeting'
+        });
         if (!confirmed) return;
 
         const contactId = window.iphoneSimState.currentChatContactId;
@@ -562,8 +764,14 @@ function toggleMeetingSelectionMode() {
 }
 
 // 删除单条见面记录
-function deleteMeeting(contactId, meetingId) {
-    if (!confirm('确定要彻底删除这条见面记录吗？删除后无法恢复。')) return;
+async function deleteMeeting(contactId, meetingId) {
+    const confirmed = await showMeetingConfirm('确定要彻底删除这条见面记录吗？删除后无法恢复。', {
+        title: '删除见面记录',
+        confirmText: '删除',
+        cancelText: '取消',
+        kicker: 'Meeting'
+    });
+    if (!confirmed) return;
 
     const meetings = window.iphoneSimState.meetings[contactId];
     // 过滤掉要删除的这条
@@ -618,12 +826,17 @@ function openMeetingDetail(meetingId) {
     // 检查是否已设置同步选项 (仅针对未完成或新进入的)
     if (meeting.syncWithChat === undefined) {
         // 使用 setTimeout 避免阻塞 UI 渲染
-        setTimeout(() => {
-            if (confirm('是否将此次见面剧情与线上聊天互通？\n\n选择“确定”：\n1. 见面结束时会自动将剧情摘要同步给AI。\n2. 回到聊天时，AI会记得刚才发生的事并自然接话。\n\n选择“取消”：\n此次见面将是独立的平行宇宙，不影响线上聊天。')) {
-                meeting.syncWithChat = true;
-            } else {
-                meeting.syncWithChat = false;
-            }
+        setTimeout(async () => {
+            const enableSync = await showMeetingConfirm(
+                '是否将此次见面剧情与线上聊天互通？\n\n选择“开启同步”：\n1. 见面结束时会自动将剧情摘要同步给 AI。\n2. 回到聊天时，AI 会记得刚才发生的事并自然接话。\n\n选择“独立剧情”：\n此次见面将是独立的平行宇宙，不影响线上聊天。',
+                {
+                    title: '见面同步设置',
+                    confirmText: '开启同步',
+                    cancelText: '独立剧情',
+                    kicker: 'Meeting'
+                }
+            );
+            meeting.syncWithChat = !!enableSync;
             saveConfig();
         }, 100);
     }
@@ -1726,8 +1939,14 @@ function saveMeetingStyle() {
 }
 
 // 8. 结束见面
-function endMeeting() {
-    if (!confirm('确定结束这次见面吗？这将保存当前进度并返回见面列表。')) return;
+async function endMeeting() {
+    const shouldEnd = await showMeetingConfirm('确定结束这次见面吗？这将保存当前进度并返回见面列表。', {
+        title: '结束见面',
+        confirmText: '结束',
+        cancelText: '继续',
+        kicker: 'Meeting'
+    });
+    if (!shouldEnd) return;
     
     const contactId = window.iphoneSimState.currentChatContactId;
     const meetingId = window.iphoneSimState.currentMeetingId;
@@ -1747,7 +1966,13 @@ function endMeeting() {
             generateMeetingSummary(contactId, meeting, true); // true = inject into chat
         } else {
             // 原有逻辑：手动询问是否生成回忆
-            if (confirm('是否要对本次见面剧情进行总结生成回忆？')) {
+            const shouldGenerateSummary = await showMeetingConfirm('是否要对本次见面剧情进行总结生成回忆？', {
+                title: '生成见面回忆',
+                confirmText: '生成',
+                cancelText: '跳过',
+                kicker: 'Meeting'
+            });
+            if (shouldGenerateSummary) {
                 showNotification('正在总结见面剧情...');
                 generateMeetingSummary(contactId, meeting, false);
             }
@@ -1871,8 +2096,14 @@ async function generateMeetingSummary(contactId, meeting, injectIntoChat = false
 }
 
 // 9. 全局工具函数：编辑和删除剧情
-window.deleteMeetingMsg = function(index) {
-    if (!confirm('确定删除这段剧情？')) return;
+window.deleteMeetingMsg = async function(index) {
+    const shouldDelete = await showMeetingConfirm('确定删除这段剧情？', {
+        title: '删除剧情片段',
+        confirmText: '删除',
+        cancelText: '取消',
+        kicker: 'Meeting'
+    });
+    if (!shouldDelete) return;
     if (!window.iphoneSimState.currentChatContactId || !window.iphoneSimState.currentMeetingId) return;
 
     const meeting = window.iphoneSimState.meetings[window.iphoneSimState.currentChatContactId].find(m => m.id === window.iphoneSimState.currentMeetingId);
@@ -1895,6 +2126,198 @@ window.editMeetingMsg = function(index) {
     }
 }
 
+function isMeetingGroupContact(contact) {
+    return !!(contact && typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact));
+}
+
+function getMeetingGroupRoleLabel(groupContact, participantId) {
+    if (typeof window.getGroupRole !== 'function') return '成员';
+    const rawRole = String(window.getGroupRole(groupContact, participantId) || '').trim();
+    if (rawRole === 'owner') return '群主';
+    if (rawRole === 'admin') return '管理员';
+    return '成员';
+}
+
+function getMeetingGroupParticipantName(groupContact, participantId, fallbackContact) {
+    if (participantId === 'me') {
+        const meNickname = typeof window.getGroupMemberNickname === 'function'
+            ? String(window.getGroupMemberNickname(groupContact, 'me') || '').trim()
+            : '';
+        if (meNickname) return meNickname;
+        const userProfileName = window.iphoneSimState && window.iphoneSimState.userProfile
+            ? String(window.iphoneSimState.userProfile.name || '').trim()
+            : '';
+        return userProfileName || '我';
+    }
+
+    const nickname = typeof window.getGroupMemberNickname === 'function'
+        ? String(window.getGroupMemberNickname(groupContact, participantId) || '').trim()
+        : '';
+    if (nickname) return nickname;
+
+    if (fallbackContact && typeof fallbackContact === 'object') {
+        return String(
+            fallbackContact.remark
+            || fallbackContact.nickname
+            || fallbackContact.name
+            || `成员${participantId}`
+        ).trim() || `成员${participantId}`;
+    }
+    return `成员${participantId}`;
+}
+
+function buildGroupMeetingParticipantPrompt(groupContact) {
+    if (!isMeetingGroupContact(groupContact)) return '';
+    const lines = [];
+    const meTitle = typeof window.getGroupMemberTitle === 'function'
+        ? String(window.getGroupMemberTitle(groupContact, 'me') || '').trim()
+        : '';
+    lines.push(
+        `- id=me｜名字=${getMeetingGroupParticipantName(groupContact, 'me')}｜身份=${getMeetingGroupRoleLabel(groupContact, 'me')}｜群头衔=${meTitle || '无'}｜人设=用户本人`
+    );
+
+    const memberContacts = typeof window.getGroupMemberContacts === 'function'
+        ? window.getGroupMemberContacts(groupContact)
+        : [];
+    memberContacts.forEach((member) => {
+        if (!member) return;
+        const memberId = String(member.id);
+        const memberTitle = typeof window.getGroupMemberTitle === 'function'
+            ? String(window.getGroupMemberTitle(groupContact, member.id) || '').trim()
+            : '';
+        const persona = String(member.persona || '').replace(/\s+/g, ' ').trim() || '无';
+        lines.push(
+            `- id=${memberId}｜名字=${getMeetingGroupParticipantName(groupContact, member.id, member)}｜身份=${getMeetingGroupRoleLabel(groupContact, member.id)}｜群头衔=${memberTitle || '无'}｜人设=${persona}`
+        );
+    });
+
+    return lines.join('\n');
+}
+
+function resolveMeetingSyncChatLimit(contact, totalCount) {
+    const configuredLimit = Number(contact && contact.contextLimit);
+    if (Number.isFinite(configuredLimit) && configuredLimit > 0) {
+        return Math.max(1, Math.floor(configuredLimit));
+    }
+    const parsedTotal = Number(totalCount);
+    return Number.isFinite(parsedTotal) && parsedTotal > 0 ? Math.floor(parsedTotal) : 0;
+}
+
+function getMeetingSyncChatTypeLabel(msg) {
+    const type = String(msg && msg.type || 'text').trim().toLowerCase();
+    if (type === 'sticker' || type === 'sticker_message') return '表情';
+    if (type === 'voice') return '语音';
+    if (type === 'image' || type === 'virtual_image') return '图片';
+    if (type === 'transfer') return '转账';
+    if (type === 'quote_reply') return '引用回复';
+    if (type === 'description') return '旁白';
+    return '文本';
+}
+
+function formatMeetingSyncChatTimestamp(value) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hour = String(date.getHours()).padStart(2, '0');
+    const minute = String(date.getMinutes()).padStart(2, '0');
+    return `${month}/${day} ${hour}:${minute}`;
+}
+
+function getMeetingSyncChatPreview(msg) {
+    if (!msg) return '';
+    const type = String(msg.type || 'text').trim().toLowerCase();
+    let preview = '';
+
+    if (type === 'sticker' || type === 'sticker_message') {
+        preview = String(msg.description || msg.content || '[表情包]').trim();
+    } else if (type === 'voice') {
+        const raw = String(msg.content || '').trim();
+        if (!raw) {
+            preview = '[语音]';
+        } else {
+            try {
+                const parsed = JSON.parse(raw);
+                preview = String(parsed && parsed.text || raw || '[语音]').trim();
+            } catch (error) {
+                preview = raw;
+            }
+        }
+    } else if (type === 'image' || type === 'virtual_image') {
+        preview = String(msg.description || msg.content || '[图片]').trim();
+    } else if (type === 'transfer') {
+        preview = '[转账消息]';
+        try {
+            const parsed = JSON.parse(String(msg.content || '{}'));
+            const amount = parsed && parsed.amount ? String(parsed.amount).trim() : '';
+            const remark = parsed && parsed.remark ? String(parsed.remark).trim() : '';
+            if (amount || remark) {
+                preview = `[转账] ${amount}${remark ? ` ${remark}` : ''}`.trim();
+            }
+        } catch (error) {}
+    } else {
+        preview = String(msg.content || '').trim();
+    }
+
+    preview = preview.replace(/\s+/g, ' ').trim();
+    if (!preview) return '';
+    if (preview.length > 160) {
+        return `${preview.slice(0, 160)}…`;
+    }
+    return preview;
+}
+
+function buildMeetingSyncChatBridgePrompt(contact, chatHistory = []) {
+    const source = Array.isArray(chatHistory) ? chatHistory : [];
+    const availableMessages = source.filter((msg) => {
+        if (!msg) return false;
+        if (msg.role !== 'user' && msg.role !== 'assistant') return false;
+        if (typeof shouldExcludeFromAiContext === 'function' && shouldExcludeFromAiContext(msg)) return false;
+        return !!getMeetingSyncChatPreview(msg);
+    });
+    if (!availableMessages.length) return '';
+
+    const limit = resolveMeetingSyncChatLimit(contact, availableMessages.length);
+    if (!limit) return '';
+    const selectedMessages = availableMessages.slice(-limit);
+
+    const lines = selectedMessages.map((msg) => {
+        const speaker = msg.role === 'user' ? '用户' : String(contact && contact.name ? contact.name : '联系人');
+        const typeLabel = getMeetingSyncChatTypeLabel(msg);
+        const preview = getMeetingSyncChatPreview(msg);
+        const timeLabel = formatMeetingSyncChatTimestamp(msg.time);
+        return `- ${timeLabel ? `[${timeLabel}] ` : ''}${speaker}（${typeLabel}）：${preview}`;
+    });
+
+    return `【线上聊天衔接（最近${lines.length}条）】\n以下是真实线上聊天记录，请把它们作为衔接线下剧情的连续语境与情绪依据；可以提炼，但不要逐句照抄。\n${lines.join('\n')}\n\n`;
+}
+
+function buildMeetingSyncMemoryBridgePrompt(contact, chatHistory = []) {
+    if (!contact || !contact.id) return '';
+
+    if (typeof window.buildMemoryContextByPolicy === 'function') {
+        const memoryContext = String(window.buildMemoryContextByPolicy(contact, Array.isArray(chatHistory) ? chatHistory : [], 'meeting-sync') || '').trim();
+        if (memoryContext) {
+            return `【可用于衔接的历史记忆】\n以下记忆可用于延续关系、情绪和事件前因后果；不要机械复述记忆条目原文。\n${memoryContext}\n`;
+        }
+    }
+
+    const fallbackMemories = (Array.isArray(window.iphoneSimState && window.iphoneSimState.memories) ? window.iphoneSimState.memories : [])
+        .filter((memory) => memory && String(memory.contactId) === String(contact.id) && String(memory.content || '').trim())
+        .sort((a, b) => (Number(b.time) || 0) - (Number(a.time) || 0))
+        .slice(0, 8);
+    if (!fallbackMemories.length) return '';
+
+    const lines = fallbackMemories.map((memory) => {
+        const date = new Date(Number(memory.time) || Date.now());
+        const dateText = `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+        return `- [${dateText}] ${String(memory.content || '').replace(/\s+/g, ' ').trim()}`;
+    });
+    return `【可用于衔接的历史记忆】\n以下记忆可用于延续关系、情绪和事件前因后果；不要机械复述记忆条目原文。\n${lines.join('\n')}\n\n`;
+}
+
 /**
  * 2. 构造见面模式的专用 Prompt
  */
@@ -1903,13 +2326,21 @@ function constructMeetingPrompt(contactId, newUserInput) {
     const meetingId = window.iphoneSimState.currentMeetingId;
     const meetings = window.iphoneSimState.meetings[contactId];
     const currentMeeting = meetings.find(m => m.id === meetingId);
+    const isGroupMeeting = isMeetingGroupContact(contact);
+    const groupDisplayName = isGroupMeeting && typeof window.getGroupChatDisplayName === 'function'
+        ? String(window.getGroupChatDisplayName(contact) || '').trim()
+        : '';
+    const groupParticipantPrompt = isGroupMeeting ? buildGroupMeetingParticipantPrompt(contact) : '';
     const hasPresetInstructions = buildMeetingPresetMessages(currentMeeting).length > 0;
     const meetingWorldbookPrompt = buildMeetingWorldbookPrompt(contact);
+    const shouldInjectDirectBridgeContext = !isGroupMeeting && !!(currentMeeting && currentMeeting.syncWithChat === true);
     
     // 获取线上聊天背景摘要（不直接拼接聊天原文，避免串回消息语境）
     let chatContext = '';
     const chatHistory = window.iphoneSimState.chatHistory[contactId] || [];
-    if (chatHistory.length > 0) {
+    const chatBridgePrompt = shouldInjectDirectBridgeContext ? buildMeetingSyncChatBridgePrompt(contact, chatHistory) : '';
+    const memoryBridgePrompt = shouldInjectDirectBridgeContext ? buildMeetingSyncMemoryBridgePrompt(contact, chatHistory) : '';
+    if (chatHistory.length > 0 && (isGroupMeeting || shouldInjectDirectBridgeContext)) {
         const recentChats = chatHistory
             .filter(msg => msg && msg.type !== 'system_event' && msg.content)
             .slice(-12);
@@ -1918,19 +2349,35 @@ function constructMeetingPrompt(contactId, newUserInput) {
         const latestFacts = recentChats.slice(-3).map(msg => {
             let content = String(msg.content || '').trim();
             if (content.length > 24) content = `${content.slice(0, 24)}…`;
-            return msg.role === 'user' ? `- 用户近期提过：${content}` : `- ${contact.name}近期表现为：${content}`;
+            if (msg.role === 'user') return `- 用户近期提过：${content}`;
+            const groupSpeakerName = isGroupMeeting
+                ? String(msg.speakerNameSnapshot || '').trim()
+                    || (msg.speakerContactId === 'me' ? getMeetingGroupParticipantName(contact, 'me') : '群成员')
+                : '';
+            const speakerName = groupSpeakerName || contact.name;
+            return `- ${speakerName}近期表现为：${content}`;
         }).join('\n');
         chatContext = [
             `你与用户在线上已有一定互动基础。`,
-            `最近聊天中，用户主动表达约 ${userCount} 次，${contact.name}主动表达约 ${contactCount} 次。`,
+            isGroupMeeting
+                ? `最近聊天中，用户主动表达约 ${userCount} 次，群内其他成员主动表达约 ${contactCount} 次。`
+                : `最近聊天中，用户主动表达约 ${userCount} 次，${contact.name}主动表达约 ${contactCount} 次。`,
             latestFacts
         ].filter(Boolean).join('\n');
     }
 
     // 基础设定
     let prompt = `你现在不是联系人本人，而是一个RP 的旁白写手 / 共创剧情引擎。\n`;
-    prompt += `角色：${contact.name}。\n`;
-    prompt += `联系人设：${contact.persona || '无特定人设'}。\n`;
+    if (isGroupMeeting) {
+        prompt += `这是一次群聊成员共同参与的线下见面剧情。\n`;
+        prompt += `群聊：${groupDisplayName || contact.name || '群聊'}。\n`;
+        if (groupParticipantPrompt) {
+            prompt += `本次到场成员（全部都在场）：\n${groupParticipantPrompt}\n`;
+        }
+    } else {
+        prompt += `角色：${contact.name}。\n`;
+        prompt += `联系人设：${contact.persona || '无特定人设'}。\n`;
+    }
     
     // 添加用户人设
     if (contact.userPersonaPromptOverride) {
@@ -1952,24 +2399,42 @@ function constructMeetingPrompt(contactId, newUserInput) {
     if (meetingWorldbookPrompt) {
         prompt += meetingWorldbookPrompt;
     }
+    if (chatBridgePrompt) {
+        prompt += chatBridgePrompt;
+    }
+    if (memoryBridgePrompt) {
+        prompt += memoryBridgePrompt;
+    }
 
     prompt += `【规则】\n`;
-    prompt += `1. 这是一次线下见面的RP 共写，不是聊天软件对话。你不是${contact.name}本人，也不是在替他回复消息。\n`;
+    prompt += isGroupMeeting
+        ? `1. 这是一次群聊成员线下见面的RP 共写，不是聊天软件对话。你不是某个成员本人，也不是在替任何人回复消息。\n`
+        : `1. 这是一次线下见面的RP 共写，不是聊天软件对话。你不是${contact.name}本人，也不是在替他回复消息。\n`;
     prompt += `2. 用户当前输入默认应被视为“设定补充、剧情素材、情境假设、关系假设、动作草稿、氛围关键词、片段化灵感”，优先作为世界设定或剧情条件处理，而不是直接当成角色已经说出口的话。\n`;
     prompt += `3. 只有当用户输入本身明确带有说话标记、引号、明确台词动作，或上下文清楚要求“某角色把这句话说出口”时，你才能把其中部分内容落地为角色对白；否则默认不要把整段输入直接写成‘你用气声说出口’、‘你对他说’、‘你发给他’之类行为。\n`;
-    prompt += `4. 你的任务是把这些素材转化为“下一段剧情正文”，继续创作双方互动、场景氛围、心理活动、动作和环境变化，并优先表现“设定成立后会怎样”，而不是“用户说了这句话后对方怎么回”。\n`;
+    prompt += isGroupMeeting
+        ? `4. 你的任务是把这些素材转化为“下一段剧情正文”，继续创作多人互动、场景氛围、心理活动、动作和环境变化，并优先表现“设定成立后会怎样”，而不是“用户说了这句话后某个人怎么回”。\n`
+        : `4. 你的任务是把这些素材转化为“下一段剧情正文”，继续创作双方互动、场景氛围、心理活动、动作和环境变化，并优先表现“设定成立后会怎样”，而不是“用户说了这句话后对方怎么回”。\n`;
     prompt += `5. 除非用户输入里明确出现手机、发消息、聊天框、收到消息等设定，否则不要主动把用户输入解释成角色之间的线上消息；除非用户明确要求说出口，否则也不要主动把输入解释成当面对白。\n`;
-    prompt += `6. 必须保持第三人称叙事和沉浸感，不要输出规则说明，不要分析用户，不要总结成提纲。\n`;
+    if (shouldInjectDirectBridgeContext) {
+        prompt += `补充要求：你必须让线下剧情与上面的线上聊天记录和历史记忆自然衔接，保持关系、情绪和事件进度连续，不要与已知事实冲突。\n`;
+    }
+    if (isGroupMeeting) {
+        prompt += `6. 本轮必须体现群聊全员都在场：每位到场成员（含用户）至少出现一次被提及、动作、发言或互动，不要只围绕单个角色和用户。\n`;
+        prompt += `7. 成员之间可以彼此互动、搭话、打断、附和、调侃或转移话题，保持真实的多人见面感；同时保持第三人称叙事和沉浸感，不要输出规则说明，不要分析用户，不要总结成提纲。\n`;
+    } else {
+        prompt += `6. 必须保持第三人称叙事和沉浸感，不要输出规则说明，不要分析用户，不要总结成提纲。\n`;
+    }
     prompt += hasPresetInstructions
-        ? `7. 只返回 JSON；如果接入预设明确要求 Markdown、HTML、XML、代码块或特定标签结构，可以把这些内容写在 JSON.reply 字段内。\n`
-        : `7. 只返回 JSON，不要返回 Markdown，不要加代码块。\n`;
-    prompt += `8. JSON 格式固定为 {"reply":"下一段剧情正文","suggestions":["建议1","建议2","建议3"]}。\n`;
-    prompt += `9. reply 表示你写出的本轮完整输出主体，不是对用户文本的“回复消息”。\n`;
-    prompt += `10. 如果接入预设里有正文格式、状态栏、摘要、小剧场、分支、thinking、角色表或其他结构要求，请把这些内容一并放入 reply 字段中输出。\n`;
-    prompt += `11. suggestions 必须恰好 3 条，每条不超过 50 个汉字，且必须写成“用户下一步可以继续喂给你”的第三人称剧情片段，明确写出角色名。不要写成“你可以回复”“你可以说”“他回你”这种消息建议。顺序固定为：最自然延续剧情 / 推动剧情转折 / 推向 NSFW。\n`;
+        ? `${isGroupMeeting ? '8' : '7'}. 只返回 JSON；如果接入预设明确要求 Markdown、HTML、XML、代码块或特定标签结构，可以把这些内容写在 JSON.reply 字段内。\n`
+        : `${isGroupMeeting ? '8' : '7'}. 只返回 JSON，不要返回 Markdown，不要加代码块。\n`;
+    prompt += `${isGroupMeeting ? '9' : '8'}. JSON 格式固定为 {"reply":"下一段剧情正文","suggestions":["建议1","建议2","建议3"]}。\n`;
+    prompt += `${isGroupMeeting ? '10' : '9'}. reply 表示你写出的本轮完整输出主体，不是对用户文本的“回复消息”。\n`;
+    prompt += `${isGroupMeeting ? '11' : '10'}. 如果接入预设里有正文格式、状态栏、摘要、小剧场、分支、thinking、角色表或其他结构要求，请把这些内容一并放入 reply 字段中输出。\n`;
+    prompt += `${isGroupMeeting ? '12' : '11'}. suggestions 必须恰好 3 条，每条不超过 50 个汉字，且必须写成“用户下一步可以继续喂给你”的第三人称剧情片段，明确写出角色名。不要写成“你可以回复”“你可以说”“他回你”这种消息建议。顺序固定为：最自然延续剧情 / 推动剧情转折 / 推向 NSFW。\n`;
     prompt += hasPresetInstructions
-        ? `12. 当接入预设对输出结构、段落组织、格式标签、额外栏目有明确要求时，以接入预设要求优先；JSON 只是最外层包装。\n\n`
-        : `12. reply 默认分成 2 到 4 段，每段 1 到 4 句；动作、心理、环境变化或关键转折尽量另起一段，避免整段文字挤成一坨。\n\n`;
+        ? `${isGroupMeeting ? '13' : '12'}. 当接入预设对输出结构、段落组织、格式标签、额外栏目有明确要求时，以接入预设要求优先；JSON 只是最外层包装。\n\n`
+        : `${isGroupMeeting ? '13' : '12'}. reply 默认分成 2 到 4 段，每段 1 到 4 句；动作、心理、环境变化或关键转折尽量另起一段，避免整段文字挤成一坨。\n\n`;
     
     prompt += `【剧情回顾】\n`;
     
@@ -1999,8 +2464,8 @@ function constructMeetingPrompt(contactId, newUserInput) {
     }
     
     prompt += hasPresetInstructions
-        ? `\n请根据以上内容，像 RP 一样继续创作本轮见面内容。默认把用户输入当成设定或素材，而不是已经对${contact.name}说出口的话。除非用户明确要求落地成台词，否则优先写“这个设定成立后，现场气氛、关系、动作与心理如何变化”。如果接入预设要求输出额外结构、栏目或格式，请把这些内容一并写进 JSON.reply。最终按指定 JSON 格式返回 reply 与 3 条 suggestions。`
-        : `\n请根据以上内容，像 RP 一样继续创作“下一段剧情正文”。默认把用户输入当成设定或素材，而不是已经对${contact.name}说出口的话。除非用户明确要求落地成台词，否则优先写“这个设定成立后，现场气氛、关系、动作与心理如何变化”。并按指定 JSON 格式返回剧情正文与 3 条可继续喂给你的剧情片段建议。`;
+        ? `\n请根据以上内容，像 RP 一样继续创作本轮见面内容。默认把用户输入当成设定或素材，而不是已经被角色说出口的话。除非用户明确要求落地成台词，否则优先写“这个设定成立后，现场气氛、关系、动作与心理如何变化”。如果接入预设要求输出额外结构、栏目或格式，请把这些内容一并写进 JSON.reply。最终按指定 JSON 格式返回 reply 与 3 条 suggestions。`
+        : `\n请根据以上内容，像 RP 一样继续创作“下一段剧情正文”。默认把用户输入当成设定或素材，而不是已经被角色说出口的话。除非用户明确要求落地成台词，否则优先写“这个设定成立后，现场气氛、关系、动作与心理如何变化”。并按指定 JSON 格式返回剧情正文与 3 条可继续喂给你的剧情片段建议。`;
     prompt += lengthInstruction; // 将字数限制放在最后，增强权重
     
     return prompt;
@@ -2450,18 +2915,28 @@ function setupMeetingListeners() {
 
     // 保存文风预设
     if (saveMeetingStylePresetBtn) {
-        saveMeetingStylePresetBtn.addEventListener('click', () => {
+        saveMeetingStylePresetBtn.addEventListener('click', async () => {
             const style = document.getElementById('meeting-style-input').value.trim();
             const minWords = document.getElementById('meeting-min-words').value;
             const maxWords = document.getElementById('meeting-max-words').value;
             const linkedWbCategories = getMeetingStyleSelectedWorldbookIds();
             
             if (!style) {
-                alert('请先输入描写风格内容');
+                await showMeetingAlert('请先输入描写风格内容', {
+                    title: '无法保存预设',
+                    kicker: 'Meeting'
+                });
                 return;
             }
 
-            const name = prompt('请输入预设名称：');
+            const rawName = await showMeetingPrompt('请输入预设名称：', {
+                title: '保存文风预设',
+                confirmText: '保存',
+                cancelText: '取消',
+                placeholder: '例如：晚风私语',
+                kicker: 'Meeting'
+            });
+            const name = rawName === null ? '' : String(rawName).trim();
             if (name) {
                 if (!window.iphoneSimState.meetingStylePresets) window.iphoneSimState.meetingStylePresets = [];
                 window.iphoneSimState.meetingStylePresets.push({
@@ -2473,21 +2948,33 @@ function setupMeetingListeners() {
                 });
                 saveConfig();
                 loadMeetingStylePresets();
-                alert('预设保存成功');
+                await showMeetingAlert('预设保存成功', {
+                    title: '已保存',
+                    kicker: 'Meeting'
+                });
             }
         });
     }
 
     // 删除文风预设
     if (deleteMeetingStylePresetBtn) {
-        deleteMeetingStylePresetBtn.addEventListener('click', () => {
+        deleteMeetingStylePresetBtn.addEventListener('click', async () => {
             const index = meetingStylePresetSelect.value;
             if (index === '') {
-                alert('请先选择一个预设');
+                await showMeetingAlert('请先选择一个预设', {
+                    title: '无法删除预设',
+                    kicker: 'Meeting'
+                });
                 return;
             }
             
-            if (confirm('确定删除该预设吗？')) {
+            const shouldDeletePreset = await showMeetingConfirm('确定删除该预设吗？', {
+                title: '删除文风预设',
+                confirmText: '删除',
+                cancelText: '取消',
+                kicker: 'Meeting'
+            });
+            if (shouldDeletePreset) {
                 window.iphoneSimState.meetingStylePresets.splice(index, 1);
                 saveConfig();
                 loadMeetingStylePresets();
@@ -2698,12 +3185,15 @@ function setupMeetingListeners() {
         const newSaveBtn = saveEditMeetingMsgBtn.cloneNode(true);
         saveEditMeetingMsgBtn.parentNode.replaceChild(newSaveBtn, saveEditMeetingMsgBtn);
 
-        newSaveBtn.addEventListener('click', () => {
+        newSaveBtn.addEventListener('click', async () => {
             if (currentEditingMeetingMsgIndex === null || !window.iphoneSimState.currentChatContactId || !window.iphoneSimState.currentMeetingId) return;
 
             const newText = document.getElementById('edit-meeting-msg-content').value.trim();
             if (!newText) {
-                alert('内容不能为空');
+                await showMeetingAlert('内容不能为空', {
+                    title: '编辑失败',
+                    kicker: 'Meeting'
+                });
                 return;
             }
 
@@ -2735,7 +3225,7 @@ function setupMeetingListeners() {
             if (!file) return;
 
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = async function(e) {
                 const result = e.target.result;
                 const contactId = window.iphoneSimState.currentChatContactId;
                 const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
@@ -2751,7 +3241,10 @@ function setupMeetingListeners() {
                         detailScreen.style.backgroundSize = 'cover';
                         detailScreen.style.backgroundPosition = 'center';
                     }
-                    alert('壁纸设置成功');
+                    await showMeetingAlert('壁纸设置成功', {
+                        title: '见面美化',
+                        kicker: 'Meeting'
+                    });
                 }
             };
             reader.readAsDataURL(file);
@@ -2759,22 +3252,30 @@ function setupMeetingListeners() {
     }
 
     if (resetWallpaperBtn) {
-        resetWallpaperBtn.addEventListener('click', () => {
-            if (confirm('确定要重置为默认背景吗？')) {
-                const contactId = window.iphoneSimState.currentChatContactId;
-                const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
-                if (contact) {
-                    delete contact.meetingWallpaper;
-                    saveConfig();
-                    
-                    const detailScreen = document.getElementById('meeting-detail-screen');
-                    if (!detailScreen.classList.contains('hidden')) {
-                        detailScreen.style.backgroundImage = '';
-                        detailScreen.style.backgroundSize = '';
-                        detailScreen.style.backgroundPosition = '';
-                    }
-                    alert('壁纸已重置');
+        resetWallpaperBtn.addEventListener('click', async () => {
+            const shouldReset = await showMeetingConfirm('确定要重置为默认背景吗？', {
+                title: '重置见面背景',
+                confirmText: '重置',
+                cancelText: '取消',
+                kicker: 'Meeting'
+            });
+            if (!shouldReset) return;
+            const contactId = window.iphoneSimState.currentChatContactId;
+            const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+            if (contact) {
+                delete contact.meetingWallpaper;
+                saveConfig();
+                
+                const detailScreen = document.getElementById('meeting-detail-screen');
+                if (!detailScreen.classList.contains('hidden')) {
+                    detailScreen.style.backgroundImage = '';
+                    detailScreen.style.backgroundSize = '';
+                    detailScreen.style.backgroundPosition = '';
                 }
+                await showMeetingAlert('壁纸已重置', {
+                    title: '见面美化',
+                    kicker: 'Meeting'
+                });
             }
         });
     }

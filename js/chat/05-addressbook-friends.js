@@ -15,7 +15,9 @@
     if (window.updateNewFriendsBadge) window.updateNewFriendsBadge();
 
     // Sort contacts by name/pinyin (simplified: just name)
-    const contacts = [...window.iphoneSimState.contacts].sort((a, b) => {
+    const contacts = window.iphoneSimState.contacts
+        .filter(contact => !(typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)))
+        .sort((a, b) => {
         return (a.remark || a.name).localeCompare(b.remark || b.name, 'zh-Hans-CN');
     });
 
@@ -335,6 +337,8 @@ async function handleAcceptFriend(req, remark) {
         restWindowStart: '',
         restWindowEnd: '',
         restWindowAwakenedAt: null,
+        restWindowUpcomingNoticeForStartMs: null,
+        restWindowWakeReplyForStartMs: null,
         autoItineraryEnabled: false,
         userPerception: [],
         thoughtDisplayMode: 'title',

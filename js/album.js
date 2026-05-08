@@ -1,5 +1,42 @@
-(function () {
+﻿(function () {
     const PLACEHOLDER_COVER = 'https://placehold.co/600x400?text=Album';
+    const PHOTO_TYPE_OPTIONS = [
+        { value: 'selfie', label: '自拍' },
+        { value: 'scenery', label: '风景' },
+        { value: 'food', label: '食物' },
+        { value: 'portrait', label: '人像' },
+        { value: 'pet', label: '宠物' },
+        { value: 'travel', label: '旅行' },
+        { value: 'party', label: '聚会' },
+        { value: 'night', label: '夜景' },
+        { value: 'work', label: '工作' },
+        { value: 'other', label: '其他' }
+    ];
+    const PHOTO_TYPE_LABEL_MAP = PHOTO_TYPE_OPTIONS.reduce((acc, item) => {
+        acc[item.value] = item.label;
+        return acc;
+    }, {});
+    const PHOTO_TYPE_KEYWORDS = {
+        selfie: ['自拍', 'selfie', '自照', '我自己', '本人'],
+        scenery: ['风景', '景色', '自然', '山', '海', '湖', 'skyline', 'landscape', 'scenery'],
+        food: ['食物', '美食', '吃的', '餐', '饭', '甜点', 'coffee', 'food', 'meal', 'dessert'],
+        portrait: ['人像', '人物', 'portrait', 'person'],
+        pet: ['宠物', '猫', '狗', 'cat', 'dog', 'pet'],
+        travel: ['旅行', '旅游', 'trip', 'travel'],
+        party: ['聚会', 'party', '朋友', '庆祝'],
+        night: ['夜景', '夜晚', '夜里', '晚上', 'night'],
+        work: ['工作', '办公', '会议', '文档', 'work', 'office', 'meeting'],
+        other: ['其他', 'other']
+    };
+    const MATCH_STOPWORDS = new Set([
+        '图片', '照片', 'photo', 'image', '一张', '这个', '那个', '一下', '给我', '发送',
+        '一下子', '一下下', '请', '麻烦', '的', '了', '和', '与', '及', 'to', 'for', 'the',
+        'a', 'an', 'is', 'are', 'on', 'in', 'at', 'with'
+    ]);
+    const NEW_PHOTO_INTENT_KEYWORDS = [
+        'new photo', 'new picture', 'fresh photo', 'recent photo', 'latest photo', 'just took',
+        '刚拍', '新拍', '新照片', '新图片', '最新', '现场', '现在拍'
+    ];
 
     function buildPhoto(id, seed, location, datetime) {
         return {
@@ -7,7 +44,10 @@
             src: `https://picsum.photos/seed/${seed}/900/900`,
             thumb: `https://picsum.photos/seed/${seed}/120/120`,
             location,
-            datetime
+            datetime,
+            description: '',
+            photoType: 'other',
+            lastSentAtByContact: {}
         };
     }
 
@@ -95,7 +135,9 @@
     ];
 
     function clonePhoto(photo) {
-        return { ...photo };
+        const cloned = { ...photo };
+        cloned.lastSentAtByContact = normalizeLastSentAtByContact(photo && photo.lastSentAtByContact);
+        return cloned;
     }
 
     function cloneSection(section) {
@@ -108,6 +150,7 @@
     function cloneAlbum(album) {
         return {
             ...album,
+            boundContactIds: Array.isArray(album.boundContactIds) ? [...album.boundContactIds] : [],
             photos: Array.isArray(album.photos) ? album.photos.map(clonePhoto) : []
         };
     }
@@ -128,8 +171,43 @@
             iconColor: typeof overrides.iconColor === 'string' && overrides.iconColor.trim() ? overrides.iconColor.trim() : '#8e8e93',
             cover: recentPhotos[0] ? recentPhotos[0].src : (typeof overrides.cover === 'string' && overrides.cover ? overrides.cover : PLACEHOLDER_COVER),
             photos: [],
+            boundContactIds: [],
             dynamicRecent: true
         };
+    }
+
+    function normalizePhotoType(value) {
+        const text = String(value || '').trim().toLowerCase();
+        return PHOTO_TYPE_LABEL_MAP[text] ? text : 'other';
+    }
+
+    function normalizePhotoDescription(value) {
+        return typeof value === 'string' ? value.trim() : '';
+    }
+
+    function normalizeBoundContactIds(value) {
+        if (!Array.isArray(value)) return [];
+        const ids = [];
+        const seen = new Set();
+        value.forEach(item => {
+            const id = String(item || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            ids.push(id);
+        });
+        return ids;
+    }
+
+    function normalizeLastSentAtByContact(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+        const next = {};
+        Object.entries(value).forEach(([contactId, timestamp]) => {
+            const key = String(contactId || '').trim();
+            const num = Number(timestamp);
+            if (!key || !Number.isFinite(num) || num <= 0) return;
+            next[key] = num;
+        });
+        return next;
     }
 
     function sanitizePhoto(photo, fallbackId) {
@@ -144,7 +222,10 @@
             src,
             thumb,
             location: typeof safePhoto.location === 'string' ? safePhoto.location : 'Imported Photo',
-            datetime: typeof safePhoto.datetime === 'string' ? safePhoto.datetime : ''
+            datetime: typeof safePhoto.datetime === 'string' ? safePhoto.datetime : '',
+            description: normalizePhotoDescription(safePhoto.description),
+            photoType: normalizePhotoType(safePhoto.photoType),
+            lastSentAtByContact: normalizeLastSentAtByContact(safePhoto.lastSentAtByContact)
         };
     }
 
@@ -194,6 +275,7 @@
                     iconColor: typeof album.iconColor === 'string' && album.iconColor.trim() ? album.iconColor.trim() : '#8e8e93',
                     cover: safePhotos[0] ? safePhotos[0].src : (typeof album.cover === 'string' && album.cover ? album.cover : PLACEHOLDER_COVER),
                     photos: safePhotos,
+                    boundContactIds: isDynamicRecent ? [] : normalizeBoundContactIds(album.boundContactIds),
                     dynamicRecent: isDynamicRecent,
                     isPrivate: !isDynamicRecent && album.isPrivate === true && typeof album.privacyPassword === 'string' && album.privacyPassword.length > 0,
                     privacyPassword: !isDynamicRecent && typeof album.privacyPassword === 'string' ? album.privacyPassword : ''
@@ -289,12 +371,17 @@
         detailManageMode: false,
         moveModalMode: null,
         privacyActionAlbumId: null,
+        albumActionAlbumId: null,
+        albumBindContactAlbumId: null,
+        photoMetaCollectionKey: null,
+        photoMetaPhotoId: null,
         privacyPasswordMode: null,
         privacyPasswordAlbumId: null,
         selectedRecentPhotoIds: new Set(),
         selectedAlbumIds: new Set(),
         selectedDetailPhotoIds: new Set(),
-        selectedMoveTargetAlbumIds: new Set()
+        selectedMoveTargetAlbumIds: new Set(),
+        selectedBindContactIds: new Set()
     };
 
     const ALBUM_CARD_LONG_PRESS_DURATION = 480;
@@ -384,6 +471,447 @@
         const album = getAlbumById(albumId);
         if (!album || album.dynamicRecent) return null;
         return album;
+    }
+
+    function getNonGroupContacts() {
+        return Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
+            ? window.iphoneSimState.contacts.filter(contact => contact && !(typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)))
+            : [];
+    }
+
+    function normalizeSearchText(...parts) {
+        return parts
+            .map(part => String(part || '').trim())
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+    }
+
+    function tokenizeSearchText(text) {
+        return normalizeSearchText(text)
+            .split(/[\s,，。！？、;；:/\\|()\[\]{}<>~`'"+=_-]+/)
+            .map(token => token.trim())
+            .filter(token => token && !MATCH_STOPWORDS.has(token));
+    }
+
+    function includesAnyKeyword(text, keywords) {
+        if (!text || !Array.isArray(keywords)) return false;
+        return keywords.some(keyword => keyword && text.includes(String(keyword).toLowerCase()));
+    }
+
+    function getPhotoLastSentAtForContact(photoOrCandidate, contactId) {
+        if (!photoOrCandidate) return 0;
+        const normalizedContactId = String(contactId || '').trim();
+        if (!normalizedContactId) return 0;
+        const map = normalizeLastSentAtByContact(photoOrCandidate.lastSentAtByContact);
+        return Number(map[normalizedContactId] || 0);
+    }
+
+    function isFreshPhotoIntent(queryText, contextText) {
+        const combined = normalizeSearchText(queryText, contextText);
+        if (!combined) return false;
+        return NEW_PHOTO_INTENT_KEYWORDS.some(keyword => combined.includes(String(keyword).toLowerCase()));
+    }
+
+    function buildRealPhotoCandidateRecord(photo, album, orderIndex) {
+        if (!photo || !album) return null;
+        const src = typeof photo.src === 'string' && photo.src.trim()
+            ? photo.src.trim()
+            : (typeof photo.thumb === 'string' && photo.thumb.trim() ? photo.thumb.trim() : '');
+        if (!src) return null;
+
+        return {
+            src,
+            thumb: typeof photo.thumb === 'string' && photo.thumb.trim() ? photo.thumb.trim() : src,
+            id: typeof photo.id === 'string' ? photo.id : '',
+            albumId: album.id || '',
+            albumName: album.name || '',
+            albumPrivate: album.isPrivate === true,
+            orderIndex,
+            location: typeof photo.location === 'string' ? photo.location : '',
+            datetime: typeof photo.datetime === 'string' ? photo.datetime : '',
+            description: normalizePhotoDescription(photo.description),
+            photoType: normalizePhotoType(photo.photoType),
+            lastSentAtByContact: normalizeLastSentAtByContact(photo.lastSentAtByContact)
+        };
+    }
+
+    function collectAlbumBoundRealPhotoRecords(contactId) {
+        const normalizedContactId = String(contactId || '').trim();
+        if (!normalizedContactId) return [];
+
+        const records = [];
+        const seenSrc = new Set();
+        const albums = Array.isArray(albumState.albums) ? albumState.albums : [];
+
+        albums.forEach((album, albumIndex) => {
+            if (!album || album.dynamicRecent || !Array.isArray(album.photos)) return;
+            const boundContactIds = normalizeBoundContactIds(album.boundContactIds);
+            if (!boundContactIds.includes(normalizedContactId)) return;
+
+            album.photos.forEach((photo, photoIndex) => {
+                const candidate = buildRealPhotoCandidateRecord(photo, album, `${albumIndex}:${photoIndex}`);
+                if (!candidate || seenSrc.has(candidate.src)) return;
+                seenSrc.add(candidate.src);
+                candidate.lastSentAtForContact = getPhotoLastSentAtForContact(candidate, normalizedContactId);
+                records.push(candidate);
+            });
+        });
+
+        return records;
+    }
+
+    function scoreAlbumRealPhotoCandidate(candidate, queryText, contextText) {
+        if (!candidate) return 0;
+        const normalizedQuery = normalizeSearchText(queryText, contextText);
+        if (!normalizedQuery) return 0;
+        const queryTokens = tokenizeSearchText(normalizedQuery);
+        if (!queryTokens.length) return 0;
+
+        const candidateText = normalizeSearchText(
+            candidate.photoType,
+            PHOTO_TYPE_LABEL_MAP[candidate.photoType] || '',
+            candidate.description,
+            candidate.location,
+            candidate.datetime,
+            candidate.albumName
+        );
+        const candidateTokens = new Set(tokenizeSearchText(candidateText));
+        let score = 0;
+
+        const photoTypeKeywords = PHOTO_TYPE_KEYWORDS[candidate.photoType] || [];
+        if (includesAnyKeyword(normalizedQuery, photoTypeKeywords)) {
+            score += 8;
+        }
+        if (candidate.photoType !== 'other' && normalizedQuery.includes(PHOTO_TYPE_LABEL_MAP[candidate.photoType])) {
+            score += 3;
+        }
+
+        queryTokens.forEach(token => {
+            if (!token) return;
+            if (candidate.description && candidate.description.toLowerCase().includes(token)) score += 4;
+            if (candidate.location && candidate.location.toLowerCase().includes(token)) score += 2;
+            if (candidate.albumName && candidate.albumName.toLowerCase().includes(token)) score += 1.5;
+            if (candidateText.includes(token) && !candidateTokens.has(token)) score += 0.5;
+            if (candidateTokens.has(token)) score += 1;
+        });
+
+        if (candidate.description && normalizedQuery.includes(candidate.description.toLowerCase())) score += 2;
+        if (candidate.location && normalizedQuery.includes(candidate.location.toLowerCase())) score += 1.5;
+        if (candidate.albumName && normalizedQuery.includes(candidate.albumName.toLowerCase())) score += 1;
+
+        return score;
+    }
+
+    function getAlbumBoundRealPhotosForContact(contactId) {
+        return collectAlbumBoundRealPhotoRecords(contactId);
+    }
+
+    function getAlbumRealPhotoPromptCandidatesForContact(contactId, queryText = '', contextText = '', limit = 12) {
+        const records = collectAlbumBoundRealPhotoRecords(contactId);
+        if (!records.length) return [];
+        const normalizedContactId = String(contactId || '').trim();
+        const preferFresh = isFreshPhotoIntent(queryText, contextText);
+
+        let scored = records
+            .map((record, index) => ({
+                ...record,
+                score: scoreAlbumRealPhotoCandidate(record, queryText, contextText),
+                sortIndex: index,
+                lastSentAtForContact: getPhotoLastSentAtForContact(record, normalizedContactId)
+            }))
+            .filter(record => !(preferFresh && record.lastSentAtForContact > 0))
+            .sort((left, right) => {
+                if (right.score !== left.score) return right.score - left.score;
+                if ((left.lastSentAtForContact > 0) !== (right.lastSentAtForContact > 0)) {
+                    return left.lastSentAtForContact > 0 ? 1 : -1;
+                }
+                if (left.lastSentAtForContact !== right.lastSentAtForContact) {
+                    return left.lastSentAtForContact - right.lastSentAtForContact;
+                }
+                return left.sortIndex - right.sortIndex;
+            });
+        if (preferFresh && scored.length === 0) {
+            return [];
+        }
+        const hasPositiveScore = scored.some(record => record.score > 0);
+        if (hasPositiveScore) {
+            scored = scored.filter(record => record.score > 0);
+        }
+        scored = scored.slice(0, Math.max(0, Number(limit) || 0));
+
+        return scored.map(item => ({
+            albumId: item.albumId,
+            albumName: item.albumName,
+            photoType: item.photoType,
+            photoTypeLabel: PHOTO_TYPE_LABEL_MAP[item.photoType] || PHOTO_TYPE_LABEL_MAP.other,
+            description: item.description,
+            location: item.location,
+            datetime: item.datetime,
+            lastSentAtForContact: item.lastSentAtForContact || 0,
+            score: item.score,
+            summary: `[${PHOTO_TYPE_LABEL_MAP[item.photoType] || '其他'}] ${item.description || item.location || '未命名照片'}（相簿：${item.albumName || '未知'}${item.location ? ` / ${item.location}` : ''}${item.datetime ? ` / ${item.datetime}` : ''}${item.lastSentAtForContact ? ` / 已发送：${new Date(item.lastSentAtForContact).toLocaleString()}` : ''}）`
+        }));
+    }
+
+    function matchAlbumRealPhotoForContact(contactId, queryText, contextText) {
+        const records = collectAlbumBoundRealPhotoRecords(contactId);
+        if (!records.length) return null;
+        const normalizedContactId = String(contactId || '').trim();
+        const preferFresh = isFreshPhotoIntent(queryText, contextText);
+
+        let bestRecord = null;
+        let bestScore = 0;
+
+        records.forEach((record, index) => {
+            const sentAt = getPhotoLastSentAtForContact(record, normalizedContactId);
+            if (preferFresh && sentAt > 0) return;
+            let score = scoreAlbumRealPhotoCandidate(record, queryText, contextText);
+            if (sentAt > 0) {
+                score -= preferFresh ? 100 : 2.2;
+            }
+            if (score <= 0) return;
+            if (score > bestScore || (score === bestScore && bestRecord && index < bestRecord.sortIndex)) {
+                bestRecord = { ...record, score, sortIndex: index, lastSentAtForContact: sentAt };
+                bestScore = score;
+            } else if (!bestRecord && score > 0) {
+                bestRecord = { ...record, score, sortIndex: index, lastSentAtForContact: sentAt };
+                bestScore = score;
+            }
+        });
+
+        if (!bestRecord || bestScore <= 0) return null;
+        return {
+            src: bestRecord.src,
+            thumb: bestRecord.thumb,
+            id: bestRecord.id,
+            albumId: bestRecord.albumId,
+            albumName: bestRecord.albumName,
+            albumPrivate: bestRecord.albumPrivate,
+            location: bestRecord.location,
+            datetime: bestRecord.datetime,
+            description: bestRecord.description,
+            photoType: bestRecord.photoType,
+            lastSentAtForContact: bestRecord.lastSentAtForContact || 0,
+            score: bestRecord.score
+        };
+    }
+
+    function markAlbumRealPhotoSentForContact(contactId, photoMatch, sentAt = Date.now()) {
+        const normalizedContactId = String(contactId || '').trim();
+        if (!normalizedContactId || !photoMatch || typeof photoMatch !== 'object') return false;
+        const sentTimestamp = Number(sentAt);
+        if (!Number.isFinite(sentTimestamp) || sentTimestamp <= 0) return false;
+
+        const syncPhoto = (photo) => {
+            if (!photo || !isSamePhotoReference(photo, photoMatch)) return;
+            const map = normalizeLastSentAtByContact(photo.lastSentAtByContact);
+            map[normalizedContactId] = sentTimestamp;
+            photo.lastSentAtByContact = map;
+        };
+
+        albumState.recentSections.forEach(section => {
+            if (!section || !Array.isArray(section.photos)) return;
+            section.photos.forEach(syncPhoto);
+        });
+        albumState.albums.forEach(album => {
+            if (!album || !Array.isArray(album.photos)) return;
+            album.photos.forEach(syncPhoto);
+        });
+
+        persistAlbumState();
+        return true;
+    }
+
+    function getAlbumActionOptions(albumId) {
+        const album = getAlbumById(albumId);
+        if (!album) return [];
+
+        const options = [];
+        options.push({ id: 'bind-contact', label: '绑定联系人' });
+        options.push({ id: 'privacy', label: '设置隐私' });
+        return options;
+    }
+
+    function updateAlbumActionModal() {
+        const title = document.getElementById('album-action-title');
+        const options = document.getElementById('album-action-options');
+        if (!title || !options) return;
+
+        const album = getAlbumById(albumState.albumActionAlbumId);
+        if (!album) {
+            closeAlbumActionModal();
+            return;
+        }
+
+        title.textContent = album.name || '相簿操作';
+        const actionOptions = getAlbumActionOptions(album.id);
+        options.innerHTML = actionOptions.map(item => `
+            <button class="album-move-option" type="button" data-action-id="${escapeHtml(item.id)}">
+                <span class="album-move-option-info">
+                    <span class="album-move-option-name">${escapeHtml(item.label)}</span>
+                </span>
+                <span class="album-move-option-arrow"><i class="ri-arrow-right-s-line"></i></span>
+            </button>
+        `).join('');
+    }
+
+    function openAlbumActionModal(albumId) {
+        const modal = document.getElementById('album-action-modal');
+        const album = getAlbumById(albumId);
+        if (!modal || !album) return false;
+
+        albumState.albumActionAlbumId = album.id;
+        updateAlbumActionModal();
+        modal.classList.add('open');
+        return true;
+    }
+
+    function closeAlbumActionModal() {
+        const modal = document.getElementById('album-action-modal');
+        if (modal) modal.classList.remove('open');
+        albumState.albumActionAlbumId = null;
+        suppressedAlbumOpenId = null;
+    }
+
+    function renderAlbumBindContactOptions() {
+        const options = document.getElementById('album-bind-contact-options');
+        if (!options) return;
+
+        const contacts = getNonGroupContacts();
+        if (!contacts.length) {
+            options.innerHTML = '<div class="album-move-empty">暂无可绑定的联系人</div>';
+            return;
+        }
+
+        options.innerHTML = contacts.map(contact => {
+            const contactId = String(contact.id);
+            const checked = albumState.selectedBindContactIds.has(contactId);
+            const contactName = contact.remark || contact.nickname || contact.name || '联系人';
+            return `
+                <button class="album-move-option${checked ? ' is-selected' : ''}" type="button" data-contact-id="${escapeHtml(contactId)}">
+                    <span class="album-move-option-info">
+                        <span class="album-move-option-name">${escapeHtml(contactName)}</span>
+                        <span class="album-move-option-count">${escapeHtml(contact.group || '单聊')}</span>
+                    </span>
+                    <span class="album-move-option-check"><i class="ri-check-line"></i></span>
+                </button>
+            `;
+        }).join('');
+    }
+
+    function openAlbumBindContactModal(albumId) {
+        const modal = document.getElementById('album-bind-contact-modal');
+        const title = document.getElementById('album-bind-contact-title');
+        const album = getAlbumById(albumId);
+        if (!modal || !title || !album) return false;
+
+        if (album.dynamicRecent || album.id === RECENT_ALBUM_ID) {
+            showAlbumToast('Recent 相簿不能绑定联系人');
+            return false;
+        }
+
+        albumState.albumBindContactAlbumId = album.id;
+        albumState.selectedBindContactIds = new Set(normalizeBoundContactIds(album.boundContactIds));
+        title.textContent = `绑定联系人 - ${album.name}`;
+        renderAlbumBindContactOptions();
+
+        modal.classList.add('open');
+        return true;
+    }
+
+    function closeAlbumBindContactModal() {
+        const modal = document.getElementById('album-bind-contact-modal');
+        if (modal) modal.classList.remove('open');
+        albumState.albumBindContactAlbumId = null;
+        albumState.selectedBindContactIds.clear();
+    }
+
+    function saveAlbumBindContacts() {
+        const album = getAlbumRecordById(albumState.albumBindContactAlbumId);
+        if (!album || album.dynamicRecent) {
+            closeAlbumBindContactModal();
+            return;
+        }
+
+        album.boundContactIds = Array.from(albumState.selectedBindContactIds);
+        persistAlbumState();
+        renderAlbums();
+        if (albumState.currentAlbumId === album.id) {
+            renderAlbumDetailContent();
+        }
+        closeAlbumBindContactModal();
+        showAlbumToast('已保存联系人绑定');
+    }
+
+    function openAlbumPhotoMetaModal(photoId, collectionKey) {
+        const modal = document.getElementById('album-photo-meta-modal');
+        const descInput = document.getElementById('album-photo-meta-description');
+        const typeSelect = document.getElementById('album-photo-meta-type');
+        const photo = findPhotoById(collectionKey, photoId);
+        if (!modal || !descInput || !typeSelect || !photo) return false;
+
+        albumState.photoMetaCollectionKey = collectionKey;
+        albumState.photoMetaPhotoId = photoId;
+        descInput.value = normalizePhotoDescription(photo.description);
+        typeSelect.value = normalizePhotoType(photo.photoType);
+        modal.classList.add('open');
+        window.setTimeout(() => descInput.focus(), 0);
+        return true;
+    }
+
+    function closeAlbumPhotoMetaModal() {
+        const modal = document.getElementById('album-photo-meta-modal');
+        if (modal) modal.classList.remove('open');
+        albumState.photoMetaCollectionKey = null;
+        albumState.photoMetaPhotoId = null;
+    }
+
+    function syncPhotoMetaAcrossCollections(photoRef, updates) {
+        if (!photoRef || !updates || typeof updates !== 'object') return;
+        const nextDescription = normalizePhotoDescription(updates.description);
+        const nextPhotoType = normalizePhotoType(updates.photoType);
+        const syncPhoto = (photo) => {
+            if (!photo || !isSamePhotoReference(photo, photoRef)) return;
+            photo.description = nextDescription;
+            photo.photoType = nextPhotoType;
+        };
+
+        albumState.recentSections.forEach(section => {
+            if (!section || !Array.isArray(section.photos)) return;
+            section.photos.forEach(syncPhoto);
+        });
+        albumState.albums.forEach(album => {
+            if (!album || !Array.isArray(album.photos)) return;
+            album.photos.forEach(syncPhoto);
+        });
+    }
+
+    function saveAlbumPhotoMeta() {
+        const photo = findPhotoById(albumState.photoMetaCollectionKey, albumState.photoMetaPhotoId);
+        const descInput = document.getElementById('album-photo-meta-description');
+        const typeSelect = document.getElementById('album-photo-meta-type');
+        if (!photo || !descInput || !typeSelect) {
+            closeAlbumPhotoMetaModal();
+            return;
+        }
+
+        syncPhotoMetaAcrossCollections(photo, {
+            description: descInput.value,
+            photoType: typeSelect.value
+        });
+
+        persistAlbumState();
+        renderRecent();
+        renderAlbums();
+        if (albumState.currentAlbumId) {
+            renderAlbumDetailContent();
+        }
+        if (albumState.currentPhotoId) {
+            openPhotoDetail(albumState.currentPhotoId, albumState.currentPhotoCollectionKey);
+        }
+        closeAlbumPhotoMetaModal();
+        showAlbumToast('照片信息已保存');
     }
 
     function showAlbumToast(message) {
@@ -1419,6 +1947,24 @@
         openAlbumDetail(album.id);
     }
 
+    function handleAlbumActionSelection(actionId) {
+        const albumId = albumState.albumActionAlbumId;
+        if (!albumId) return;
+
+        if (actionId === 'privacy') {
+            closeAlbumActionModal();
+            openAlbumPrivacyActionModal(albumId);
+            return;
+        }
+
+        if (actionId === 'bind-contact') {
+            const opened = openAlbumBindContactModal(albumId);
+            if (opened) {
+                closeAlbumActionModal();
+            }
+        }
+    }
+
     function clearAlbumCardLongPress() {
         if (albumCardLongPressTimer) {
             window.clearTimeout(albumCardLongPressTimer);
@@ -1432,7 +1978,7 @@
 
         albumCardLongPressTimer = window.setTimeout(() => {
             suppressedAlbumOpenId = albumId;
-            openAlbumPrivacyActionModal(albumId);
+            openAlbumActionModal(albumId);
             albumCardLongPressTimer = null;
         }, ALBUM_CARD_LONG_PRESS_DURATION);
     }
@@ -1466,6 +2012,7 @@
         const mainImg = document.getElementById('album-photo-main-img');
         const location = document.getElementById('album-photo-location');
         const datetime = document.getElementById('album-photo-datetime');
+        const infoButton = document.getElementById('album-photo-info-btn');
         const photo = findPhotoById(collectionKey, photoId);
 
         if (!photoView || !mainImg || !location || !datetime || !photo) return;
@@ -1477,6 +2024,9 @@
         mainImg.alt = photo.location;
         location.textContent = photo.location;
         datetime.textContent = photo.datetime;
+        if (infoButton) {
+            infoButton.onclick = () => openAlbumPhotoMetaModal(photo.id, collectionKey);
+        }
         renderPhotoThumbnails(collectionKey);
         updatePhotoMainViewMode();
         updateFavoriteButtonState();
@@ -1485,9 +2035,11 @@
 
     function closePhotoDetail() {
         const photoView = document.getElementById('album-photo-detail-view');
+        const infoButton = document.getElementById('album-photo-info-btn');
         albumState.currentPhotoFullView = false;
         albumState.currentPhotoId = null;
         albumState.currentPhotoCollectionKey = 'recent';
+        if (infoButton) infoButton.onclick = null;
         updatePhotoMainViewMode();
         updateFavoriteButtonState();
         if (photoView) photoView.classList.remove('open');
@@ -1576,7 +2128,10 @@
             src: preparedSource,
             thumb: preparedSource,
             location: typeof options.location === 'string' && options.location.trim() ? options.location.trim() : 'Saved from Chat',
-            datetime: formatPhotoTimestamp(now)
+            datetime: formatPhotoTimestamp(now),
+            description: normalizePhotoDescription(options.description),
+            photoType: normalizePhotoType(options.photoType),
+            lastSentAtByContact: {}
         };
 
         const todaySection = getOrCreateTodaySection();
@@ -1611,7 +2166,10 @@
                 src,
                 thumb: src,
                 location: 'Imported Photo',
-                datetime: formatPhotoTimestamp(now)
+                datetime: formatPhotoTimestamp(now),
+                description: '',
+                photoType: 'other',
+                lastSentAtByContact: {}
             }))
         ));
 
@@ -1665,6 +2223,7 @@
             iconColor: '#8e8e93',
             cover: PLACEHOLDER_COVER,
             photos: [],
+            boundContactIds: [],
             isPrivate: false,
             privacyPassword: ''
         };
@@ -1691,8 +2250,11 @@
         if (app) app.classList.add('hidden');
         closeCreateAlbumModal();
         closeMoveModal();
+        closeAlbumActionModal();
+        closeAlbumBindContactModal();
         closeAlbumPrivacyActionModal();
         closeAlbumPrivacyPasswordModal();
+        closeAlbumPhotoMetaModal();
         clearAlbumCardLongPress();
         closePhotoDetail();
         closeAlbumDetail();
@@ -2081,6 +2643,16 @@
         const privacyActionModal = document.getElementById('album-privacy-action-modal');
         const privacyActionCancel = document.getElementById('album-privacy-action-cancel');
         const privacyActionConfirm = document.getElementById('album-privacy-action-confirm');
+        const albumActionModal = document.getElementById('album-action-modal');
+        const albumActionCancel = document.getElementById('album-action-cancel');
+        const albumActionOptions = document.getElementById('album-action-options');
+        const albumBindContactModal = document.getElementById('album-bind-contact-modal');
+        const albumBindContactOptions = document.getElementById('album-bind-contact-options');
+        const albumBindContactCancel = document.getElementById('album-bind-contact-cancel');
+        const albumBindContactSave = document.getElementById('album-bind-contact-save');
+        const photoMetaModal = document.getElementById('album-photo-meta-modal');
+        const photoMetaCancel = document.getElementById('album-photo-meta-cancel');
+        const photoMetaSave = document.getElementById('album-photo-meta-save');
         const privacyPasswordModal = document.getElementById('album-privacy-password-modal');
         const privacyPasswordCancel = document.getElementById('album-privacy-password-cancel');
         const privacyPasswordConfirm = document.getElementById('album-privacy-password-confirm');
@@ -2156,7 +2728,7 @@
 
                 event.preventDefault();
                 clearAlbumCardLongPress();
-                if (openAlbumPrivacyActionModal(button.dataset.albumId)) {
+                if (openAlbumActionModal(button.dataset.albumId)) {
                     suppressedAlbumOpenId = button.dataset.albumId;
                 }
             });
@@ -2216,6 +2788,31 @@
         if (modalSave) modalSave.addEventListener('click', saveNewAlbum);
         if (privacyActionCancel) privacyActionCancel.addEventListener('click', closeAlbumPrivacyActionModal);
         if (privacyActionConfirm) privacyActionConfirm.addEventListener('click', confirmAlbumPrivacyAction);
+        if (albumActionCancel) albumActionCancel.addEventListener('click', closeAlbumActionModal);
+        if (albumActionOptions) {
+            albumActionOptions.addEventListener('click', event => {
+                const button = event.target.closest('[data-action-id]');
+                if (!button) return;
+                handleAlbumActionSelection(button.dataset.actionId);
+            });
+        }
+        if (albumBindContactOptions) {
+            albumBindContactOptions.addEventListener('click', event => {
+                const button = event.target.closest('[data-contact-id]');
+                if (!button || !button.dataset.contactId) return;
+                const contactId = String(button.dataset.contactId);
+                if (albumState.selectedBindContactIds.has(contactId)) {
+                    albumState.selectedBindContactIds.delete(contactId);
+                } else {
+                    albumState.selectedBindContactIds.add(contactId);
+                }
+                renderAlbumBindContactOptions();
+            });
+        }
+        if (albumBindContactCancel) albumBindContactCancel.addEventListener('click', closeAlbumBindContactModal);
+        if (albumBindContactSave) albumBindContactSave.addEventListener('click', saveAlbumBindContacts);
+        if (photoMetaCancel) photoMetaCancel.addEventListener('click', closeAlbumPhotoMetaModal);
+        if (photoMetaSave) photoMetaSave.addEventListener('click', saveAlbumPhotoMeta);
         if (privacyPasswordCancel) privacyPasswordCancel.addEventListener('click', closeAlbumPrivacyPasswordModal);
         if (privacyPasswordConfirm) privacyPasswordConfirm.addEventListener('click', submitAlbumPrivacyPassword);
         if (mainSelectAllButton) mainSelectAllButton.addEventListener('click', toggleMainSelectAll);
@@ -2261,6 +2858,21 @@
         if (privacyActionModal) {
             privacyActionModal.addEventListener('click', event => {
                 if (event.target === privacyActionModal) closeAlbumPrivacyActionModal();
+            });
+        }
+        if (albumActionModal) {
+            albumActionModal.addEventListener('click', event => {
+                if (event.target === albumActionModal) closeAlbumActionModal();
+            });
+        }
+        if (albumBindContactModal) {
+            albumBindContactModal.addEventListener('click', event => {
+                if (event.target === albumBindContactModal) closeAlbumBindContactModal();
+            });
+        }
+        if (photoMetaModal) {
+            photoMetaModal.addEventListener('click', event => {
+                if (event.target === photoMetaModal) closeAlbumPhotoMetaModal();
             });
         }
 
@@ -2309,6 +2921,10 @@
     window.closeAlbumApp = closeAlbumApp;
     window.savePhotoToAlbumLibrary = savePhotoToLibrary;
     window.getAlbumScreenShareSnapshot = getAlbumScreenShareSnapshot;
+    window.markAlbumRealPhotoSentForContact = markAlbumRealPhotoSentForContact;
+    window.getAlbumBoundRealPhotosForContact = getAlbumBoundRealPhotosForContact;
+    window.getAlbumRealPhotoPromptCandidatesForContact = getAlbumRealPhotoPromptCandidatesForContact;
+    window.matchAlbumRealPhotoForContact = matchAlbumRealPhotoForContact;
 
     window.appInitFunctions = window.appInitFunctions || [];
     window.appInitFunctions.push(initAlbumApp);

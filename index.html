@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <title>iPhone Simulator</title>
@@ -29,6 +29,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Libre+Barcode+39&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&display=swap">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/whisper_challenge_palette.css">
     <link rel="stylesheet" href="css/chat_tail_style.css">
@@ -47,6 +49,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
     <link rel="stylesheet" href="css/album.css">
     <link rel="stylesheet" href="css/chat_ui_v1_overrides.css">
+    <link rel="stylesheet" href="css/studio_chat.css">
     <link rel="stylesheet" href="css/fire_buddy.css?v=20260324b1">
     <link rel="stylesheet" href="css/screen_share.css">
     <link rel="stylesheet" href="css/calendar_app.css">
@@ -56,6 +59,7 @@
     <link rel="stylesheet" href="css/preset_app.css">
     <link rel="stylesheet" href="css/messages_app.css">
     <link rel="stylesheet" href="css/phone_delivery_app.css">
+    <link rel="stylesheet" href="css/chat_ootd.css">
 </head>
 <body>
     <div class="screen-container" id="screen-container">
@@ -834,6 +838,51 @@
 
                     <!-- AI Tab -->
                     <div id="chat-setting-tab-ai" class="chat-setting-tab-content mag-section active">
+                        <div id="chat-setting-group-inline-panel" class="hidden" style="display:flex;flex-direction:column;gap:24px;">
+                            <div class="editorial-card-shell mag-card">
+                                <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> GRP-01</div>
+                                <div class="chat-settings-card-title mag-card-title"><i class="ri-group-line"></i><span>Group Profile</span></div>
+                                <div class="editorial-identity-inline mag-avatar-upload mag-target-identity">
+                                    <div class="ai-setting-avatar-container">
+                                        <input type="file" id="chat-setting-group-avatar-upload" data-group-settings-id="avatar-upload" accept="image/*" class="file-input-hidden">
+                                        <label for="chat-setting-group-avatar-upload" class="ai-setting-avatar-wrapper mag-avatar-preview is-clickable" title="点击上传群头像">
+                                            <div data-group-settings-id="avatar-preview" style="width:100%;height:100%;background:#f3f4f6 center/cover no-repeat;display:flex;align-items:center;justify-content:center;border-radius:inherit;color:#9ca3af;"><i class="fas fa-users"></i></div>
+                                        </label>
+                                    </div>
+                                    <div class="editorial-identity-meta mag-target-meta">
+                                        <div class="chat-setting-target-name-row mag-field is-compact">
+                                            <input type="text" data-group-settings-id="name" class="chat-setting-target-name-input mag-input" placeholder="群名称" style="width:100% !important; text-align:left !important; text-align-last:left !important; display:block !important; margin:0 !important; padding-left:26px !important; padding-right:0 !important; background:transparent !important;">
+                                        </div>
+                                        <div class="mag-field">
+                                            <label class="mag-label">Memory Mode <span class="separator">/</span> <span class="mag-zh">记忆范围</span></label>
+                                            <select data-group-settings-id="memory-mode" class="mag-select">
+                                                <option value="group_only">群聊独立</option>
+                                                <option value="bidirectional">双向同步</option>
+                                            </select>
+                                        </div>
+                                        <div class="mag-field">
+                                            <label class="mag-label">Group Announcement <span class="separator">/</span> <span class="mag-zh">群公告</span></label>
+                                            <textarea data-group-settings-id="announcement" class="mag-input" rows="3" placeholder="输入群公告（管理员/群主可编辑）" style="width:100%;resize:vertical;min-height:78px;"></textarea>
+                                            <div data-group-settings-id="pin-summary" style="margin-top:8px;font-size:12px;color:#9ca3af;line-height:1.45;">当前无置顶消息</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mag-action-row">
+                                    <button type="button" class="mag-btn" data-group-settings-action="save-announcement"><i class="ri-megaphone-line"></i> 保存群公告</button>
+                                    <button type="button" class="mag-btn" data-group-settings-action="clear-pin"><i class="ri-pushpin-line"></i> 取消置顶</button>
+                                </div>
+                            </div>
+                            <div class="editorial-card-shell mag-card">
+                                <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> GRP-02</div>
+                                <div class="chat-settings-card-title mag-card-title"><i class="ri-team-line"></i><span>Members</span></div>
+                                <div data-group-settings-id="member-list" class="ios-list-group" style="margin:0;background:#f7f7fa;"></div>
+                                <div class="mag-action-row">
+                                    <button type="button" class="mag-btn" data-group-settings-action="manage-relations"><i class="ri-node-tree"></i> 管理群成员关系</button>
+                                    <button type="button" class="mag-btn" data-group-settings-action="exit"><i class="ri-logout-box-r-line"></i> 退出群聊</button>
+                                    <button type="button" class="mag-btn" data-group-settings-action="dissolve" style="border-color: var(--soft-danger, #d39a94); color: var(--soft-danger, #d39a94);"><i class="ri-delete-bin-line"></i> 解散群聊</button>
+                                </div>
+                            </div>
+                        </div>
                         <!-- AI 设置卡片 -->
                         <div class="ai-setting-card editorial-primary-card editorial-target-card mag-card">
                             <div class="chat-settings-card-kicker mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> ID-01</div>
@@ -1002,8 +1051,8 @@
                             </div>
 
                             <div class="mag-field" style="margin-top: 10px;">
-                                <label class="mag-label">Interval in Seconds <span class="separator">/</span> <span class="mag-zh">主动消息间隔</span></label>
-                                <input type="number" id="chat-setting-active-interval" class="mag-input" placeholder="e.g. 60" min="5">
+                                <label class="mag-label">Interval (Seconds) <span class="separator">/</span> <span class="mag-zh">主动消息间隔（秒）</span></label>
+                                <input type="number" id="chat-setting-active-interval" class="mag-input" placeholder="e.g. 60 seconds" min="5">
                             </div>
 
                             <div class="mag-toggle">
@@ -1068,6 +1117,16 @@
                             <div class="mag-toggle">
                                 <span class="mag-toggle-text">知晓节假日与日程 <span class="separator">/</span> <span class="mag-en-short">Calendar</span></span>
                                 <label><input type="checkbox" id="chat-setting-calendar-aware" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">允许此联系人查看我的设备使用 <span class="separator">/</span> <span class="mag-en-short">Device Usage</span></span>
+                                <label><input type="checkbox" id="chat-setting-device-usage-shared" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">允许联系人发送真实照片 <span class="separator">/</span> <span class="mag-en-short">Real Photos</span></span>
+                                <label><input type="checkbox" id="chat-setting-allow-real-photo-send" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
                             </div>
                         </div>
                         <div class="editorial-card-shell mag-card editorial-fire-buddy-card">
@@ -1162,6 +1221,7 @@
                                 <input type="file" id="import-character-input" accept=".json" class="file-input-hidden">
                                 <label for="import-character-input" class="mag-btn" style="margin-bottom: 0; text-align: center;"><i class="ri-upload-line"></i> 导入角色数据</label>
                                 <button id="clear-chat-history-btn" class="mag-btn" style="border-color: var(--soft-danger, #d39a94); color: var(--soft-danger, #d39a94);"><i class="ri-delete-bin-line"></i> 清空聊天记录</button>
+                                <button id="toggle-wechat-block-btn" class="mag-btn" style="border-color: var(--soft-danger, #d39a94); color: var(--soft-danger, #d39a94);"><i class="ri-forbid-2-line"></i> 拉黑对方</button>
                             </div>
                         </div>
                     </div>
@@ -1241,6 +1301,14 @@
                             </div>
 
                             <div class="mag-field editorial-visual-select-field">
+                                <label class="mag-label">Appearance Preset <span class="separator">/</span> <span class="mag-zh">快捷外观</span></label>
+                                <select id="chat-setting-appearance-preset" class="mag-select">
+                                    <option value="default">Default / 默认</option>
+                                    <option value="ios26">iOS26 / 信息 App 风格</option>
+                                </select>
+                            </div>
+
+                            <div class="mag-field editorial-visual-select-field">
                                 <label class="mag-label">Avatar Visibility <span class="separator">/</span> <span class="mag-zh">头像显示范围</span></label>
                                 <select id="chat-setting-avatar-visibility" class="mag-select">
                                     <option value="show-both">Show Both / 都显示</option>
@@ -1248,6 +1316,30 @@
                                     <option value="hide-self">Hide Self / 隐藏自己</option>
                                     <option value="hide-both">Hide Both / 隐藏双方</option>
                                 </select>
+                            </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">Topbar Contact Avatar <span class="separator">/</span> <span class="mag-zh">顶栏显示对方头像</span></span>
+                                <label><input type="checkbox" id="chat-setting-topbar-avatar-visible" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div id="chat-setting-topbar-avatar-position-field" class="mag-field editorial-visual-select-field" style="margin-top: 18px; display: none;">
+                                <label class="mag-label">Topbar Avatar Position <span class="separator">/</span> <span class="mag-zh">顶栏头像位置</span></label>
+                                <select id="chat-setting-topbar-avatar-position" class="mag-select">
+                                    <option value="left">Left / 左</option>
+                                    <option value="center">Center / 中</option>
+                                    <option value="right">Right / 右</option>
+                                </select>
+                            </div>
+
+                            <div id="chat-setting-topbar-status-visible-row" class="mag-toggle" style="margin-top: 18px; display: none;">
+                                <span class="mag-toggle-text">Topbar Status Text <span class="separator">/</span> <span class="mag-zh">顶栏状态文本</span></span>
+                                <label><input type="checkbox" id="chat-setting-topbar-status-visible" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div id="chat-setting-topbar-status-text-field" class="mag-field editorial-visual-select-field" style="margin-top: 18px; display: none;">
+                                <label class="mag-label">Status Text <span class="separator">/</span> <span class="mag-zh">状态文本内容</span></label>
+                                <input type="text" id="chat-setting-topbar-status-text" class="mag-input" maxlength="40" placeholder="例如：5G Online">
                             </div>
 
                             <div class="mag-toggle">
@@ -1312,6 +1404,19 @@
                 </button>
             </div>
 
+            <div id="wechat-block-confirm-modal" class="modal hidden" style="z-index: 220; align-items: center;">
+                <div class="modal-content" style="height: auto; border-radius: 18px; width: 85%; max-width: 332px; background-color: #fff;">
+                    <div class="modal-header" style="border-bottom: none; padding-bottom: 6px;">
+                        <h3 id="wechat-block-confirm-title">确认拉黑</h3>
+                        <button class="close-btn" id="close-wechat-block-confirm">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding-top: 4px;">
+                        <button id="confirm-wechat-block-confirm" class="ios-btn-block danger">确认拉黑</button>
+                        <button id="cancel-wechat-block-confirm" class="ios-btn-block secondary" style="margin-top: 10px;">取消</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- 添加联系人弹窗 -->
             <div id="add-contact-modal" class="modal hidden">
                 <div class="modal-content">
@@ -1352,13 +1457,168 @@
                     <div class="modal-body">
                         <button id="choose-add-contact-manual" class="ios-btn-block">手动添加</button>
                         <button id="choose-add-contact-import" class="ios-btn-block secondary" style="margin-top: 10px;">导入文件</button>
+                        <button id="choose-create-group-chat" class="ios-btn-block secondary" style="margin-top: 10px;">新建群聊</button>
                         <div style="margin-top: 12px; color: #8e8e93; font-size: 13px; line-height: 1.6;">支持导入 JSON 与 PNG 角色卡；会自动把人设、世界书、正则同步到对应应用。</div>
                     </div>
                 </div>
             </div>
             <input type="file" id="contact-import-file-input" accept=".json,.png,application/json,image/png" class="file-input-hidden">
 
-            <!-- 批量导入表情包弹窗 -->
+            <div id="group-chat-create-modal" class="modal hidden" style="z-index: 310;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>新建群聊</h3>
+                        <button class="close-btn" id="close-group-chat-create">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="avatar-upload-container">
+                            <div class="avatar-preview" id="group-chat-avatar-preview">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <input type="file" id="group-chat-avatar-upload" accept="image/*" class="file-input-hidden">
+                        </div>
+                        <div class="setting-group">
+                            <label>群聊名称</label>
+                            <input type="text" id="group-chat-name" placeholder="不填则自动生成">
+                        </div>
+                        <div class="setting-group">
+                            <label>群成员</label>
+                            <button id="group-chat-select-members-btn" class="ios-btn-block secondary" style="margin-bottom: 10px;">选择联系人</button>
+                            <div id="group-chat-selected-members" class="ios-list-group" style="margin: 0; min-height: 48px; max-height: 220px; overflow-y: auto; background: #f7f7fa;"></div>
+                        </div>
+                        <button id="group-chat-create-btn" class="ios-btn-block">创建群聊</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="group-chat-settings-modal" class="modal hidden" style="z-index: 320;">
+                <div class="modal-content" style="max-height: 84vh; display: flex; flex-direction: column;">
+                    <div class="modal-header">
+                        <h3>群设置</h3>
+                        <button class="close-btn" id="close-group-chat-settings">&times;</button>
+                    </div>
+                    <div class="modal-body" style="overflow-y: auto;">
+                        <div class="avatar-upload-container">
+                            <div class="avatar-preview" id="group-settings-avatar-preview">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <input type="file" id="group-settings-avatar-upload" accept="image/*" class="file-input-hidden">
+                        </div>
+                        <div class="setting-group">
+                            <label>群聊名称</label>
+                            <input type="text" id="group-settings-name" placeholder="输入群名称">
+                        </div>
+                        <div class="setting-group">
+                            <label>记忆范围</label>
+                            <select id="group-settings-memory-mode">
+                                <option value="group_only">群聊独立</option>
+                                <option value="bidirectional">双向同步</option>
+                            </select>
+                        </div>
+                        <div class="setting-group">
+                            <label>群公告</label>
+                            <textarea id="group-settings-announcement" rows="3" placeholder="输入群公告（管理员/群主可编辑）"></textarea>
+                            <div id="group-settings-pin-summary" style="margin-top:8px;font-size:12px;color:#8e8e93;line-height:1.45;">当前无置顶消息</div>
+                        </div>
+                        <div class="setting-group">
+                            <button id="group-settings-save-announcement-btn" class="ios-btn-block secondary">保存群公告</button>
+                            <button id="group-settings-clear-pin-btn" class="ios-btn-block secondary" style="margin-top:10px;">取消置顶</button>
+                        </div>
+                        <div class="setting-group">
+                            <label>成员管理</label>
+                            <div id="group-chat-member-list" class="ios-list-group" style="margin: 0; background: #f7f7fa;"></div>
+                        </div>
+                        <div class="setting-group">
+                            <button id="group-settings-exit-btn" class="ios-btn-block secondary">退出群聊</button>
+                            <button id="group-settings-dissolve-btn" class="ios-btn-block danger" style="margin-top: 10px;">解散群聊</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="group-member-relations-screen" class="app-screen hidden group-member-relations-screen" style="z-index: 335; background: #09090b;">
+                <div class="group-member-relations-stars" aria-hidden="true">
+                    <div class="group-member-relations-stars-layer group-member-relations-stars-layer-1"></div>
+                    <div class="group-member-relations-stars-layer group-member-relations-stars-layer-2"></div>
+                    <div class="group-member-relations-stars-layer group-member-relations-stars-layer-3"></div>
+                </div>
+                <div class="group-member-relations-meteors" aria-hidden="true">
+                    <span class="group-member-relations-meteor"></span>
+                    <span class="group-member-relations-meteor"></span>
+                    <span class="group-member-relations-meteor"></span>
+                </div>
+                <div class="group-member-relations-topbar">
+                    <button id="close-group-member-relations" class="group-member-relations-back-btn" type="button" aria-label="返回">
+                        <i class="ri-arrow-left-line"></i>
+                    </button>
+                    <div class="group-member-relations-heading">
+                        <div class="group-member-relations-title">Member Nexus</div>
+                        <div id="group-member-relations-subtitle" class="group-member-relations-subtitle">GROUP LINK MAP</div>
+                    </div>
+                    <button id="group-member-relations-notes-btn" class="group-member-relations-notes-btn" type="button" aria-label="编辑关系补充说明">
+                        <i class="ri-sticky-note-line"></i>
+                        <span>补充说明</span>
+                    </button>
+                </div>
+                <div id="group-member-relations-canvas" class="group-member-relations-canvas">
+                    <svg id="group-member-relations-svg" class="group-member-relations-svg"></svg>
+                    <div id="group-member-relations-nodes" class="group-member-relations-nodes"></div>
+                </div>
+                <div id="group-member-relations-toast" class="group-member-relations-toast">选择第二个成员以建立关系</div>
+                <button id="group-member-relations-add-btn" class="group-member-relations-add-btn" type="button">
+                    <i class="ri-add-line"></i>
+                    <span>Add Member</span>
+                </button>
+                <div id="group-member-relations-picker" class="group-member-relations-picker hidden">
+                    <div id="close-group-member-relations-picker-mask" class="group-member-relations-picker-mask"></div>
+                    <div class="group-member-relations-picker-sheet">
+                        <div class="group-member-relations-picker-head">
+                            <div>
+                                <div class="group-member-relations-picker-title">Group Members</div>
+                                <div class="group-member-relations-picker-subtitle">选择后加入关系面板</div>
+                            </div>
+                            <button id="close-group-member-relations-picker" class="group-member-relations-picker-close" type="button" aria-label="关闭">
+                                <i class="ri-close-line"></i>
+                            </button>
+                        </div>
+                        <div id="group-member-relations-picker-list" class="group-member-relations-picker-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Group Member Directory -->
+            <div id="group-member-directory-screen" class="app-screen hidden group-member-directory-screen" style="z-index: 336;">
+                <div class="group-member-directory-ambient group-member-directory-ambient-1" aria-hidden="true"></div>
+                <div class="group-member-directory-ambient group-member-directory-ambient-2" aria-hidden="true"></div>
+                <div class="group-member-directory-header">
+                    <button id="close-group-member-directory" class="group-member-directory-header-btn" type="button" aria-label="返回">
+                        <i class="ri-arrow-left-line"></i>
+                    </button>
+                    <div class="group-member-directory-title-wrap">
+                        <div class="group-member-directory-title"><span>Member Directory</span></div>
+                        <div id="group-member-directory-subtitle" class="group-member-directory-subtitle">0 Members</div>
+                    </div>
+                    <div class="group-member-directory-header-btn is-placeholder" aria-hidden="true">
+                        <i class="ri-search-2-line"></i>
+                    </div>
+                </div>
+                <div id="group-member-directory-content" class="group-member-directory-content"></div>
+                <div id="group-member-directory-modal" class="group-member-directory-modal">
+                    <div id="group-member-directory-modal-card" class="group-member-directory-modal-card">
+                        <button id="close-group-member-directory-modal" class="group-member-directory-close-modal" type="button" aria-label="关闭">
+                            <i class="ri-close-line"></i>
+                        </button>
+                        <div class="group-member-directory-modal-header">
+                            <div id="group-member-directory-modal-avatar" class="group-member-directory-modal-avatar">A</div>
+                            <div id="group-member-directory-modal-name" class="group-member-directory-modal-name">群成员</div>
+                            <div id="group-member-directory-modal-role" class="group-member-directory-modal-role">- Member -</div>
+                        </div>
+                        <div id="group-member-directory-modal-actions" class="group-member-directory-modal-actions"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Import Sticker Modal -->
             <div id="import-sticker-modal" class="modal hidden">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -1483,6 +1743,64 @@
                     </div>
                 </div>
             </div>
+            <!-- 群红包弹窗 -->
+            <div id="group-red-packet-modal" class="modal hidden" style="z-index: 201; align-items: center;">
+                <div class="modal-content" style="height: auto; border-radius: 12px; width: 88%; max-width: 360px; background-color: #fff;">
+                    <div class="modal-header" style="border-bottom: none; padding-bottom: 0;">
+                        <h3 style="width: 100%; text-align: center;">发红包</h3>
+                        <button class="close-btn" id="close-group-red-packet-modal" style="position: absolute; right: 15px;">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 18px 20px 20px;">
+                        <div class="setting-group">
+                            <label for="group-red-packet-mode">红包类型</label>
+                            <select id="group-red-packet-mode">
+                                <option value="targeted">指定成员红包</option>
+                                <option value="random">拼手气红包</option>
+                            </select>
+                        </div>
+                        <div class="setting-group" style="margin-top: 12px;">
+                            <label>总金额</label>
+                            <div style="display:flex;align-items:center;border-bottom:1px solid #eee;padding-bottom:5px;">
+                                <span style="font-size:24px;font-weight:700;">¥</span>
+                                <input type="number" id="group-red-packet-amount" placeholder="0.00" step="0.01" min="0.01" style="border:none;font-size:24px;font-weight:700;width:100%;background:transparent;outline:none;">
+                            </div>
+                        </div>
+                        <div class="setting-group" style="margin-top: 12px;">
+                            <label for="group-red-packet-remark">红包祝福</label>
+                            <input type="text" id="group-red-packet-remark" maxlength="40" placeholder="恭喜发财，大吉大利">
+                        </div>
+                        <div id="group-red-packet-targeted-group" class="setting-group" style="margin-top: 12px;">
+                            <label>指定成员</label>
+                            <button id="group-red-packet-select-members-btn" class="ios-btn-block secondary" style="margin-bottom: 10px;">选择群成员</button>
+                            <div id="group-red-packet-selected-members" class="ios-list-group" style="margin:0;min-height:48px;max-height:180px;overflow-y:auto;background:#f7f7fa;"></div>
+                        </div>
+                        <div id="group-red-packet-random-group" class="setting-group hidden" style="margin-top: 12px;">
+                            <label for="group-red-packet-random-count">红包个数</label>
+                            <input type="number" id="group-red-packet-random-count" min="1" step="1" value="1">
+                        </div>
+                        <button id="do-group-red-packet-btn" class="ios-btn-block" style="margin-top: 18px; background-color: #fa5151;">发红包</button>
+                    </div>
+                </div>
+            </div>
+            <div id="group-action-editor-modal" class="group-action-editor-modal" style="display:none;" aria-hidden="true">
+                <button type="button" id="group-action-editor-backdrop" class="group-action-editor-backdrop" aria-label="关闭弹窗"></button>
+                <div id="group-action-editor-card" class="group-action-editor-card" role="dialog" aria-modal="true" aria-labelledby="group-action-editor-title">
+                    <div class="group-action-editor-handle" aria-hidden="true"></div>
+                    <div class="group-action-editor-header">
+                        <div class="group-action-editor-title-wrap">
+                            <div id="group-action-editor-kicker" class="group-action-editor-kicker">GROUP ACTION</div>
+                            <h3 id="group-action-editor-title">编辑群内容</h3>
+                        </div>
+                        <button type="button" id="group-action-editor-close" class="group-action-editor-close" aria-label="关闭">&times;</button>
+                    </div>
+                    <div id="group-action-editor-subtitle" class="group-action-editor-subtitle"></div>
+                    <div id="group-action-editor-fields" class="group-action-editor-fields"></div>
+                    <div class="group-action-editor-actions">
+                        <button type="button" id="group-action-editor-cancel" class="group-action-editor-btn secondary">取消</button>
+                        <button type="button" id="group-action-editor-confirm" class="group-action-editor-btn primary">确认</button>
+                    </div>
+                </div>
+            </div>
             <!-- 导航弹窗 -->
             <div id="chat-nav-modal" class="modal hidden" style="z-index: 205; align-items: center;">
                 <div class="modal-content chat-nav-modal-card">
@@ -1594,17 +1912,32 @@
             <!-- 聊天页面 -->
             <div id="chat-screen" class="sub-screen hidden">
                 <div class="chat-header">
-                    <button id="back-to-contacts" class="back-btn"><i class="fas fa-chevron-left"></i></button>
-                    <button id="multi-select-cancel" class="multi-select-cancel hidden">退出</button>
-                    <span id="chat-title" style="cursor: pointer;">用户名</span>
-                    <button id="fire-buddy-entry" class="wechat-icon-btn fire-buddy-entry hidden" aria-label="打开小火人面板">
-                        <span class="fire-buddy-entry-icon" aria-hidden="true">
-                            <svg class="fire-buddy-brand-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
-                            </svg>
-                        </span>
-                    </button>
-                    <button id="chat-settings-btn" class="wechat-icon-btn"><i class="fas fa-ellipsis-h"></i></button>
+                    <div class="chat-header-left-actions">
+                        <button id="back-to-contacts" class="back-btn"><i class="fas fa-chevron-left"></i></button>
+                        <button id="multi-select-cancel" class="multi-select-cancel hidden">退出</button>
+                    </div>
+                    <div id="chat-header-main" class="chat-header-main">
+                        <button id="chat-topbar-avatar-main" class="chat-topbar-avatar chat-topbar-avatar-main hidden" type="button" aria-label="打开联系人资料">
+                            <i class="ri-user-line"></i>
+                        </button>
+                        <div id="chat-header-title-stack" class="chat-header-title-stack">
+                            <span id="chat-title" style="cursor: pointer;">用户名</span>
+                            <div id="chat-topbar-status" class="chat-topbar-status hidden"></div>
+                        </div>
+                    </div>
+                    <div class="chat-header-right-actions">
+                        <button id="fire-buddy-entry" class="wechat-icon-btn fire-buddy-entry hidden" aria-label="打开小火人面板">
+                            <span class="fire-buddy-entry-icon" aria-hidden="true">
+                                <svg class="fire-buddy-brand-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
+                                </svg>
+                            </span>
+                        </button>
+                        <button id="chat-topbar-avatar-right" class="wechat-icon-btn chat-topbar-avatar chat-topbar-avatar-right hidden" type="button" aria-label="打开聊天设置">
+                            <i class="ri-user-line"></i>
+                        </button>
+                        <button id="chat-settings-btn" class="wechat-icon-btn"><i class="fas fa-ellipsis-h"></i></button>
+                    </div>
                 </div>
                 <!-- 多选删除控制项：右下删除（退出按钮已移入 header） -->
                 <button id="multi-select-delete" class="multi-select-delete hidden">删除(<span id="multi-select-count">0</span>)</button>
@@ -1678,6 +2011,9 @@
                             </button>
                         </div>
                     </div>
+                    <div id="wechat-blocked-footer" class="chat-blocked-footer hidden">
+                        <button id="wechat-unblock-btn" class="chat-blocked-footer-btn" type="button">移出黑名单</button>
+                    </div>
                 </div>
                 <!-- 表情包面板 -->
                 <div id="sticker-panel" class="sticker-panel hidden">
@@ -1741,6 +2077,10 @@
                                 <div class="more-icon"><i class="fas fa-exchange-alt"></i></div>
                                 <div class="more-label">转账</div>
                             </div>
+                            <div class="more-item" id="chat-more-red-packet-btn">
+                                <div class="more-icon"><i class="fas fa-envelope-open-text"></i></div>
+                                <div class="more-label">发红包</div>
+                            </div>
                             <div class="more-item" id="chat-more-voice-btn">
                                 <div class="more-icon"><i class="fas fa-microphone"></i></div>
                                 <div class="more-label">语音输入</div>
@@ -1763,6 +2103,18 @@
                             <div class="more-item" id="chat-more-games-btn">
                                 <div class="more-icon"><i class="fas fa-gamepad"></i></div>
                                 <div class="more-label">小游戏</div>
+                            </div>
+                            <div class="more-item" id="chat-more-group-poll-btn">
+                                <div class="more-icon"><i class="fas fa-poll-h"></i></div>
+                                <div class="more-label">投票</div>
+                            </div>
+                            <div class="more-item" id="chat-more-group-relay-btn">
+                                <div class="more-icon"><i class="fas fa-list-ol"></i></div>
+                                <div class="more-label">接龙</div>
+                            </div>
+                            <div class="more-item" id="chat-more-group-meeting-btn">
+                                <div class="more-icon"><i class="fas fa-handshake"></i></div>
+                                <div class="more-label">见面</div>
                             </div>
                             <div class="more-item" id="chat-more-edit-msg-btn">
                                 <div class="more-icon"><i class="fas fa-edit"></i></div>
@@ -2859,78 +3211,133 @@
         </div>
         <div id="ai-profile-screen" class="sub-screen hidden" style="z-index: 170; background-color: #fff;">
             <div class="app-header transparent-header" id="ai-profile-header">
-                <button id="close-ai-profile" class="back-btn" style="color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5);"><i class="fas fa-chevron-left"></i></button>
+                <button id="close-ai-profile" class="back-btn status-badge ai-profile-status-back" type="button" aria-label="返回聊天">
+                    <span class="ai-profile-status-dot" aria-hidden="true"></span>
+                    <span class="ai-profile-status-text">Online</span>
+                </button>
                 <div style="flex: 1;"></div>
-                <button id="ai-profile-more" class="wechat-icon-btn" style="color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); display: none;"><i class="fas fa-ellipsis-h"></i></button>
+                <div class="icons ai-profile-header-icons">
+                    <button id="ai-profile-regenerate-trigger" class="ai-profile-menu-trigger" type="button" aria-label="重新生成资料卡">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                        </svg>
+                    </button>
+                    <button id="ai-profile-menu-trigger" class="ai-profile-menu-trigger" type="button" aria-label="资料卡设置">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="1.5"></circle>
+                            <circle cx="19" cy="12" r="1.5"></circle>
+                            <circle cx="5" cy="12" r="1.5"></circle>
+                        </svg>
+                    </button>
+                </div>
+                <button id="ai-profile-more" class="wechat-icon-btn" style="display: none;"><i class="fas fa-ellipsis-h"></i></button>
             </div>
             
-            <div class="app-body full-screen" style="padding: 0;">
-                <!-- 头部背景与头像 -->
-                <div class="ai-profile-header-section">
+            <div class="app-body full-screen ai-profile-body" style="padding: 0;">
+                <div class="ai-profile-bg-layer">
                     <div class="profile-bg" id="ai-profile-bg"></div>
-                    <div class="ai-profile-avatar-container">
+                    <div class="ai-profile-bg-pattern" aria-hidden="true"></div>
+                    <div class="ai-profile-orb ai-profile-orb-1" aria-hidden="true"></div>
+                    <div class="ai-profile-orb ai-profile-orb-2" aria-hidden="true"></div>
+                    <div class="ai-profile-bg-watermark" aria-hidden="true">MELLIFLUOUS</div>
+                    <div class="ai-profile-bg-deco ai-profile-bg-deco-1" aria-hidden="true">+</div>
+                    <div class="ai-profile-bg-deco ai-profile-bg-deco-2" aria-hidden="true">+</div>
+                    <div class="ai-profile-bg-deco ai-profile-bg-deco-3" aria-hidden="true">+</div>
+                </div>
+
+                <div class="hero ai-profile-header-section">
+                    <div class="avatar-container ai-profile-avatar-container">
+                        <div class="ai-profile-avatar-ring ai-profile-avatar-ring-1" aria-hidden="true"></div>
+                        <div class="ai-profile-avatar-ring ai-profile-avatar-ring-2" aria-hidden="true"></div>
+                        <div class="ai-profile-avatar-ring ai-profile-avatar-ring-3" aria-hidden="true"></div>
                         <img src="" id="ai-profile-avatar" class="ai-profile-avatar-large">
+                        <span id="ai-profile-avatar-tag" class="floating-tag ai-profile-avatar-tag">Online</span>
                     </div>
                     <div class="ai-profile-info-primary">
-                        <h2 id="ai-profile-name"></h2>
+                        <h1 id="ai-profile-name" class="remark"></h1>
                         <p id="ai-profile-nickname" class="profile-nickname" style="display: none;"></p>
-                        <p id="ai-profile-id" class="profile-id"></p>
+                        <h2 id="ai-profile-id" class="username profile-id"></h2>
                     </div>
                 </div>
-                
 
-                <!-- 详细信息列表 -->
-                <div class="profile-content-section">
-                    <!-- 备注与签名 -->
-                    <div class="ios-list-group">
+                <div class="bottom-panel profile-content-section">
+                    <div class="stats ai-profile-stats" aria-label="profile stats">
+                        <div class="stat ai-profile-stat-item">
+                            <span id="ai-profile-stat-messages-value" class="num ai-profile-stat-value">0</span>
+                            <span id="ai-profile-stat-messages-label" class="lbl ai-profile-stat-label">MESSAGES</span>
+                        </div>
+                        <div class="stat ai-profile-stat-item">
+                            <span id="ai-profile-stat-friend-days-value" class="num ai-profile-stat-value">0</span>
+                            <span id="ai-profile-stat-friend-days-label" class="lbl ai-profile-stat-label">FRIEND DAYS</span>
+                        </div>
+                        <div id="ai-profile-stat-third-item" class="stat ai-profile-stat-item" role="button" tabindex="0" aria-label="设置关键词统计">
+                            <span id="ai-profile-stat-active-days-value" class="num ai-profile-stat-value">0</span>
+                            <span id="ai-profile-stat-active-days-label" class="lbl ai-profile-stat-label">KEYWORD</span>
+                        </div>
+                    </div>
+
+                    <div class="highlights ai-profile-highlights" aria-label="profile highlights">
+                        <div class="highlight-item ai-profile-highlight-item ai-profile-highlight-item-click" id="ai-vlog-entry" role="button" tabindex="0" aria-label="打开今日 VLOG">
+                            <div class="highlight-thumb ai-profile-highlight-thumb ai-profile-highlight-vlog" aria-hidden="true"></div>
+                            <span class="hl-title ai-profile-highlight-label">VLOG</span>
+                        </div>
+                        <div class="highlight-item ai-profile-highlight-item ai-profile-highlight-item-click" id="ai-ootd-entry" role="button" tabindex="0" aria-label="打开今日穿搭 OOTD">
+                            <div class="highlight-thumb ai-profile-highlight-thumb ai-profile-highlight-ootd" aria-hidden="true"></div>
+                            <span class="hl-title ai-profile-highlight-label">OOTD</span>
+                        </div>
+                        <div class="highlight-item ai-profile-highlight-item ai-profile-highlight-item-click" id="ai-loot-entry" role="button" tabindex="0" aria-label="打开今日随身物品 CAFE">
+                            <div class="highlight-thumb ai-profile-highlight-thumb ai-profile-highlight-cafe" aria-hidden="true"></div>
+                            <span class="hl-title ai-profile-highlight-label">CAFE</span>
+                        </div>
+                        <div class="highlight-item ai-profile-highlight-item ai-profile-highlight-item-click" id="ai-moments-entry" role="button" tabindex="0" aria-label="打开朋友圈 MOMENT">
+                            <div class="highlight-thumb ai-profile-highlight-thumb moments-preview" id="ai-moments-preview" title="打开朋友圈"></div>
+                            <span class="hl-title ai-profile-highlight-label">MOMENT</span>
+                        </div>
+                    </div>
+
+                    <div class="signature ai-profile-signature-card">
+                        <div id="ai-profile-signature" class="field-value"></div>
+                    </div>
+
+                    <div id="ai-profile-tags" class="tags ai-profile-tags" aria-hidden="true">
+                        <span class="tag ai-profile-tag">#Photography</span>
+                        <span class="tag ai-profile-tag">#Design</span>
+                        <span class="tag ai-profile-tag">#Life</span>
+                    </div>
+
+                    <div class="ios-list-group ai-profile-hidden-meta">
                         <div class="list-item">
                             <div class="list-content column">
                                 <label class="field-label">备注名</label>
                                 <div id="ai-profile-remark" class="field-value"></div>
                             </div>
-                            <i class="fas fa-chevron-right" style="color: #ccc;"></i>
-                        </div>
-                        <div class="list-item">
-                            <div class="list-content column">
-                                <label class="field-label">个性签名</label>
-                                <div id="ai-profile-signature" class="field-value"></div>
-                            </div>
                         </div>
                     </div>
 
-                    <!-- 关系设置 -->
-                    <div class="ios-list-group">
+                    <div class="ios-list-group ai-profile-hidden-meta">
                         <div class="list-item" id="ai-relation-item">
                             <div class="list-content">
                                 <label>关系</label>
                                 <span id="ai-profile-relation" class="value-right">未设置</span>
                             </div>
-                            <i class="fas fa-chevron-right" style="color: #ccc;"></i>
-                        </div>
-                    </div>
-
-                    <!-- 朋友圈入口 -->
-                    <div class="ios-list-group">
-                        <div class="list-item" id="ai-moments-entry">
-                            <div class="list-content">
-                                <label>朋友圈</label>
-                                <div class="moments-preview" id="ai-moments-preview">
-                                    <!-- 缩略图 -->
-                                </div>
-                            </div>
-                            <i class="fas fa-chevron-right" style="color: #ccc;"></i>
                         </div>
                     </div>
                     
-                    <!-- 底部按钮 -->
-                    <div class="profile-actions">
-                        <button id="ai-profile-send-msg" class="ios-btn-block"><i class="fas fa-comment"></i> 见面</button>
+                    <div class="action-buttons profile-actions ai-profile-actions-row">
+                        <button id="ai-profile-send-msg" class="btn btn-primary ios-btn-block"><i class="fas fa-comment"></i> 见面</button>
+                        <button id="ai-profile-chat-shortcut" class="btn btn-icon ai-profile-secondary-action" type="button" aria-label="返回聊天">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                                <polyline points="22,6 12,13 2,6"></polyline>
+                            </svg>
+                        </button>
                     </div>
                 </div>
             </div>
 
             <!-- 关系选择弹窗 -->
-            <div id="relation-select-modal" class="modal hidden">
+            <div id="relation-select-modal" class="modal hidden" style="z-index: 360;">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h3>设置关系</h3>
@@ -2943,9 +3350,380 @@
                     </div>
                 </div>
             </div>
+
+            <div id="ai-profile-customize-modal" class="modal hidden" style="z-index: 365;">
+                <div class="modal-content ai-profile-customize-content">
+                    <div class="modal-header ai-profile-customize-header">
+                        <h3>Settings</h3>
+                        <p>Customize Your Page</p>
+                        <button class="close-btn" id="close-ai-profile-customize">&times;</button>
+                    </div>
+                    <div class="modal-body ai-profile-customize-body">
+                        <section class="ai-profile-customize-section">
+                            <h4 class="ai-profile-customize-title">Upload Icons</h4>
+                            <div class="ai-profile-icon-grid">
+                                <div class="ai-profile-icon-card" data-key="vlog">
+                                    <div id="ai-profile-icon-preview-vlog" class="ai-profile-icon-preview">VLOG</div>
+                                    <div class="ai-profile-icon-actions">
+                                        <button type="button" class="ai-profile-icon-btn upload" data-key="vlog">上传</button>
+                                        <button type="button" class="ai-profile-icon-btn clear" data-key="vlog">清空</button>
+                                    </div>
+                                    <input type="file" id="ai-profile-icon-input-vlog" accept="image/*" class="file-input-hidden">
+                                </div>
+                                <div class="ai-profile-icon-card" data-key="ootd">
+                                    <div id="ai-profile-icon-preview-ootd" class="ai-profile-icon-preview">OOTD</div>
+                                    <div class="ai-profile-icon-actions">
+                                        <button type="button" class="ai-profile-icon-btn upload" data-key="ootd">上传</button>
+                                        <button type="button" class="ai-profile-icon-btn clear" data-key="ootd">清空</button>
+                                    </div>
+                                    <input type="file" id="ai-profile-icon-input-ootd" accept="image/*" class="file-input-hidden">
+                                </div>
+                                <div class="ai-profile-icon-card" data-key="cafe">
+                                    <div id="ai-profile-icon-preview-cafe" class="ai-profile-icon-preview">CAFE</div>
+                                    <div class="ai-profile-icon-actions">
+                                        <button type="button" class="ai-profile-icon-btn upload" data-key="cafe">上传</button>
+                                        <button type="button" class="ai-profile-icon-btn clear" data-key="cafe">清空</button>
+                                    </div>
+                                    <input type="file" id="ai-profile-icon-input-cafe" accept="image/*" class="file-input-hidden">
+                                </div>
+                                <div class="ai-profile-icon-card" data-key="moment">
+                                    <div id="ai-profile-icon-preview-moment" class="ai-profile-icon-preview">MOMENT</div>
+                                    <div class="ai-profile-icon-actions">
+                                        <button type="button" class="ai-profile-icon-btn upload" data-key="moment">上传</button>
+                                        <button type="button" class="ai-profile-icon-btn clear" data-key="moment">清空</button>
+                                    </div>
+                                    <input type="file" id="ai-profile-icon-input-moment" accept="image/*" class="file-input-hidden">
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="ai-profile-customize-section">
+                            <h4 class="ai-profile-customize-title">OOTD Style</h4>
+                            <div class="ai-profile-ootd-style-group">
+                                <div id="ai-profile-ootd-selector-bg" class="ai-profile-ootd-selector-bg" aria-hidden="true"></div>
+                                <label class="ai-profile-ootd-style-option" data-style="v5">
+                                    <input type="radio" name="ai-profile-ootd-style" value="v5">
+                                    <span class="zh">吊牌风格</span>
+                                    <span class="en">Hangtag</span>
+                                </label>
+                                <label class="ai-profile-ootd-style-option active" data-style="v3">
+                                    <input type="radio" name="ai-profile-ootd-style" value="v3" checked>
+                                    <span class="zh">黑白风格</span>
+                                    <span class="en">Monochrome</span>
+                                </label>
+                            </div>
+                        </section>
+
+                        <section class="ai-profile-customize-section">
+                            <h4 class="ai-profile-customize-title">Carry Card Style</h4>
+                            <div class="ai-profile-loot-style-group">
+                                <div id="ai-profile-loot-selector-bg" class="ai-profile-loot-selector-bg" aria-hidden="true"></div>
+                                <label class="ai-profile-loot-style-option active" data-style="v1">
+                                    <input type="radio" name="ai-profile-loot-style" value="v1" checked>
+                                    <span class="zh">战术玻璃风</span>
+                                    <span class="en">Tactical V1</span>
+                                </label>
+                                <label class="ai-profile-loot-style-option" data-style="v2">
+                                    <input type="radio" name="ai-profile-loot-style" value="v2">
+                                    <span class="zh">明亮极简风</span>
+                                    <span class="en">Minimal V2</span>
+                                </label>
+                            </div>
+                        </section>
+
+                        <section class="ai-profile-customize-section">
+                            <h4 class="ai-profile-customize-title">VLOG Card Style</h4>
+                            <div class="ai-profile-vlog-style-group">
+                                <div id="ai-profile-vlog-selector-bg" class="ai-profile-vlog-selector-bg" aria-hidden="true"></div>
+                                <label class="ai-profile-vlog-style-option active" data-style="v1">
+                                    <input type="radio" name="ai-profile-vlog-style" value="v1" checked>
+                                    <span class="zh">轻透日记风</span>
+                                    <span class="en">Light V1</span>
+                                </label>
+                                <label class="ai-profile-vlog-style-option" data-style="v2">
+                                    <input type="radio" name="ai-profile-vlog-style" value="v2">
+                                    <span class="zh">暗黑结构风</span>
+                                    <span class="en">Dark V2</span>
+                                </label>
+                            </div>
+                        </section>
+                    </div>
+                    <div class="ai-profile-customize-footer">
+                        <button type="button" id="ai-profile-customize-cancel" class="ai-profile-customize-btn secondary">取消</button>
+                        <button type="button" id="ai-profile-customize-save" class="ai-profile-customize-btn primary">保存</button>
+                    </div>
+                </div>
+            </div>
             
             <!-- 隐藏的文件输入框，用于资料卡背景修改 -->
             <input type="file" id="ai-profile-bg-input" accept="image/*" class="file-input-hidden">
+        </div>
+
+        <!-- OOTD 弹窗（V3 样式） -->
+        <div id="chat-ootd-modal" class="chat-ootd-overlay hidden" aria-hidden="true">
+            <div id="chat-ootd-card" class="chat-ootd-card v3" role="dialog" aria-modal="true" aria-labelledby="chat-ootd-title">
+                <button id="close-chat-ootd" class="chat-ootd-close-btn" type="button" aria-label="关闭 OOTD"></button>
+                <button id="chat-ootd-refresh-btn" class="chat-ootd-refresh-btn" type="button" aria-label="刷新今日 OOTD">
+                    <i class="fas fa-rotate-right" aria-hidden="true"></i>
+                </button>
+
+                <div id="chat-ootd-view-v3" class="chat-ootd-view chat-ootd-view-v3">
+                    <div class="v3-header">
+                        <div id="chat-ootd-title" class="v3-title">OOTD // --.--</div>
+                        <div id="chat-ootd-subtitle" class="v3-subtitle">SYS.LOG: MONOCHROME FIT</div>
+                    </div>
+
+                    <div class="v3-grid">
+                        <div class="v3-grid-item">
+                            <div class="v3-label">TEMP // WX</div>
+                            <div id="chat-ootd-weather-value" class="v3-value chat-ootd-weather-value">
+                                --°C<br><span id="chat-ootd-weather-text" class="chat-ootd-weather-text">UNKNOWN</span>
+                            </div>
+                        </div>
+                        <div id="chat-ootd-fingerprint-box" class="v3-grid-item chat-ootd-fingerprint-box" role="button" tabindex="0" aria-label="验证查看评分与评价">
+                            <div id="chat-ootd-fingerprint-idle" class="chat-ootd-fingerprint-idle">
+                                <i id="chat-ootd-fp-icon" class="ri-fingerprint-line chat-ootd-fp-icon"></i>
+                                <div id="chat-ootd-fp-text" class="chat-ootd-fp-text">AUTH REQ</div>
+                            </div>
+                            <div id="chat-ootd-fingerprint-result" class="chat-ootd-fingerprint-result">
+                                <div class="v3-label chat-ootd-rating-label">RATING</div>
+                                <div id="chat-ootd-rating" class="v3-value">-- / 10</div>
+                                <div class="v3-label chat-ootd-review-label">REVIEW</div>
+                                <div id="chat-ootd-review" class="v3-value chat-ootd-review-text">等待生成中...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="chat-ootd-description" class="v3-desc">正在生成今日穿搭描述...</div>
+
+                    <div id="chat-ootd-secret-grid" class="v3-grid chat-ootd-secret-grid">
+                        <div class="v3-grid-item chat-ootd-awaiting-item">
+                            <div class="v3-label">STATUS</div>
+                            <div class="v3-value chat-ootd-awaiting-value">[ AWAITING SCAN ]</div>
+                        </div>
+                    </div>
+
+                    <div id="chat-ootd-barcode-scanner" class="v3-barcode-wrapper" role="button" tabindex="0" aria-label="扫描查看单品详情">
+                        <div class="v3-scanner-line"></div>
+                        <div class="v3-barcode">*URBAN-TECH*</div>
+                    </div>
+                    <div id="chat-ootd-barcode-text" class="v3-footer-text">CLICK BARCODE TO SCAN FOR DETAILS</div>
+                </div>
+
+                <div id="chat-ootd-view-v5" class="chat-ootd-view chat-ootd-view-v5 hidden">
+                    <div class="chat-ootd-v5-string"></div>
+                    <div class="chat-ootd-v5-tag-wrapper">
+                        <div class="chat-ootd-v5-tag-top">
+                            <div class="chat-ootd-v5-hole"></div>
+                            <div class="chat-ootd-v5-brand">STUDIO<br>COLLECTION</div>
+                            <div class="chat-ootd-v5-desc">
+                                <p>100% ORGANIC VIBES</p>
+                                <p>WASH COLD / DO NOT TUMBLE DRY</p>
+                            </div>
+                            <div id="chat-ootd-v5-temp" class="chat-ootd-v5-temp">--°C</div>
+                        </div>
+
+                        <div id="chat-ootd-v5-tear-line" class="chat-ootd-v5-tear-line" role="button" tabindex="0" aria-label="撕开吊牌">
+                            <span>✂ TEAR HERE</span>
+                        </div>
+
+                        <div id="chat-ootd-v5-bottom" class="chat-ootd-v5-bottom" role="button" tabindex="0" aria-label="翻转吊牌查看详情">
+                            <div id="chat-ootd-v5-front">
+                                <div class="chat-ootd-v5-price">$$ OOTD</div>
+                                <div id="chat-ootd-v5-barcode" class="chat-ootd-v5-barcode">*TAG-0000*</div>
+                                <div class="chat-ootd-v5-hint">CLICK TO FLIP</div>
+                            </div>
+                            <div id="chat-ootd-v5-back" class="chat-ootd-v5-back">
+                                <div class="chat-ootd-v5-title-row">
+                                    <span id="chat-ootd-v5-title">Today Tag</span>
+                                    <span id="chat-ootd-v5-rating" class="chat-ootd-v5-rating">★ 8.5 / 10</span>
+                                </div>
+                                <div id="chat-ootd-v5-text" class="chat-ootd-v5-text">正在生成今日穿搭描述...</div>
+                                <div class="chat-ootd-v5-list">
+                                    <div class="chat-ootd-v5-item">TOP <span id="chat-ootd-v5-item-top">-</span></div>
+                                    <div class="chat-ootd-v5-item">BOTTOM <span id="chat-ootd-v5-item-bottom">-</span></div>
+                                    <div class="chat-ootd-v5-item">SHOES <span id="chat-ootd-v5-item-shoes">-</span></div>
+                                    <div class="chat-ootd-v5-item">ACCESSORIES <span id="chat-ootd-v5-item-accessories">-</span></div>
+                                </div>
+                                <div class="chat-ootd-v5-review-card">
+                                    <div class="chat-ootd-v5-review-label">User Review</div>
+                                    <div id="chat-ootd-v5-review" class="chat-ootd-v5-review-text">等待生成中...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="chat-ootd-loading" class="chat-ootd-loading hidden">GENERATING OOTD...</div>
+            </div>
+        </div>
+
+        <div id="chat-loot-modal" class="chat-loot-overlay hidden" aria-hidden="true">
+            <div id="chat-loot-card" class="chat-loot-card chat-loot-card-v1" role="dialog" aria-modal="true" aria-labelledby="chat-loot-title-v1">
+                <button id="close-chat-loot" class="chat-loot-close-btn" type="button" aria-label="关闭随身物品"></button>
+                <button id="chat-loot-refresh-btn" class="chat-loot-refresh-btn" type="button" aria-label="刷新今日随身物品">
+                    <i class="fas fa-rotate-right" aria-hidden="true"></i>
+                </button>
+
+                <div id="chat-loot-view-v1" class="chat-loot-view chat-loot-view-v1">
+                    <div class="chat-loot-v1-topbar">
+                        <strong id="chat-loot-title-v1-en" class="chat-loot-v1-top-title">LOOT POPUP V1</strong>
+                    </div>
+                    <div class="chat-loot-v1-header-decor">
+                        <span id="chat-loot-title-v1" class="chat-loot-v1-header-left">SECURE CONTAINER_01</span>
+                        <span id="chat-loot-v1-desc" class="chat-loot-v1-header-right">STATUS: ONLINE</span>
+                    </div>
+                    <div id="chat-loot-v1-items" class="chat-loot-v1-grid"></div>
+
+                    <div id="chat-loot-v1-detail-modal" class="chat-loot-v1-detail-modal hidden" aria-hidden="true">
+                        <div class="chat-loot-v1-detail-card" role="dialog" aria-modal="true" aria-labelledby="chat-loot-v1-detail-title-zh">
+                            <div class="chat-loot-v1-detail-corner tl"></div>
+                            <div class="chat-loot-v1-detail-corner tr"></div>
+                            <div class="chat-loot-v1-detail-corner bl"></div>
+                            <div class="chat-loot-v1-detail-corner br"></div>
+                            <div class="chat-loot-v1-detail-ring"></div>
+
+                            <button id="chat-loot-v1-detail-close" class="chat-loot-v1-detail-close" type="button">[ ESC ]</button>
+
+                            <div class="chat-loot-v1-detail-content">
+                                <div id="chat-loot-v1-detail-title-en" class="chat-loot-v1-detail-title-en">ITEM ID</div>
+                                <div id="chat-loot-v1-detail-title-zh" class="chat-loot-v1-detail-title-zh">等待扫描</div>
+                                <div id="chat-loot-v1-detail-desc" class="chat-loot-v1-detail-desc">点击物品卡片进行扫描后查看详情。</div>
+                                <div id="chat-loot-v1-detail-use" class="chat-loot-v1-detail-use"><b>用途</b>-</div>
+
+                                <div class="chat-loot-v1-detail-stats">
+                                    <div class="chat-loot-v1-detail-stat">
+                                        <span class="chat-loot-v1-detail-stat-label">TYPE</span>
+                                        <span id="chat-loot-v1-detail-type" class="chat-loot-v1-detail-stat-value">--</span>
+                                    </div>
+                                    <div class="chat-loot-v1-detail-stat">
+                                        <span class="chat-loot-v1-detail-stat-label">WEIGHT</span>
+                                        <span id="chat-loot-v1-detail-weight" class="chat-loot-v1-detail-stat-value">--</span>
+                                    </div>
+                                    <div class="chat-loot-v1-detail-stat">
+                                        <span class="chat-loot-v1-detail-stat-label">VALUE</span>
+                                        <span id="chat-loot-v1-detail-value" class="chat-loot-v1-detail-stat-value">--</span>
+                                    </div>
+                                </div>
+
+                                <button id="chat-loot-v1-detail-action" class="chat-loot-v1-detail-action" type="button">TAKE ITEM +</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="chat-loot-view-v2" class="chat-loot-view chat-loot-view-v2 hidden">
+                    <div class="chat-loot-v2-topbar">
+                        <strong id="chat-loot-title-v2-en" class="chat-loot-v2-top-title">LOOT POPUP V2</strong>
+                    </div>
+                    <div class="chat-loot-v2-header-decor">
+                        <span id="chat-loot-title-v2" class="chat-loot-v2-header-left">SYSTEM SCANNER</span>
+                        <span id="chat-loot-v2-desc" class="chat-loot-v2-header-right">AWAITING INPUT</span>
+                    </div>
+                    <div id="chat-loot-v2-items" class="chat-loot-v2-grid"></div>
+
+                    <div id="chat-loot-v2-detail-modal" class="chat-loot-v2-detail-modal hidden" aria-hidden="true">
+                        <div class="chat-loot-v2-detail-card" role="dialog" aria-modal="true" aria-labelledby="chat-loot-v2-detail-title-zh">
+                            <div class="chat-loot-v2-detail-decor-circle" aria-hidden="true"></div>
+                            <button id="chat-loot-v2-detail-close" class="chat-loot-v2-detail-close" type="button">✕</button>
+
+                            <div class="chat-loot-v2-detail-content">
+                                <div id="chat-loot-v2-detail-title-en" class="chat-loot-v2-detail-title-en">ITEM ID</div>
+                                <div id="chat-loot-v2-detail-title-zh" class="chat-loot-v2-detail-title-zh">等待扫描</div>
+                                <div id="chat-loot-v2-detail-desc" class="chat-loot-v2-detail-desc">点击物品卡片进行扫描后查看详情。</div>
+
+                                <div class="chat-loot-v2-detail-stats">
+                                    <div class="chat-loot-v2-detail-stat">
+                                        <div class="chat-loot-v2-detail-stat-label">TYPE</div>
+                                        <div id="chat-loot-v2-detail-type" class="chat-loot-v2-detail-stat-value">--</div>
+                                    </div>
+                                    <div class="chat-loot-v2-detail-stat">
+                                        <div class="chat-loot-v2-detail-stat-label">WEIGHT</div>
+                                        <div id="chat-loot-v2-detail-weight" class="chat-loot-v2-detail-stat-value">--</div>
+                                    </div>
+                                    <div class="chat-loot-v2-detail-stat">
+                                        <div class="chat-loot-v2-detail-stat-label">VALUE</div>
+                                        <div id="chat-loot-v2-detail-value" class="chat-loot-v2-detail-stat-value">--</div>
+                                    </div>
+                                </div>
+
+                                <button id="chat-loot-v2-detail-action" class="chat-loot-v2-detail-action" type="button">EQUIP ITEM</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="chat-loot-loading" class="chat-loot-loading hidden">GENERATING LOOT...</div>
+            </div>
+        </div>
+
+        <div id="chat-vlog-modal" class="chat-vlog-overlay hidden" aria-hidden="true">
+            <div id="chat-vlog-card" class="chat-vlog-card chat-vlog-card-v1" role="dialog" aria-modal="true" aria-labelledby="chat-vlog-title-v1">
+                <div class="chat-vlog-actions-pill" aria-label="VLOG 操作按钮">
+                    <button id="chat-vlog-refresh-btn" class="chat-vlog-refresh-btn" type="button" aria-label="重新生成今日 VLOG">
+                        <i class="ri-refresh-line" aria-hidden="true"></i>
+                    </button>
+                    <button id="close-chat-vlog" class="chat-vlog-close-btn" type="button" aria-label="关闭今日 VLOG">
+                        <i class="ri-close-line" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <div id="chat-vlog-view-v1" class="chat-vlog-view chat-vlog-view-v1">
+                    <div class="chat-vlog-v1-weather-widget">
+                        <i id="chat-vlog-v1-weather-icon" class="ri-sun-cloudy-line" aria-hidden="true"></i>
+                        <span id="chat-vlog-v1-weather-temp">--°C</span>
+                        <span>/</span>
+                        <span id="chat-vlog-v1-weather-text">Unknown</span>
+                    </div>
+
+                    <h2 id="chat-vlog-title-v1" class="chat-vlog-v1-title">
+                        <span id="chat-vlog-v1-title-en" class="en">One Day</span>
+                        <span id="chat-vlog-v1-title-zh" class="zh">日常记录</span>
+                    </h2>
+
+                    <div class="chat-vlog-v1-divider"></div>
+
+                    <div id="chat-vlog-v1-timeline" class="chat-vlog-v1-timeline"></div>
+
+                    <div class="chat-vlog-v1-timestamp">
+                        <span id="chat-vlog-v1-footer-left">// LOG_ENTRY_01</span>
+                        <span id="chat-vlog-v1-footer-right">END OF DAY</span>
+                    </div>
+
+                    <div class="chat-vlog-v1-deco-circle" aria-hidden="true"></div>
+                    <div class="chat-vlog-v1-deco-dot" aria-hidden="true"></div>
+                </div>
+
+                <div id="chat-vlog-view-v2" class="chat-vlog-view chat-vlog-view-v2 hidden">
+                    <div class="chat-vlog-v2-corner chat-vlog-v2-corner-tl" aria-hidden="true"></div>
+                    <div class="chat-vlog-v2-corner chat-vlog-v2-corner-tr" aria-hidden="true"></div>
+                    <div class="chat-vlog-v2-corner chat-vlog-v2-corner-bl" aria-hidden="true"></div>
+                    <div class="chat-vlog-v2-corner chat-vlog-v2-corner-br" aria-hidden="true"></div>
+
+                    <div class="chat-vlog-v2-header">
+                        <div class="chat-vlog-v2-date-box">
+                            <span id="chat-vlog-v2-date-num" class="chat-vlog-v2-date-num">--</span>
+                            <span id="chat-vlog-v2-date-month" class="chat-vlog-v2-date-month">MONTH</span>
+                        </div>
+                        <div class="chat-vlog-v2-weather-box">
+                            <div class="chat-vlog-v2-weather-icon"><i id="chat-vlog-v2-weather-icon" class="ri-moon-cloudy-line" aria-hidden="true"></i></div>
+                            <div id="chat-vlog-v2-weather-temp">--°C</div>
+                            <div id="chat-vlog-v2-weather-text">UNKNOWN</div>
+                        </div>
+                    </div>
+
+                    <h2 id="chat-vlog-title-v2" class="chat-vlog-v2-title">DAILY RECORD</h2>
+
+                    <div id="chat-vlog-v2-timeline" class="chat-vlog-v2-timeline"></div>
+
+                    <div class="chat-vlog-v2-footer">
+                        <span id="chat-vlog-v2-footer-left">SYS.LOG // 002</span>
+                        <span id="chat-vlog-v2-footer-right">STATUS: RECORDED</span>
+                    </div>
+                </div>
+
+                <div id="chat-vlog-loading" class="chat-vlog-loading hidden">GENERATING VLOG...</div>
+            </div>
         </div>
 
         <!-- 个人朋友圈全屏页 -->
@@ -4546,7 +5324,44 @@
                             <input type="number" id="modal-memory-dedupe-threshold" min="0.3" max="0.99" step="0.01">
                             <div class="memory-setting-hint">推荐 0.7~0.85，避免重复记忆越积越多。当前不再按条数截断，而是把筛选后的记忆全部发送。</div>
                         </div>
+                        <div class="setting-group">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="modal-memory-vector-enabled">
+                                启用向量记忆检索（在线聊天）
+                            </label>
+                            <div class="memory-setting-hint">开启后会按语义相似度检索记忆；关闭则继续使用当前规则记忆。</div>
+                        </div>
+                        <div class="setting-group">
+                            <label>向量检索参数</label>
+                            <div class="memory-days-grid">
+                                <div class="memory-days-item">
+                                    <label for="modal-memory-vector-topk">TopK</label>
+                                    <input type="number" id="modal-memory-vector-topk" min="1" max="30" step="1">
+                                </div>
+                                <div class="memory-days-item">
+                                    <label for="modal-memory-vector-min-similarity">最低相似度</label>
+                                    <input type="number" id="modal-memory-vector-min-similarity" min="0.05" max="0.99" step="0.01">
+                                </div>
+                            </div>
+                            <div class="memory-setting-hint">默认推荐 TopK=8，最低相似度=0.35。</div>
+                        </div>
+                        <button id="memory-vector-rebuild-btn" class="ios-btn-block" type="button">重建当前联系人的向量索引</button>
                         <button id="save-memory-settings-btn" class="ios-btn-block">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="memory-vector-error-modal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>向量重建失败诊断</h3>
+                        <button class="close-btn" id="close-memory-vector-error">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="memory-vector-error-summary" class="memory-setting-hint" style="white-space: pre-wrap;"></div>
+                        <textarea id="memory-vector-error-log" readonly style="width: 100%; height: 220px; margin-top: 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;"></textarea>
+                        <div class="memory-setting-hint" style="margin-top: 8px;">可直接复制日志发给开发者排查（不依赖控制台）。</div>
+                        <button id="copy-memory-vector-error-log-btn" class="ios-btn-block" type="button">复制诊断日志</button>
                     </div>
                 </div>
             </div>
@@ -5286,7 +6101,7 @@
     </div>
 
     <!-- 查手机 - 短信 -->
-    <div id="phone-messages" class="sub-screen hidden messages-app-screen" style="z-index: 200;">
+    <div id="phone-messages" class="sub-screen hidden messages-app-screen messages-ios-list-style" style="z-index: 200;">
         <div class="messages-app-shell">
             <section class="messages-view messages-list-view" aria-label="查手机短信列表页面">
                 <div class="messages-list-header">
@@ -6712,6 +7527,27 @@
                 </div>
             </div>
 
+            <div id="album-action-modal" class="album-modal-overlay">
+                <div class="album-modal-content album-action-modal-content">
+                    <div id="album-action-title" class="album-modal-title">相簿操作</div>
+                    <div id="album-action-options" class="album-move-options"></div>
+                    <div class="album-modal-actions">
+                        <button id="album-action-cancel" class="album-modal-btn album-modal-cancel" type="button">取消</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="album-bind-contact-modal" class="album-modal-overlay">
+                <div class="album-modal-content album-bind-modal-content">
+                    <div id="album-bind-contact-title" class="album-modal-title">绑定联系人</div>
+                    <div id="album-bind-contact-options" class="album-move-options"></div>
+                    <div class="album-modal-actions">
+                        <button id="album-bind-contact-cancel" class="album-modal-btn album-modal-cancel" type="button">取消</button>
+                        <button id="album-bind-contact-save" class="album-modal-btn album-modal-save" type="button">保存</button>
+                    </div>
+                </div>
+            </div>
+
             <div id="album-privacy-password-modal" class="album-modal-overlay">
                 <div class="album-modal-content">
                     <div id="album-privacy-password-title" class="album-modal-title">输入相册密码</div>
@@ -6762,7 +7598,7 @@
                         <button id="album-photo-favorite-btn" class="album-photo-center-btn" type="button" aria-label="Favorite">
                             <i class="ri-heart-line"></i>
                         </button>
-                        <button class="album-photo-center-btn" type="button" aria-label="Info">
+                        <button id="album-photo-info-btn" class="album-photo-center-btn" type="button" aria-label="Info">
                             <i class="ri-information-line"></i>
                         </button>
                         <button class="album-photo-center-btn" type="button" aria-label="Adjust">
@@ -6772,6 +7608,33 @@
                     <button class="album-photo-tool-btn" type="button" aria-label="Delete">
                         <i class="ri-delete-bin-line"></i>
                     </button>
+                </div>
+            </div>
+
+            <div id="album-photo-meta-modal" class="album-modal-overlay">
+                <div class="album-modal-content album-photo-meta-modal-content">
+                    <div class="album-modal-title">照片信息</div>
+                    <div class="album-modal-body album-photo-meta-body">
+                        <label for="album-photo-meta-description" class="album-photo-meta-label">图片描述</label>
+                        <textarea id="album-photo-meta-description" class="album-modal-input album-photo-meta-textarea" placeholder="请输入该照片描述"></textarea>
+                        <label for="album-photo-meta-type" class="album-photo-meta-label">图片类型</label>
+                        <select id="album-photo-meta-type" class="album-modal-input album-photo-meta-select">
+                            <option value="selfie">自拍</option>
+                            <option value="scenery">风景</option>
+                            <option value="food">食物</option>
+                            <option value="portrait">人像</option>
+                            <option value="pet">宠物</option>
+                            <option value="travel">旅行</option>
+                            <option value="party">聚会</option>
+                            <option value="night">夜景</option>
+                            <option value="work">工作</option>
+                            <option value="other">其他</option>
+                        </select>
+                    </div>
+                    <div class="album-modal-actions">
+                        <button id="album-photo-meta-cancel" class="album-modal-btn album-modal-cancel" type="button">取消</button>
+                        <button id="album-photo-meta-save" class="album-modal-btn album-modal-save" type="button">保存</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -7340,7 +8203,7 @@
 
         <!-- Lookus Settings Modal -->
         <div id="lookus-settings-modal" class="modal hidden" style="z-index: 200; align-items: center; justify-content: center;">
-            <div class="modal-content" style="width: 80%; max-width: 300px; background: #fff; border-radius: 12px; padding: 20px;">
+            <div class="modal-content" style="width: 88%; max-width: 360px; background: #fff; border-radius: 12px; padding: 20px; max-height: 82vh; overflow-y: auto;">
                 <h3 style="text-align: center; margin-top: 0;">状态更新设置</h3>
                 
                 <div class="setting-group">
@@ -7365,6 +8228,66 @@
                 <div class="setting-group" style="margin-top: 15px;">
                     <label>手动操作</label>
                     <button id="lookus-force-update-btn" class="ios-btn-block secondary" style="margin-top: 5px;">立即刷新状态 (AI)</button>
+                </div>
+
+                <div class="setting-group" style="margin-top: 18px; border-top: 1px solid #f0f0f0; padding-top: 16px;">
+                    <label style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                        <span>真实手机使用同步</span>
+                        <input type="checkbox" id="lookus-device-usage-enabled">
+                    </label>
+                    <div style="font-size: 12px; color: #888; margin-top: 6px;">通过 iPhone 快捷指令/自动化或 Android MacroDroid，把真实 App 打开与关闭事件同步到后端。</div>
+                </div>
+
+                <div class="setting-group">
+                    <label>后端地址</label>
+                    <input type="text" id="lookus-device-usage-api-base-url" placeholder="https://your-backend.example.com" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; margin-top: 5px; box-sizing: border-box;">
+                </div>
+
+                <div class="setting-group">
+                    <label>用户 ID</label>
+                    <input type="text" id="lookus-device-usage-user-id" placeholder="default-user" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; margin-top: 5px; box-sizing: border-box;">
+                </div>
+
+                <div class="setting-group">
+                    <label>设备 ID</label>
+                    <input type="text" id="lookus-device-usage-device-id" placeholder="phone-main" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; margin-top: 5px; box-sizing: border-box;">
+                </div>
+
+                <div class="setting-group">
+                    <label>同步密钥</label>
+                    <input type="text" id="lookus-device-usage-secret" placeholder="请填写一个只有你知道的密钥" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ddd; margin-top: 5px; box-sizing: border-box;">
+                </div>
+
+                <div class="setting-group">
+                    <label>iPhone 快捷指令 URL 模板</label>
+                    <textarea id="lookus-device-usage-shortcut-template" readonly style="width: 100%; min-height: 84px; padding: 8px; border-radius: 8px; border: 1px solid #ddd; margin-top: 5px; resize: vertical; box-sizing: border-box; background: #f9f9f9;"></textarea>
+                    <div style="font-size: 12px; color: #888; margin-top: 6px;">在 iPhone 自动化中，为每个 App 同时勾选“已打开”和“已关闭”，共用同一条 URL，只替换里面的 APP 名称。</div>
+                </div>
+
+                <div class="setting-group">
+                    <label>Android MacroDroid URL 模板</label>
+                    <textarea id="lookus-device-usage-android-template" readonly style="width: 100%; min-height: 84px; padding: 8px; border-radius: 8px; border: 1px solid #ddd; margin-top: 5px; resize: vertical; box-sizing: border-box; background: #f9f9f9;"></textarea>
+                    <div style="font-size: 12px; color: #888; margin-top: 6px;">在 MacroDroid 中推荐创建 “Application Launched” 和 “Application Closed” 两个宏，两个宏都共用这条 URL，并让 `appName={app_name}` 动态替换应用名。</div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 8px;">
+                    <button id="lookus-copy-shortcut-template-btn" class="ios-btn-block secondary" style="flex: 1; margin-bottom: 0;">复制 iPhone 模板</button>
+                    <button id="lookus-copy-android-template-btn" class="ios-btn-block secondary" style="flex: 1; margin-bottom: 0;">复制安卓模板</button>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button id="lookus-reset-device-usage-btn" class="ios-btn-block secondary" style="flex: 1; margin-bottom: 0;">重置状态</button>
+                </div>
+
+                <div class="setting-group" style="margin-top: 16px; padding: 12px; border-radius: 12px; background: #f7f7fa;">
+                    <div style="font-size: 14px; font-weight: 700; color: #111;">Android MacroDroid 使用说明</div>
+                    <div style="font-size: 12px; color: #666; line-height: 1.8; margin-top: 8px;">
+                        1. 安装 MacroDroid，并优先开启辅助功能（Accessibility Service）；仅当机型不稳定时，再补充 Usage Access。<br>
+                        2. 创建两个宏：`Application Launched` 和 `Application Closed`。<br>
+                        3. 两个宏都可先选 All Applications，再在 HTTP Request 里共用同一条安卓模板 URL。<br>
+                        4. 如果你只想追踪少量 App，也可以先只勾选微信、抖音、Chrome 等目标应用。<br>
+                        5. 当你从一个 App 切到另一个 App 时，Closed 往往会先触发；当前后端的 toggle 语义可直接兼容。
+                    </div>
                 </div>
 
                 <div style="margin-top: 20px; display: flex; gap: 10px;">
@@ -8494,7 +9417,7 @@
         </div>
     </div>
 
-    <div id="messages-app" class="app-screen hidden messages-app-screen">
+    <div id="messages-app" class="app-screen hidden messages-app-screen messages-ios-list-style">
         <button id="close-messages-app" class="messages-app-close" type="button" aria-label="关闭信息应用">
             <i class="fas fa-times"></i>
         </button>
@@ -8504,7 +9427,8 @@
                 <div class="messages-list-header">
                     <div class="messages-list-topbar">
                         <button class="messages-edit-pill" type="button">&#x7F16;&#x8F91;</button>
-                        <button class="messages-list-menu-btn" type="button" aria-label="筛选菜单">
+                        <button id="messages-compact-back" class="messages-compact-title" type="button" aria-label="返回桌面">&#x4FE1;&#x606F;</button>
+                        <button id="messages-settings-btn" class="messages-list-menu-btn" type="button" aria-label="信息设置">
                             <i class="fas fa-bars"></i>
                         </button>
                     </div>
@@ -8530,6 +9454,7 @@
             <section class="messages-view messages-chat-view" aria-label="信息聊天页面">
                 <div class="messages-chat-header">
                     <div class="messages-chat-header-inner">
+                        <button id="messages-multi-select-cancel" class="messages-chat-multi-cancel hidden" type="button">退出</button>
                         <button id="messages-chat-back" class="messages-chat-back" type="button" aria-label="返回信息列表">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                 <path d="m15 18-6-6 6-6"></path>
@@ -8552,6 +9477,18 @@
 
                 <div class="messages-chat-scroll" id="messages-chat-scroll"></div>
 
+                <button id="messages-multi-select-delete" class="messages-multi-select-delete hidden" type="button">删除(<span id="messages-multi-select-count">0</span>)</button>
+
+                <div id="messages-reply-bar" class="messages-reply-bar hidden">
+                    <div class="messages-reply-bar-main">
+                        <div id="messages-reply-name" class="messages-reply-name"></div>
+                        <div id="messages-reply-text" class="messages-reply-text"></div>
+                    </div>
+                    <button id="messages-close-reply-bar" class="messages-reply-close" type="button" aria-label="取消引用">
+                        <i class="fas fa-times-circle"></i>
+                    </button>
+                </div>
+
                 <div class="messages-input-bar">
                     <button id="messages-plus-btn" class="messages-plus-btn" type="button" aria-label="更多功能">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -8571,6 +9508,95 @@
                     </div>
                 </div>
             </section>
+        </div>
+    </div>
+
+    <div id="messages-active-reply-modal" class="modal hidden" style="z-index: 230; align-items: center;">
+        <div class="modal-content" style="height: auto; border-radius: 18px; width: 86%; max-width: 356px; background-color: #fff;">
+            <div class="modal-header" style="padding-bottom: 8px;">
+                <h3>信息中的主动发消息</h3>
+                <button class="close-btn" id="close-messages-active-reply-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="padding-top: 2px;">
+                <div class="setting-group" style="margin-bottom: 12px;">
+                    <select id="messages-active-reply-contact" style="width: 100%; height: 42px; border-radius: 12px; border: 1px solid #e5e7eb; padding: 0 12px; font-size: 15px; background: #fff;"></select>
+                </div>
+                <div class="setting-group" style="margin-bottom: 12px;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer;">
+                        <span>开启主动发消息</span>
+                        <input id="messages-active-reply-enabled" type="checkbox" style="width: 18px; height: 18px;">
+                    </label>
+                </div>
+                <div id="messages-active-reply-interval-group" class="setting-group" style="margin-bottom: 12px;">
+                    <input id="messages-active-reply-interval" type="number" min="5" placeholder="主动消息间隔（秒）" style="width: 100%; height: 42px; border-radius: 12px; border: 1px solid #e5e7eb; padding: 0 12px; font-size: 15px; background: #fff;">
+                </div>
+                <button id="save-messages-active-reply-settings" class="ios-btn-block">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="messages-edit-msg-modal" class="modal hidden" style="z-index: 230; align-items: center;">
+        <div class="modal-content" style="height: auto; border-radius: 18px; width: 86%; max-width: 356px; background-color: #fff;">
+            <div class="modal-header">
+                <h3>编辑消息</h3>
+                <button class="close-btn" id="close-messages-edit-msg">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <textarea id="messages-edit-msg-content" placeholder="输入新的消息内容..." style="height: 150px;"></textarea>
+                </div>
+                <button id="save-messages-edit-msg-btn" class="ios-btn-block">保存修改</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="studio-app" class="app-screen hidden" style="z-index: 205; overflow: hidden;">
+        <div id="studio-chat-screen" aria-label="&#24037;&#20316;&#23460;&#32842;&#22825;&#31034;&#20363;&#39029;&#38754;">
+            <div class="chat-header">
+                <div class="chat-header-left-actions">
+                    <button id="close-studio-app" class="back-btn" type="button" aria-label="&#20851;&#38381;&#24037;&#20316;&#23460;">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <button class="multi-select-cancel hidden" type="button">&#36864;&#20986;</button>
+                </div>
+                <div id="studio-chat-header-main" class="chat-header-main">
+                    <button id="studio-chat-topbar-avatar-main" class="chat-topbar-avatar chat-topbar-avatar-main hidden" type="button" aria-label="&#25171;&#24320;&#32852;&#31995;&#20154;&#36164;&#26009;">
+                        <i class="ri-user-line"></i>
+                    </button>
+                    <div class="chat-header-title-stack">
+                        <span id="studio-chat-title" style="cursor: pointer;">&#24037;&#20316;&#23460;</span>
+                        <div id="studio-chat-status" class="chat-topbar-status hidden"></div>
+                    </div>
+                </div>
+                <div class="chat-header-right-actions">
+                    <button id="studio-chat-topbar-avatar-right" class="wechat-icon-btn chat-topbar-avatar chat-topbar-avatar-right hidden" type="button" aria-label="&#25171;&#24320;&#32842;&#22825;&#35774;&#32622;">
+                        <i class="ri-user-line"></i>
+                    </button>
+                    <button id="studio-chat-settings-btn" class="wechat-icon-btn studio-chat-static-control" type="button" aria-disabled="true" tabindex="-1">
+                        <i class="fas fa-ellipsis-h"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="chat-body" id="studio-chat-messages" aria-live="polite"></div>
+            <div id="studio-toolbar-host"></div>
+
+            <div class="chat-bottom-stack">
+                <div class="chat-input-area studio-chat-input-area">
+                    <button id="studio-chat-more-btn" class="chat-icon-btn studio-chat-static-control" type="button" aria-disabled="true" tabindex="-1">
+                        <i class="ri-add-line"></i>
+                    </button>
+                    <div class="chat-input-shell studio-chat-static-control" aria-hidden="true">
+                        <input type="text" id="studio-chat-input" class="studio-chat-input" placeholder="iMessage" readonly tabindex="-1">
+                        <button id="studio-sticker-btn" class="chat-input-inline-btn studio-chat-static-control" type="button" tabindex="-1">
+                            <i class="ri-sticker-line ri-emoji-sticker-line"></i>
+                        </button>
+                        <button id="studio-trigger-ai-reply-btn" class="chat-input-inline-btn studio-chat-static-control" type="button" tabindex="-1">
+                            <i class="ri-mic-line"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -8595,6 +9621,9 @@
     <script src="js/mood_flora.js"></script>
     <script src="js/preset_app.js"></script>
     <script src="js/home.js"></script>
+    <script src="js/studio_app.js"></script>
+    <script src="js/studio_toolbar.js"></script>
+    <script src="js/studio_toolbar_preview.js"></script>
     <script src="js/calendar_app.js"></script>
     <script src="js/music_app_screen.js"></script>
     <script src="js/check_phone.js"></script>
@@ -8605,6 +9634,7 @@
     <script src="js/chat/04-media-init.js"></script>
     <script src="js/chat/05-addressbook-friends.js"></script>
     <script src="js/chat/06-oracle-quick-replies.js"></script>
+    <script src="js/chat/07-group-chat.js"></script>
     <script src="js/fire_buddy.js?v=20260324b1"></script>
     <script src="js/offline_push_sync.js"></script>
     <script src="js/shopping.js"></script>
@@ -8635,6 +9665,15 @@
                             <label>消息内容</label>
                             <textarea id="edit-chat-msg-content" placeholder="输入新的消息内容..." style="height: 150px;"></textarea>
                         </div>
+                        <input type="hidden" id="edit-chat-msg-type" value="text">
+                        <div id="edit-chat-msg-type-switch" class="edit-chat-msg-type-switch" aria-label="消息类型切换">
+                            <button type="button" class="edit-chat-msg-type-btn active" data-msg-type="text">文本</button>
+                            <button type="button" class="edit-chat-msg-type-btn" data-msg-type="voice">语音</button>
+                            <button type="button" class="edit-chat-msg-type-btn" data-msg-type="image">图片</button>
+                            <button type="button" class="edit-chat-msg-type-btn" data-msg-type="sticker">表情包</button>
+                        </div>
+                        <button type="button" id="add-inserted-chat-msg-btn" class="edit-chat-msg-insert-btn">插入消息</button>
+                        <div id="inserted-chat-msg-list" class="edit-chat-msg-insert-list"></div>
                         <button id="save-edit-chat-msg-btn" class="ios-btn-block">保存修改</button>
                     </div>
                 </div>
@@ -9066,6 +10105,7 @@
 
 </body>
 </html>
+
 
 
 

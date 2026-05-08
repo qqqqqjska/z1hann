@@ -957,7 +957,7 @@ function renderMeTab() {
         };
     }
 
-    const { name, wxid, avatar, bgImage, desc, gender } = window.iphoneSimState.userProfile;
+    const { name, wxid, avatar, bgImage, desc } = window.iphoneSimState.userProfile;
     const bg = bgImage || '';
 
     container.innerHTML = `
@@ -969,7 +969,6 @@ function renderMeTab() {
                 </div>
                 <div class="me-name" id="me-name-trigger">${name}</div>
                 <div class="me-id">微信号：<span id="me-id-trigger">${wxid}</span></div>
-                <div class="me-gender" id="me-gender-trigger">性别：<span>${gender === 'male' ? '男' : '女'}</span></div>
                 <div class="me-desc" id="me-desc-trigger">${desc}</div>
             </div>
         </div>
@@ -1005,12 +1004,6 @@ function renderMeTab() {
     makeEditable('me-id-trigger', 'wxid');
     makeEditable('me-desc-trigger', 'desc');
 
-    document.getElementById('me-gender-trigger').addEventListener('click', () => {
-        const currentGender = window.iphoneSimState.userProfile.gender || 'female';
-        const newGender = currentGender === 'male' ? 'female' : 'male';
-        updateUserProfile('gender', newGender);
-        renderMeTab(); // 重新渲染
-    });
 }
 
 function handleMeImageUpload(e, type) {
@@ -5024,6 +5017,16 @@ function getDefaultMemorySettingsRuntime() {
         injectImportanceMin: { short_term: 0.5, long_term: 0.5, state: 0.5, refined: 0.5 },
         stateTtlDays: { health: 7, exam: 14, travel: 10, emotion: 3, other: 7 },
         dedupeThreshold: 0.75,
+        vectorRetrieval: {
+            enabled: false,
+            endpoint: 'https://api.siliconflow.cn/v1',
+            apiKey: 'sk-tpkfgtmytrfvabkejzzyccvfeqkgwvnqxobpendlnmokojik',
+            model: 'BAAI/bge-m3',
+            topK: 8,
+            minSimilarity: 0.35,
+            queryTimeoutMs: 600,
+            useChatKeyFallback: false
+        },
         stateExtractV2: {
             enabled: true,
             strategy: 'rule_plus_ai',
@@ -5055,6 +5058,9 @@ function ensureMemorySettingsV2() {
     const recentDays = raw.injectRecentDays && typeof raw.injectRecentDays === 'object' ? raw.injectRecentDays : {};
     const importanceMin = raw.injectImportanceMin && typeof raw.injectImportanceMin === 'object' ? raw.injectImportanceMin : {};
     const ttl = raw.stateTtlDays && typeof raw.stateTtlDays === 'object' ? raw.stateTtlDays : {};
+    const vectorRetrieval = raw.vectorRetrieval && typeof raw.vectorRetrieval === 'object'
+        ? raw.vectorRetrieval
+        : {};
     const stateExtract = raw.stateExtractV2 && typeof raw.stateExtractV2 === 'object' ? raw.stateExtractV2 : {};
     const thresholds = stateExtract.thresholds && typeof stateExtract.thresholds === 'object' ? stateExtract.thresholds : {};
     const ai = stateExtract.ai && typeof stateExtract.ai === 'object' ? stateExtract.ai : {};
@@ -5087,6 +5093,18 @@ function ensureMemorySettingsV2() {
             other: clampInt(ttl.other, defaults.stateTtlDays.other, 1, 365)
         },
         dedupeThreshold: clampFloat(raw.dedupeThreshold, defaults.dedupeThreshold, 0.3, 0.99),
+        vectorRetrieval: {
+            enabled: vectorRetrieval.enabled === undefined
+                ? !!defaults.vectorRetrieval.enabled
+                : !!vectorRetrieval.enabled,
+            endpoint: String(vectorRetrieval.endpoint || defaults.vectorRetrieval.endpoint || '').trim(),
+            apiKey: String(vectorRetrieval.apiKey || defaults.vectorRetrieval.apiKey || '').trim(),
+            model: String(vectorRetrieval.model || defaults.vectorRetrieval.model || '').trim(),
+            topK: clampInt(vectorRetrieval.topK, defaults.vectorRetrieval.topK, 1, 30),
+            minSimilarity: clampFloat(vectorRetrieval.minSimilarity, defaults.vectorRetrieval.minSimilarity, 0.05, 0.99),
+            queryTimeoutMs: clampInt(vectorRetrieval.queryTimeoutMs, defaults.vectorRetrieval.queryTimeoutMs, 200, 5000),
+            useChatKeyFallback: false
+        },
         stateExtractV2: {
             enabled: stateExtract.enabled === undefined ? true : !!stateExtract.enabled,
             strategy: ['rule_plus_ai', 'rule_only'].includes(stateExtract.strategy)
@@ -5891,8 +5909,11 @@ function computeMemoryRelevance(content, contextText) {
 
 function getContactMemories(contactId, includeAll = false) {
     ensureMemoryCollections();
+    if (contactId === undefined || contactId === null || contactId === '') return [];
+    const targetContactId = String(contactId);
     return window.iphoneSimState.memories.filter(memory => {
-        if (!memory || memory.contactId !== contactId) return false;
+        if (!memory) return false;
+        if (String(memory.contactId) !== targetContactId) return false;
         if (includeAll) return true;
         return (memory.reviewStatus || 'approved') === 'approved';
     });
@@ -5900,8 +5921,12 @@ function getContactMemories(contactId, includeAll = false) {
 
 function getPendingCandidates(contactId) {
     ensureMemoryCollections();
+    if (contactId === undefined || contactId === null || contactId === '') return [];
+    const targetContactId = String(contactId);
     return window.iphoneSimState.memoryCandidates.filter(candidate =>
-        candidate && candidate.contactId === contactId && candidate.status === 'pending'
+        candidate
+        && String(candidate.contactId) === targetContactId
+        && candidate.status === 'pending'
     );
 }
 
@@ -6007,6 +6032,7 @@ function createOrMergeApprovedMemory(payload) {
         }
         ensureMemoryImportance(duplicate, duplicate.memoryTags, 'long_term');
         syncLegacyPerceptionAndState(contactId);
+        markMemoryVectorIndexDirty(contactId);
         return { created: false, memory: duplicate };
     }
 
@@ -6045,6 +6071,7 @@ function createOrMergeApprovedMemory(payload) {
     ensureMemoryImportance(memory, memory.memoryTags, 'long_term');
     window.iphoneSimState.memories.push(memory);
     syncLegacyPerceptionAndState(contactId);
+    markMemoryVectorIndexDirty(contactId);
     return { created: true, memory: memory };
 }
 
@@ -6301,6 +6328,869 @@ function emitMemoryInjectDebug(contact, payload = {}) {
         console.groupEnd();
     } catch (error) {}
 }
+
+const MEMORY_VECTOR_INDEX_STORAGE_PREFIX = 'memory-vector-index-v1:';
+const MEMORY_VECTOR_INDEX_MAX_ITEMS = 4000;
+const MEMORY_VECTOR_BUILD_BATCH_SIZE = 6;
+const MEMORY_VECTOR_BACKGROUND_MAX_ITEMS = 12;
+const BUILTIN_MEMORY_VECTOR_EMBEDDING = Object.freeze({
+    endpoint: 'https://api.siliconflow.cn/v1',
+    apiKey: 'sk-tpkfgtmytrfvabkejzzyccvfeqkgwvnqxobpendlnmokojik',
+    model: 'BAAI/bge-m3'
+});
+const memoryVectorIndexCache = new Map();
+const memoryVectorBuildQueue = [];
+const memoryVectorBuildQueueSet = new Set();
+let memoryVectorBuildQueueRunning = false;
+
+function getMemoryVectorSettings() {
+    const settings = ensureMemorySettingsV2();
+    const vector = settings && settings.vectorRetrieval && typeof settings.vectorRetrieval === 'object'
+        ? settings.vectorRetrieval
+        : {};
+    return {
+        enabled: !!vector.enabled,
+        endpoint: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.endpoint || '').trim(),
+        apiKey: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.apiKey || '').trim(),
+        model: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.model || 'BAAI/bge-m3').trim() || 'BAAI/bge-m3',
+        topK: clampInt(vector.topK, 8, 1, 30),
+        minSimilarity: clampFloat(vector.minSimilarity, 0.35, 0.05, 0.99),
+        queryTimeoutMs: clampInt(vector.queryTimeoutMs, 600, 200, 5000),
+        useChatKeyFallback: false
+    };
+}
+
+function getMemoryVectorStorageKey(contactId) {
+    return `${MEMORY_VECTOR_INDEX_STORAGE_PREFIX}${String(contactId || '')}`;
+}
+
+function normalizeMemoryVectorText(value, maxLength = 6000) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    return text.length > maxLength ? text.slice(0, maxLength) : text;
+}
+
+function normalizeEmbeddingVector(raw, maxLength = 4096) {
+    if (!Array.isArray(raw)) return [];
+    const output = [];
+    for (let i = 0; i < raw.length; i += 1) {
+        const value = Number(raw[i]);
+        if (!Number.isFinite(value)) continue;
+        output.push(value);
+        if (output.length >= maxLength) break;
+    }
+    return output;
+}
+
+function simpleStableHash(text) {
+    const source = String(text || '');
+    let hash = 2166136261;
+    for (let i = 0; i < source.length; i += 1) {
+        hash ^= source.charCodeAt(i);
+        hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return `h${(hash >>> 0).toString(36)}`;
+}
+
+function buildMemoryVectorContentHash(memory) {
+    const tags = normalizeMemoryTags(memory && memory.memoryTags, 'long_term').join(',');
+    const owner = getMemoryStateOwner(memory, 'user');
+    const phase = memory && memory.stateMeta ? String(memory.stateMeta.phase || '') : '';
+    const normalizedText = normalizeMemoryVectorText(memory && memory.content, 8000);
+    return simpleStableHash(`${normalizedText}|${tags}|${owner}|${phase}`);
+}
+
+function normalizeMemoryVectorIndex(raw, contactId) {
+    const safeContactId = String(contactId || '');
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const rows = Array.isArray(src.items) ? src.items : [];
+    const byMemoryId = new Map();
+    rows.forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+        const memoryId = String(row.memoryId || '').trim();
+        if (!memoryId) return;
+        const embedding = normalizeEmbeddingVector(row.embedding);
+        if (!embedding.length) return;
+        const normalized = {
+            memoryId,
+            contentHash: String(row.contentHash || '').trim(),
+            embedding,
+            tags: normalizeMemoryTags(row.tags, 'long_term'),
+            importance: clampFloat(row.importance, 0.5, 0.1, 1),
+            time: Number(row.time || 0),
+            updatedAt: Number(row.updatedAt || 0)
+        };
+        const prev = byMemoryId.get(memoryId);
+        if (!prev || Number(normalized.updatedAt || 0) >= Number(prev.updatedAt || 0)) {
+            byMemoryId.set(memoryId, normalized);
+        }
+    });
+    const items = Array.from(byMemoryId.values())
+        .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+        .slice(0, MEMORY_VECTOR_INDEX_MAX_ITEMS);
+    return {
+        version: 1,
+        contactId: safeContactId,
+        modelFingerprint: String(src.modelFingerprint || ''),
+        updatedAt: Number(src.updatedAt || 0),
+        items
+    };
+}
+
+async function memoryVectorStorageGet(key) {
+    if (window.localforage && typeof window.localforage.getItem === 'function') {
+        return window.localforage.getItem(key);
+    }
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch (error) {
+        return null;
+    }
+}
+
+async function memoryVectorStorageSet(key, value) {
+    if (window.localforage && typeof window.localforage.setItem === 'function') {
+        return window.localforage.setItem(key, value);
+    }
+    localStorage.setItem(key, JSON.stringify(value));
+    return value;
+}
+
+function getPreferredChatAiSettings() {
+    const primary = window.iphoneSimState && window.iphoneSimState.aiSettings
+        ? window.iphoneSimState.aiSettings
+        : {};
+    const secondary = window.iphoneSimState && window.iphoneSimState.aiSettings2
+        ? window.iphoneSimState.aiSettings2
+        : {};
+    const hasUrlAndKey = (settings) => !!(
+        settings
+        && String(settings.url || '').trim()
+        && String(settings.key || '').trim()
+    );
+    if (hasUrlAndKey(primary)) return primary;
+    if (hasUrlAndKey(secondary)) return secondary;
+    if (String(primary.url || '').trim()) return primary;
+    if (String(secondary.url || '').trim()) return secondary;
+    return {};
+}
+
+function normalizeOpenAiCompatibleBaseUrl(value) {
+    let text = String(value || '').trim();
+    if (!text) return '';
+    text = text.replace(/\/+$/, '');
+    text = text.replace(/\/chat\/completions$/i, '');
+    text = text.replace(/\/embeddings$/i, '');
+    return text;
+}
+
+function buildEmbeddingApiUrl(endpoint) {
+    const base = normalizeOpenAiCompatibleBaseUrl(endpoint);
+    if (!base) return '';
+    if (/\/embeddings$/i.test(base)) return base;
+    return base.endsWith('/') ? `${base}embeddings` : `${base}/embeddings`;
+}
+
+function resolveMemoryVectorEmbeddingConfig(vectorSettings) {
+    const endpoint = buildEmbeddingApiUrl(BUILTIN_MEMORY_VECTOR_EMBEDDING.endpoint);
+    const model = String(BUILTIN_MEMORY_VECTOR_EMBEDDING.model || '').trim();
+    const apiKey = String(BUILTIN_MEMORY_VECTOR_EMBEDDING.apiKey || '').replace(/[^\x00-\x7F]/g, '').trim();
+    return {
+        endpoint,
+        model,
+        apiKey,
+        fingerprint: `${endpoint}|${model}`
+    };
+}
+
+function isCrossOriginEndpoint(endpoint) {
+    try {
+        if (!endpoint) return false;
+        const target = new URL(String(endpoint), window.location.href);
+        return target.origin !== window.location.origin;
+    } catch (error) {
+        return false;
+    }
+}
+
+function explainMemoryVectorError(error, resolvedEndpoint = '') {
+    const rawName = String(error && error.name || 'Error');
+    const rawMessage = String(error && error.message || error || '');
+    const normalized = rawMessage.toLowerCase();
+    const detail = {
+        stage: 'unknown',
+        title: '未知错误',
+        summary: '重建向量索引时发生了未分类错误，请复制日志进一步排查。',
+        hint: ''
+    };
+    if (normalized.startsWith('embedding_config_incomplete')) {
+        detail.stage = 'config_validation';
+        detail.title = '配置不完整';
+        const missing = rawMessage.split(':')[1] || '';
+        const missingText = missing ? `缺少字段：${missing}` : '缺少必要字段。';
+        detail.summary = `Embedding 配置校验未通过。${missingText}`;
+        detail.hint = '当前版本使用内置 Embedding 配置。若仍出现该错误，请复制日志联系开发者检查构建版本。';
+        return detail;
+    }
+    const httpMatch = normalized.match(/embedding_http_(\d+)/);
+    if (httpMatch) {
+        const status = Number(httpMatch[1] || 0);
+        detail.stage = 'remote_response';
+        detail.title = `服务返回 HTTP ${status}`;
+        if (status === 401 || status === 403) {
+            detail.summary = '鉴权失败，Embedding API Key 无效或无权限。';
+            detail.hint = '请检查 Key 是否可用，或确认服务商是否允许该模型。';
+        } else if (status === 404) {
+            detail.summary = '接口地址不存在。';
+            detail.hint = '请填写基础地址（例如 /v1），系统会自动拼接 /embeddings。';
+        } else {
+            detail.summary = `Embedding 服务返回异常状态码 ${status}。`;
+            detail.hint = '请稍后重试，或联系服务商查看该请求日志。';
+        }
+        return detail;
+    }
+    if (normalized.includes('embedding_timeout')) {
+        detail.stage = 'request_timeout';
+        detail.title = '请求超时';
+        detail.summary = 'Embedding 请求超过超时阈值，被主动中断。';
+        detail.hint = '请检查网络质量，或稍后重试。';
+        return detail;
+    }
+    if (
+        rawName === 'TypeError'
+        && (
+            normalized.includes('failed to fetch')
+            || normalized.includes('load failed')
+            || normalized.includes('networkerror')
+            || normalized.includes('network error')
+        )
+    ) {
+        detail.stage = 'network_or_cors';
+        if (isCrossOriginEndpoint(resolvedEndpoint)) {
+            detail.title = '跨域/CORS 或网络拦截';
+            detail.summary = '浏览器无法完成跨域请求（常见为 CORS 预检失败），因此 fetch 被拦截。';
+            detail.hint = '建议改为后端代理请求 embedding，或在目标服务开启 Access-Control-Allow-Origin。';
+        } else {
+            detail.title = '网络连接失败';
+            detail.summary = '请求未拿到有效响应，可能是网络中断或服务不可达。';
+            detail.hint = '请检查网络与服务地址是否可访问。';
+        }
+        return detail;
+    }
+    detail.summary = `错误类型：${rawName}，错误信息：${rawMessage || '无'}`;
+    detail.hint = '请复制日志给开发者进一步定位。';
+    return detail;
+}
+
+function buildMemoryVectorRebuildLog(payload = {}) {
+    const now = new Date();
+    const vectorSettings = payload.vectorSettings && typeof payload.vectorSettings === 'object'
+        ? payload.vectorSettings
+        : {};
+    const resolvedConfig = payload.resolvedConfig && typeof payload.resolvedConfig === 'object'
+        ? payload.resolvedConfig
+        : {};
+    const result = payload.result && typeof payload.result === 'object' ? payload.result : {};
+    const failure = payload.failure && typeof payload.failure === 'object' ? payload.failure : null;
+    const error = payload.error || null;
+    const lines = [];
+    lines.push('[memory-vector-rebuild-log]');
+    lines.push(`time: ${now.toISOString()}`);
+    lines.push(`page_origin: ${window.location.origin}`);
+    lines.push(`status: ${payload.status || 'unknown'}`);
+    lines.push(`contact_id: ${String(payload.contactId || '')}`);
+    lines.push(`contact_name: ${String(payload.contactName || '')}`);
+    lines.push(`vector_enabled: ${!!vectorSettings.enabled}`);
+    lines.push(`vector_endpoint: ${String(vectorSettings.endpoint || '')}`);
+    lines.push(`resolved_embedding_endpoint: ${String(resolvedConfig.endpoint || '')}`);
+    lines.push(`vector_model: ${String(vectorSettings.model || '')}`);
+    lines.push(`resolved_embedding_model: ${String(resolvedConfig.model || '')}`);
+    lines.push(`vector_api_key_configured: ${String(vectorSettings.apiKey || '').trim() ? 'yes' : 'no'}`);
+    lines.push(`resolved_embedding_api_key_available: ${String(resolvedConfig.apiKey || '').trim() ? 'yes' : 'no'}`);
+    lines.push(`use_chat_key_fallback: ${vectorSettings.useChatKeyFallback !== false ? 'yes' : 'no'}`);
+    lines.push(`top_k: ${Number(vectorSettings.topK || 0)}`);
+    lines.push(`min_similarity: ${Number(vectorSettings.minSimilarity || 0)}`);
+    lines.push(`query_timeout_ms: ${Number(vectorSettings.queryTimeoutMs || 0)}`);
+    lines.push(`local_memory_count: ${Number(payload.localMemoryCount || 0)}`);
+    lines.push(`indexed_count: ${Number(result.indexedCount || 0)}`);
+    lines.push(`total_memories: ${Number(result.totalMemories || 0)}`);
+    lines.push(`built_count: ${Number(result.builtCount || 0)}`);
+    lines.push(`pending_count: ${Number(result.pendingCount || 0)}`);
+    if (failure) {
+        lines.push(`failure_stage: ${String(failure.stage || '')}`);
+        lines.push(`failure_title: ${String(failure.title || '')}`);
+        lines.push(`failure_summary: ${String(failure.summary || '')}`);
+        lines.push(`failure_hint: ${String(failure.hint || '')}`);
+    }
+    if (error) {
+        lines.push(`error_name: ${String(error.name || '')}`);
+        lines.push(`error_message: ${String(error.message || error || '')}`);
+        if (error && error.stack) {
+            lines.push('error_stack:');
+            lines.push(String(error.stack));
+        }
+    }
+    return lines.join('\n');
+}
+
+function openMemoryVectorErrorModal(summary, logText) {
+    const modal = document.getElementById('memory-vector-error-modal');
+    const summaryEl = document.getElementById('memory-vector-error-summary');
+    const logEl = document.getElementById('memory-vector-error-log');
+    if (!modal || !summaryEl || !logEl) return;
+    summaryEl.textContent = String(summary || '');
+    logEl.value = String(logText || '');
+    modal.classList.remove('hidden');
+    try { logEl.scrollTop = 0; } catch (error) {}
+}
+
+async function copyTextToClipboard(text) {
+    const value = String(text || '');
+    if (!value) return false;
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+            await navigator.clipboard.writeText(value);
+            return true;
+        } catch (error) {}
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', 'readonly');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } catch (error) {
+        copied = false;
+    }
+    document.body.removeChild(textarea);
+    return copied;
+}
+
+async function requestEmbeddingsForTexts(texts, vectorSettings, timeoutMs = 1200) {
+    const source = Array.isArray(texts) ? texts.map(item => normalizeMemoryVectorText(item, 8000)).filter(Boolean) : [];
+    if (!source.length) {
+        return { vectors: [], fingerprint: '' };
+    }
+    const config = resolveMemoryVectorEmbeddingConfig(vectorSettings);
+    if (!config.endpoint || !config.model || !config.apiKey) {
+        throw new Error('embedding_config_incomplete');
+    }
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = controller
+        ? setTimeout(() => {
+            try { controller.abort(); } catch (error) {}
+        }, Math.max(200, Number(timeoutMs || 0)))
+        : null;
+    let response = null;
+    try {
+        response = await fetch(config.endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.apiKey}`
+            },
+            body: JSON.stringify({
+                model: config.model,
+                input: source
+            }),
+            signal: controller ? controller.signal : undefined
+        });
+    } catch (error) {
+        if (controller && controller.signal && controller.signal.aborted) {
+            throw new Error('embedding_timeout');
+        }
+        throw error;
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+    if (!response || !response.ok) {
+        const details = response ? await response.text().catch(() => '') : '';
+        throw new Error(`embedding_http_${response ? response.status : 0}:${details}`);
+    }
+    const payload = await response.json().catch(() => ({}));
+    const rows = Array.isArray(payload && payload.data) ? payload.data.slice() : [];
+    if (!rows.length) throw new Error('embedding_empty_data');
+    rows.sort((left, right) => Number(left && left.index || 0) - Number(right && right.index || 0));
+    const vectors = rows.map(row => normalizeEmbeddingVector(row && row.embedding));
+    if (vectors.length !== source.length || vectors.some(vector => vector.length === 0)) {
+        throw new Error('embedding_invalid_vector_shape');
+    }
+    return { vectors, fingerprint: config.fingerprint };
+}
+
+function cosineSimilarity(vecA, vecB) {
+    if (!Array.isArray(vecA) || !Array.isArray(vecB) || vecA.length === 0 || vecB.length === 0) return 0;
+    const len = Math.min(vecA.length, vecB.length);
+    let dot = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < len; i += 1) {
+        const a = Number(vecA[i] || 0);
+        const b = Number(vecB[i] || 0);
+        dot += a * b;
+        normA += a * a;
+        normB += b * b;
+    }
+    if (!normA || !normB) return 0;
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+async function loadMemoryVectorIndex(contactId) {
+    const key = String(contactId || '').trim();
+    if (!key) {
+        return normalizeMemoryVectorIndex(null, '');
+    }
+    if (memoryVectorIndexCache.has(key)) {
+        return memoryVectorIndexCache.get(key);
+    }
+    const stored = await memoryVectorStorageGet(getMemoryVectorStorageKey(key)).catch(() => null);
+    const normalized = normalizeMemoryVectorIndex(stored, key);
+    memoryVectorIndexCache.set(key, normalized);
+    return normalized;
+}
+
+async function saveMemoryVectorIndex(contactId, value) {
+    const key = String(contactId || '').trim();
+    if (!key) return normalizeMemoryVectorIndex(null, '');
+    const normalized = normalizeMemoryVectorIndex(value, key);
+    memoryVectorIndexCache.set(key, normalized);
+    await memoryVectorStorageSet(getMemoryVectorStorageKey(key), normalized);
+    return normalized;
+}
+
+async function syncMemoryVectorIndexForContact(contactId, options = {}) {
+    const cid = String(contactId || '').trim();
+    if (!cid) {
+        return { ok: false, skipped: true, reason: 'missing_contact_id', builtCount: 0, pendingCount: 0 };
+    }
+    const memories = getContactMemories(cid).filter(memory => memory && normalizeMemoryVectorText(memory.content));
+    const previousIndex = await loadMemoryVectorIndex(cid);
+    const now = Date.now();
+    if (!memories.length) {
+        await saveMemoryVectorIndex(cid, {
+            version: 1,
+            contactId: cid,
+            modelFingerprint: String(previousIndex && previousIndex.modelFingerprint || ''),
+            updatedAt: now,
+            items: []
+        });
+        return {
+            ok: true,
+            skipped: false,
+            reason: 'no_memories',
+            builtCount: 0,
+            pendingCount: 0,
+            indexedCount: 0,
+            totalMemories: 0
+        };
+    }
+    const vectorSettings = getMemoryVectorSettings();
+    if (!vectorSettings.enabled && !options.force) {
+        return { ok: false, skipped: true, reason: 'vector_disabled', builtCount: 0, pendingCount: 0 };
+    }
+    const config = resolveMemoryVectorEmbeddingConfig(vectorSettings);
+    if (!config.endpoint || !config.model || !config.apiKey) {
+        const missing = [];
+        if (!config.endpoint) missing.push('endpoint');
+        if (!config.model) missing.push('model');
+        if (!config.apiKey) missing.push('api_key');
+        return {
+            ok: false,
+            skipped: true,
+            reason: `embedding_config_incomplete:${missing.join(',') || 'unknown'}`,
+            builtCount: 0,
+            pendingCount: 0
+        };
+    }
+    const forceRebuild = !!options.forceRebuild || String(previousIndex.modelFingerprint || '') !== config.fingerprint;
+    const previousByMemoryId = forceRebuild
+        ? new Map()
+        : new Map((previousIndex.items || []).map(item => [String(item.memoryId || ''), item]));
+
+    const nextItems = [];
+    const pending = [];
+
+    memories.forEach((memory) => {
+        const memoryId = String(memory.id || '').trim();
+        if (!memoryId) return;
+        const contentText = normalizeMemoryVectorText(memory.content, 6000);
+        if (!contentText) return;
+        const contentHash = buildMemoryVectorContentHash(memory);
+        const fallbackImportance = getDefaultImportanceByTags(memory && memory.memoryTags, 'long_term');
+        const itemBase = {
+            memoryId,
+            contentHash,
+            tags: normalizeMemoryTags(memory.memoryTags, 'long_term'),
+            importance: getMemoryImportance(memory, fallbackImportance),
+            time: Number(memory.time || 0),
+            updatedAt: now
+        };
+        const existing = previousByMemoryId.get(memoryId);
+        if (existing && existing.contentHash === contentHash && Array.isArray(existing.embedding) && existing.embedding.length > 0) {
+            nextItems.push(Object.assign({}, existing, itemBase, {
+                updatedAt: Number(existing.updatedAt || now)
+            }));
+            return;
+        }
+        pending.push({
+            memoryId,
+            text: contentText,
+            itemBase
+        });
+    });
+
+    const maxItemsPerRun = Number.isFinite(Number(options.maxItemsPerRun))
+        ? Math.max(1, Math.floor(Number(options.maxItemsPerRun)))
+        : pending.length;
+    const batchSize = Number.isFinite(Number(options.batchSize))
+        ? Math.max(1, Math.min(12, Math.floor(Number(options.batchSize))))
+        : MEMORY_VECTOR_BUILD_BATCH_SIZE;
+    const toEmbed = pending.slice(0, maxItemsPerRun);
+    const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+        ? Math.max(200, Math.floor(Number(options.timeoutMs)))
+        : Math.max(1200, vectorSettings.queryTimeoutMs + 800);
+
+    let builtCount = 0;
+    for (let start = 0; start < toEmbed.length; start += batchSize) {
+        const batch = toEmbed.slice(start, start + batchSize);
+        if (!batch.length) continue;
+        const embed = await requestEmbeddingsForTexts(batch.map(item => item.text), vectorSettings, timeoutMs);
+        batch.forEach((item, index) => {
+            const vector = normalizeEmbeddingVector(embed.vectors[index]);
+            if (!vector.length) return;
+            nextItems.push(Object.assign({}, item.itemBase, {
+                embedding: vector,
+                updatedAt: now
+            }));
+            builtCount += 1;
+        });
+    }
+
+    const deduped = new Map();
+    nextItems.forEach((item) => {
+        if (!item || !item.memoryId || !Array.isArray(item.embedding) || item.embedding.length === 0) return;
+        const prev = deduped.get(item.memoryId);
+        if (!prev || Number(item.updatedAt || 0) >= Number(prev.updatedAt || 0)) {
+            deduped.set(item.memoryId, item);
+        }
+    });
+    const finalItems = Array.from(deduped.values())
+        .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+        .slice(0, MEMORY_VECTOR_INDEX_MAX_ITEMS);
+
+    await saveMemoryVectorIndex(cid, {
+        version: 1,
+        contactId: cid,
+        modelFingerprint: config.fingerprint,
+        updatedAt: now,
+        items: finalItems
+    });
+
+    return {
+        ok: true,
+        skipped: false,
+        builtCount,
+        pendingCount: Math.max(0, pending.length - toEmbed.length),
+        indexedCount: finalItems.length,
+        totalMemories: memories.length
+    };
+}
+
+function enqueueMemoryVectorBuild(contactId) {
+    const cid = String(contactId || '').trim();
+    if (!cid) return;
+    if (memoryVectorBuildQueueSet.has(cid)) return;
+    memoryVectorBuildQueueSet.add(cid);
+    memoryVectorBuildQueue.push(cid);
+    if (!memoryVectorBuildQueueRunning) {
+        setTimeout(() => {
+            processMemoryVectorBuildQueue().catch((error) => {
+                console.error('[memory-vector] background queue failed', error);
+            });
+        }, 0);
+    }
+}
+
+async function processMemoryVectorBuildQueue() {
+    if (memoryVectorBuildQueueRunning) return;
+    memoryVectorBuildQueueRunning = true;
+    try {
+        while (memoryVectorBuildQueue.length > 0) {
+            const contactId = memoryVectorBuildQueue.shift();
+            memoryVectorBuildQueueSet.delete(contactId);
+            try {
+                const result = await syncMemoryVectorIndexForContact(contactId, {
+                    maxItemsPerRun: MEMORY_VECTOR_BACKGROUND_MAX_ITEMS,
+                    batchSize: MEMORY_VECTOR_BUILD_BATCH_SIZE,
+                    timeoutMs: 2500
+                });
+                if (result && result.pendingCount > 0) {
+                    enqueueMemoryVectorBuild(contactId);
+                }
+            } catch (error) {
+                console.error('[memory-vector] sync failed', error);
+            }
+        }
+    } finally {
+        memoryVectorBuildQueueRunning = false;
+    }
+}
+
+function markMemoryVectorIndexDirty(contactId) {
+    const cid = String(contactId || '').trim();
+    if (!cid) return;
+    enqueueMemoryVectorBuild(cid);
+}
+
+function buildMemoryContextFromSections(sections) {
+    const safeSections = sections && typeof sections === 'object'
+        ? sections
+        : { state: [], short_term: [], long_term: [], refined: [] };
+    const buildSection = (title, list) => {
+        if (!Array.isArray(list) || list.length === 0) return '';
+        let text = `\n【${title}】\n`;
+        if (title === '状态记忆') {
+            text += '- 说明：每条状态会标注主体（用户/联系人），请勿混淆主体。\n';
+        }
+        list
+            .slice()
+            .sort((left, right) => Number(left && left.time || 0) - Number(right && right.time || 0))
+            .forEach((memory) => {
+                const date = new Date(Number(memory && memory.time || 0) || Date.now());
+                const dateStr = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                let lineContent = String(memory && memory.content || '');
+                if (title === '状态记忆') {
+                    const owner = getMemoryStateOwner(memory, 'user');
+                    const ownerLabel = owner === 'contact' ? '联系人状态' : '用户状态';
+                    lineContent = /^((用户|联系人)当前状态[:：]|(用户状态|联系人状态)[:：])/.test(lineContent)
+                        ? lineContent
+                        : `${ownerLabel}：${lineContent}`;
+                }
+                text += `- [${dateStr}] ${lineContent}\n`;
+            });
+        return text;
+    };
+    let output = '';
+    output += buildSection('状态记忆', safeSections.state || []);
+    output += buildSection('短期记忆', safeSections.short_term || []);
+    output += buildSection('长期记忆', safeSections.long_term || []);
+    output += buildSection('精炼记忆', safeSections.refined || []);
+    return output;
+}
+
+function buildVectorMemoryQueryText(history) {
+    const source = Array.isArray(history) ? history.slice(-20) : [];
+    return source
+        .map(item => normalizeMemoryVectorText(item && item.content, 1200))
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+}
+
+async function buildMemoryContextByVectorPolicy(contact, history, debugSource = 'chat') {
+    if (!contact || !contact.id) return '';
+    const vectorSettings = getMemoryVectorSettings();
+    if (!vectorSettings.enabled) return '';
+
+    const allMemories = getContactMemories(contact.id).map(memory => {
+        const clone = memory;
+        clone.memoryTags = normalizeMemoryTags(clone.memoryTags, clone.content && clone.content.startsWith('【通话回忆】') ? 'short_term' : 'long_term');
+        ensureMemoryImportance(clone, clone.memoryTags, 'long_term');
+        if (clone.memoryTags.includes('state')) normalizeStateMetaForMemory(clone);
+        return clone;
+    });
+    if (!allMemories.length) return '';
+
+    const queryText = buildVectorMemoryQueryText(history);
+    if (!queryText) return '';
+
+    const settings = ensureMemorySettingsV2();
+    const now = Date.now();
+    const daysBase = Object.assign({}, settings.injectRecentDays, contact.memoryInjectRecentDays || {});
+    const importanceBase = Object.assign({}, settings.injectImportanceMin, contact.memoryInjectImportanceMin || {});
+    const getDaysLimit = (bucket) => clampInt(daysBase[bucket], settings.injectRecentDays[bucket], 0, 3650);
+    const getImportanceLimit = (bucket) => clampFloat(importanceBase[bucket], settings.injectImportanceMin[bucket], 0.1, 1);
+    const isWithinRecentDays = (memory, bucket) => {
+        const days = getDaysLimit(bucket);
+        if (days <= 0) return true;
+        const ts = Number(memory && memory.time);
+        if (!Number.isFinite(ts) || ts <= 0) return false;
+        return (now - ts) <= days * 24 * 60 * 60 * 1000;
+    };
+    const isAboveImportanceLimit = (memory, bucket) => {
+        const importance = getMemoryImportance(memory, getDefaultImportanceByTags(memory && memory.memoryTags, 'long_term'));
+        return importance >= getImportanceLimit(bucket);
+    };
+
+    const candidates = [];
+    allMemories.forEach((memory) => {
+        const tags = normalizeMemoryTags(memory.memoryTags, 'long_term');
+        tags.forEach((bucket) => {
+            if (!['state', 'short_term', 'long_term', 'refined'].includes(bucket)) return;
+            if (!isWithinRecentDays(memory, bucket)) return;
+            if (!isAboveImportanceLimit(memory, bucket)) return;
+            if (bucket === 'state' && memory.stateMeta && memory.stateMeta.phase && memory.stateMeta.phase !== 'active') return;
+            candidates.push({ bucket, memory });
+        });
+    });
+    if (!candidates.length) return '';
+
+    enqueueMemoryVectorBuild(contact.id);
+    let index = await loadMemoryVectorIndex(contact.id);
+    const candidateHashById = new Map();
+    candidates.forEach((entry) => {
+        const memoryId = String(entry.memory && entry.memory.id || '').trim();
+        if (!memoryId || candidateHashById.has(memoryId)) return;
+        candidateHashById.set(memoryId, buildMemoryVectorContentHash(entry.memory));
+    });
+    const extractValidVectorMap = (rows) => {
+        const map = new Map();
+        (rows || []).forEach((row) => {
+            const memoryId = String(row && row.memoryId || '').trim();
+            if (!memoryId) return;
+            const expectedHash = candidateHashById.get(memoryId);
+            if (!expectedHash || expectedHash !== String(row && row.contentHash || '')) return;
+            if (!Array.isArray(row.embedding) || row.embedding.length === 0) return;
+            map.set(memoryId, row);
+        });
+        return map;
+    };
+    let vectorByMemoryId = extractValidVectorMap(index.items);
+    if (vectorByMemoryId.size === 0) {
+        try {
+            await syncMemoryVectorIndexForContact(contact.id, {
+                maxItemsPerRun: Math.max(6, Math.min(24, vectorSettings.topK * 3)),
+                batchSize: MEMORY_VECTOR_BUILD_BATCH_SIZE,
+                timeoutMs: Math.max(900, vectorSettings.queryTimeoutMs + 300),
+                force: true
+            });
+            index = await loadMemoryVectorIndex(contact.id);
+            vectorByMemoryId = extractValidVectorMap(index.items);
+        } catch (error) {
+            console.error('[memory-vector] quick sync failed', error);
+        }
+    }
+    if (vectorByMemoryId.size === 0) {
+        return '';
+    }
+
+    const queryEmbedding = await requestEmbeddingsForTexts([queryText], vectorSettings, vectorSettings.queryTimeoutMs);
+    const queryVector = normalizeEmbeddingVector(queryEmbedding && queryEmbedding.vectors && queryEmbedding.vectors[0]);
+    if (!queryVector.length) return '';
+
+    const scored = candidates
+        .map((entry) => {
+            const memoryId = String(entry.memory && entry.memory.id || '').trim();
+            const vectorItem = vectorByMemoryId.get(memoryId);
+            if (!vectorItem) return null;
+            const similarity = cosineSimilarity(queryVector, vectorItem.embedding);
+            if (!Number.isFinite(similarity) || similarity < vectorSettings.minSimilarity) return null;
+            const fallbackImportance = getDefaultImportanceByTags(entry.memory && entry.memory.memoryTags, 'long_term');
+            const importance = getMemoryImportance(entry.memory, fallbackImportance);
+            const freshness = 1 - Math.min(1, Math.max(0, (now - (Number(entry.memory && entry.memory.time || 0) || now)) / (30 * 24 * 60 * 60 * 1000)));
+            const score = 0.7 * similarity + 0.2 * importance + 0.1 * freshness;
+            return { ...entry, similarity, score };
+        })
+        .filter(Boolean)
+        .sort((left, right) => right.score - left.score);
+
+    if (!scored.length) return '';
+    const selected = scored.slice(0, Math.max(1, vectorSettings.topK));
+    const sections = { state: [], short_term: [], long_term: [], refined: [] };
+    selected.forEach((entry) => {
+        if (!sections[entry.bucket]) return;
+        sections[entry.bucket].push(entry.memory);
+    });
+    const output = buildMemoryContextFromSections(sections);
+    if (!output.trim()) return '';
+
+    emitMemoryInjectDebug(contact, {
+        source: `${debugSource}:vector`,
+        reason: 'vector_selected',
+        settings: {
+            vectorTopK: vectorSettings.topK,
+            vectorMinSimilarity: vectorSettings.minSimilarity,
+            vectorQueryTimeoutMs: vectorSettings.queryTimeoutMs
+        },
+        selectedRows: selected.map((entry) => Object.assign(
+            buildMemoryInjectDebugRow(entry.memory, entry.bucket),
+            {
+                similarity: Number(entry.similarity.toFixed(3)),
+                score: Number(entry.score.toFixed(3))
+            }
+        )),
+        sectionCounts: {
+            state: sections.state.length,
+            short_term: sections.short_term.length,
+            long_term: sections.long_term.length,
+            refined: sections.refined.length
+        },
+        memoryContext: output
+    });
+    return output;
+}
+
+async function buildMemoryContextByPolicyWithVector(contact, history, debugSource = 'chat') {
+    try {
+        const vectorContext = await buildMemoryContextByVectorPolicy(contact, history, debugSource);
+        if (String(vectorContext || '').trim()) {
+            return vectorContext;
+        }
+    } catch (error) {
+        console.error('[memory-vector] retrieval failed, fallback to rule policy', error);
+    }
+    return buildMemoryContextByPolicy(contact, history, debugSource);
+}
+
+window.rebuildMemoryVectorIndex = async function(contactId) {
+    const cid = String(contactId || '').trim();
+    if (!cid) throw new Error('missing_contact_id');
+    memoryVectorIndexCache.delete(cid);
+    let totalBuilt = 0;
+    let pendingCount = 0;
+    let indexedCount = 0;
+    let totalMemories = 0;
+    let rounds = 0;
+    do {
+        rounds += 1;
+        const result = await syncMemoryVectorIndexForContact(cid, {
+            force: true,
+            forceRebuild: rounds === 1,
+            maxItemsPerRun: 60,
+            batchSize: MEMORY_VECTOR_BUILD_BATCH_SIZE,
+            timeoutMs: 5000
+        });
+        if (result && result.skipped) {
+            throw new Error(result.reason || 'vector_rebuild_skipped');
+        }
+        totalBuilt += Number(result && result.builtCount || 0);
+        pendingCount = Number(result && result.pendingCount || 0);
+        indexedCount = Number(result && result.indexedCount || 0);
+        totalMemories = Number(result && result.totalMemories || 0);
+    } while (pendingCount > 0 && rounds < 50);
+    return { ok: true, builtCount: totalBuilt, pendingCount, indexedCount, totalMemories };
+};
+
+window.getMemoryVectorDebugInfo = async function(contactId) {
+    const cid = String(contactId || '').trim();
+    if (!cid) return { ok: false, reason: 'missing_contact_id' };
+    const index = await loadMemoryVectorIndex(cid);
+    return {
+        ok: true,
+        contactId: cid,
+        modelFingerprint: index.modelFingerprint || '',
+        updatedAt: Number(index.updatedAt || 0),
+        indexedCount: Array.isArray(index.items) ? index.items.length : 0
+    };
+};
+
+window.buildMemoryContextByPolicyWithVector = buildMemoryContextByPolicyWithVector;
 
 function buildMemoryContextByPolicy(contact, history, debugSource = 'chat') {
     if (!contact || !contact.id) return '';
@@ -7116,6 +8006,13 @@ function openMemorySettings() {
     });
     const dedupeEl = document.getElementById('modal-memory-dedupe-threshold');
     if (dedupeEl) dedupeEl.value = settings.dedupeThreshold;
+    const vectorSettings = settings.vectorRetrieval || {};
+    const vectorEnabledEl = document.getElementById('modal-memory-vector-enabled');
+    if (vectorEnabledEl) vectorEnabledEl.checked = !!vectorSettings.enabled;
+    const vectorTopKEl = document.getElementById('modal-memory-vector-topk');
+    if (vectorTopKEl) vectorTopKEl.value = String(clampInt(vectorSettings.topK, 8, 1, 30));
+    const vectorMinSimilarityEl = document.getElementById('modal-memory-vector-min-similarity');
+    if (vectorMinSimilarityEl) vectorMinSimilarityEl.value = clampFloat(vectorSettings.minSimilarity, 0.35, 0.05, 0.99).toFixed(2);
     document.getElementById('memory-settings-modal').classList.remove('hidden');
 }
 
@@ -7155,9 +8052,30 @@ function handleSaveMemorySettings() {
     if (dedupeEl) {
         settings.dedupeThreshold = clampFloat(dedupeEl.value, settings.dedupeThreshold, 0.3, 0.99);
     }
+    const currentVector = settings.vectorRetrieval && typeof settings.vectorRetrieval === 'object'
+        ? settings.vectorRetrieval
+        : {};
+    const vectorEnabledEl = document.getElementById('modal-memory-vector-enabled');
+    const vectorTopKEl = document.getElementById('modal-memory-vector-topk');
+    const vectorMinSimilarityEl = document.getElementById('modal-memory-vector-min-similarity');
+    settings.vectorRetrieval = {
+        enabled: vectorEnabledEl ? !!vectorEnabledEl.checked : !!currentVector.enabled,
+        endpoint: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.endpoint || '').trim(),
+        apiKey: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.apiKey || '').trim(),
+        model: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.model || 'BAAI/bge-m3').trim(),
+        topK: vectorTopKEl ? clampInt(vectorTopKEl.value, clampInt(currentVector.topK, 8, 1, 30), 1, 30) : clampInt(currentVector.topK, 8, 1, 30),
+        minSimilarity: vectorMinSimilarityEl
+            ? clampFloat(vectorMinSimilarityEl.value, clampFloat(currentVector.minSimilarity, 0.35, 0.05, 0.99), 0.05, 0.99)
+            : clampFloat(currentVector.minSimilarity, 0.35, 0.05, 0.99),
+        queryTimeoutMs: clampInt(currentVector.queryTimeoutMs, 600, 200, 5000),
+        useChatKeyFallback: false
+    };
     window.iphoneSimState.memorySettingsV2 = settings;
     
     saveConfig();
+    if (settings.vectorRetrieval && settings.vectorRetrieval.enabled && contact && contact.id !== undefined && contact.id !== null) {
+        markMemoryVectorIndexDirty(contact.id);
+    }
     document.getElementById('memory-settings-modal').classList.add('hidden');
     alert('设置已保存');
 }
@@ -7410,6 +8328,7 @@ function handleSaveEditedMemory() {
         }
         syncLegacyPerceptionAndState(memory.contactId);
         saveConfig();
+        markMemoryVectorIndexDirty(memory.contactId);
         renderMemoryList();
         document.getElementById('edit-memory-modal').classList.add('hidden');
     }
@@ -7423,6 +8342,7 @@ window.deleteMemory = function(id) {
     const contactId = window.iphoneSimState.currentChatContactId;
     if (contactId) syncLegacyPerceptionAndState(contactId);
     saveConfig();
+    markMemoryVectorIndexDirty(contactId);
     renderMemoryList();
     // 刷新设置页中的token计数
     if (typeof window.refreshTokenCountForContact === 'function' && contactId) {
@@ -7458,6 +8378,7 @@ window.retagMemory = function(id) {
     ensureMemoryImportance(memory, memory.memoryTags, 'long_term');
     syncLegacyPerceptionAndState(memory.contactId);
     saveConfig();
+    markMemoryVectorIndexDirty(memory.contactId);
     renderMemoryList();
 };
 
@@ -7474,6 +8395,7 @@ window.resolveStateMemory = function(id) {
     memory.stateMeta.resolvedAt = Date.now();
     syncLegacyPerceptionAndState(memory.contactId);
     saveConfig();
+    markMemoryVectorIndexDirty(memory.contactId);
     renderMemoryList();
 };
 
@@ -7492,6 +8414,7 @@ window.extendStateMemory = function(id) {
     normalizeStateMetaForMemory(memory);
     syncLegacyPerceptionAndState(memory.contactId);
     saveConfig();
+    markMemoryVectorIndexDirty(memory.contactId);
     renderMemoryList();
 };
 
@@ -9683,6 +10606,11 @@ function setupAppsListeners() {
     const memorySettingsModal = document.getElementById('memory-settings-modal');
     const closeMemorySettingsBtn = document.getElementById('close-memory-settings');
     const saveMemorySettingsBtn = document.getElementById('save-memory-settings-btn');
+    const memoryVectorRebuildBtn = document.getElementById('memory-vector-rebuild-btn');
+    const memoryVectorErrorModal = document.getElementById('memory-vector-error-modal');
+    const closeMemoryVectorErrorBtn = document.getElementById('close-memory-vector-error');
+    const copyMemoryVectorErrorLogBtn = document.getElementById('copy-memory-vector-error-log-btn');
+    const memoryVectorErrorLogEl = document.getElementById('memory-vector-error-log');
     const editMemoryModal = document.getElementById('edit-memory-modal');
     const closeEditMemoryBtn = document.getElementById('close-edit-memory');
     const saveEditedMemoryBtn = document.getElementById('save-edited-memory-btn');
@@ -9886,6 +10814,120 @@ function setupAppsListeners() {
     if (memorySettingsBtn) memorySettingsBtn.addEventListener('click', openMemorySettings);
     if (closeMemorySettingsBtn) closeMemorySettingsBtn.addEventListener('click', () => memorySettingsModal.classList.add('hidden'));
     if (saveMemorySettingsBtn) saveMemorySettingsBtn.addEventListener('click', handleSaveMemorySettings);
+    if (closeMemoryVectorErrorBtn && memoryVectorErrorModal) {
+        closeMemoryVectorErrorBtn.addEventListener('click', () => memoryVectorErrorModal.classList.add('hidden'));
+    }
+    if (memoryVectorErrorModal) {
+        memoryVectorErrorModal.addEventListener('click', (event) => {
+            if (event.target === memoryVectorErrorModal) {
+                memoryVectorErrorModal.classList.add('hidden');
+            }
+        });
+    }
+    if (copyMemoryVectorErrorLogBtn) {
+        copyMemoryVectorErrorLogBtn.addEventListener('click', async () => {
+            const text = memoryVectorErrorLogEl ? String(memoryVectorErrorLogEl.value || '') : '';
+            const copied = await copyTextToClipboard(text);
+            if (copied) {
+                showNotification('诊断日志已复制', 1500, 'success');
+            } else {
+                showNotification('复制失败，请手动全选复制', 1800);
+            }
+        });
+    }
+    if (memoryVectorRebuildBtn) {
+        memoryVectorRebuildBtn.addEventListener('click', async () => {
+            const contactId = window.iphoneSimState && window.iphoneSimState.currentChatContactId;
+            if (!contactId) {
+                showNotification('请先打开一个聊天', 1500);
+                return;
+            }
+            const contact = Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
+                ? window.iphoneSimState.contacts.find(item => String(item && item.id) === String(contactId))
+                : null;
+            const localMemoryCount = getContactMemories(contactId).filter(memory => normalizeMemoryVectorText(memory && memory.content)).length;
+            if (localMemoryCount <= 0) {
+                const vectorSettings = getMemoryVectorSettings();
+                const resolvedConfig = resolveMemoryVectorEmbeddingConfig(vectorSettings);
+                window.__memoryVectorLastRebuildLog = buildMemoryVectorRebuildLog({
+                    status: 'skipped_no_memories',
+                    contactId: String(contactId || ''),
+                    contactName: contact ? (contact.remark || contact.nickname || contact.name || '') : '',
+                    vectorSettings,
+                    resolvedConfig,
+                    localMemoryCount,
+                    result: { indexedCount: 0, totalMemories: 0, builtCount: 0, pendingCount: 0 }
+                });
+                showNotification('当前联系人没有可向量化的记忆条目', 2400);
+                return;
+            }
+            const originalText = memoryVectorRebuildBtn.textContent;
+            memoryVectorRebuildBtn.disabled = true;
+            memoryVectorRebuildBtn.textContent = '重建中...';
+            try {
+                if (typeof window.rebuildMemoryVectorIndex === 'function') {
+                    const result = await window.rebuildMemoryVectorIndex(contactId);
+                    const built = Number(result && result.builtCount || 0);
+                    const indexed = Number(result && result.indexedCount || 0);
+                    const total = Number(result && result.totalMemories || 0);
+                    window.__memoryVectorLastRebuildLog = buildMemoryVectorRebuildLog({
+                        status: 'success',
+                        contactId: String(contactId || ''),
+                        contactName: contact ? (contact.remark || contact.nickname || contact.name || '') : '',
+                        vectorSettings: getMemoryVectorSettings(),
+                        resolvedConfig: resolveMemoryVectorEmbeddingConfig(getMemoryVectorSettings()),
+                        localMemoryCount,
+                        result
+                    });
+                    if (total <= 0) {
+                        showNotification('当前联系人没有可向量化的记忆条目', 2400);
+                    } else {
+                        showNotification(`向量索引已重建：新增 ${built}，已索引 ${indexed}/${total}`, 2400, 'success');
+                    }
+                } else {
+                    showNotification('向量索引功能尚未就绪', 1800);
+                }
+            } catch (error) {
+                const vectorSettings = getMemoryVectorSettings();
+                const resolvedConfig = resolveMemoryVectorEmbeddingConfig(vectorSettings);
+                const failure = explainMemoryVectorError(error, resolvedConfig.endpoint);
+                const summaryText = [
+                    `失败阶段：${failure.stage}`,
+                    `错误类型：${failure.title}`,
+                    `具体原因：${failure.summary}`,
+                    failure.hint ? `处理建议：${failure.hint}` : ''
+                ].filter(Boolean).join('\n');
+                const logText = buildMemoryVectorRebuildLog({
+                    status: 'failed',
+                    contactId: String(contactId || ''),
+                    contactName: contact ? (contact.remark || contact.nickname || contact.name || '') : '',
+                    vectorSettings,
+                    resolvedConfig,
+                    localMemoryCount,
+                    result: { totalMemories: localMemoryCount, indexedCount: 0, builtCount: 0, pendingCount: 0 },
+                    failure,
+                    error
+                });
+                window.__memoryVectorLastRebuildLog = logText;
+                openMemoryVectorErrorModal(summaryText, logText);
+                const message = String(error && error.message || '');
+                if (message.startsWith('embedding_config_incomplete')) {
+                    showNotification('内置 Embedding 配置不可用，请复制日志给开发者排查', 2800);
+                } else if (message.includes('embedding_http_401')) {
+                    showNotification('Embedding 授权失败（401）', 2200);
+                } else if (message.includes('embedding_http_404')) {
+                    showNotification('Embedding 服务地址不可用（404）', 2200);
+                } else if (message.includes('embedding_timeout')) {
+                    showNotification('Embedding 请求超时，请稍后重试', 2200);
+                } else {
+                    showNotification('重建失败，请复制诊断日志排查', 2200);
+                }
+            } finally {
+                memoryVectorRebuildBtn.disabled = false;
+                memoryVectorRebuildBtn.textContent = originalText;
+            }
+        });
+    }
 
     const closeLocationBtn = document.getElementById('close-location-app');
     const itinerarySettingsBtn = document.getElementById('itinerary-settings-btn');

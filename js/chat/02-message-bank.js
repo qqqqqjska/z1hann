@@ -371,7 +371,7 @@ window.getWechatChatScreenShareSnapshot = function() {
     const contact = Array.isArray(state && state.contacts)
         ? state.contacts.find(item => String(item.id) === String(contactId))
         : null;
-    const history = state && state.chatHistory ? (state.chatHistory[contactId] || []) : [];
+    const history = getChatHistoryByChannel(contactId, 'wechat');
     const historyMap = new Map(history.map(msg => [String(msg.id || ''), msg]));
     const container = document.getElementById('chat-messages');
     let items = [];
@@ -412,12 +412,91 @@ window.getWechatChatScreenShareSnapshot = function() {
     };
 };
 
+function ensureContactWechatBlockFields(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+    if (typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)) {
+        contact.wechatBlockedByUser = false;
+        contact.wechatBlockedAt = null;
+        return contact;
+    }
+    if (typeof contact.wechatBlockedByUser !== 'boolean') {
+        contact.wechatBlockedByUser = false;
+    }
+    if (!Number.isFinite(Number(contact.wechatBlockedAt))) {
+        contact.wechatBlockedAt = null;
+    }
+    return contact;
+}
+
+function normalizeChatMessageChannel(msg) {
+    return msg && msg.channel === 'messages-app' ? 'messages-app' : 'wechat';
+}
+
+function isChatMessageInChannel(msg, channel = 'wechat') {
+    return normalizeChatMessageChannel(msg) === channel;
+}
+
+function getContactById(contactId) {
+    return Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
+        ? window.iphoneSimState.contacts.find(contact => String(contact.id) === String(contactId)) || null
+        : null;
+}
+
+function getResolvedDeliveryChannel(contactOrId, preferredChannel = 'auto') {
+    const preferred = preferredChannel === 'messages-app' || preferredChannel === 'wechat'
+        ? preferredChannel
+        : 'auto';
+    const contact = typeof contactOrId === 'object' && contactOrId
+        ? contactOrId
+        : getContactById(contactOrId);
+    ensureContactWechatBlockFields(contact);
+    if (typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)) {
+        return 'wechat';
+    }
+    if (preferred !== 'auto') return preferred;
+    return contact && contact.wechatBlockedByUser ? 'messages-app' : 'wechat';
+}
+
+function getChatHistoryByChannel(contactId, channel = 'wechat') {
+    const history = window.iphoneSimState && window.iphoneSimState.chatHistory
+        ? window.iphoneSimState.chatHistory[contactId]
+        : null;
+    if (!Array.isArray(history) || history.length === 0) return [];
+    return history.filter(msg => isChatMessageInChannel(msg, channel));
+}
+
+function markMessagesAppThreadRead(contactId) {
+    const history = window.iphoneSimState && window.iphoneSimState.chatHistory
+        ? window.iphoneSimState.chatHistory[contactId]
+        : null;
+    if (!Array.isArray(history) || history.length === 0) return false;
+
+    let changed = false;
+    history.forEach(msg => {
+        if (!msg || msg.role !== 'assistant') return;
+        if (!isChatMessageInChannel(msg, 'messages-app')) return;
+        if (msg.readInMessagesApp === true) return;
+        msg.readInMessagesApp = true;
+        changed = true;
+    });
+
+    if (changed) saveConfig();
+    return changed;
+}
+
+window.ensureContactWechatBlockFields = ensureContactWechatBlockFields;
+window.normalizeChatMessageChannel = normalizeChatMessageChannel;
+window.isChatMessageInChannel = isChatMessageInChannel;
+window.getResolvedDeliveryChannel = getResolvedDeliveryChannel;
+window.getChatHistoryByChannel = getChatHistoryByChannel;
+window.markMessagesAppThreadRead = markMessagesAppThreadRead;
+
 function renderChatHistory(contactId, preserveScroll = false) {
     if (typeof window.sanitizeChatHistoryForRender === 'function') {
         const sanitized = window.sanitizeChatHistoryForRender(contactId);
         if (sanitized) saveConfig();
     }
-    const messages = window.iphoneSimState.chatHistory[contactId] || [];
+    const messages = getChatHistoryByChannel(contactId, 'wechat');
     const container = document.getElementById('chat-messages');
     if (typeof window.applyChatDisplayPreferences === 'function') {
         window.applyChatDisplayPreferences(contactId);
@@ -613,9 +692,22 @@ window.parseStartForumLivePayload = function(rawPayload) {
     return { title, actionDesc, initialComments, bgUrl, viewers };
 };
 
-function sendMessage(text, isUser, type = 'text', description = null, targetContactId = null) {
+function sendMessage(text, isUser, type = 'text', description = null, targetContactId = null, meta = null) {
     const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
     if (!contactId) return null;
+
+    const normalizedMeta = meta && typeof meta === 'object' ? meta : {};
+    const contact = getContactById(contactId);
+    ensureContactWechatBlockFields(contact);
+    const deliveryChannel = getResolvedDeliveryChannel(contact, normalizedMeta.channel);
+    const bypassWechatBlock = !!normalizedMeta.bypassWechatBlock;
+
+    if (isUser && deliveryChannel === 'wechat' && contact && contact.wechatBlockedByUser && !bypassWechatBlock) {
+        if (typeof window.showChatToast === 'function') {
+            window.showChatToast('你已在微信拉黑 TA，请去“信息”里继续聊天', 2200);
+        }
+        return null;
+    }
 
     if (isUser && type === 'text' && window.WhisperChallenge && typeof window.WhisperChallenge.checkUserMessage === 'function') {
         const whisperResult = window.WhisperChallenge.checkUserMessage(text, { contactId, type });
@@ -623,28 +715,62 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
             return null;
         }
     }
-    
+
     if (!window.iphoneSimState.chatHistory[contactId]) {
         window.iphoneSimState.chatHistory[contactId] = [];
     }
-    
+
+    const replyTo = Object.prototype.hasOwnProperty.call(normalizedMeta, 'replyTo')
+        ? normalizedMeta.replyTo
+        : ((window.iphoneSimState.replyingToMsg && !normalizedMeta.ignoreReplyingState && (!targetContactId || targetContactId === window.iphoneSimState.currentChatContactId)) ? {
+            name: window.iphoneSimState.replyingToMsg.name,
+            content: window.iphoneSimState.replyingToMsg.type === 'text' ? window.iphoneSimState.replyingToMsg.content : `[${window.iphoneSimState.replyingToMsg.type === 'sticker' ? '表情包' : window.iphoneSimState.replyingToMsg.type === 'voice' ? '语音' : '图片'}]`,
+            targetMsgId: window.iphoneSimState.replyingToMsg.msgId || '',
+            targetTimestamp: window.iphoneSimState.replyingToMsg.timestamp || null,
+            type: window.iphoneSimState.replyingToMsg.type || 'text'
+        } : null);
+
     const msg = {
         id: Date.now() + Math.random().toString(36).substr(2, 9),
         time: Date.now(),
         role: isUser ? 'user' : 'assistant',
         content: text,
         type: type,
-        replyTo: (window.iphoneSimState.replyingToMsg && (!targetContactId || targetContactId === window.iphoneSimState.currentChatContactId)) ? {
-            name: window.iphoneSimState.replyingToMsg.name,
-            content: window.iphoneSimState.replyingToMsg.type === 'text' ? window.iphoneSimState.replyingToMsg.content : `[${window.iphoneSimState.replyingToMsg.type === 'sticker' ? '表情包' : window.iphoneSimState.replyingToMsg.type === 'voice' ? '语音' : '图片'}]`,
-            targetMsgId: window.iphoneSimState.replyingToMsg.msgId || '',
-            targetTimestamp: window.iphoneSimState.replyingToMsg.timestamp || null,
-            type: window.iphoneSimState.replyingToMsg.type || 'text'
-        } : null
+        channel: deliveryChannel,
+        replyTo
     };
+
+    if (contact && typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)) {
+        if (typeof window.decorateGroupChatMessageMeta === 'function') {
+            Object.assign(msg, window.decorateGroupChatMessageMeta(msg, contact, isUser, normalizedMeta));
+        } else if (isUser) {
+            msg.speakerContactId = 'me';
+        } else if (normalizedMeta.speakerContactId || normalizedMeta.speaker_contact_id) {
+            msg.speakerContactId = normalizedMeta.speakerContactId || normalizedMeta.speaker_contact_id;
+        }
+    }
 
     if (description) {
         msg.description = description;
+    }
+
+    if (normalizedMeta.thought) {
+        msg.thought = normalizedMeta.thought;
+    }
+
+    if (type === 'text' && normalizedMeta.bilingualTranslation && typeof normalizedMeta.bilingualTranslation === 'object') {
+        const translatedText = String(normalizedMeta.bilingualTranslation.translatedText || '').trim();
+        if (translatedText) {
+            msg.bilingualTranslation = {
+                sourceLang: String(normalizedMeta.bilingualTranslation.sourceLang || '').trim(),
+                targetLang: String(normalizedMeta.bilingualTranslation.targetLang || '').trim(),
+                translatedText
+            };
+        }
+    }
+
+    if (deliveryChannel === 'messages-app') {
+        msg.readInMessagesApp = isUser ? true : !!normalizedMeta.readInMessagesApp;
     }
 
     if (typeof window.markFireBuddyMentionOnOutgoingMsg === 'function') {
@@ -654,8 +780,33 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
             console.warn('标记小火人 mention 失败', fireBuddyMentionError);
         }
     }
-    
+
     window.iphoneSimState.chatHistory[contactId].push(msg);
+    if (typeof window.updateContactStatusFromChatActivity === 'function') {
+        try {
+            window.updateContactStatusFromChatActivity(contactId, {
+                isUser,
+                type,
+                text,
+                deliveryChannel,
+                time: msg.time
+            });
+        } catch (liveStatusError) {
+            console.warn('聊天状态动态更新失败', liveStatusError);
+        }
+    }
+
+    const shouldOffloadInlineMedia = (type === 'image' || type === 'sticker')
+        && typeof text === 'string'
+        && text.trim().startsWith('data:image');
+    if (shouldOffloadInlineMedia && typeof window.offloadInlineChatMediaMessage === 'function') {
+        Promise.resolve().then(() => window.offloadInlineChatMediaMessage(contactId, msg.id, {
+            type: type === 'sticker' ? 'image/webp' : 'image/jpeg',
+            name: normalizedMeta.fileName || ''
+        })).catch((error) => {
+            console.warn('聊天图片即时转存失败', error);
+        });
+    }
     if (type === 'text' && window.FloraEngine && typeof window.FloraEngine.analyzeChat === 'function') {
         window.FloraEngine.analyzeChat(text, !isUser, { contactId, type });
     }
@@ -681,10 +832,8 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
             console.warn('[music-v2][invite-debug][chat]', 'invite-parse-failed', inviteParseError);
         }
     }
-    
-    // process manual ACTION commands embedded in user message
+
     if (isUser && text && text.includes('ACTION:')) {
-        // start live if requested
         const liveMatch = text.match(/ACTION:\s*START_FORUM_LIVE:\s*(.*?)(?:\n|$)/);
         if (liveMatch && liveMatch[1] !== undefined) {
             const parsedLive = window.parseStartForumLivePayload ? window.parseStartForumLivePayload(liveMatch[1]) : null;
@@ -695,17 +844,15 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
             const liveViewers = parsedLive?.viewers || '';
             if (window.createForumLiveStream) window.createForumLiveStream(contactId, liveTitle, liveActionDesc, liveBgUrl, liveInitialComments, liveViewers);
         }
-        // post forum content
         const postMatch = text.match(/ACTION:\s*POST_FORUM:\s*(.*?)(?:\n|$)/);
         if (postMatch && postMatch[1] !== undefined) {
             const content = postMatch[1].trim();
             if (content && window.addForumPost) window.addForumPost(contactId, content, []);
         }
     }
-    
-    if (window.iphoneSimState.replyingToMsg && (!targetContactId || targetContactId === window.iphoneSimState.currentChatContactId)) cancelQuote();
-    
-    const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+
+    if (window.iphoneSimState.replyingToMsg && !normalizedMeta.ignoreReplyingState && (!targetContactId || targetContactId === window.iphoneSimState.currentChatContactId)) cancelQuote();
+
     if (contact) {
         if (typeof window.ensureContactRestWindowFields === 'function') {
             window.ensureContactRestWindowFields(contact);
@@ -715,7 +862,7 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
                 contact.messagesSinceLastItinerary = 0;
             }
             contact.messagesSinceLastItinerary++;
-            
+
             if (contact.messagesSinceLastItinerary >= (contact.autoItineraryInterval || 10)) {
                 if (window.generateNewItinerary) {
                     window.generateNewItinerary(contact);
@@ -738,17 +885,27 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
             window.loadFloatingChatHistory();
         }
     }
-    
-    // Only update UI if we are in the chat with this contact
-    if (window.iphoneSimState.currentChatContactId === contactId) {
+
+    if (deliveryChannel === 'wechat' && window.iphoneSimState.currentChatContactId === contactId) {
         appendMessageToUI(text, isUser, type, description, msg.replyTo, msg.id, msg.time);
         scrollToBottom();
     }
 
     if (window.renderContactList) window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
 
+    if (deliveryChannel === 'messages-app' && window.MessagesApp && typeof window.MessagesApp.refresh === 'function') {
+        window.MessagesApp.refresh(contactId);
+    }
+
+    if (!isUser && deliveryChannel === 'wechat' && normalizedMeta.showNotification === true && typeof window.showChatNotification === 'function') {
+        const notificationText = typeof formatLastMsgPreview === 'function'
+            ? formatLastMsgPreview(msg, contact)
+            : (String(text || '').trim() || '[消息]');
+        window.showChatNotification(contactId, notificationText);
+    }
+
     if (window.checkAndSummarize) window.checkAndSummarize(contactId);
-    
+
     return msg;
 }
 

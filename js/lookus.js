@@ -8,6 +8,18 @@ let amapMarker = null;
 let amapContactMarker = null;
 let amapPolyline = null;
 let currentUserLocation = null; // { lat, lng, address }
+const DEVICE_USAGE_SYNC_DEFAULTS = {
+    enabled: false,
+    apiBaseUrl: '',
+    userId: 'default-user',
+    deviceId: 'phone-main',
+    secret: '',
+    sharedContactIds: [],
+    lastFetchedAt: 0,
+    cacheTtlMs: 60000
+};
+let deviceUsageSummaryCache = null;
+let deviceUsageSummaryCacheKey = '';
 
 window.getLookusCurrentUserLocation = function() {
     if (!currentUserLocation) return null;
@@ -17,6 +29,398 @@ window.getLookusCurrentUserLocation = function() {
         address: currentUserLocation.address || ''
     };
 };
+
+function escapeLookusHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getDeviceUsageSyncState() {
+    if (!window.iphoneSimState) window.iphoneSimState = {};
+    const merged = Object.assign({}, DEVICE_USAGE_SYNC_DEFAULTS, window.iphoneSimState.deviceUsageSync || {});
+    merged.apiBaseUrl = String(merged.apiBaseUrl || '').trim().replace(/\/$/, '');
+    merged.userId = String(merged.userId || DEVICE_USAGE_SYNC_DEFAULTS.userId).trim() || DEVICE_USAGE_SYNC_DEFAULTS.userId;
+    merged.deviceId = String(merged.deviceId || DEVICE_USAGE_SYNC_DEFAULTS.deviceId).trim() || DEVICE_USAGE_SYNC_DEFAULTS.deviceId;
+    merged.secret = String(merged.secret || '').trim();
+    merged.sharedContactIds = Array.from(new Set(
+        (Array.isArray(merged.sharedContactIds) ? merged.sharedContactIds : [])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+    ));
+    merged.lastFetchedAt = Number(merged.lastFetchedAt || 0) || 0;
+    merged.cacheTtlMs = Math.max(5000, Number(merged.cacheTtlMs || DEVICE_USAGE_SYNC_DEFAULTS.cacheTtlMs) || DEVICE_USAGE_SYNC_DEFAULTS.cacheTtlMs);
+    window.iphoneSimState.deviceUsageSync = merged;
+    return merged;
+}
+
+function persistDeviceUsageSyncState() {
+    if (typeof window.saveConfig === 'function') {
+        try {
+            window.saveConfig();
+        } catch (error) {
+            console.error('[device-usage] saveConfig failed', error);
+        }
+    }
+}
+
+function invalidateDeviceUsageSummaryCache() {
+    deviceUsageSummaryCache = null;
+    deviceUsageSummaryCacheKey = '';
+    const state = getDeviceUsageSyncState();
+    state.lastFetchedAt = 0;
+}
+
+function isDeviceUsageSharedWithContact(contactId) {
+    const state = getDeviceUsageSyncState();
+    const safeContactId = String(contactId || '').trim();
+    if (!safeContactId) return false;
+    return state.sharedContactIds.includes(safeContactId);
+}
+
+function setDeviceUsageSharedWithContact(contactId, enabled, options = {}) {
+    const state = getDeviceUsageSyncState();
+    const safeContactId = String(contactId || '').trim();
+    if (!safeContactId) return state.sharedContactIds.slice();
+    const next = new Set(state.sharedContactIds);
+    if (enabled) next.add(safeContactId);
+    else next.delete(safeContactId);
+    state.sharedContactIds = Array.from(next.values());
+    if (options.persist !== false) persistDeviceUsageSyncState();
+    return state.sharedContactIds.slice();
+}
+
+function formatDeviceUsageDuration(durationMs) {
+    const safeMs = Math.max(0, Number(durationMs || 0));
+    const totalMinutes = Math.floor(safeMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0 && minutes > 0) return `${hours}小时${minutes}分钟`;
+    if (hours > 0) return `${hours}小时`;
+    if (minutes > 0) return `${minutes}分钟`;
+    const seconds = Math.max(0, Math.floor(safeMs / 1000));
+    return `${seconds}秒`;
+}
+
+function getDeviceUsageTimezoneOffsetMinutes() {
+    try {
+        return Number(new Date().getTimezoneOffset()) || 0;
+    } catch (error) {
+        return 0;
+    }
+}
+
+function buildDeviceUsageShortcutTemplate(state, appName = '微信') {
+    const syncState = state || getDeviceUsageSyncState();
+    const base = String(syncState.apiBaseUrl || '').trim().replace(/\/$/, '');
+    if (!base) return '请先填写后端地址，保存后这里会生成 iPhone / Android 自动化 URL 模板。';
+    const safeAppName = encodeURIComponent(String(appName || '微信').trim() || '微信');
+    const params = new URLSearchParams({
+        userId: syncState.userId || DEVICE_USAGE_SYNC_DEFAULTS.userId,
+        deviceId: syncState.deviceId || DEVICE_USAGE_SYNC_DEFAULTS.deviceId,
+        secret: syncState.secret || 'YOUR_SECRET',
+        tzOffsetMinutes: String(getDeviceUsageTimezoneOffsetMinutes())
+    });
+    return `${base}/api/screentime/toggle/${safeAppName}?${params.toString()}`;
+}
+
+function buildDeviceUsageAndroidTemplate(state, appName = '{app_name}') {
+    const syncState = state || getDeviceUsageSyncState();
+    const base = String(syncState.apiBaseUrl || '').trim().replace(/\/$/, '');
+    if (!base) return '请先填写后端地址，保存后这里会生成 iPhone / Android 自动化 URL 模板。';
+    const params = new URLSearchParams({
+        userId: syncState.userId || DEVICE_USAGE_SYNC_DEFAULTS.userId,
+        deviceId: syncState.deviceId || DEVICE_USAGE_SYNC_DEFAULTS.deviceId,
+        secret: syncState.secret || 'YOUR_SECRET',
+        tzOffsetMinutes: String(getDeviceUsageTimezoneOffsetMinutes())
+    });
+    const rawAppName = String(appName || '{app_name}').trim() || '{app_name}';
+    const safeAppName = /^\{.+\}$/.test(rawAppName) ? rawAppName : encodeURIComponent(rawAppName);
+    return `${base}/api/screentime/toggle?appName=${safeAppName}&${params.toString()}`;
+}
+
+function buildDeviceUsageTemplatePreviewMarkup(state) {
+    const iosTemplate = buildDeviceUsageShortcutTemplate(state);
+    const androidTemplate = buildDeviceUsageAndroidTemplate(state);
+    return `
+        <div style="margin-top: 12px; display:flex; flex-direction:column; gap:10px;">
+            <div>
+                <div style="font-size: 12px; color: #777; margin-bottom: 6px;">iPhone 快捷指令</div>
+                <div style="padding: 12px; border-radius: 12px; background: #f6f7fb; font-size: 12px; color: #555; line-height: 1.6; white-space: pre-wrap; word-break: break-all;">${escapeLookusHtml(iosTemplate)}</div>
+            </div>
+            <div>
+                <div style="font-size: 12px; color: #777; margin-bottom: 6px;">Android MacroDroid</div>
+                <div style="padding: 12px; border-radius: 12px; background: #f6f7fb; font-size: 12px; color: #555; line-height: 1.6; white-space: pre-wrap; word-break: break-all;">${escapeLookusHtml(androidTemplate)}</div>
+            </div>
+        </div>
+    `;
+}
+
+function buildDeviceUsageSummaryCacheKey(state) {
+    const syncState = state || getDeviceUsageSyncState();
+    return [syncState.apiBaseUrl, syncState.userId, syncState.deviceId, syncState.secret].join('|');
+}
+
+function buildDeviceUsageApiUrl(pathname, state) {
+    const syncState = state || getDeviceUsageSyncState();
+    const base = String(syncState.apiBaseUrl || '').trim().replace(/\/$/, '');
+    if (!base) throw new Error('请先配置真实手机使用同步的后端地址');
+    const url = new URL(`${base}${pathname}`);
+    url.searchParams.set('userId', syncState.userId || DEVICE_USAGE_SYNC_DEFAULTS.userId);
+    url.searchParams.set('deviceId', syncState.deviceId || DEVICE_USAGE_SYNC_DEFAULTS.deviceId);
+    url.searchParams.set('secret', syncState.secret || '');
+    url.searchParams.set('tzOffsetMinutes', String(getDeviceUsageTimezoneOffsetMinutes()));
+    return url;
+}
+
+function isDeviceUsageSyncConfigured(state) {
+    const syncState = state || getDeviceUsageSyncState();
+    return !!(syncState.enabled && syncState.apiBaseUrl && syncState.userId && syncState.deviceId && syncState.secret);
+}
+
+async function fetchDeviceUsageSummary(forceRefresh = false) {
+    const state = getDeviceUsageSyncState();
+    if (!isDeviceUsageSyncConfigured(state)) {
+        throw new Error('真实手机使用同步尚未配置完成');
+    }
+
+    const now = Date.now();
+    const cacheKey = buildDeviceUsageSummaryCacheKey(state);
+    if (!forceRefresh && deviceUsageSummaryCache && deviceUsageSummaryCacheKey === cacheKey && (now - Number(state.lastFetchedAt || 0)) < state.cacheTtlMs) {
+        return deviceUsageSummaryCache;
+    }
+
+    const url = buildDeviceUsageApiUrl('/api/screentime/summary', state);
+    const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+        throw new Error(String(data && data.error ? data.error : `HTTP ${response.status}`));
+    }
+
+    deviceUsageSummaryCache = data;
+    deviceUsageSummaryCacheKey = cacheKey;
+    state.lastFetchedAt = now;
+    return data;
+}
+
+async function resetDeviceUsageRemoteState() {
+    const state = getDeviceUsageSyncState();
+    if (!isDeviceUsageSyncConfigured(state)) {
+        throw new Error('真实手机使用同步尚未配置完成');
+    }
+    const url = buildDeviceUsageApiUrl('/api/screentime/reset-all', state);
+    const response = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+        throw new Error(String(data && data.error ? data.error : `HTTP ${response.status}`));
+    }
+    invalidateDeviceUsageSummaryCache();
+    return data;
+}
+
+function buildDeviceUsagePromptContextText(summary) {
+    if (!summary || typeof summary !== 'object') return '';
+    const lines = [];
+    const topApps = Array.isArray(summary.apps) ? summary.apps.slice(0, 5) : [];
+    const recentEvents = Array.isArray(summary.recentEvents) ? summary.recentEvents.slice(0, 5) : [];
+    lines.push('【用户真实手机使用】');
+    lines.push('以下内容是用户主动授权给你查看的真实设备使用摘要；只在相关时自然引用，不要编造未出现的数据。');
+    lines.push(`- 今日总屏幕使用：${formatDeviceUsageDuration(summary.totalScreenTimeMs || 0)}`);
+    if (summary.currentApp && summary.currentApp.appName) {
+        lines.push(`- 用户现在可能正在使用：${summary.currentApp.appName}（已持续 ${formatDeviceUsageDuration(summary.currentApp.durationMs || 0)}）`);
+    }
+    if (topApps.length > 0) {
+        lines.push('- 今日按 App 汇总：');
+        topApps.forEach((item) => {
+            lines.push(`  - ${item.appName}：${Number(item.openCount || 0)} 次，共 ${formatDeviceUsageDuration(item.totalDurationMs || 0)}`);
+        });
+    }
+    if (recentEvents.length > 0) {
+        lines.push('- 最近行为：');
+        recentEvents.forEach((event) => {
+            const eventTime = event && event.at ? new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--';
+            if (String(event.type || '') === 'close') {
+                lines.push(`  - ${eventTime} 关闭了 ${event.appName}（本次约 ${formatDeviceUsageDuration(event.durationMs || 0)}）`);
+            } else {
+                lines.push(`  - ${eventTime} 打开了 ${event.appName}`);
+            }
+        });
+    }
+    lines.push('如果用户问“我今天微信用了多久/刚刚去干嘛了/哪个 App 用得最多”，优先依据这里的真实数据回答。');
+    return lines.join('\n');
+}
+
+async function getUserDeviceUsagePromptContext(contactId) {
+    if (!isDeviceUsageSharedWithContact(contactId)) return '';
+    const state = getDeviceUsageSyncState();
+    if (!isDeviceUsageSyncConfigured(state)) return '';
+    try {
+        const summary = await fetchDeviceUsageSummary(false);
+        return buildDeviceUsagePromptContextText(summary);
+    } catch (error) {
+        console.warn('[device-usage] prompt context unavailable', error);
+        return '';
+    }
+}
+
+function buildDeviceUsageCardMarkup(summary, options = {}) {
+    const state = getDeviceUsageSyncState();
+    const errorMessage = String(options.error || '').trim();
+    const templatePreviewMarkup = buildDeviceUsageTemplatePreviewMarkup(state);
+    if (!isDeviceUsageSyncConfigured(state)) {
+        return `
+            <div class="lookus-card-title">你的真实手机使用</div>
+            <div style="font-size: 13px; color: #666; line-height: 1.7; margin-top: 12px;">
+                还没有接入真实手机使用同步。配置 iPhone 快捷指令或 Android MacroDroid 后，这里会显示今日总时长、Top App 和最近行为。
+            </div>
+            ${templatePreviewMarkup}
+        `;
+    }
+
+    if (errorMessage) {
+        return `
+            <div class="lookus-card-title">你的真实手机使用</div>
+            <div style="font-size: 13px; color: #d32f2f; line-height: 1.7; margin-top: 12px;">同步失败：${escapeLookusHtml(errorMessage)}</div>
+            ${templatePreviewMarkup}
+        `;
+    }
+
+    const topApps = Array.isArray(summary && summary.apps) ? summary.apps.slice(0, 3) : [];
+    const recentEvents = Array.isArray(summary && summary.recentEvents) ? summary.recentEvents.slice(0, 3) : [];
+    const currentText = summary && summary.currentApp && summary.currentApp.appName
+        ? `${escapeLookusHtml(summary.currentApp.appName)} · ${escapeLookusHtml(formatDeviceUsageDuration(summary.currentApp.durationMs || 0))}`
+        : '当前未检测到打开中的 App';
+
+    return `
+        <div class="lookus-card-title">你的真实手机使用</div>
+        <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px;">
+            <div style="padding: 12px; border-radius: 14px; background: #f7f7fa;">
+                <div style="font-size: 12px; color: #777;">今日总时长</div>
+                <div style="font-size: 18px; font-weight: 700; margin-top: 4px;">${escapeLookusHtml(formatDeviceUsageDuration(summary && summary.totalScreenTimeMs || 0))}</div>
+            </div>
+            <div style="padding: 12px; border-radius: 14px; background: #f7f7fa;">
+                <div style="font-size: 12px; color: #777;">当前正在使用</div>
+                <div style="font-size: 14px; font-weight: 700; margin-top: 4px; line-height: 1.4;">${currentText}</div>
+            </div>
+        </div>
+        <div style="margin-top: 14px; font-size: 12px; color: #777;">今日 Top App</div>
+        <div style="margin-top: 8px; display:flex; flex-direction:column; gap:8px;">
+            ${topApps.length > 0 ? topApps.map((item, index) => `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 10px 12px; border-radius: 12px; background: #fafafa;">
+                    <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+                        <div style="width:24px; height:24px; border-radius:999px; background:#111; color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">${index + 1}</div>
+                        <div style="min-width:0;">
+                            <div style="font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeLookusHtml(item.appName)}</div>
+                            <div style="font-size:12px; color:#888; margin-top:2px;">${Number(item.openCount || 0)} 次打开</div>
+                        </div>
+                    </div>
+                    <div style="font-size:13px; font-weight:600; color:#111; white-space:nowrap;">${escapeLookusHtml(formatDeviceUsageDuration(item.totalDurationMs || 0))}</div>
+                </div>
+            `).join('') : '<div style="color:#999; font-size:13px;">今天还没有同步到任何 App 使用记录。</div>'}
+        </div>
+        <div style="margin-top: 14px; font-size: 12px; color: #777;">最近行为</div>
+        <div style="margin-top: 8px; display:flex; flex-direction:column; gap:8px;">
+            ${recentEvents.length > 0 ? recentEvents.map((event) => {
+                const eventTime = event && event.at ? new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                const eventText = String(event.type || '') === 'close'
+                    ? `关闭了 ${event.appName} · ${formatDeviceUsageDuration(event.durationMs || 0)}`
+                    : `打开了 ${event.appName}`;
+                return `
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-radius:12px; background:#fafafa;">
+                        <div style="font-size:13px; color:#222; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeLookusHtml(eventText)}</div>
+                        <div style="font-size:12px; color:#999; white-space:nowrap;">${escapeLookusHtml(eventTime)}</div>
+                    </div>
+                `;
+            }).join('') : '<div style="color:#999; font-size:13px;">暂时没有最近行为。</div>'}
+        </div>
+    `;
+}
+
+function buildDeviceUsageReportMarkup(summary, options = {}) {
+    const state = getDeviceUsageSyncState();
+    const errorMessage = String(options.error || '').trim();
+    const templatePreviewMarkup = buildDeviceUsageTemplatePreviewMarkup(state);
+    if (!isDeviceUsageSyncConfigured(state)) {
+        return `
+            <div class="lookus-report-item" style="display:block; margin-bottom: 18px; background: #f7f7fa;">
+                <div style="font-size: 15px; font-weight: 700; color: #111; margin-bottom: 8px;">真实手机使用</div>
+                <div style="font-size: 13px; color: #666; line-height: 1.7;">未配置真实手机使用同步。保存后可在 iPhone 快捷指令或 Android MacroDroid 里直接使用下面的 URL 模板。</div>
+                ${templatePreviewMarkup}
+            </div>
+        `;
+    }
+    if (errorMessage) {
+        return `
+            <div class="lookus-report-item" style="display:block; margin-bottom: 18px; background: rgba(255,59,48,0.08); border: 1px solid rgba(255,59,48,0.12);">
+                <div style="font-size: 15px; font-weight: 700; color: #111; margin-bottom: 8px;">真实手机使用</div>
+                <div style="font-size: 13px; color: #d32f2f; line-height: 1.7;">同步失败：${escapeLookusHtml(errorMessage)}</div>
+                ${templatePreviewMarkup}
+            </div>
+        `;
+    }
+    const recentEvents = Array.isArray(summary && summary.recentEvents) ? summary.recentEvents.slice(0, 10) : [];
+    return `
+        <div class="lookus-report-item" style="display:block; margin-bottom: 18px; background: #f7f7fa;">
+            <div style="font-size: 15px; font-weight: 700; color: #111; margin-bottom: 8px;">真实手机使用</div>
+            <div style="font-size: 13px; color: #666; line-height: 1.7;">今日总使用 ${escapeLookusHtml(formatDeviceUsageDuration(summary && summary.totalScreenTimeMs || 0))}${summary && summary.currentApp && summary.currentApp.appName ? `，当前停留在 ${escapeLookusHtml(summary.currentApp.appName)}` : ''}。</div>
+            <div style="margin-top: 10px; display:flex; flex-direction:column; gap:8px;">
+                ${recentEvents.length > 0 ? recentEvents.map((event) => {
+                    const eventTime = event && event.at ? new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                    const eventText = String(event.type || '') === 'close'
+                        ? `${eventTime} 关闭 ${event.appName}（${formatDeviceUsageDuration(event.durationMs || 0)}）`
+                        : `${eventTime} 打开 ${event.appName}`;
+                    return `<div style="padding:10px 12px; border-radius: 12px; background:#fff; font-size:13px; color:#222;">${escapeLookusHtml(eventText)}</div>`;
+                }).join('') : '<div style="padding:10px 12px; border-radius: 12px; background:#fff; font-size:13px; color:#999;">今天还没有可展示的最近行为。</div>'}
+            </div>
+        </div>
+    `;
+}
+
+async function refreshLookusDeviceUsageUi(forceRefresh = false) {
+    const cardHost = document.getElementById('lookus-device-usage-card-host');
+    let reportHost = document.getElementById('lookus-device-usage-report-block');
+    if (!reportHost) {
+        const reportView = document.getElementById('lookus-report-view');
+        if (reportView) {
+            reportHost = document.createElement('div');
+            reportHost.id = 'lookus-device-usage-report-block';
+            reportView.insertBefore(reportHost, reportView.firstChild || null);
+        }
+    }
+    if (cardHost) {
+        cardHost.innerHTML = '<div class="lookus-card-title">你的真实手机使用</div><div style="font-size:13px;color:#888;margin-top:10px;">正在同步…</div>';
+    }
+    if (reportHost) {
+        reportHost.innerHTML = '<div class="lookus-report-item" style="display:block; margin-bottom:18px; background:#f7f7fa;">正在同步真实手机使用记录…</div>';
+    }
+
+    const state = getDeviceUsageSyncState();
+    if (!isDeviceUsageSyncConfigured(state)) {
+        if (cardHost) cardHost.innerHTML = buildDeviceUsageCardMarkup(null);
+        if (reportHost) reportHost.innerHTML = buildDeviceUsageReportMarkup(null);
+        return null;
+    }
+
+    try {
+        const summary = await fetchDeviceUsageSummary(forceRefresh);
+        if (cardHost) cardHost.innerHTML = buildDeviceUsageCardMarkup(summary);
+        if (reportHost) reportHost.innerHTML = buildDeviceUsageReportMarkup(summary);
+        return summary;
+    } catch (error) {
+        const message = error && error.message ? error.message : '同步失败';
+        if (cardHost) cardHost.innerHTML = buildDeviceUsageCardMarkup(null, { error: message });
+        if (reportHost) reportHost.innerHTML = buildDeviceUsageReportMarkup(null, { error: message });
+        return null;
+    }
+}
+
+window.getDeviceUsageSyncState = getDeviceUsageSyncState;
+window.isDeviceUsageSharedWithContact = isDeviceUsageSharedWithContact;
+window.setDeviceUsageSharedWithContact = setDeviceUsageSharedWithContact;
+window.getUserDeviceUsagePromptContext = getUserDeviceUsagePromptContext;
 
 // 城市坐标映射表 (经度, 纬度)
 const CITY_COORDINATES = {
@@ -853,10 +1257,40 @@ function openLookusSettings() {
     const timeLabel = document.getElementById('lookus-time-label');
     const timeHint = document.getElementById('lookus-time-hint');
     const separator = document.getElementById('lookus-time-separator');
+    const syncState = getDeviceUsageSyncState();
+    const enabledInput = document.getElementById('lookus-device-usage-enabled');
+    const apiBaseUrlInput = document.getElementById('lookus-device-usage-api-base-url');
+    const userIdInput = document.getElementById('lookus-device-usage-user-id');
+    const deviceIdInput = document.getElementById('lookus-device-usage-device-id');
+    const secretInput = document.getElementById('lookus-device-usage-secret');
+    const templateInput = document.getElementById('lookus-device-usage-shortcut-template');
+    const androidTemplateInput = document.getElementById('lookus-device-usage-android-template');
+    const updateShortcutPreview = () => {
+        const draftState = Object.assign({}, getDeviceUsageSyncState(), {
+            enabled: !!(enabledInput && enabledInput.checked),
+            apiBaseUrl: apiBaseUrlInput ? String(apiBaseUrlInput.value || '').trim().replace(/\/$/, '') : syncState.apiBaseUrl,
+            userId: userIdInput ? (String(userIdInput.value || '').trim() || DEVICE_USAGE_SYNC_DEFAULTS.userId) : syncState.userId,
+            deviceId: deviceIdInput ? (String(deviceIdInput.value || '').trim() || DEVICE_USAGE_SYNC_DEFAULTS.deviceId) : syncState.deviceId,
+            secret: secretInput ? String(secretInput.value || '').trim() : syncState.secret
+        });
+        if (templateInput) templateInput.value = buildDeviceUsageShortcutTemplate(draftState);
+        if (androidTemplateInput) androidTemplateInput.value = buildDeviceUsageAndroidTemplate(draftState);
+    };
 
     if (modeSelect) modeSelect.value = mode;
     if (minInput) minInput.value = contact.lookusUpdateMin || 30;
     if (maxInput) maxInput.value = contact.lookusUpdateMax || 60;
+    if (enabledInput) enabledInput.checked = !!syncState.enabled;
+    if (apiBaseUrlInput) apiBaseUrlInput.value = syncState.apiBaseUrl || '';
+    if (userIdInput) userIdInput.value = syncState.userId || DEVICE_USAGE_SYNC_DEFAULTS.userId;
+    if (deviceIdInput) deviceIdInput.value = syncState.deviceId || DEVICE_USAGE_SYNC_DEFAULTS.deviceId;
+    if (secretInput) secretInput.value = syncState.secret || '';
+    [enabledInput, apiBaseUrlInput, userIdInput, deviceIdInput, secretInput].forEach((el) => {
+        if (!el) return;
+        el.oninput = updateShortcutPreview;
+        el.onchange = updateShortcutPreview;
+    });
+    updateShortcutPreview();
 
     // Toggle UI state
     if (mode === 'manual') {
@@ -888,6 +1322,52 @@ function openLookusSettings() {
         newForceBtn.onclick = () => {
             updateLookusStatusWithAI(contact.id);
             document.getElementById('lookus-settings-modal').classList.add('hidden');
+        };
+    }
+
+    const bindTemplateCopyButton = (buttonId, getText, successMessage) => {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+        const newButton = button.cloneNode(true);
+        button.parentNode.replaceChild(newButton, button);
+        newButton.onclick = async () => {
+            updateShortcutPreview();
+            const text = String(getText() || '');
+            if (!text) return;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const tempInput = document.createElement('textarea');
+                    tempInput.value = text;
+                    document.body.appendChild(tempInput);
+                    tempInput.select();
+                    document.execCommand('copy');
+                    tempInput.remove();
+                }
+                if (typeof window.showChatToast === 'function') window.showChatToast(successMessage);
+            } catch (error) {
+                console.warn('[device-usage] copy template failed', error);
+                alert('复制失败，请手动复制');
+            }
+        };
+    };
+
+    bindTemplateCopyButton('lookus-copy-shortcut-template-btn', () => templateInput ? templateInput.value : '', 'iPhone 模板已复制');
+    bindTemplateCopyButton('lookus-copy-android-template-btn', () => androidTemplateInput ? androidTemplateInput.value : '', '安卓模板已复制');
+
+    const resetBtn = document.getElementById('lookus-reset-device-usage-btn');
+    if (resetBtn) {
+        const newResetBtn = resetBtn.cloneNode(true);
+        resetBtn.parentNode.replaceChild(newResetBtn, resetBtn);
+        newResetBtn.onclick = async () => {
+            try {
+                await resetDeviceUsageRemoteState();
+                await refreshLookusDeviceUsageUi(true);
+                if (typeof window.showChatToast === 'function') window.showChatToast('真实手机使用状态已重置');
+            } catch (error) {
+                alert(error && error.message ? error.message : '重置失败');
+            }
         };
     }
 }
@@ -928,10 +1408,29 @@ window.saveLookusSettings = function() {
     const mode = document.getElementById('lookus-update-mode').value;
     const minVal = parseInt(document.getElementById('lookus-update-min').value) || 30;
     const maxVal = parseInt(document.getElementById('lookus-update-max').value) || 60;
+    const syncState = getDeviceUsageSyncState();
+    const previousSyncSignature = [syncState.apiBaseUrl, syncState.userId, syncState.deviceId, syncState.secret].join('|');
 
     contact.lookusUpdateMode = mode;
     contact.lookusUpdateMin = minVal;
     contact.lookusUpdateMax = maxVal;
+    syncState.enabled = !!(document.getElementById('lookus-device-usage-enabled') && document.getElementById('lookus-device-usage-enabled').checked);
+    syncState.apiBaseUrl = document.getElementById('lookus-device-usage-api-base-url')
+        ? String(document.getElementById('lookus-device-usage-api-base-url').value || '').trim().replace(/\/$/, '')
+        : syncState.apiBaseUrl;
+    syncState.userId = document.getElementById('lookus-device-usage-user-id')
+        ? (String(document.getElementById('lookus-device-usage-user-id').value || '').trim() || DEVICE_USAGE_SYNC_DEFAULTS.userId)
+        : syncState.userId;
+    syncState.deviceId = document.getElementById('lookus-device-usage-device-id')
+        ? (String(document.getElementById('lookus-device-usage-device-id').value || '').trim() || DEVICE_USAGE_SYNC_DEFAULTS.deviceId)
+        : syncState.deviceId;
+    syncState.secret = document.getElementById('lookus-device-usage-secret')
+        ? String(document.getElementById('lookus-device-usage-secret').value || '').trim()
+        : syncState.secret;
+    const nextSyncSignature = [syncState.apiBaseUrl, syncState.userId, syncState.deviceId, syncState.secret].join('|');
+    if (previousSyncSignature !== nextSyncSignature) {
+        invalidateDeviceUsageSummaryCache();
+    }
     
     if (mode === 'random') {
         scheduleNextRandomUpdate(contact);
@@ -944,6 +1443,7 @@ window.saveLookusSettings = function() {
     saveConfig();
     document.getElementById('lookus-settings-modal').classList.add('hidden');
     setupLookusTimers();
+    refreshLookusDeviceUsageUi(true).catch((error) => console.warn('[device-usage] refresh after save failed', error));
 }
 
 window.openLookusSettings = openLookusSettings; // Expose global
@@ -1670,6 +2170,11 @@ function renderLookusApp() {
     }
 
     bottomSection.innerHTML = `
+        <div class="lookus-card" id="lookus-device-usage-card-host">
+            <div class="lookus-card-title">你的真实手机使用</div>
+            <div style="font-size:13px;color:#888;margin-top:10px;">正在同步…</div>
+        </div>
+
         <div class="lookus-card">
             <div class="lookus-card-title">
                 手机APP使用记录 <span class="lookus-new-badge">NEW!</span>
@@ -1700,6 +2205,7 @@ function renderLookusApp() {
         </div>
     `;
     container.appendChild(bottomSection);
+    refreshLookusDeviceUsageUi(false).catch((error) => console.warn('[device-usage] home refresh failed', error));
 
     // Animate Ring
     setTimeout(() => {
@@ -1805,6 +2311,9 @@ function switchLookusTab(tabName) {
         reportBtn.style.color = '#000';
         
         renderLookusReport(); 
+        setTimeout(() => {
+            refreshLookusDeviceUsageUi(false).catch((error) => console.warn('[device-usage] report refresh failed', error));
+        }, 0);
     }
 }
 
@@ -1825,6 +2334,12 @@ function renderLookusReport() {
 
     container.innerHTML = '';
     container.className = 'lookus-report-view';
+
+    const deviceUsageBlock = document.createElement('div');
+    deviceUsageBlock.id = 'lookus-device-usage-report-block';
+    deviceUsageBlock.innerHTML = '<div class="lookus-report-item" style="display:block; margin-bottom:18px; background:#f7f7fa;">正在同步真实手机使用记录…</div>';
+    container.appendChild(deviceUsageBlock);
+    refreshLookusDeviceUsageUi(false).catch((error) => console.warn('[device-usage] report refresh failed', error));
 
     if (events.length === 0) {
         container.innerHTML = '<div style="text-align:center; padding: 50px; color: #999;">暂无报备记录</div>';

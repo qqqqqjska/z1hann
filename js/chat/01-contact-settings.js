@@ -81,6 +81,8 @@ function ensureContactRestWindowFields(contact) {
     if (typeof contact.restWindowStart !== 'string') contact.restWindowStart = '';
     if (typeof contact.restWindowEnd !== 'string') contact.restWindowEnd = '';
     if (contact.restWindowAwakenedAt === undefined) contact.restWindowAwakenedAt = null;
+    if (contact.restWindowUpcomingNoticeForStartMs === undefined) contact.restWindowUpcomingNoticeForStartMs = null;
+    if (contact.restWindowWakeReplyForStartMs === undefined) contact.restWindowWakeReplyForStartMs = null;
     return contact;
 }
 
@@ -98,6 +100,14 @@ function buildDateWithMinutes(baseDate, totalMinutes) {
     const next = new Date(baseDate.getTime());
     next.setHours(Math.floor(totalMinutes / 60), totalMinutes % 60, 0, 0);
     return next;
+}
+
+function clearContactRestWindowRuntimeState(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+    contact.restWindowAwakenedAt = null;
+    contact.restWindowUpcomingNoticeForStartMs = null;
+    contact.restWindowWakeReplyForStartMs = null;
+    return contact;
 }
 
 function getContactRestWindowStatus(contact, now = Date.now()) {
@@ -144,6 +154,41 @@ function getContactRestWindowStatus(contact, now = Date.now()) {
     return result;
 }
 
+function getContactNextRestWindowInfo(contact, now = Date.now()) {
+    ensureContactRestWindowFields(contact);
+    const startMinutes = parseContactRestWindowTime(contact && contact.restWindowStart);
+    const endMinutes = parseContactRestWindowTime(contact && contact.restWindowEnd);
+    const enabled = !!(contact && contact.restWindowEnabled && startMinutes !== null && endMinutes !== null && startMinutes !== endMinutes);
+    const result = {
+        enabled,
+        nextStartTimeMs: null,
+        nextEndTimeMs: null,
+        msUntilStart: null,
+        minutesUntilStart: null,
+        withinNoticeWindow: false
+    };
+    if (!enabled) return result;
+
+    const nowDate = new Date(now);
+    let nextStart = buildDateWithMinutes(nowDate, startMinutes);
+    if (nextStart.getTime() <= now) {
+        nextStart = new Date(nextStart.getTime() + 86400000);
+    }
+
+    let nextEnd = buildDateWithMinutes(nextStart, endMinutes);
+    if (startMinutes >= endMinutes && nextEnd.getTime() <= nextStart.getTime()) {
+        nextEnd = new Date(nextEnd.getTime() + 86400000);
+    }
+
+    const msUntilStart = nextStart.getTime() - now;
+    result.nextStartTimeMs = nextStart.getTime();
+    result.nextEndTimeMs = nextEnd.getTime();
+    result.msUntilStart = msUntilStart;
+    result.minutesUntilStart = msUntilStart > 0 ? Math.floor(msUntilStart / 60000) : 0;
+    result.withinNoticeWindow = msUntilStart > 0 && msUntilStart <= 10 * 60 * 1000;
+    return result;
+}
+
 function isContactRestOfflineText(text) {
     const raw = String(text || '').trim();
     if (!raw) return false;
@@ -170,8 +215,9 @@ function updateContactRestStateOnAssistantMessage(contactId, text, type = 'text'
     if (!status.enabled || !status.inRestWindow) return false;
 
     if (type === 'text' && isContactRestOfflineText(text)) {
-        if (contact.restWindowAwakenedAt !== null) {
+        if (contact.restWindowAwakenedAt !== null || contact.restWindowWakeReplyForStartMs !== null) {
             contact.restWindowAwakenedAt = null;
+            contact.restWindowWakeReplyForStartMs = null;
             return true;
         }
         return false;
@@ -195,6 +241,13 @@ function getContactRestTriggerDecision(contact, triggerSource = 'system', now = 
         reason: ''
     };
     if (!status.enabled || !status.inRestWindow) return decision;
+
+    if (normalizedSource === 'active' || normalizedSource === 'offline-active') {
+        decision.allow = false;
+        decision.reason = 'resting-active-blocked';
+        return decision;
+    }
+
     if (status.awakened) return decision;
 
     if (normalizedSource === 'manual') {
@@ -202,12 +255,9 @@ function getContactRestTriggerDecision(contact, triggerSource = 'system', now = 
         decision.allow = shouldWake;
         decision.shouldToast = !shouldWake;
         decision.reason = shouldWake ? 'wake-up' : 'resting';
-        return decision;
-    }
-
-    if (normalizedSource === 'active' || normalizedSource === 'offline-active') {
-        decision.allow = false;
-        decision.reason = 'resting-active-blocked';
+        if (shouldWake && contact.restWindowWakeReplyForStartMs !== status.startTimeMs) {
+            contact.restWindowWakeReplyForStartMs = status.startTimeMs;
+        }
         return decision;
     }
 
@@ -275,8 +325,294 @@ function syncBilingualTranslationSettingsVisibility() {
     if (targetSelect) targetSelect.disabled = !enabled;
 }
 
+function normalizeChatTopbarAvatarPosition(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'center' || normalized === 'right') return normalized;
+    return 'left';
+}
+
+function normalizeChatAppearancePreset(value) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return 'default';
+    if (normalized.toLowerCase() === 'ios26') return 'ios26';
+    if (normalized.toLowerCase() === 'default') return 'default';
+    if (typeof window.isStoredStudioAppearancePresetKey === 'function' && window.isStoredStudioAppearancePresetKey(normalized)) {
+        return normalized;
+    }
+    return 'default';
+}
+
+function ensureContactChatAppearancePresetField(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+    contact.chatAppearancePreset = normalizeChatAppearancePreset(contact.chatAppearancePreset);
+    return contact;
+}
+
+function getStoredChatAppearancePresetList() {
+    return typeof window.listStoredStudioAppearancePresets === 'function' ? window.listStoredStudioAppearancePresets() : [];
+}
+
+function getStoredChatAppearancePreset(value) {
+    return typeof window.getStoredStudioAppearancePresetByKey === 'function' ? window.getStoredStudioAppearancePresetByKey(value) : null;
+}
+
+function isStoredChatAppearancePreset(value) {
+    return !!getStoredChatAppearancePreset(value);
+}
+
+function ensureChatAppearancePresetDeleteButton() {
+    const select = document.getElementById('chat-setting-appearance-preset');
+    const field = select ? select.closest('.mag-field') : null;
+    if (!field || document.getElementById('chat-setting-appearance-delete-btn')) return;
+
+    const actionRow = document.createElement('div');
+    actionRow.className = 'mag-action-row';
+    actionRow.style.marginTop = '10px';
+    actionRow.innerHTML = '<button type="button" id="chat-setting-appearance-delete-btn" class="mag-btn editorial-ghost-btn">删除当前自定义外观</button>';
+    field.appendChild(actionRow);
+
+    const button = document.getElementById('chat-setting-appearance-delete-btn');
+    if (button) {
+        button.addEventListener('click', handleDeleteChatAppearancePreset);
+    }
+}
+
+function syncChatAppearancePresetDeleteButton() {
+    const select = document.getElementById('chat-setting-appearance-preset');
+    const button = document.getElementById('chat-setting-appearance-delete-btn');
+    if (!select || !button) return;
+    const customPreset = getStoredChatAppearancePreset(select.value);
+    button.style.display = customPreset ? '' : 'none';
+    button.disabled = !customPreset;
+}
+
+function renderChatAppearancePresetOptions(preferredValue = null) {
+    const select = document.getElementById('chat-setting-appearance-preset');
+    if (!select) return;
+
+    const currentValue = preferredValue || select.value || 'default';
+    select.innerHTML = '';
+
+    const createOption = (value, text) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = text;
+        return option;
+    };
+
+    select.appendChild(createOption('default', 'Default / 默认'));
+    select.appendChild(createOption('ios26', 'iOS26 / 信息 App 风格'));
+
+    getStoredChatAppearancePresetList().forEach((preset) => {
+        select.appendChild(createOption(preset.presetKey, `${preset.name} / 自定义`));
+    });
+
+    const normalizedValue = normalizeChatAppearancePreset(currentValue);
+    select.value = Array.from(select.options).some((option) => option.value === normalizedValue) ? normalizedValue : 'default';
+    ensureChatAppearancePresetDeleteButton();
+    syncChatAppearancePresetDeleteButton();
+}
+
+function handleDeleteChatAppearancePreset() {
+    const select = document.getElementById('chat-setting-appearance-preset');
+    if (!select) return;
+    const preset = getStoredChatAppearancePreset(select.value);
+    if (!preset) return;
+    if (!window.confirm(`确定删除快捷外观“${preset.name}”吗？`)) return;
+    if (typeof window.deleteStoredStudioAppearancePresetByKey === 'function') {
+        window.deleteStoredStudioAppearancePresetByKey(preset.presetKey);
+    }
+    renderChatAppearancePresetOptions('default');
+    const currentContact = window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts)
+        ? window.iphoneSimState.contacts.find((item) => item.id === window.iphoneSimState.currentChatContactId)
+        : null;
+    if (currentContact) {
+        currentContact.chatAppearancePreset = 'default';
+        applyChatAppearancePreset(currentContact);
+        applyChatTopbarAppearance(currentContact);
+    }
+}
+
+function applyChatAppearancePreset(contactOrId = null) {
+    const chatScreen = document.getElementById('chat-screen');
+    if (!chatScreen) return 'default';
+
+    let contact = null;
+    if (contactOrId && typeof contactOrId === 'object') {
+        contact = contactOrId;
+    } else {
+        const targetId = contactOrId || window.iphoneSimState.currentChatContactId;
+        if (targetId !== undefined && targetId !== null) {
+            contact = (window.iphoneSimState.contacts || []).find(item => item.id === targetId) || null;
+        }
+    }
+
+    if (contact) {
+        ensureContactChatAppearancePresetField(contact);
+    }
+
+    const preset = contact ? normalizeChatAppearancePreset(contact.chatAppearancePreset) : 'default';
+    const customPreset = getStoredChatAppearancePreset(preset);
+
+    chatScreen.classList.toggle('chat-appearance-ios26', preset === 'ios26');
+    chatScreen.dataset.chatAppearancePreset = preset;
+
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+        chatInput.placeholder = 'iMessage';
+    }
+
+    if (customPreset) {
+        if (typeof window.applyStoredStudioAppearancePresetToWechat === 'function') {
+            window.applyStoredStudioAppearancePresetToWechat(customPreset);
+        }
+        return preset;
+    }
+
+    if (typeof window.clearStudioStylesFromWechat === 'function') {
+        window.clearStudioStylesFromWechat();
+    }
+
+    return preset;
+}
+
+function ensureContactTopbarAvatarFields(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+    if (typeof contact.topbarAvatarVisible !== 'boolean') {
+        contact.topbarAvatarVisible = false;
+    }
+    if (typeof contact.topbarStatusVisible !== 'boolean') {
+        contact.topbarStatusVisible = false;
+    }
+    if (typeof contact.topbarStatusText !== 'string') {
+        contact.topbarStatusText = '';
+    }
+    contact.topbarStatusText = String(contact.topbarStatusText || '');
+    contact.topbarAvatarPosition = normalizeChatTopbarAvatarPosition(contact.topbarAvatarPosition);
+    return contact;
+}
+
+function syncChatTopbarAvatarSettingsVisibility() {
+    const enabledInput = document.getElementById('chat-setting-topbar-avatar-visible');
+    const panel = document.getElementById('chat-setting-topbar-avatar-position-field');
+    const select = document.getElementById('chat-setting-topbar-avatar-position');
+    const statusToggleRow = document.getElementById('chat-setting-topbar-status-visible-row');
+    const statusToggleInput = document.getElementById('chat-setting-topbar-status-visible');
+    const statusTextField = document.getElementById('chat-setting-topbar-status-text-field');
+    const statusTextInput = document.getElementById('chat-setting-topbar-status-text');
+    if (!enabledInput || !panel) return;
+    const enabled = !!enabledInput.checked;
+    const position = normalizeChatTopbarAvatarPosition(select ? select.value : 'left');
+    const allowStatusText = enabled && (position === 'left' || position === 'right');
+    const statusEnabled = allowStatusText && !!(statusToggleInput && statusToggleInput.checked);
+    panel.style.display = enabled ? '' : 'none';
+    if (select) select.disabled = !enabled;
+    if (statusToggleRow) statusToggleRow.style.display = allowStatusText ? '' : 'none';
+    if (statusToggleInput) statusToggleInput.disabled = !allowStatusText;
+    if (statusTextField) statusTextField.style.display = statusEnabled ? '' : 'none';
+    if (statusTextInput) statusTextInput.disabled = !statusEnabled;
+}
+
+function setChatTopbarAvatarButton(button, imageUrl, fallbackHtml, visible) {
+    if (!button) return;
+    const shouldShow = !!visible;
+    button.classList.toggle('hidden', !shouldShow);
+    button.classList.toggle('has-image', shouldShow && !!imageUrl);
+    if (shouldShow && imageUrl) {
+        button.style.backgroundImage = `url(${imageUrl})`;
+        button.innerHTML = '';
+    } else {
+        button.style.backgroundImage = '';
+        button.innerHTML = fallbackHtml;
+    }
+}
+
+function applyChatTopbarAppearance(contactOrId = null) {
+    const chatScreen = document.getElementById('chat-screen');
+    const header = chatScreen ? chatScreen.querySelector('.chat-header') : null;
+    if (!chatScreen || !header) return;
+
+    let contact = null;
+    if (contactOrId && typeof contactOrId === 'object') {
+        contact = contactOrId;
+    } else {
+        const targetId = contactOrId || window.iphoneSimState.currentChatContactId;
+        if (targetId !== undefined && targetId !== null) {
+            contact = (window.iphoneSimState.contacts || []).find(item => item.id === targetId) || null;
+        }
+    }
+
+    const mainAvatarButton = document.getElementById('chat-topbar-avatar-main');
+    const rightAvatarButton = document.getElementById('chat-topbar-avatar-right');
+    const settingsButton = document.getElementById('chat-settings-btn');
+    const title = document.getElementById('chat-title');
+    const statusText = document.getElementById('chat-topbar-status');
+    const layoutClasses = ['show-topbar-avatar', 'topbar-avatar-left', 'topbar-avatar-center', 'topbar-avatar-right', 'show-topbar-status'];
+
+    layoutClasses.forEach(className => {
+        header.classList.remove(className);
+        chatScreen.classList.remove(className);
+    });
+
+    setChatTopbarAvatarButton(mainAvatarButton, '', '<i class="ri-user-line"></i>', false);
+    setChatTopbarAvatarButton(rightAvatarButton, '', '<i class="ri-user-line"></i>', false);
+    if (settingsButton) settingsButton.classList.remove('hidden');
+    if (statusText) {
+        statusText.textContent = '';
+        statusText.classList.add('hidden');
+    }
+
+    if (!contact) return;
+
+    ensureContactChatAppearancePresetField(contact);
+    ensureContactTopbarAvatarFields(contact);
+
+    const displayName = contact.remark || contact.nickname || contact.name || '';
+    if (title && displayName) {
+        title.textContent = displayName;
+    }
+
+    const avatarUrl = String(contact.avatar || '').trim();
+    if (contact.chatAppearancePreset === 'ios26') {
+        if (settingsButton) {
+            settingsButton.innerHTML = '<i class="fas fa-ellipsis-h"></i>';
+            settingsButton.setAttribute('aria-label', '打开聊天设置');
+        }
+        if (mainAvatarButton) mainAvatarButton.setAttribute('aria-label', '打开联系人资料');
+        setChatTopbarAvatarButton(mainAvatarButton, avatarUrl, '<i class="ri-user-line"></i>', true);
+        setChatTopbarAvatarButton(rightAvatarButton, '', '<i class="ri-user-line"></i>', false);
+        if (settingsButton) settingsButton.classList.remove('hidden');
+        return;
+    }
+
+    if (!contact.topbarAvatarVisible) return;
+
+    const position = normalizeChatTopbarAvatarPosition(contact.topbarAvatarPosition);
+    header.classList.add('show-topbar-avatar', `topbar-avatar-${position}`);
+    chatScreen.classList.add(`topbar-avatar-${position}`);
+
+    const shouldShowStatus = (position === 'left' || position === 'right') && !!contact.topbarStatusVisible;
+    if (shouldShowStatus && statusText) {
+        statusText.textContent = String(contact.topbarStatusText || '').trim() || '5G Online';
+        statusText.classList.remove('hidden');
+        header.classList.add('show-topbar-status');
+    }
+
+    if (position === 'right') {
+        if (settingsButton) settingsButton.classList.add('hidden');
+        if (rightAvatarButton) rightAvatarButton.setAttribute('aria-label', '打开聊天设置');
+        setChatTopbarAvatarButton(rightAvatarButton, avatarUrl, '<i class="ri-user-line"></i>', true);
+        return;
+    }
+
+    if (mainAvatarButton) mainAvatarButton.setAttribute('aria-label', '打开联系人资料');
+    setChatTopbarAvatarButton(mainAvatarButton, avatarUrl, '<i class="ri-user-line"></i>', true);
+
+}
 window.ensureContactRestWindowFields = ensureContactRestWindowFields;
+window.clearContactRestWindowRuntimeState = clearContactRestWindowRuntimeState;
 window.getContactRestWindowStatus = getContactRestWindowStatus;
+window.getContactNextRestWindowInfo = getContactNextRestWindowInfo;
 window.isContactRestOfflineText = isContactRestOfflineText;
 window.updateContactRestStateOnAssistantMessage = updateContactRestStateOnAssistantMessage;
 window.getContactRestTriggerDecision = getContactRestTriggerDecision;
@@ -285,7 +621,27 @@ window.ensureContactBilingualTranslationFields = ensureContactBilingualTranslati
 window.getChatBilingualLanguageLabel = getChatBilingualLanguageLabel;
 window.populateChatSettingsBilingualLanguageSelect = populateChatSettingsBilingualLanguageSelect;
 window.syncBilingualTranslationSettingsVisibility = syncBilingualTranslationSettingsVisibility;
+window.normalizeChatAppearancePreset = normalizeChatAppearancePreset;
+window.ensureContactChatAppearancePresetField = ensureContactChatAppearancePresetField;
+window.renderChatAppearancePresetOptions = renderChatAppearancePresetOptions;
+window.syncChatAppearancePresetDeleteButton = syncChatAppearancePresetDeleteButton;
+window.applyChatAppearancePreset = applyChatAppearancePreset;
+window.ensureContactTopbarAvatarFields = ensureContactTopbarAvatarFields;
+window.syncChatTopbarAvatarSettingsVisibility = syncChatTopbarAvatarSettingsVisibility;
+window.applyChatTopbarAppearance = applyChatTopbarAppearance;
 window.CHAT_BILINGUAL_LANGUAGE_OPTIONS = CHAT_BILINGUAL_LANGUAGE_OPTIONS.slice();
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+        renderChatAppearancePresetOptions();
+        ensureChatAppearancePresetDeleteButton();
+        syncChatAppearancePresetDeleteButton();
+    });
+} else {
+    renderChatAppearancePresetOptions();
+    ensureChatAppearancePresetDeleteButton();
+    syncChatAppearancePresetDeleteButton();
+}
 
 // ====== AI 位置选择器数据 ======
 const LOCATION_DATA = {
@@ -1046,6 +1402,7 @@ window.showChatNotification = function(contactId, content, options) {
     else if (content.startsWith('[表情包]') || content.startsWith('<img') && content.includes('sticker')) previewText = '[动画表情]';
     else if (content.startsWith('[语音]')) previewText = '[语音]';
     else if (content.startsWith('[转账]')) previewText = '[转账]';
+    else if (content.startsWith('[红包]')) previewText = '[红包]';
     else if (content.startsWith('[亲属卡]')) previewText = '[亲属卡]';
     else if (content.includes('pay_request')) previewText = '[代付请求]';
     else if (content.includes('shopping_gift')) previewText = '[礼物]';
@@ -1254,6 +1611,9 @@ function createBaseContactPayload({ name, remark = '', persona = '', avatar = ''
         restWindowStart: '',
         restWindowEnd: '',
         restWindowAwakenedAt: null,
+        restWindowUpcomingNoticeForStartMs: null,
+        restWindowWakeReplyForStartMs: null,
+        allowRealPhotoSend: false,
         calendarAwareEnabled: true,
         autoItineraryEnabled: false,
         autoItineraryInterval: 10,
@@ -1262,6 +1622,10 @@ function createBaseContactPayload({ name, remark = '', persona = '', avatar = ''
         bilingualTranslationEnabled: false,
         bilingualSourceLang: CHAT_BILINGUAL_DEFAULT_SOURCE_LANG,
         bilingualTargetLang: CHAT_BILINGUAL_DEFAULT_TARGET_LANG,
+        topbarAvatarVisible: false,
+        topbarAvatarPosition: 'left',
+        topbarStatusVisible: false,
+        topbarStatusText: '5G Online',
         userPerception: [],
         thoughtDisplayMode: 'title',
         thoughtPetImage: '',
@@ -1831,7 +2195,7 @@ function saveContactAndClose(contact) {
 
 window.togglePinContact = function(contactId, event) {
     if (event) event.stopPropagation();
-    const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+    const contact = window.iphoneSimState.contacts.find(c => String(c.id) === String(contactId));
     if (contact) {
         contact.isPinned = !contact.isPinned;
         saveConfig();
@@ -1981,39 +2345,85 @@ function truncatePreview(text, maxLen = CONTACT_PREVIEW_MAX_LENGTH) {
     return `${normalized.slice(0, maxLen - 1)}…`;
 }
 
-function formatLastMsgPreview(lastMsg) {
+function isVisibleMessageListContact(contact) {
+    if (!contact) return false;
+    if (typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)) {
+        if (typeof window.isGroupChatActive === 'function') {
+            return window.isGroupChatActive(contact);
+        }
+        return !contact.groupMeta || contact.groupMeta.status === 'active';
+    }
+    return true;
+}
+
+function getContactListDisplayName(contact) {
+    if (!contact) return '联系人';
+    if (typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact) && typeof window.getGroupChatDisplayName === 'function') {
+        return window.getGroupChatDisplayName(contact);
+    }
+    return contact.remark || contact.nickname || contact.name || '联系人';
+}
+
+function formatLastMsgPreview(lastMsg, contact = null) {
     if (!lastMsg || typeof lastMsg !== 'object') return '[消息]';
 
-    if (lastMsg.type === 'image') return '[图片]';
-    if (lastMsg.type === 'sticker') return '[表情包]';
-    if (lastMsg.type === 'transfer') return '[转账]';
-    if (lastMsg.type === 'family_card') return '[亲属卡]';
-    if (lastMsg.type === 'voice') return '[语音]';
-    if (lastMsg.type === 'gift_card') return '[礼物]';
-    if (lastMsg.type === 'shopping_gift') return '[礼物]';
-    if (lastMsg.type === 'pay_request') return '[代付请求]';
-    if (lastMsg.type === 'delivery_share') return '[外卖]';
-    if (lastMsg.type === 'savings_invite') return '[共同存钱邀请]';
-    if (lastMsg.type === 'savings_withdraw_request') return '[共同存钱转出申请]';
-    if (lastMsg.type === 'savings_progress') return '[共同存钱进度]';
-    if (lastMsg.type === 'voice_call_text') return '[通话]';
+    let preview = '[消息]';
 
-    if (lastMsg.type === 'text' || lastMsg.type === 'html') {
+    if (lastMsg.type === 'image') preview = '[图片]';
+    else if (lastMsg.type === 'sticker') preview = '[表情包]';
+    else if (lastMsg.type === 'transfer') preview = '[转账]';
+    else if (lastMsg.type === 'red_packet') preview = '[红包]';
+    else if (lastMsg.type === 'group_poll') preview = '[投票]';
+    else if (lastMsg.type === 'group_relay') preview = '[接龙]';
+    else if (lastMsg.type === 'private_chat_invite') preview = '[私聊邀请]';
+    else if (lastMsg.type === 'family_card') preview = '[亲属卡]';
+    else if (lastMsg.type === 'voice') preview = '[语音]';
+    else if (lastMsg.type === 'gift_card') preview = '[礼物]';
+    else if (lastMsg.type === 'shopping_gift') preview = '[礼物]';
+    else if (lastMsg.type === 'pay_request') preview = '[代付请求]';
+    else if (lastMsg.type === 'delivery_share') preview = '[外卖]';
+    else if (lastMsg.type === 'savings_invite') preview = '[共同存钱邀请]';
+    else if (lastMsg.type === 'savings_withdraw_request') preview = '[共同存钱转出申请]';
+    else if (lastMsg.type === 'savings_progress') preview = '[共同存钱进度]';
+    else if (lastMsg.type === 'voice_call_text') preview = '[通话]';
+    else if (lastMsg.type === 'text' || lastMsg.type === 'html') {
         const content = typeof lastMsg.content === 'string' ? lastMsg.content : '';
-        if (!content.trim()) return '[消息]';
-
-        if (isLikelyHtmlPayload(content)) {
+        if (!content.trim()) {
+            preview = '[消息]';
+        } else if (isLikelyHtmlPayload(content)) {
             const title = extractHtmlTitle(content);
-            if (title) return truncatePreview(`[HTML] ${title}`);
-            return '[HTML消息]';
+            preview = title ? truncatePreview(`[HTML] ${title}`) : '[HTML消息]';
+        } else {
+            const plainText = stripHtmlToText(content);
+            preview = truncatePreview(plainText || '[消息]');
         }
-
-        const plainText = stripHtmlToText(content);
-        return truncatePreview(plainText || '[消息]');
+    } else {
+        const fallback = stripHtmlToText(typeof lastMsg.content === 'string' ? lastMsg.content : '');
+        preview = truncatePreview(fallback || '[消息]');
     }
 
-    const fallback = stripHtmlToText(typeof lastMsg.content === 'string' ? lastMsg.content : '');
-    return truncatePreview(fallback || '[消息]');
+    const isGroupChat = !!(contact && typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact));
+    const rawContent = String(lastMsg.content || '').trim();
+    const isSystemLike = lastMsg.type === 'system'
+        || lastMsg.type === 'system_event'
+        || rawContent.startsWith('[系统消息]:')
+        || rawContent.startsWith('[系统]:');
+    if (!isGroupChat || isSystemLike) return preview;
+
+    let speakerName = '';
+    if (contact && lastMsg.id && typeof window.getGroupMessageSpeakerMeta === 'function') {
+        const speakerMeta = window.getGroupMessageSpeakerMeta(contact.id, lastMsg.id);
+        speakerName = speakerMeta && speakerMeta.name ? String(speakerMeta.name).trim() : '';
+    }
+    if (!speakerName) {
+        speakerName = String(lastMsg.speakerNameSnapshot || '').trim();
+    }
+    if (!speakerName && lastMsg.speakerContactId === 'me') {
+        speakerName = window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name
+            ? window.iphoneSimState.userProfile.name
+            : '我';
+    }
+    return speakerName ? truncatePreview(`${speakerName}: ${preview}`) : preview;
 }
 
 function formatContactListTimeLabel(timestamp) {
@@ -2024,9 +2434,11 @@ function formatContactListTimeLabel(timestamp) {
 }
 
 function getLastRenderableChatMessage(contactId) {
-    const history = window.iphoneSimState && window.iphoneSimState.chatHistory
-        ? window.iphoneSimState.chatHistory[contactId]
-        : null;
+    const history = typeof window.getChatHistoryByChannel === 'function'
+        ? window.getChatHistoryByChannel(contactId, 'wechat')
+        : (window.iphoneSimState && window.iphoneSimState.chatHistory
+            ? window.iphoneSimState.chatHistory[contactId]
+            : null);
     if (!Array.isArray(history) || history.length === 0) return null;
 
     for (let index = history.length - 1; index >= 0; index--) {
@@ -2043,9 +2455,10 @@ function getSortedContactsForCurrentGroup(filterGroup = (window.iphoneSimState &
         ? [...window.iphoneSimState.contacts]
         : [];
 
-    const filteredContacts = filterGroup === 'all'
+    const filteredContacts = (filterGroup === 'all'
         ? contacts
-        : contacts.filter(contact => contact.group === filterGroup);
+        : contacts.filter(contact => contact.group === filterGroup))
+        .filter(isVisibleMessageListContact);
 
     filteredContacts.sort((contactA, contactB) => {
         if (contactA.isPinned && !contactB.isPinned) return -1;
@@ -2088,8 +2501,8 @@ window.getWechatListScreenShareSnapshot = function() {
         items = getSortedContactsForCurrentGroup().slice(0, 8).map(contact => {
             const lastMsg = getLastRenderableChatMessage(contact.id);
             return {
-                name: contact.remark || contact.nickname || contact.name || '联系人',
-                preview: formatLastMsgPreview(lastMsg) || '[消息]',
+                name: getContactListDisplayName(contact),
+                preview: formatLastMsgPreview(lastMsg, contact) || '[消息]',
                 time: formatContactListTimeLabel(lastMsg && lastMsg.time),
                 pinned: !!contact.isPinned
             };
@@ -2137,6 +2550,7 @@ function renderContactList(filterGroup = 'all') {
         if (filterGroup !== 'all') {
             filteredContacts = filteredContacts.filter(c => c.group === filterGroup);
         }
+        filteredContacts = filteredContacts.filter(isVisibleMessageListContact);
 
         // Sorting: Pinned first, then by last message time
         filteredContacts.sort((a, b) => {
@@ -2144,15 +2558,8 @@ function renderContactList(filterGroup = 'all') {
             if (!a.isPinned && b.isPinned) return 1;
             
             const getLastTime = (c) => {
-                const history = window.iphoneSimState.chatHistory[c.id];
-                if (history && history.length > 0) {
-                    for (let i = history.length - 1; i >= 0; i--) {
-                        const msg = history[i];
-                        if (shouldHideChatSyncMsg(msg)) continue;
-                        return msg.time || 0;
-                    }
-                }
-                return 0;
+                const lastMessage = getLastRenderableChatMessage(c.id);
+                return Number(lastMessage && lastMessage.time) || 0;
             };
             
             return getLastTime(b) - getLastTime(a);
@@ -2171,7 +2578,9 @@ function renderContactList(filterGroup = 'all') {
             let lastMsgTime = '';
             let unreadCount = 0;
 
-            const history = window.iphoneSimState.chatHistory[contact.id];
+            const history = typeof window.getChatHistoryByChannel === 'function'
+                ? window.getChatHistoryByChannel(contact.id, 'wechat')
+                : window.iphoneSimState.chatHistory[contact.id];
             if (history && history.length > 0) {
                 let lastMsg = null;
                 for (let i = history.length - 1; i >= 0; i--) {
@@ -2180,7 +2589,7 @@ function renderContactList(filterGroup = 'all') {
                     lastMsg = msg;
                     break;
                 }
-                lastMsgText = formatLastMsgPreview(lastMsg);
+                lastMsgText = formatLastMsgPreview(lastMsg, contact);
 
                 if (lastMsg && lastMsg.time) {
                     const date = new Date(lastMsg.time);
@@ -2195,12 +2604,13 @@ function renderContactList(filterGroup = 'all') {
                 lastMsgTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
             }
 
-            const name = contact.remark || contact.nickname || contact.name;
+            const name = getContactListDisplayName(contact);
+            const contactIdLiteral = JSON.stringify(contact.id).replace(/"/g, '&quot;');
 
             item.innerHTML = `
                 <div class="contact-actions">
-                    <button class="action-btn contact-pin-btn" onclick="event.stopPropagation(); window.togglePinContact(${contact.id}, event)">${contact.isPinned ? '取消置顶' : '置顶'}</button>
-                    <button class="action-btn contact-delete-btn" onclick="event.stopPropagation(); window.deleteContact(${contact.id}, event)">删除</button>
+                    <button class="action-btn contact-pin-btn" onclick="event.stopPropagation(); window.togglePinContact(${contactIdLiteral}, event)">${contact.isPinned ? '取消置顶' : '置顶'}</button>
+                    <button class="action-btn contact-delete-btn" onclick="event.stopPropagation(); window.deleteContact(${contactIdLiteral}, event)">删除</button>
                 </div>
                 <div class="contact-content-wrapper">
                     <img src="${contact.avatar}" class="contact-avatar">
@@ -2341,6 +2751,228 @@ function renderContactList(filterGroup = 'all') {
     }
 }
 
+function syncChatSettingsWechatBlockButton(contactOrId = null) {
+    const button = document.getElementById('toggle-wechat-block-btn');
+    if (!button) return;
+
+    let contact = contactOrId && typeof contactOrId === 'object'
+        ? contactOrId
+        : null;
+    if (!contact) {
+        const contactId = contactOrId || getActiveAiProfileContactId();
+        contact = contactId ? ((window.iphoneSimState.contacts || []).find(item => String(item.id) === String(contactId)) || null) : null;
+    }
+    if (typeof window.ensureContactWechatBlockFields === 'function') {
+        window.ensureContactWechatBlockFields(contact);
+    }
+
+    const isBlocked = !!(contact && contact.wechatBlockedByUser);
+    button.dataset.blocked = isBlocked ? '1' : '0';
+    button.innerHTML = isBlocked
+        ? '<i class="ri-close-circle-line"></i> 移出黑名单'
+        : '<i class="ri-forbid-2-line"></i> 拉黑对方';
+}
+
+function syncWechatBlockedChatUi(contactOrId = null) {
+    const chatScreen = document.getElementById('chat-screen');
+    const footer = document.getElementById('wechat-blocked-footer');
+    const button = document.getElementById('wechat-unblock-btn');
+    const stickerPanel = document.getElementById('sticker-panel');
+    const chatMorePanel = document.getElementById('chat-more-panel');
+    const voiceInputModal = document.getElementById('voice-input-modal');
+    if (!chatScreen || !footer || !button) return false;
+
+    const contactId = contactOrId && typeof contactOrId === 'object'
+        ? contactOrId.id
+        : (contactOrId || window.iphoneSimState.currentChatContactId);
+    const contact = contactOrId && typeof contactOrId === 'object'
+        ? contactOrId
+        : ((window.iphoneSimState.contacts || []).find(item => String(item.id) === String(contactId)) || null);
+    if (typeof window.ensureContactWechatBlockFields === 'function') {
+        window.ensureContactWechatBlockFields(contact);
+    }
+
+    const isBlocked = !!(contact && contact.wechatBlockedByUser && String(window.iphoneSimState.currentChatContactId || '') === String(contact.id || ''));
+    if (isBlocked && typeof cancelQuote === 'function') {
+        cancelQuote();
+    }
+    if (isBlocked && stickerPanel) stickerPanel.classList.add('hidden');
+    if (isBlocked && chatMorePanel) chatMorePanel.classList.add('hidden');
+    if (isBlocked && voiceInputModal) voiceInputModal.classList.add('hidden');
+    button.textContent = '移出黑名单';
+    footer.classList.toggle('hidden', !isBlocked);
+    chatScreen.classList.toggle('wechat-blocked-contact', isBlocked);
+    return isBlocked;
+}
+
+function setContactWechatBlockedState(contactId, blocked) {
+    const contact = (window.iphoneSimState.contacts || []).find(item => String(item.id) === String(contactId));
+    if (!contact) return null;
+
+    if (typeof window.ensureContactWechatBlockFields === 'function') {
+        window.ensureContactWechatBlockFields(contact);
+    }
+
+    contact.wechatBlockedByUser = !!blocked;
+    contact.wechatBlockedAt = blocked ? Date.now() : null;
+    saveConfig();
+
+    syncChatSettingsWechatBlockButton(contact);
+    syncWechatBlockedChatUi(contact);
+    if (window.renderContactList) {
+        window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
+    }
+    if (window.MessagesApp && typeof window.MessagesApp.refresh === 'function') {
+        window.MessagesApp.refresh(contact.id);
+    }
+    return contact;
+}
+
+let pendingWechatBlockConfirmContactId = null;
+let pendingWechatBlockConfirmAction = 'block';
+let pendingWechatBlockConfirmReturnToChat = false;
+
+function openWechatBlockConfirmModal(contactOrId = null, action = 'block', options = {}) {
+    const modal = document.getElementById('wechat-block-confirm-modal');
+    const title = document.getElementById('wechat-block-confirm-title');
+    const confirmBtn = document.getElementById('confirm-wechat-block-confirm');
+    if (!modal) return false;
+
+    const contact = contactOrId && typeof contactOrId === 'object'
+        ? contactOrId
+        : ((window.iphoneSimState.contacts || []).find(item => String(item.id) === String(contactOrId || getActiveAiProfileContactId())) || null);
+    if (!contact) return false;
+
+    const safeAction = action === 'unblock' ? 'unblock' : 'block';
+    const contactName = contact.remark || contact.nickname || contact.name || '对方';
+
+    pendingWechatBlockConfirmContactId = contact.id;
+    pendingWechatBlockConfirmAction = safeAction;
+    pendingWechatBlockConfirmReturnToChat = !!(options && options.returnToChat);
+
+    if (title) {
+        title.textContent = safeAction === 'unblock' ? '确认移出黑名单' : '确认拉黑';
+    }
+    if (confirmBtn) {
+        confirmBtn.textContent = safeAction === 'unblock' ? '确认移出' : '确认拉黑';
+    }
+    modal.classList.remove('hidden');
+    return true;
+}
+
+function closeWechatBlockConfirmModal() {
+    const modal = document.getElementById('wechat-block-confirm-modal');
+    if (modal) modal.classList.add('hidden');
+    pendingWechatBlockConfirmContactId = null;
+    pendingWechatBlockConfirmAction = 'block';
+    pendingWechatBlockConfirmReturnToChat = false;
+}
+
+function returnFromChatSettingsToChat(contactId) {
+    const chatSettingsScreen = document.getElementById('chat-settings-screen');
+    const aiProfileScreen = document.getElementById('ai-profile-screen');
+    if (chatSettingsScreen) chatSettingsScreen.classList.add('hidden');
+    if (aiProfileScreen) aiProfileScreen.classList.add('hidden');
+    if (window.setChatSettingsFloatingSaveVisible) {
+        window.setChatSettingsFloatingSaveVisible(false);
+    }
+    if (typeof openChat === 'function') {
+        openChat(contactId);
+    }
+}
+
+async function triggerWechatUnblockReply(contactId) {
+    const contact = (window.iphoneSimState.contacts || []).find(item => String(item.id) === String(contactId));
+    if (!contact) return false;
+
+    const instruction = '用户刚刚把你从微信黑名单里移出来了。你已经知道现在你发给用户的消息会重新出现在微信聊天页。请自然地接住这件事，像真人一样表达，不要写成系统通知，也不要每句都重复强调自己被移出黑名单。';
+    try {
+        return await generateAiReply(instruction, contact.id, {
+            triggerSource: 'manual',
+            deliveryChannel: 'wechat',
+            ignoreRestWindow: true
+        });
+    } catch (error) {
+        console.error('移出黑名单后触发微信回复失败', error);
+        return false;
+    }
+}
+
+async function confirmWechatBlockFromSettings() {
+    const contactId = pendingWechatBlockConfirmContactId;
+    const action = pendingWechatBlockConfirmAction;
+    const shouldReturnToChat = pendingWechatBlockConfirmReturnToChat;
+    if (!contactId) return;
+
+    closeWechatBlockConfirmModal();
+
+    if (action === 'unblock') {
+        const updatedContact = setContactWechatBlockedState(contactId, false);
+        if (!updatedContact) return;
+        if (shouldReturnToChat) {
+            returnFromChatSettingsToChat(updatedContact.id);
+        }
+        await triggerWechatUnblockReply(updatedContact.id);
+        return;
+    }
+
+    const updatedContact = setContactWechatBlockedState(contactId, true);
+    if (!updatedContact) return;
+
+    returnFromChatSettingsToChat(updatedContact.id);
+
+    const promptTailMessages = [
+        {
+            role: 'user',
+            content: '用户刚刚在微信里把你拉黑了。你接下来对用户可见的消息会显示在“信息”线程里。请自然接住这件事。'
+        }
+    ];
+
+    const instruction = '用户刚刚把你在微信里拉黑了。你已经知道接下来可见的聊天不会继续出现在微信，而会进入“信息”里。请自然地接住这件事，像真人一样表达，不要写成系统通知，也不要每句都重复强调被拉黑。';
+    try {
+        await generateAiReply(instruction, updatedContact.id, {
+            triggerSource: 'manual',
+            deliveryChannel: 'messages-app',
+            ignoreRestWindow: true,
+            showWechatTypingTitle: false,
+            promptTailMessages
+        });
+    } catch (error) {
+        console.error('拉黑后触发信息回复失败', error);
+    }
+
+    if (window.MessagesApp && typeof window.MessagesApp.refresh === 'function') {
+        window.MessagesApp.refresh(updatedContact.id);
+    }
+}
+
+async function handleToggleWechatBlockStatus() {
+    const contact = getActiveAiProfileContact();
+    if (!contact) return;
+
+    const nextBlocked = !(contact.wechatBlockedByUser === true);
+    if (nextBlocked) {
+        openWechatBlockConfirmModal(contact, 'block', { returnToChat: true });
+        return;
+    }
+
+    openWechatBlockConfirmModal(contact, 'unblock', { returnToChat: true });
+}
+
+async function handleWechatUnblockFromChat() {
+    const contactId = window.iphoneSimState.currentChatContactId;
+    if (!contactId) return;
+    openWechatBlockConfirmModal(contactId, 'unblock', { returnToChat: false });
+}
+
+window.syncChatSettingsWechatBlockButton = syncChatSettingsWechatBlockButton;
+window.syncWechatBlockedChatUi = syncWechatBlockedChatUi;
+window.openWechatBlockConfirmModal = openWechatBlockConfirmModal;
+window.closeWechatBlockConfirmModal = closeWechatBlockConfirmModal;
+window.confirmWechatBlockFromSettings = confirmWechatBlockFromSettings;
+window.handleToggleWechatBlockStatus = handleToggleWechatBlockStatus;
+window.handleWechatUnblockFromChat = handleWechatUnblockFromChat;
+
 function applyChatDisplayPreferences(contactOrId = null) {
     const chatScreen = document.getElementById('chat-screen');
     if (!chatScreen) return;
@@ -2403,6 +3035,10 @@ function openChat(contactId) {
     }
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return;
+    if (typeof window.ensureContactWechatBlockFields === 'function') {
+        window.ensureContactWechatBlockFields(contact);
+    }
+    ensureContactChatAppearancePresetField(contact);
     
     if (window.iphoneSimState.isMultiSelectMode) {
         exitMultiSelectMode();
@@ -2415,7 +3051,7 @@ function openChat(contactId) {
     if (thoughtPetEl) thoughtPetEl.classList.add('hidden');
 
     window.iphoneSimState.currentChatContactId = contactId;
-    document.getElementById('chat-title').textContent = contact.remark || contact.nickname || contact.name;
+    document.getElementById('chat-title').textContent = getContactListDisplayName(contact);
     
     const chatScreen = document.getElementById('chat-screen');
     if (contact.chatBg) {
@@ -2443,11 +3079,17 @@ function openChat(contactId) {
         chatBody.style.fontSize = (contact.chatFontSize || 16) + 'px';
     }
 
+    applyChatAppearancePreset(contact);
     applyChatDisplayPreferences(contact);
+    applyChatTopbarAppearance(contact);
     
     chatScreen.classList.remove('hidden');
     
     renderChatHistory(contactId);
+    syncWechatBlockedChatUi(contact);
+    if (typeof window.refreshChatMoreFeatureVisibility === 'function') {
+        window.refreshChatMoreFeatureVisibility();
+    }
 
     if (typeof window.prefetchAmapChatContext === 'function') {
         window.prefetchAmapChatContext(contactId);
@@ -2466,11 +3108,515 @@ function getActiveAiProfileContact() {
     return window.iphoneSimState.contacts.find(c => c.id === contactId) || null;
 }
 
+function getAiProfileNickname(contact) {
+    const cleanValue = (value) => String(value || '').trim().replace(/^@+/, '');
+    const nickname = cleanValue(contact && contact.nickname);
+    const name = cleanValue(contact && contact.name);
+    const remark = cleanValue(contact && contact.remark);
+    const contactId = cleanValue(contact && contact.id);
+    const base = nickname || name || remark || contactId || '未命名';
+    return base;
+}
+
+function formatAiProfileWechatId(contact) {
+    const cleanValue = (value) => String(value || '').trim().replace(/^@+/, '');
+    const wxid = cleanValue(contact && contact.wxid);
+    const fallbackId = cleanValue(contact && contact.id);
+    return `ID: ${wxid || fallbackId || '未设置'}`;
+}
+
+function normalizeAiProfileTimestamp(value) {
+    if (value === undefined || value === null || value === '') return 0;
+    if (value instanceof Date) {
+        const time = value.getTime();
+        return Number.isFinite(time) ? time : 0;
+    }
+
+    if (typeof value === 'string') {
+        const text = value.trim();
+        if (!text) return 0;
+        if (/^\d+(?:\.\d+)?$/.test(text)) {
+            const asNumber = Number(text);
+            return Number.isFinite(asNumber) ? asNumber : 0;
+        }
+        const parsed = Date.parse(text);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    const asNumber = Number(value);
+    return Number.isFinite(asNumber) ? asNumber : 0;
+}
+
+function getAiProfileLiveStatusStore() {
+    if (!window.__aiProfileLiveStatusStore || typeof window.__aiProfileLiveStatusStore !== 'object') {
+        window.__aiProfileLiveStatusStore = {};
+    }
+    return window.__aiProfileLiveStatusStore;
+}
+
+function getAiProfileLiveStatusTimers() {
+    if (!window.__aiProfileLiveStatusTimers || typeof window.__aiProfileLiveStatusTimers !== 'object') {
+        window.__aiProfileLiveStatusTimers = {};
+    }
+    return window.__aiProfileLiveStatusTimers;
+}
+
+function clearAiProfileLiveStatusTimer(contactId) {
+    const key = String(contactId || '');
+    if (!key) return;
+    const timers = getAiProfileLiveStatusTimers();
+    if (timers[key]) {
+        clearTimeout(timers[key]);
+        delete timers[key];
+    }
+}
+
+function getAiProfileLiveStatusText(contactId) {
+    const key = String(contactId || '');
+    if (!key) return '';
+    const store = getAiProfileLiveStatusStore();
+    const record = store[key];
+    if (!record || typeof record !== 'object') return '';
+
+    const text = String(record.text || '').trim();
+    if (!text) {
+        delete store[key];
+        clearAiProfileLiveStatusTimer(key);
+        return '';
+    }
+
+    const expiresAt = normalizeAiProfileTimestamp(record.expiresAt);
+    if (expiresAt > 0 && expiresAt <= Date.now()) {
+        delete store[key];
+        clearAiProfileLiveStatusTimer(key);
+        return '';
+    }
+
+    return text;
+}
+
+function refreshAiProfileLiveStatusIfVisible(contactId) {
+    const key = String(contactId || '');
+    if (!key) return;
+    const activeContact = getActiveAiProfileContact();
+    if (!activeContact || String(activeContact.id) !== key) return;
+
+    const statusText = getAiProfileStatusText(activeContact);
+    const avatarTagEl = document.getElementById('ai-profile-avatar-tag');
+    if (avatarTagEl) {
+        avatarTagEl.textContent = statusText;
+    }
+}
+
+function setAiProfileLiveStatusText(contactId, text, ttlMs = 0) {
+    const key = String(contactId || '');
+    if (!key) return;
+    const cleanText = String(text || '').trim();
+    const store = getAiProfileLiveStatusStore();
+    clearAiProfileLiveStatusTimer(key);
+
+    if (!cleanText) {
+        delete store[key];
+        refreshAiProfileLiveStatusIfVisible(key);
+        return;
+    }
+
+    const now = Date.now();
+    const duration = Number.isFinite(Number(ttlMs)) ? Math.max(0, Math.floor(Number(ttlMs))) : 0;
+    const expiresAt = duration > 0 ? now + duration : 0;
+    store[key] = { text: cleanText, expiresAt };
+    refreshAiProfileLiveStatusIfVisible(key);
+
+    if (duration > 0) {
+        const timers = getAiProfileLiveStatusTimers();
+        timers[key] = setTimeout(() => {
+            const currentStore = getAiProfileLiveStatusStore();
+            delete currentStore[key];
+            const currentTimers = getAiProfileLiveStatusTimers();
+            delete currentTimers[key];
+            refreshAiProfileLiveStatusIfVisible(key);
+        }, duration + 40);
+    }
+}
+
+function normalizeContactActivityStatusText(value) {
+    if (value === undefined || value === null) return '';
+    let text = String(value).replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    text = text.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+    if (!text) return '';
+    if (text.length > 24) {
+        text = `${text.slice(0, 24)}...`;
+    }
+    return text;
+}
+
+function setContactActivityStatusText(contactOrId, statusText, options = {}) {
+    const contactId = contactOrId && typeof contactOrId === 'object'
+        ? contactOrId.id
+        : contactOrId;
+    const key = String(contactId || '');
+    if (!key || !window.iphoneSimState || !Array.isArray(window.iphoneSimState.contacts)) return false;
+
+    const contact = contactOrId && typeof contactOrId === 'object'
+        ? contactOrId
+        : window.iphoneSimState.contacts.find((item) => String(item && item.id) === key);
+    if (!contact) return false;
+
+    const normalizedText = normalizeContactActivityStatusText(statusText);
+    if (!normalizedText) {
+        delete contact.activityStatusText;
+        delete contact.activityStatusUpdatedAt;
+        setAiProfileLiveStatusText(key, '', 0);
+    } else {
+        contact.activityStatusText = normalizedText;
+        contact.activityStatusUpdatedAt = Date.now();
+        setAiProfileLiveStatusText(key, normalizedText, 0);
+    }
+
+    if (options && options.save !== false) {
+        saveConfig();
+    }
+
+    refreshAiProfileLiveStatusIfVisible(key);
+    return true;
+}
+
+function clearContactActivityStatusText(contactOrId, options = {}) {
+    return setContactActivityStatusText(contactOrId, '', options);
+}
+
+function updateContactStatusFromChatActivity(contactId, options = {}) {
+    const key = String(contactId || '');
+    if (!key) return;
+
+    if (Object.prototype.hasOwnProperty.call(options || {}, 'activityText')) {
+        setContactActivityStatusText(key, options.activityText, { save: options.save !== false });
+    }
+}
+
+function getAiProfileStatusText(contact) {
+    const liveStatus = getAiProfileLiveStatusText(contact && contact.id);
+    if (liveStatus) return liveStatus;
+
+    const cleanValue = (value) => String(value || '').trim();
+    const activityStatus = cleanValue(contact && contact.activityStatusText);
+    if (activityStatus) return activityStatus;
+
+    const explicitStatus = cleanValue(contact && (contact.profileStatus || contact.statusText || contact.presenceStatus));
+    if (explicitStatus) return explicitStatus;
+
+    const topbarStatus = cleanValue(contact && contact.topbarStatusText);
+    if (topbarStatus && (contact && contact.topbarStatusVisible)) return topbarStatus;
+    if (topbarStatus && topbarStatus !== '5G Online') return topbarStatus;
+    return 'Online';
+}
+
+window.updateContactStatusFromChatActivity = updateContactStatusFromChatActivity;
+window.setContactActivityStatusText = setContactActivityStatusText;
+window.clearContactActivityStatusText = clearContactActivityStatusText;
+
+function getAiProfileChatHistory(contactId) {
+    if (contactId === undefined || contactId === null) return [];
+
+    let history = null;
+    if (typeof window.getChatHistoryByChannel === 'function') {
+        try {
+            history = window.getChatHistoryByChannel(contactId, 'wechat');
+        } catch (err) {
+            history = null;
+        }
+    }
+
+    if (!Array.isArray(history) && window.iphoneSimState && window.iphoneSimState.chatHistory) {
+        history = window.iphoneSimState.chatHistory[contactId];
+    }
+
+    return Array.isArray(history) ? history : [];
+}
+
+function getAiProfileMessageTime(message) {
+    if (!message || typeof message !== 'object') return 0;
+    const candidates = [message.time, message.timestamp, message.createdAt, message.sentAt, message.date];
+    for (let index = 0; index < candidates.length; index++) {
+        const normalized = normalizeAiProfileTimestamp(candidates[index]);
+        if (normalized > 0) return normalized;
+    }
+    return 0;
+}
+
+function getAiProfileDayKey(timestamp) {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function calculateAiProfileStats(contact) {
+    const rawHistory = getAiProfileChatHistory(contact && contact.id);
+    const history = rawHistory.filter((message) => {
+        if (typeof shouldHideChatSyncMsg === 'function') {
+            return !shouldHideChatSyncMsg(message);
+        }
+        return true;
+    });
+
+    const messageTimes = history
+        .map(getAiProfileMessageTime)
+        .filter((time) => Number.isFinite(time) && time > 0)
+        .sort((a, b) => a - b);
+
+    const now = Date.now();
+    const createdAtCandidates = [
+        contact && contact.createdAt,
+        contact && contact.addedAt,
+        contact && contact.friendSince,
+        contact && contact.friendSinceAt
+    ].map(normalizeAiProfileTimestamp).filter((time) => Number.isFinite(time) && time > 0 && time <= now);
+
+    const idAsTimestamp = normalizeAiProfileTimestamp(contact && contact.id);
+    if (idAsTimestamp >= 946684800000 && idAsTimestamp <= now) {
+        createdAtCandidates.push(idAsTimestamp);
+    }
+
+    let friendStartTime = createdAtCandidates[0] || 0;
+    if (!friendStartTime && messageTimes.length > 0) {
+        friendStartTime = messageTimes[0];
+    }
+    if (!friendStartTime) {
+        friendStartTime = now;
+    }
+
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+
+    const friendStartDate = new Date(friendStartTime);
+    friendStartDate.setHours(0, 0, 0, 0);
+
+    const dayDiff = Math.floor((today.getTime() - friendStartDate.getTime()) / 86400000);
+    const friendDays = Math.max(1, dayDiff + 1);
+
+    const activeDaySet = new Set();
+    messageTimes.forEach((time) => {
+        activeDaySet.add(getAiProfileDayKey(time));
+    });
+
+    return {
+        messageCount: history.length,
+        friendDays,
+        activeDays: activeDaySet.size
+    };
+}
+
+function formatAiProfileStatNumber(value) {
+    const normalized = Math.max(0, Math.floor(Number(value) || 0));
+    return normalized.toLocaleString('en-US');
+}
+
+function normalizeAiProfileTags(tagsInput) {
+    const toList = (value) => {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            const text = value.trim();
+            if (!text) return [];
+            if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
+                try {
+                    const parsed = JSON.parse(text);
+                    if (Array.isArray(parsed)) return parsed;
+                    if (parsed && typeof parsed === 'object') {
+                        if (Array.isArray(parsed.tags)) return parsed.tags;
+                        if (Array.isArray(parsed.list)) return parsed.list;
+                    }
+                } catch (error) {}
+            }
+            return text.split(/[,，、|/]/);
+        }
+        if (value && typeof value === 'object') {
+            if (Array.isArray(value.tags)) return value.tags;
+            if (Array.isArray(value.list)) return value.list;
+        }
+        return [];
+    };
+
+    const rawList = toList(tagsInput);
+    const normalized = [];
+    const seen = new Set();
+
+    rawList.forEach((item) => {
+        let text = String(item || '').trim();
+        if (!text) return;
+        text = text.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+        text = text.replace(/^#+/, '').trim();
+        text = text.replace(/\s+/g, ' ');
+        if (!text) return;
+        if (text.length > 16) text = `${text.slice(0, 16)}`;
+        const key = text.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        normalized.push(`#${text}`);
+    });
+
+    return normalized.slice(0, 3);
+}
+
+function buildDefaultAiProfileTags(contact) {
+    const nickname = String((contact && (contact.nickname || contact.name)) || '').trim();
+    const firstTag = nickname ? `#${nickname.replace(/^#+/, '').slice(0, 10)}` : '#Life';
+    return [firstTag, '#Daily', '#Mood'];
+}
+
+function normalizeAiProfileCompareText(value) {
+    return String(value || '').trim().replace(/^@+/, '').toLowerCase();
+}
+
+function getAiProfileCoreSnapshot(contact) {
+    const normalizedTags = normalizeAiProfileTags(contact && contact.profileTags);
+    return {
+        nickname: normalizeAiProfileCompareText(getAiProfileNickname(contact)),
+        wxid: normalizeAiProfileCompareText(contact && contact.wxid),
+        signature: normalizeAiProfileCompareText(contact && contact.signature),
+        tags: normalizedTags.map(item => normalizeAiProfileCompareText(item))
+    };
+}
+
+function isAiProfileCoreSnapshotEqual(previousSnapshot, nextSnapshot) {
+    if (!previousSnapshot || !nextSnapshot) return false;
+    const prevTags = Array.isArray(previousSnapshot.tags) ? previousSnapshot.tags : [];
+    const nextTags = Array.isArray(nextSnapshot.tags) ? nextSnapshot.tags : [];
+    return previousSnapshot.nickname === nextSnapshot.nickname
+        && previousSnapshot.wxid === nextSnapshot.wxid
+        && previousSnapshot.signature === nextSnapshot.signature
+        && prevTags.join('|') === nextTags.join('|');
+}
+
+function enforceAiProfileDifference(contact, previousSnapshot) {
+    if (!contact || !previousSnapshot) return;
+
+    const currentSnapshot = getAiProfileCoreSnapshot(contact);
+    const currentNickname = String(contact.nickname || contact.name || '').trim().replace(/^@+/, '');
+    const currentWxid = String(contact.wxid || '').trim().replace(/^@+/, '');
+    const currentSignature = String(contact.signature || '').trim();
+
+    if (currentSnapshot.nickname === previousSnapshot.nickname) {
+        const suffixes = ['新档案', '新状态', '新版本', '重启中', '今日份'];
+        const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
+        contact.nickname = `${currentNickname || contact.name || '用户'}${suffix}`.slice(0, 18);
+    }
+
+    if (currentSnapshot.wxid === previousSnapshot.wxid) {
+        const base = (currentWxid || `wxid_${String(contact.id || '').replace(/\s+/g, '')}` || 'wxid_user')
+            .replace(/\s+/g, '')
+            .replace(/[^\w.-]/g, '');
+        const nonce = Math.random().toString(36).slice(2, 6);
+        contact.wxid = `${base}_${nonce}`.slice(0, 28);
+    }
+
+    if (currentSnapshot.signature === previousSnapshot.signature) {
+        const signatures = [
+            `今天是${contact.name || '我'}的新频道`,
+            '已更新状态，欢迎来聊',
+            '换个心情，继续营业',
+            '信号正常，随时在线',
+            '正在加载今日新故事'
+        ];
+        contact.signature = signatures[Math.floor(Math.random() * signatures.length)];
+    }
+
+    const nextTags = normalizeAiProfileTags(contact.profileTags);
+    const prevTagKey = (Array.isArray(previousSnapshot.tags) ? previousSnapshot.tags : []).join('|');
+    if (nextTags.map(item => normalizeAiProfileCompareText(item)).join('|') === prevTagKey) {
+        const fallbackPool = ['#新状态', '#今天', '#刷新', '#MoodUp', '#再认识一下'];
+        const existing = new Set(nextTags.map(item => normalizeAiProfileCompareText(item)));
+        const tags = nextTags.length > 0 ? [...nextTags] : buildDefaultAiProfileTags(contact);
+        while (tags.length < 3) {
+            tags.push(fallbackPool[tags.length % fallbackPool.length]);
+        }
+        const replacement = fallbackPool.find(tag => !existing.has(normalizeAiProfileCompareText(tag)))
+            || `#更新${Math.random().toString(36).slice(2, 5)}`;
+        tags[2] = replacement;
+        contact.profileTags = normalizeAiProfileTags(tags);
+    }
+}
+
+let aiProfileRegenerateInFlight = false;
+
+function renderAiProfileTags(contact) {
+    const tagsContainer = document.getElementById('ai-profile-tags')
+        || document.querySelector('#ai-profile-screen .ai-profile-tags');
+    if (!tagsContainer) return;
+
+    const parsedTags = normalizeAiProfileTags(contact && contact.profileTags);
+    const displayTags = parsedTags.length > 0 ? parsedTags : buildDefaultAiProfileTags(contact);
+
+    tagsContainer.innerHTML = '';
+    displayTags.forEach((tagText) => {
+        const span = document.createElement('span');
+        span.className = 'tag ai-profile-tag';
+        span.textContent = tagText;
+        tagsContainer.appendChild(span);
+    });
+}
+
+function countKeywordOccurrencesInText(source, keyword) {
+    const text = String(source || '');
+    const term = String(keyword || '');
+    if (!text || !term) return 0;
+
+    let count = 0;
+    let cursor = 0;
+    while (cursor < text.length) {
+        const foundAt = text.indexOf(term, cursor);
+        if (foundAt === -1) break;
+        count++;
+        cursor = foundAt + term.length;
+    }
+    return count;
+}
+
+function calculateAiProfileKeywordMentionCount(contact, keyword) {
+    const term = String(keyword || '').trim();
+    if (!contact || !term) return 0;
+
+    const history = getAiProfileChatHistory(contact.id);
+    let total = 0;
+
+    history.forEach((message) => {
+        if (!message || message.role !== 'assistant') return;
+        if (typeof shouldHideChatSyncMsg === 'function' && shouldHideChatSyncMsg(message)) return;
+
+        const type = String(message.type || 'text').trim().toLowerCase();
+        if (type !== 'text' && type !== 'voice_call_text') return;
+
+        const raw = String(message.content || '').trim();
+        if (!raw) return;
+        if (raw.startsWith('[系统消息]:') || raw.startsWith('[系统]:')) return;
+
+        const plainText = typeof stripHtmlToText === 'function' ? stripHtmlToText(raw) : raw;
+        total += countKeywordOccurrencesInText(plainText, term);
+    });
+
+    return total;
+}
+
+function formatAiProfileKeywordStatLabel(keyword) {
+    const term = String(keyword || '').trim();
+    if (!term) return 'KEYWORD';
+    const short = term.length > 8 ? `${term.slice(0, 8)}...` : term;
+    return `${short} COUNT`;
+}
+
 window.openAiProfile = async function(contactId = null) {
     const resolvedContactId = contactId || window.iphoneSimState.currentChatContactId;
     if (!resolvedContactId) return;
-    const contact = window.iphoneSimState.contacts.find(c => c.id === resolvedContactId);
+    const contact = window.iphoneSimState.contacts.find(c => String(c.id) === String(resolvedContactId));
     if (!contact) return;
+
+    if (typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)) {
+        window.iphoneSimState.currentAiProfileContactId = contact.id;
+        openChatSettings();
+        return;
+    }
 
     window.iphoneSimState.currentAiProfileContactId = contact.id;
 
@@ -2482,19 +3628,39 @@ window.openAiProfile = async function(contactId = null) {
     document.getElementById('ai-profile-screen').classList.remove('hidden');
 }
 
-async function generateInitialProfile(contact) {
+async function generateInitialProfile(contact, options = {}) {
+    if (!contact || typeof contact !== 'object') return false;
     const settings = window.iphoneSimState.aiSettings2.url ? window.iphoneSimState.aiSettings2 : window.iphoneSimState.aiSettings;
-    if (!settings.url || !settings.key) return;
+    if (!settings.url || !settings.key) return false;
 
-    document.getElementById('ai-profile-name').textContent = '正在生成资料...';
+    const forceRegenerate = !!(options && options.forceRegenerate);
+    const previousSnapshot = options && options.previousSnapshot ? options.previousSnapshot : null;
+
+    document.getElementById('ai-profile-name').textContent = forceRegenerate ? '正在重新生成资料...' : '正在生成资料...';
     document.getElementById('ai-profile-screen').classList.remove('hidden');
 
     try {
+        const previousProfileText = previousSnapshot
+            ? `旧资料如下：
+nickname: ${previousSnapshot.nickname || '-'}
+wxid: ${previousSnapshot.wxid || '-'}
+signature: ${previousSnapshot.signature || '-'}
+tags: ${(Array.isArray(previousSnapshot.tags) ? previousSnapshot.tags : []).join(', ') || '-'}`
+            : '';
+
+        const regenerateRule = forceRegenerate
+            ? `这是一次重新生成。
+要求新结果中的 nickname、wxid、signature、tags 必须与旧资料明显不同，不能与旧值完全一致。`
+            : '';
+
         const systemPrompt = `你是一个资料卡生成助手。请为角色 "${contact.name}" (人设: ${contact.persona || '无'}) 生成微信资料卡 JSON。
 严禁输出 Markdown 代码块 (如 \`\`\`json)，严禁输出任何解释性文字。
 只输出纯 JSON 字符串，格式如下：
-{"nickname": "网名", "wxid": "微信号", "signature": "签名"}
-确保 JSON 格式合法且完整。`;
+{"nickname": "网名", "wxid": "微信号", "signature": "签名", "tags": ["标签1", "标签2", "标签3"]}
+tags 必须是 3 个简短标签，偏生活化，可用于资料卡底部 hashtag。
+确保 JSON 格式合法且完整。
+${regenerateRule}
+${previousProfileText}`;
 
         let fetchUrl = settings.url;
         if (!fetchUrl.endsWith('/chat/completions')) {
@@ -2636,12 +3802,36 @@ async function generateInitialProfile(contact) {
                 }
                 return null;
             };
+            const extractTags = () => {
+                const listMatch = content.match(/["']?(?:tags|标签|hashtags?)["']?\s*[:：]\s*(\[[^\]]*\])/i);
+                if (listMatch && listMatch[1]) {
+                    const rawList = String(listMatch[1] || '').trim();
+                    if (rawList) {
+                        try {
+                            const parsed = JSON.parse(rawList.replace(/'/g, '"'));
+                            const tags = normalizeAiProfileTags(parsed);
+                            if (tags.length > 0) return tags;
+                        } catch (error) {
+                            const tags = normalizeAiProfileTags(
+                                rawList
+                                    .replace(/^\[/, '')
+                                    .replace(/\]$/, '')
+                                    .split(',')
+                            );
+                            if (tags.length > 0) return tags;
+                        }
+                    }
+                }
+                const tags = normalizeAiProfileTags(extractField(['tags', '标签', 'hashtags']));
+                return tags.length > 0 ? tags : null;
+            };
             profile.nickname = extractField(['nickname', '网名', 'name']);
             profile.wxid = extractField(['wxid', '微信号', 'id']);
             profile.signature = extractField(['signature', '签名', 'sign']);
+            profile.tags = extractTags();
             
             // Check if profile is empty
-            if (!profile.nickname && !profile.wxid && !profile.signature) {
+            if (!profile.nickname && !profile.wxid && !profile.signature && !profile.tags) {
                 profile = null;
             }
         }
@@ -2653,7 +3843,8 @@ async function generateInitialProfile(contact) {
             profile = {
                 nickname: contact.name, // 默认使用名字
                 wxid: `wxid_${randomId}`,
-                signature: `你好，我是${contact.name}`
+                signature: `你好，我是${contact.name}`,
+                tags: buildDefaultAiProfileTags(contact)
             };
         }
 
@@ -2663,15 +3854,29 @@ async function generateInitialProfile(contact) {
             if (profile.nickname) contact.nickname = profile.nickname;
             if (profile.wxid) contact.wxid = profile.wxid;
             if (profile.signature) contact.signature = profile.signature;
-            
-            // 强制刷新 UI
-            document.getElementById('ai-profile-name').textContent = contact.nickname || contact.name;
-            document.getElementById('ai-profile-id').textContent = `微信号: ${contact.wxid || 'wxid_' + contact.id}`;
-            document.getElementById('ai-profile-signature').textContent = contact.signature || '暂无个性签名';
+            const nextTags = normalizeAiProfileTags(
+                profile.tags
+                || profile.tagList
+                || profile.hashtags
+                || profile.labels
+            );
+            contact.profileTags = nextTags.length > 0 ? nextTags : buildDefaultAiProfileTags(contact);
+            if (forceRegenerate && previousSnapshot) {
+                enforceAiProfileDifference(contact, previousSnapshot);
+            }
         }
         
         contact.initializedProfile = true;
         saveConfig();
+        if (typeof renderAiProfile === 'function') {
+            renderAiProfile(contact);
+        } else {
+            document.getElementById('ai-profile-name').textContent = getAiProfileNickname(contact);
+            document.getElementById('ai-profile-id').textContent = formatAiProfileWechatId(contact);
+            document.getElementById('ai-profile-signature').textContent = contact.signature || '暂无个性签名';
+            renderAiProfileTags(contact);
+        }
+        return true;
 
     } catch (error) {
         console.error('[GenerateProfile] 生成资料过程中发生异常', error);
@@ -2679,33 +3884,146 @@ async function generateInitialProfile(contact) {
         contact.nickname = contact.name;
         contact.wxid = `wxid_${Math.random().toString(36).substring(2, 8)}`;
         contact.signature = "你好";
+        contact.profileTags = buildDefaultAiProfileTags(contact);
         contact.initializedProfile = true;
         saveConfig();
         
         // 刷新 UI
-        document.getElementById('ai-profile-name').textContent = contact.nickname;
-        document.getElementById('ai-profile-id').textContent = `微信号: ${contact.wxid}`;
+        document.getElementById('ai-profile-name').textContent = getAiProfileNickname(contact);
+        document.getElementById('ai-profile-id').textContent = formatAiProfileWechatId(contact);
         document.getElementById('ai-profile-signature').textContent = contact.signature;
+        renderAiProfileTags(contact);
+        return false;
+    }
+}
+
+async function regenerateAiProfileCard(contactId = null) {
+    if (aiProfileRegenerateInFlight) return false;
+    if (!window.iphoneSimState || !Array.isArray(window.iphoneSimState.contacts)) return false;
+
+    const resolvedContactId = contactId || getActiveAiProfileContactId();
+    if (!resolvedContactId) return false;
+
+    const contact = window.iphoneSimState.contacts.find(item => String(item.id) === String(resolvedContactId));
+    if (!contact) return false;
+
+    aiProfileRegenerateInFlight = true;
+    const triggerBtn = document.getElementById('ai-profile-regenerate-trigger');
+    const oldDisabled = triggerBtn ? !!triggerBtn.disabled : false;
+    if (triggerBtn) {
+        triggerBtn.disabled = true;
+        triggerBtn.style.opacity = '0.55';
+    }
+
+    const previousSnapshot = getAiProfileCoreSnapshot(contact);
+    let generationOk = false;
+    try {
+        generationOk = await generateInitialProfile(contact, {
+            forceRegenerate: true,
+            previousSnapshot
+        });
+    } finally {
+        aiProfileRegenerateInFlight = false;
+        if (triggerBtn) {
+            triggerBtn.disabled = oldDisabled;
+            triggerBtn.style.opacity = '';
+        }
+    }
+
+    const latestSnapshot = getAiProfileCoreSnapshot(contact);
+    if (isAiProfileCoreSnapshotEqual(previousSnapshot, latestSnapshot)) {
+        enforceAiProfileDifference(contact, previousSnapshot);
+        saveConfig();
+        if (typeof renderAiProfile === 'function') renderAiProfile(contact);
+    }
+
+    if (typeof window.showChatToast === 'function') {
+        const message = generationOk ? '资料卡已重新生成' : '资料卡已更新为新的兜底内容';
+        window.showChatToast(message, 1800);
+    }
+    return true;
+}
+
+window.regenerateAiProfileCard = regenerateAiProfileCard;
+
+function normalizeAiProfileHighlightImageMap(contact) {
+    const source = contact && contact.profileHighlightImages && typeof contact.profileHighlightImages === 'object'
+        ? contact.profileHighlightImages
+        : {};
+    const normalize = (value) => String(value || '').trim();
+    return {
+        vlog: normalize(source.vlog),
+        ootd: normalize(source.ootd),
+        cafe: normalize(source.cafe),
+        // Backward-compatible fallback: old key `art` -> new key `moment`.
+        moment: normalize(source.moment || source.art)
+    };
+}
+
+function applyAiProfileHighlightThumbImage(thumbEl, imageUrl) {
+    if (!thumbEl) return;
+    const src = String(imageUrl || '').trim();
+    if (!src) {
+        thumbEl.style.backgroundImage = '';
+        thumbEl.classList.remove('has-custom-image');
+        return;
+    }
+    thumbEl.style.backgroundImage = `url(${src})`;
+    thumbEl.classList.add('has-custom-image');
+}
+
+function renderAiProfileHighlightThumbs(contact, contactMoments = []) {
+    const imageMap = normalizeAiProfileHighlightImageMap(contact);
+    const vlogThumb = document.querySelector('#ai-profile-screen .ai-profile-highlight-vlog');
+    const ootdThumb = document.querySelector('#ai-profile-screen .ai-profile-highlight-ootd');
+    const cafeThumb = document.querySelector('#ai-profile-screen .ai-profile-highlight-cafe');
+    applyAiProfileHighlightThumbImage(vlogThumb, imageMap.vlog);
+    applyAiProfileHighlightThumbImage(ootdThumb, imageMap.ootd);
+    applyAiProfileHighlightThumbImage(cafeThumb, imageMap.cafe);
+
+    const momentThumb = document.getElementById('ai-moments-preview');
+    if (!momentThumb) return;
+
+    momentThumb.innerHTML = '';
+    momentThumb.classList.remove('has-image');
+
+    if (imageMap.moment) {
+        const customImg = document.createElement('img');
+        customImg.src = imageMap.moment;
+        customImg.alt = 'MOMENT';
+        momentThumb.appendChild(customImg);
+        momentThumb.classList.add('has-image');
+        return;
+    }
+
+    const latestMomentWithImage = Array.isArray(contactMoments)
+        ? contactMoments.find(m => Array.isArray(m.images) && m.images.length > 0)
+        : null;
+
+    if (latestMomentWithImage) {
+        const img = document.createElement('img');
+        img.src = latestMomentWithImage.images[0];
+        img.alt = 'MOMENT';
+        momentThumb.appendChild(img);
+        momentThumb.classList.add('has-image');
     }
 }
 
 function renderAiProfile(contact) {
-    document.getElementById('ai-profile-avatar').src = contact.avatar;
+    document.getElementById('ai-profile-avatar').src = contact.avatar || '';
     
-    const displayName = contact.remark || contact.nickname || contact.name;
-    document.getElementById('ai-profile-name').textContent = displayName;
+    const profileNickname = getAiProfileNickname(contact);
+    document.getElementById('ai-profile-name').textContent = profileNickname;
 
     const nicknameEl = document.getElementById('ai-profile-nickname');
-    const realNickname = contact.nickname || contact.name;
-    if (contact.remark && realNickname && contact.remark !== realNickname) {
-        nicknameEl.textContent = `昵称: ${realNickname}`;
-        nicknameEl.style.display = 'block';
-    } else {
-        nicknameEl.style.display = 'none';
-    }
+    if (nicknameEl) nicknameEl.style.display = 'none';
 
-    const displayId = contact.wxid || contact.id;
-    document.getElementById('ai-profile-id').textContent = `微信号: ${displayId}`;
+    document.getElementById('ai-profile-id').textContent = formatAiProfileWechatId(contact);
+
+    const avatarTagEl = document.getElementById('ai-profile-avatar-tag');
+    if (avatarTagEl) {
+        avatarTagEl.textContent = getAiProfileStatusText(contact);
+    }
     
     const bgEl = document.getElementById('ai-profile-bg');
     if (contact.profileBg) {
@@ -2717,20 +4035,63 @@ function renderAiProfile(contact) {
     document.getElementById('ai-profile-remark').textContent = contact.remark || '未设置';
     document.getElementById('ai-profile-signature').textContent = contact.signature || '暂无个性签名';
     document.getElementById('ai-profile-relation').textContent = contact.relation || '未设置';
+    renderAiProfileTags(contact);
 
-    const previewContainer = document.getElementById('ai-moments-preview');
-    previewContainer.innerHTML = '';
-    
-    const contactMoments = window.iphoneSimState.moments.filter(m => m.contactId === contact.id);
-    const recentMoments = contactMoments.sort((a, b) => b.time - a.time).slice(0, 4);
-    
-    recentMoments.forEach(m => {
-        if (m.images && m.images.length > 0) {
-            const img = document.createElement('img');
-            img.src = m.images[0];
-            previewContainer.appendChild(img);
+    const contactMoments = (window.iphoneSimState.moments || [])
+        .filter(m => m.contactId === contact.id)
+        .sort((a, b) => b.time - a.time);
+
+    const profileStats = calculateAiProfileStats(contact);
+    const statMessagesValue = document.getElementById('ai-profile-stat-messages-value');
+    const statFriendDaysValue = document.getElementById('ai-profile-stat-friend-days-value');
+    const statThirdValue = document.getElementById('ai-profile-stat-active-days-value');
+    const statMessagesLabel = document.getElementById('ai-profile-stat-messages-label');
+    const statFriendDaysLabel = document.getElementById('ai-profile-stat-friend-days-label');
+    const statThirdLabel = document.getElementById('ai-profile-stat-active-days-label');
+    const statThirdItem = document.getElementById('ai-profile-stat-third-item');
+
+    const keywordTerm = String(contact.profileKeywordStatTerm || '').trim();
+    const keywordCount = keywordTerm ? calculateAiProfileKeywordMentionCount(contact, keywordTerm) : 0;
+
+    if (statMessagesValue) statMessagesValue.textContent = formatAiProfileStatNumber(profileStats.messageCount);
+    if (statFriendDaysValue) statFriendDaysValue.textContent = formatAiProfileStatNumber(profileStats.friendDays);
+    if (statThirdValue) statThirdValue.textContent = formatAiProfileStatNumber(keywordCount);
+    if (statMessagesLabel) statMessagesLabel.textContent = 'MESSAGES';
+    if (statFriendDaysLabel) statFriendDaysLabel.textContent = 'FRIEND DAYS';
+    if (statThirdLabel) statThirdLabel.textContent = formatAiProfileKeywordStatLabel(keywordTerm);
+
+    const openKeywordStatPrompt = () => {
+        const currentTerm = String(contact.profileKeywordStatTerm || '').trim();
+        const nextInput = window.prompt('输入要统计的文本（例如：宝宝）\n留空可清除关键词统计', currentTerm);
+        if (nextInput === null) return;
+
+        const normalized = String(nextInput || '').trim();
+        if (!normalized) {
+            delete contact.profileKeywordStatTerm;
+            if (typeof window.showChatToast === 'function') {
+                window.showChatToast('已清除关键词统计', 1800);
+            }
+        } else {
+            contact.profileKeywordStatTerm = normalized.slice(0, 24);
+            if (typeof window.showChatToast === 'function') {
+                window.showChatToast(`关键词已设为：${contact.profileKeywordStatTerm}`, 1800);
+            }
         }
-    });
+        saveConfig();
+        renderAiProfile(contact);
+    };
+
+    if (statThirdItem) {
+        statThirdItem.onclick = openKeywordStatPrompt;
+        statThirdItem.onkeydown = (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openKeywordStatPrompt();
+            }
+        };
+    }
+
+    renderAiProfileHighlightThumbs(contact, contactMoments);
 }
 
 function handleAiProfileBgUpload(e) {
@@ -2752,12 +4113,22 @@ function handleAiProfileBgUpload(e) {
 
 window.handleAiProfileBgUpload = handleAiProfileBgUpload;
 
-function openRelationSelect() {
+function openRelationSelect(config = null) {
     const modal = document.getElementById('relation-select-modal');
     const list = document.getElementById('relation-options');
+    const title = modal ? modal.querySelector('.modal-header h3') : null;
+    const options = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
     list.innerHTML = '';
 
-    const relations = ['情侣', '闺蜜', '死党', '基友', '同事', '同学', '家人', '普通朋友'];
+    const relations = Array.isArray(options.relations) && options.relations.length
+        ? options.relations
+        : ['情侣', '闺蜜', '死党', '基友', '同事', '同学', '家人', '普通朋友'];
+    if (title) {
+        title.textContent = options.title || '设置关系';
+    }
+    window.__relationSelectContext = {
+        onSelect: typeof options.onSelect === 'function' ? options.onSelect : null
+    };
     
     relations.forEach(rel => {
         const item = document.createElement('div');
@@ -2767,16 +4138,35 @@ function openRelationSelect() {
         list.appendChild(item);
     });
 
+    if (options.allowClear) {
+        const clearItem = document.createElement('div');
+        clearItem.className = 'list-item center-content';
+        clearItem.textContent = options.clearLabel || '清除关系';
+        clearItem.onclick = () => setRelation('');
+        list.appendChild(clearItem);
+    }
+
     modal.classList.remove('hidden');
 }
 
 function setRelation(relation) {
+    const relationText = String(relation || '').trim();
+    const relationContext = window.__relationSelectContext;
+    if (relationContext && typeof relationContext.onSelect === 'function') {
+        relationContext.onSelect(relationText);
+        window.__relationSelectContext = null;
+        document.getElementById('relation-select-modal').classList.add('hidden');
+        return;
+    }
+
     const contact = getActiveAiProfileContact();
     if (!contact) return;
 
-    contact.relation = relation;
-    document.getElementById('ai-profile-relation').textContent = relation;
+    contact.relation = relationText;
+    contact.relationship = relationText;
+    document.getElementById('ai-profile-relation').textContent = relationText || '未设置';
     saveConfig();
+    window.__relationSelectContext = null;
     document.getElementById('relation-select-modal').classList.add('hidden');
 }
 
@@ -2905,15 +4295,161 @@ if (!window.__chatSettingsStickyChromeResizeBound) {
     });
 }
 
+function getChatSettingsTargetModeElements() {
+    const activeReplyToggle = document.getElementById('chat-setting-active-reply');
+    const activeReplyToggleRow = activeReplyToggle ? activeReplyToggle.closest('.mag-toggle') : null;
+    const showThoughtToggleRow = document.getElementById('chat-setting-show-thought')
+        ? document.getElementById('chat-setting-show-thought').closest('.mag-toggle')
+        : null;
+    const thoughtVisibleToggleRow = document.getElementById('chat-setting-thought-visible')
+        ? document.getElementById('chat-setting-thought-visible').closest('.mag-toggle')
+        : null;
+    const realTimeToggleRow = document.getElementById('chat-setting-real-time-visible')
+        ? document.getElementById('chat-setting-real-time-visible').closest('.mag-toggle')
+        : null;
+    const calendarAwareToggleRow = document.getElementById('chat-setting-calendar-aware')
+        ? document.getElementById('chat-setting-calendar-aware').closest('.mag-toggle')
+        : null;
+    const allowRealPhotoSendToggleRow = document.getElementById('chat-setting-allow-real-photo-send')
+        ? document.getElementById('chat-setting-allow-real-photo-send').closest('.mag-toggle')
+        : null;
+    const deviceUsageToggleRow = document.getElementById('chat-setting-device-usage-shared')
+        ? document.getElementById('chat-setting-device-usage-shared').closest('.mag-toggle')
+        : null;
+    const activeReplyLabel = activeReplyToggleRow && activeReplyToggleRow.previousElementSibling && activeReplyToggleRow.previousElementSibling.classList && activeReplyToggleRow.previousElementSibling.classList.contains('mag-label')
+        ? activeReplyToggleRow.previousElementSibling
+        : null;
+
+    return {
+        screen: document.getElementById('chat-settings-screen'),
+        groupPanel: document.getElementById('chat-setting-group-inline-panel'),
+        directIdentityBlock: document.getElementById('chat-setting-avatar') ? document.getElementById('chat-setting-avatar').closest('.editorial-identity-inline') : null,
+        directRemarkGroupField: document.getElementById('chat-setting-remark') ? document.getElementById('chat-setting-remark').closest('.editorial-remark-group-field') : null,
+        directPersonaField: document.getElementById('chat-setting-persona') ? document.getElementById('chat-setting-persona').closest('.ai-setting-persona-container') : null,
+        contextField: document.getElementById('chat-setting-context-limit') ? document.getElementById('chat-setting-context-limit').closest('.mag-field') : null,
+        bilingualToggle: document.getElementById('chat-setting-bilingual-translation-enabled') ? document.getElementById('chat-setting-bilingual-translation-enabled').closest('.mag-toggle') : null,
+        bilingualPanel: document.getElementById('chat-setting-bilingual-translation-panel'),
+        tokenField: document.getElementById('chat-setting-token-preview') ? document.getElementById('chat-setting-token-preview').closest('.mag-field') : null,
+        summaryField: document.getElementById('chat-setting-summary-limit') ? document.getElementById('chat-setting-summary-limit').closest('.mag-field') : null,
+        logicDivider: document.querySelector('#chat-setting-tab-ai .mag-block-decor'),
+        activeReplyLabel,
+        activeReplyToggle: activeReplyToggleRow,
+        activeReplyIntervalField: document.getElementById('chat-setting-active-interval') ? document.getElementById('chat-setting-active-interval').closest('.mag-field') : null,
+        restWindowToggle: document.getElementById('chat-setting-rest-window-enabled') ? document.getElementById('chat-setting-rest-window-enabled').closest('.mag-toggle') : null,
+        restWindowPanel: document.getElementById('chat-setting-rest-window-time-panel'),
+        thoughtCard: document.getElementById('chat-setting-show-thought') ? document.getElementById('chat-setting-show-thought').closest('.editorial-thought-card') : null,
+        thoughtPetPanel: document.getElementById('chat-setting-thought-pet-panel'),
+        showThoughtToggle: showThoughtToggleRow,
+        thoughtStyleField: document.getElementById('chat-setting-thought-style') ? document.getElementById('chat-setting-thought-style').closest('.mag-field') : null,
+        thoughtVisibleToggle: thoughtVisibleToggleRow,
+        realTimeToggle: realTimeToggleRow,
+        calendarAwareToggle: calendarAwareToggleRow,
+        allowRealPhotoSendToggle: allowRealPhotoSendToggleRow,
+        deviceUsageToggle: deviceUsageToggleRow,
+        fireBuddyCard: document.getElementById('chat-setting-fire-buddy-enabled') ? document.getElementById('chat-setting-fire-buddy-enabled').closest('.editorial-fire-buddy-card') : null,
+        assetsCard: document.getElementById('chat-setting-tts-enabled') ? document.getElementById('chat-setting-tts-enabled').closest('.editorial-card-shell') : null
+    };
+}
+
+function setChatSettingsElementHidden(element, hidden) {
+    if (!element) return;
+    element.classList.toggle('hidden', !!hidden);
+}
+
+function syncChatSettingsTargetMode(contact) {
+    const isGroupChat = !!(contact && typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact));
+    const {
+        screen,
+        groupPanel,
+        directIdentityBlock,
+        directRemarkGroupField,
+        directPersonaField,
+        contextField,
+        bilingualToggle,
+        bilingualPanel,
+        tokenField,
+        summaryField,
+        logicDivider,
+        activeReplyLabel,
+        activeReplyToggle,
+        activeReplyIntervalField,
+        restWindowToggle,
+        restWindowPanel,
+        thoughtCard,
+        thoughtPetPanel,
+        showThoughtToggle,
+        thoughtStyleField,
+        thoughtVisibleToggle,
+        realTimeToggle,
+        calendarAwareToggle,
+        allowRealPhotoSendToggle,
+        deviceUsageToggle,
+        fireBuddyCard,
+        assetsCard
+    } = getChatSettingsTargetModeElements();
+
+    if (screen) {
+        screen.classList.toggle('chat-settings-group-mode', isGroupChat);
+    }
+
+    setChatSettingsElementHidden(groupPanel, !isGroupChat);
+
+    [
+        directIdentityBlock,
+        directRemarkGroupField,
+        directPersonaField,
+        bilingualToggle,
+        bilingualPanel,
+        logicDivider,
+        restWindowToggle,
+        restWindowPanel,
+        fireBuddyCard,
+        assetsCard
+    ].forEach((element) => setChatSettingsElementHidden(element, isGroupChat));
+
+    [contextField, tokenField, summaryField, activeReplyLabel, activeReplyToggle, activeReplyIntervalField, thoughtCard].forEach((element) => {
+        setChatSettingsElementHidden(element, false);
+    });
+
+    if (isGroupChat) {
+        [showThoughtToggle, thoughtStyleField, thoughtPetPanel, thoughtVisibleToggle, allowRealPhotoSendToggle, deviceUsageToggle].forEach((element) => {
+            setChatSettingsElementHidden(element, true);
+        });
+        [realTimeToggle, calendarAwareToggle].forEach((element) => {
+            setChatSettingsElementHidden(element, false);
+        });
+    } else {
+        [showThoughtToggle, thoughtStyleField, thoughtVisibleToggle, realTimeToggle, calendarAwareToggle, allowRealPhotoSendToggle, deviceUsageToggle].forEach((element) => {
+            setChatSettingsElementHidden(element, false);
+        });
+        setChatSettingsElementHidden(thoughtPetPanel, false);
+    }
+
+    if (!isGroupChat) {
+        syncBilingualTranslationSettingsVisibility();
+        syncRestWindowSettingsVisibility();
+    }
+}
+
 function openChatSettings() {
     const contact = getActiveAiProfileContact();
     if (!contact) return;
+    const isGroupChat = !!(typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact));
     mountChatSettingsEditorialNav();
     bindChatSettingsHeaderInteractions();
     ensureContactRestWindowFields(contact);
     ensureContactBilingualTranslationFields(contact);
+    ensureContactTopbarAvatarFields(contact);
+    ensureContactChatAppearancePresetField(contact);
+    if (typeof window.ensureContactWechatBlockFields === 'function') {
+        window.ensureContactWechatBlockFields(contact);
+    }
     setChatSettingsFloatingSaveVisible(true);
     setChatSettingsFloatingSaveState(false);
+    syncChatSettingsTargetMode(contact);
+    if (isGroupChat && typeof window.renderGroupChatSettings === 'function') {
+        window.renderGroupChatSettings(contact);
+    }
 
     document.getElementById('chat-setting-name').value = contact.name || '';
     document.getElementById('chat-setting-avatar-preview').src = contact.avatar || '';
@@ -2963,6 +4499,16 @@ function openChatSettings() {
     document.getElementById('chat-setting-thought-visible').checked = contact.thoughtVisible || false;
     document.getElementById('chat-setting-real-time-visible').checked = contact.realTimeVisible || false;
     document.getElementById('chat-setting-calendar-aware').checked = contact.calendarAwareEnabled !== false;
+    const allowRealPhotoSendToggle = document.getElementById('chat-setting-allow-real-photo-send');
+    if (allowRealPhotoSendToggle) {
+        allowRealPhotoSendToggle.checked = !!contact.allowRealPhotoSend;
+    }
+    const deviceUsageSharedInput = document.getElementById('chat-setting-device-usage-shared');
+    if (deviceUsageSharedInput) {
+        deviceUsageSharedInput.checked = typeof window.isDeviceUsageSharedWithContact === 'function'
+            ? !!window.isDeviceUsageSharedWithContact(contact.id)
+            : false;
+    }
 
     const thoughtStyleSelect = document.getElementById('chat-setting-thought-style');
     const thoughtPetPanel = document.getElementById('chat-setting-thought-pet-panel');
@@ -3028,6 +4574,11 @@ function openChatSettings() {
         };
     }
 
+    const appearancePresetSelect = document.getElementById('chat-setting-appearance-preset');
+    if (appearancePresetSelect) {
+        renderChatAppearancePresetOptions(normalizeChatAppearancePreset(contact.chatAppearancePreset));
+    }
+
     const avatarVisibilitySelect = document.getElementById('chat-setting-avatar-visibility');
     if (avatarVisibilitySelect) {
         const legacyAvatarVisibility = contact.showAvatar === false ? 'hide-both' : 'show-both';
@@ -3038,6 +4589,24 @@ function openChatSettings() {
     if (showTimestampToggle) {
         showTimestampToggle.checked = contact.showTimestamp !== false;
     }
+
+    const topbarAvatarVisibleToggle = document.getElementById('chat-setting-topbar-avatar-visible');
+    if (topbarAvatarVisibleToggle) {
+        topbarAvatarVisibleToggle.checked = !!contact.topbarAvatarVisible;
+    }
+    const topbarAvatarPositionSelect = document.getElementById('chat-setting-topbar-avatar-position');
+    if (topbarAvatarPositionSelect) {
+        topbarAvatarPositionSelect.value = normalizeChatTopbarAvatarPosition(contact.topbarAvatarPosition);
+    }
+    const topbarStatusVisibleToggle = document.getElementById('chat-setting-topbar-status-visible');
+    if (topbarStatusVisibleToggle) {
+        topbarStatusVisibleToggle.checked = !!contact.topbarStatusVisible;
+    }
+    const topbarStatusTextInput = document.getElementById('chat-setting-topbar-status-text');
+    if (topbarStatusTextInput) {
+        topbarStatusTextInput.value = String(contact.topbarStatusText || '');
+    }
+    syncChatTopbarAvatarSettingsVisibility();
 
     const userPersonaSelect = document.getElementById('chat-setting-user-persona');
     userPersonaSelect.innerHTML = '<option value="">Default Self / 默认身份</option>';
@@ -3154,6 +4723,7 @@ function openChatSettings() {
     const chatSettingsScreen = document.getElementById('chat-settings-screen');
     const chatSettingsBody = chatSettingsScreen ? chatSettingsScreen.querySelector('.chat-settings-editorial-body') : null;
     if (chatSettingsScreen) chatSettingsScreen.classList.remove('hidden');
+    syncChatSettingsWechatBlockButton(contact);
     if (chatSettingsScreen) chatSettingsScreen.scrollTop = 0;
     if (chatSettingsBody) chatSettingsBody.scrollTop = 0;
     syncChatSettingsStickyChrome();
@@ -3172,6 +4742,9 @@ function openChatSettings() {
     }, 120);
     if (contact.id) {
         refreshTokenCountForContact(contact.id);
+    }
+    if (isGroupChat && typeof window.renderGroupChatSettings === 'function') {
+        window.renderGroupChatSettings(contact);
     }
 }
 
@@ -3566,8 +5139,10 @@ function handleSaveChatSettings() {
     if (!window.iphoneSimState.currentChatContactId) return;
     const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
     if (!contact) return;
+    const isGroupChat = !!(typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact));
     ensureContactRestWindowFields(contact);
     ensureContactBilingualTranslationFields(contact);
+    ensureContactChatAppearancePresetField(contact);
     const previousRestWindowSnapshot = `${contact.restWindowEnabled ? '1' : '0'}|${contact.restWindowStart || ''}|${contact.restWindowEnd || ''}`;
 
     const name = document.getElementById('chat-setting-name').value;
@@ -3588,6 +5163,10 @@ function handleSaveChatSettings() {
     const thoughtVisible = document.getElementById('chat-setting-thought-visible').checked;
     const realTimeVisible = document.getElementById('chat-setting-real-time-visible').checked;
     const calendarAwareEnabled = document.getElementById('chat-setting-calendar-aware').checked;
+    const allowRealPhotoSend = document.getElementById('chat-setting-allow-real-photo-send')
+        ? document.getElementById('chat-setting-allow-real-photo-send').checked
+        : false;
+    const deviceUsageShared = !!(document.getElementById('chat-setting-device-usage-shared') && document.getElementById('chat-setting-device-usage-shared').checked);
     const thoughtDisplayModeRaw = document.getElementById('chat-setting-thought-style')
         ? document.getElementById('chat-setting-thought-style').value
         : 'title';
@@ -3608,10 +5187,19 @@ function handleSaveChatSettings() {
     const myAvatarInput = document.getElementById('chat-setting-my-avatar');
     const customCss = document.getElementById('chat-setting-custom-css').value;
     const fontSize = document.getElementById('chat-font-size-slider') ? parseInt(document.getElementById('chat-font-size-slider').value) : 16;
+    const chatAppearancePreset = document.getElementById('chat-setting-appearance-preset')
+        ? normalizeChatAppearancePreset(document.getElementById('chat-setting-appearance-preset').value)
+        : 'default';
     const avatarVisibility = document.getElementById('chat-setting-avatar-visibility')
         ? document.getElementById('chat-setting-avatar-visibility').value
         : 'show-both';
     const showTimestamp = document.getElementById('chat-setting-show-timestamp') ? document.getElementById('chat-setting-show-timestamp').checked : true;
+    const topbarAvatarVisible = document.getElementById('chat-setting-topbar-avatar-visible') ? document.getElementById('chat-setting-topbar-avatar-visible').checked : false;
+    const topbarAvatarPosition = document.getElementById('chat-setting-topbar-avatar-position')
+        ? normalizeChatTopbarAvatarPosition(document.getElementById('chat-setting-topbar-avatar-position').value)
+        : 'left';
+    const topbarStatusVisible = document.getElementById('chat-setting-topbar-status-visible') ? document.getElementById('chat-setting-topbar-status-visible').checked : false;
+    const topbarStatusText = document.getElementById('chat-setting-topbar-status-text') ? document.getElementById('chat-setting-topbar-status-text').value : ''; 
     const intervalMin = document.getElementById('chat-setting-interval-min').value;
     const intervalMax = document.getElementById('chat-setting-interval-max').value;
     const activeReplyEnabled = document.getElementById('chat-setting-active-reply').checked;
@@ -3648,52 +5236,65 @@ function handleSaveChatSettings() {
     });
     contact.linkedStickerCategories = selectedStickerCategories;
 
-    contact.name = name;
-    contact.remark = remark;
-    contact.group = window.iphoneSimState.tempSelectedGroup;
-    contact.persona = persona;
-    {
-        const nextLocation = getLocationFromSelectors();
-        const prevQuery = contact.location && contact.location.query ? String(contact.location.query) : '';
-        const nextQuery = nextLocation && nextLocation.query ? String(nextLocation.query) : '';
-        contact.location = nextLocation;
-        if (prevQuery !== nextQuery) {
-            contact.locationResolved = null;
-            if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastResolvedContacts) {
-                delete window.iphoneSimState.amapRuntime.lastResolvedContacts[contact.id];
-            }
-            if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastWeather) {
-                delete window.iphoneSimState.amapRuntime.lastWeather[contact.id];
-            }
-            if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastRoutes) {
-                delete window.iphoneSimState.amapRuntime.lastRoutes[contact.id];
+    if (!isGroupChat) {
+        contact.name = name;
+        contact.remark = remark;
+        contact.group = window.iphoneSimState.tempSelectedGroup;
+        contact.persona = persona;
+        {
+            const nextLocation = getLocationFromSelectors();
+            const prevQuery = contact.location && contact.location.query ? String(contact.location.query) : '';
+            const nextQuery = nextLocation && nextLocation.query ? String(nextLocation.query) : '';
+            contact.location = nextLocation;
+            if (prevQuery !== nextQuery) {
+                contact.locationResolved = null;
+                if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastResolvedContacts) {
+                    delete window.iphoneSimState.amapRuntime.lastResolvedContacts[contact.id];
+                }
+                if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastWeather) {
+                    delete window.iphoneSimState.amapRuntime.lastWeather[contact.id];
+                }
+                if (window.iphoneSimState && window.iphoneSimState.amapRuntime && window.iphoneSimState.amapRuntime.lastRoutes) {
+                    delete window.iphoneSimState.amapRuntime.lastRoutes[contact.id];
+                }
             }
         }
+        contact.bilingualTranslationEnabled = bilingualTranslationEnabled;
+        contact.bilingualSourceLang = bilingualSourceLang;
+        contact.bilingualTargetLang = bilingualTargetLang;
     }
     contact.contextLimit = contextLimit ? parseInt(contextLimit) : 0;
-    contact.bilingualTranslationEnabled = bilingualTranslationEnabled;
-    contact.bilingualSourceLang = bilingualSourceLang;
-    contact.bilingualTargetLang = bilingualTargetLang;
     contact.summaryLimit = summaryLimit ? parseInt(summaryLimit) : 0;
-    contact.showThought = showThought;
-    contact.thoughtVisible = thoughtVisible;
     contact.realTimeVisible = realTimeVisible;
     contact.calendarAwareEnabled = calendarAwareEnabled;
-    contact.thoughtDisplayMode = thoughtDisplayMode;
-    contact.thoughtPetSize = thoughtPetSize;
-    contact.thoughtPetPosition = normalizeThoughtPetPositionSetting(contact.thoughtPetPosition);
-    contact.ttsEnabled = ttsEnabled;
-    contact.ttsVoiceId = ttsVoiceId;
+    contact.allowRealPhotoSend = !!allowRealPhotoSend;
+    if (!isGroupChat) {
+        contact.showThought = showThought;
+        contact.thoughtVisible = thoughtVisible;
+        if (typeof window.setDeviceUsageSharedWithContact === 'function') {
+            window.setDeviceUsageSharedWithContact(contact.id, deviceUsageShared, { persist: false });
+        }
+        contact.thoughtDisplayMode = thoughtDisplayMode;
+        contact.thoughtPetSize = thoughtPetSize;
+        contact.thoughtPetPosition = normalizeThoughtPetPositionSetting(contact.thoughtPetPosition);
+        contact.ttsEnabled = ttsEnabled;
+        contact.ttsVoiceId = ttsVoiceId;
+    }
     contact.userPersonaId = userPersonaId ? parseInt(userPersonaId) : null;
     if (userPromptOverride !== null) {
         contact.userPersonaPromptOverride = userPromptOverride;
     }
     contact.customCss = customCss;
     contact.chatFontSize = fontSize;
+    contact.chatAppearancePreset = chatAppearancePreset;
     contact.avatarVisibility = avatarVisibility;
     // Backward-compat for any old logic relying on showAvatar.
     contact.showAvatar = avatarVisibility !== 'hide-both';
     contact.showTimestamp = showTimestamp;
+    contact.topbarAvatarVisible = !!topbarAvatarVisible;
+    contact.topbarAvatarPosition = topbarAvatarPosition;
+    contact.topbarStatusVisible = !!topbarStatusVisible;
+    contact.topbarStatusText = String(topbarStatusText || '').trim();
     contact.replyIntervalMin = intervalMin ? parseInt(intervalMin) : null;
     contact.replyIntervalMax = intervalMax ? parseInt(intervalMax) : null;
     contact.activeReplyEnabled = activeReplyEnabled;
@@ -3703,10 +5304,37 @@ function handleSaveChatSettings() {
     contact.restWindowEnd = contact.restWindowEnabled ? restWindowEnd : '';
     const nextRestWindowSnapshot = `${contact.restWindowEnabled ? '1' : '0'}|${contact.restWindowStart || ''}|${contact.restWindowEnd || ''}`;
     if (!contact.restWindowEnabled || previousRestWindowSnapshot !== nextRestWindowSnapshot) {
-        contact.restWindowAwakenedAt = null;
+        if (typeof window.clearContactRestWindowRuntimeState === 'function') {
+            window.clearContactRestWindowRuntimeState(contact);
+        } else {
+            contact.restWindowAwakenedAt = null;
+            contact.restWindowUpcomingNoticeForStartMs = null;
+            contact.restWindowWakeReplyForStartMs = null;
+        }
     }
-    contact.novelaiPreset = novelaiPreset;
-    
+    if (!isGroupChat) {
+        contact.novelaiPreset = novelaiPreset;
+    }
+
+    if (isGroupChat) {
+        if (typeof window.persistGroupSettings === 'function') {
+            window.persistGroupSettings(contact.id, {
+                silent: true,
+                skipSave: true,
+                skipContactList: true
+            });
+        } else if (contact.groupMeta && typeof contact.groupMeta === 'object') {
+            const groupNameInput = document.querySelector('#chat-setting-group-inline-panel [data-group-settings-id="name"]');
+            const groupMemorySelect = document.querySelector('#chat-setting-group-inline-panel [data-group-settings-id="memory-mode"]');
+            if (groupMemorySelect) {
+                contact.groupMeta.memoryMode = String(groupMemorySelect.value || 'group_only');
+            }
+            if (groupNameInput && typeof window.applyGroupRename === 'function') {
+                window.applyGroupRename(contact, 'me', groupNameInput.value, { actorName: '你', showNotice: false });
+            }
+        }
+    }
+
     if (activeReplyEnabled) {
         // Start timing from now (or keep existing start time if already enabled?)
         // Requirement: "Change to timing from the last message sent AFTER enabling".
@@ -3720,13 +5348,15 @@ function handleSaveChatSettings() {
         contact.activeReplyStartTime = null;
     }
 
-    document.getElementById('chat-title').textContent = remark || contact.name;
+    if (!isGroupChat) {
+        document.getElementById('chat-title').textContent = remark || contact.name;
+    }
     
     contact.chatBg = window.iphoneSimState.tempSelectedChatBg;
 
     const promises = [];
 
-    if (avatarInput.files && avatarInput.files[0]) {
+    if (!isGroupChat && avatarInput.files && avatarInput.files[0]) {
         promises.push(new Promise(resolve => {
             compressImage(avatarInput.files[0], 300, 0.7).then(base64 => {
                 contact.avatar = base64;
@@ -3774,7 +5404,7 @@ function handleSaveChatSettings() {
         }));
     }
 
-    if (thoughtPetImageInput && thoughtPetImageInput.files && thoughtPetImageInput.files[0]) {
+    if (!isGroupChat && thoughtPetImageInput && thoughtPetImageInput.files && thoughtPetImageInput.files[0]) {
         promises.push(new Promise(resolve => {
             compressImagePreserveAlpha(thoughtPetImageInput.files[0], 512, 0.85).then(base64 => {
                 contact.thoughtPetImage = base64;
@@ -3786,7 +5416,7 @@ function handleSaveChatSettings() {
         }));
     }
 
-    if (typeof window.persistFireBuddySettings === 'function') {
+    if (!isGroupChat && typeof window.persistFireBuddySettings === 'function') {
         promises.push(
             Promise.resolve()
                 .then(() => window.persistFireBuddySettings())
@@ -3831,7 +5461,16 @@ function handleSaveChatSettings() {
             chatBody.style.fontSize = (contact.chatFontSize || 16) + 'px';
         }
 
+        const chatTitle = document.getElementById('chat-title');
+        if (chatTitle) {
+            chatTitle.textContent = isGroupChat && typeof window.getGroupChatDisplayName === 'function'
+                ? window.getGroupChatDisplayName(contact)
+                : (remark || contact.name);
+        }
+
+        applyChatAppearancePreset(contact);
         applyChatDisplayPreferences(contact);
+        applyChatTopbarAppearance(contact);
 
         document.getElementById('chat-settings-screen').classList.add('hidden');
         setChatSettingsFloatingSaveVisible(false);
@@ -4009,6 +5648,8 @@ function ensureChatSettingsTokenPreviewBindings() {
     bindRefresh('chat-setting-thought-visible', ['change']);
     bindRefresh('chat-setting-real-time-visible', ['change']);
     bindRefresh('chat-setting-calendar-aware', ['change']);
+    bindRefresh('chat-setting-allow-real-photo-send', ['change']);
+    bindRefresh('chat-setting-device-usage-shared', ['change']);
     bindRefresh('chat-setting-user-persona', ['change']);
 
     const wbList = document.getElementById('chat-setting-wb-list');
@@ -4087,6 +5728,11 @@ async function refreshTokenCountForContact(contactId) {
 }
 
 // --- 聊天界面功能 ---
+
+
+
+
+
 
 
 

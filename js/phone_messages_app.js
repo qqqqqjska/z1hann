@@ -437,7 +437,7 @@
         if (!app) return;
 
         const clamped = Math.max(0, Math.min(1, Number(progress) || 0));
-        app.style.setProperty('--phone-messages-header-progress', clamped.toFixed(3));
+        app.style.setProperty('--messages-list-header-progress', clamped.toFixed(3));
         app.classList.toggle('list-header-compact', clamped >= 0.72);
     }
 

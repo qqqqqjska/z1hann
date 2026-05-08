@@ -271,7 +271,11 @@
 
 .fire-buddy-mention-menu {
     display: flex;
+    flex-direction: column;
+    gap: 8px;
     padding: 0 10px 8px;
+    max-height: 240px;
+    overflow-y: auto;
 }
 
 .fire-buddy-mention-menu.hidden {
@@ -284,12 +288,18 @@
     align-items: center;
     gap: 10px;
     padding: 10px 12px;
-    border: 1px solid rgba(255, 173, 92, 0.22);
+    border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 18px;
-    background: rgba(255, 247, 239, 0.96);
-    box-shadow: 0 8px 20px rgba(255, 122, 69, 0.08);
+    background: #ffffff;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
     color: #1c1c1e;
     text-align: left;
+}
+
+.fire-buddy-mention-option-all {
+    border-color: rgba(68, 125, 255, 0.18);
+    background: #ffffff;
+    box-shadow: 0 8px 20px rgba(68, 125, 255, 0.06);
 }
 
 .fire-buddy-mention-avatar {
@@ -299,6 +309,16 @@
     object-fit: cover;
     flex-shrink: 0;
     background: linear-gradient(135deg, #ffd5ab, #ff9c58);
+}
+
+.fire-buddy-mention-avatar-all {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    color: #3f6fff;
+    background: linear-gradient(135deg, #e8f0ff, #d9e7ff);
 }
 
 .fire-buddy-mention-copy {
@@ -312,13 +332,13 @@
 .fire-buddy-mention-name {
     font-size: 14px;
     font-weight: 700;
-    color: #8d4900;
+    color: #4b5563;
 }
 
 .fire-buddy-mention-desc {
     font-size: 12px;
     line-height: 1.4;
-    color: #a5662f;
+    color: #9ca3af;
 }
 
 .chat-message.fire-buddy-message .message-content.fire-buddy-msg,
@@ -338,6 +358,70 @@
     line-height: 1.2;
     font-weight: 700;
     color: #c06a1f;
+}
+
+.group-speaker-chat-avatar {
+    margin: 0 6px !important;
+    transform: translateY(-14px);
+}
+
+.group-speaker-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 4px 4px;
+    max-width: 100%;
+}
+
+.group-speaker-meta.group-speaker-meta-self {
+    margin: 0 4px 4px 0;
+    align-self: flex-end;
+    justify-content: flex-end;
+}
+
+.group-speaker-title-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-height: 20px;
+    padding:0 8px;
+    border-radius: 12px;
+    background: #f4be34;
+    border: none;
+    box-shadow: none;
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 500;
+    color: #ffffff;
+    text-shadow: none;
+    letter-spacing: .1px;
+    white-space: nowrap;
+}
+
+.group-speaker-title-badge.is-owner {
+    background: #f4be34;
+}
+
+.group-speaker-title-badge.is-admin {
+    background: #35c9b8;
+}
+
+.group-speaker-title-badge.is-member {
+    background: #b884ff;
+}
+
+.group-speaker-label {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.2;
+    font-weight: 700;
+    color: #7a7a7a;
+    min-width: 0;
+}
+
+.group-speaker-label.group-speaker-label-self {
+    text-align: right;
 }
 
 #fire-buddy-panel.fire-buddy-v2-panel {
@@ -716,4 +800,444 @@
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+.group-action-editor-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 390;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.24s ease;
+}
+
+.group-action-editor-modal.is-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.group-action-editor-backdrop {
+    position: absolute;
+    inset: 0;
+    border: none;
+    outline: none;
+    margin: 0;
+    padding: 0;
+    background: rgba(24, 24, 27, 0.42);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0;
+    transition: opacity 0.24s ease;
+}
+
+.group-action-editor-modal.is-open .group-action-editor-backdrop {
+    opacity: 1;
+}
+
+.group-action-editor-card {
+    position: relative;
+    width: min(92vw, 392px);
+    max-height: min(76vh, 640px);
+    overflow: auto;
+    margin: 0 auto;
+    padding: 8px 16px 14px;
+    border-radius: 22px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    box-shadow: 0 18px 38px rgba(16, 24, 40, 0.2);
+    transform: translateY(22px) scale(0.985);
+    opacity: 0;
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease;
+}
+
+.group-action-editor-modal.is-open .group-action-editor-card {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+
+.group-action-editor-handle {
+    width: 36px;
+    height: 5px;
+    margin: 4px auto 8px;
+    border-radius: 999px;
+    background: #d4d4d8;
+}
+
+.group-action-editor-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.group-action-editor-title-wrap {
+    min-width: 0;
+}
+
+.group-action-editor-kicker {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: #71717a;
+    margin-bottom: 2px;
+}
+
+.group-action-editor-title-wrap h3 {
+    margin: 0;
+    font-size: 20px;
+    line-height: 1.3;
+    color: #111827;
+    font-weight: 600;
+}
+
+.group-action-editor-close {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    border: 1px solid #e5e7eb;
+    background: #fafafa;
+    color: #6b7280;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.group-action-editor-close:active {
+    background: #f3f4f6;
+    color: #111827;
+    transform: scale(0.96);
+}
+
+.group-action-editor-subtitle {
+    margin-top: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #71717a;
+    white-space: pre-wrap;
+}
+
+.group-action-editor-fields {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.group-action-editor-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.group-action-editor-field-label {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.group-action-editor-input,
+.group-action-editor-textarea,
+.group-action-editor-select {
+    width: 100%;
+    border: 1px solid #d4d4d8;
+    border-radius: 14px;
+    background: #fcfcfd;
+    color: #111827;
+    font-size: 14px;
+    line-height: 1.45;
+    outline: none;
+    transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.group-action-editor-input,
+.group-action-editor-select {
+    height: 42px;
+    padding: 0 12px;
+}
+
+.group-action-editor-textarea {
+    min-height: 96px;
+    resize: vertical;
+    padding: 10px 12px;
+}
+
+.group-action-editor-input:focus,
+.group-action-editor-textarea:focus,
+.group-action-editor-select:focus {
+    border-color: #6b7280;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.08);
+}
+
+.group-action-editor-actions {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.group-action-editor-btn {
+    height: 42px;
+    border-radius: 12px;
+    border: 1px solid #d4d4d8;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.group-action-editor-btn:active {
+    transform: scale(0.98);
+}
+
+.group-action-editor-btn.secondary {
+    background: #fff;
+    color: #4b5563;
+}
+
+.group-action-editor-btn.secondary:hover {
+    background: #f9fafb;
+}
+
+.group-action-editor-btn.primary {
+    background: #111827;
+    border-color: #111827;
+    color: #fff;
+}
+
+.group-action-editor-btn.primary:hover {
+    background: #0f172a;
+}
+
+.group-poll-options-builder {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.group-poll-options-header {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.group-poll-options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.group-poll-option-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.group-poll-option-index {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    border: 1px solid #d4d4d8;
+    background: #f9fafb;
+    color: #4b5563;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.group-poll-option-input {
+    flex: 1;
+}
+
+.group-poll-option-remove-btn {
+    height: 34px;
+    flex-shrink: 0;
+    padding: 0 10px;
+    border-radius: 10px;
+    border: 1px solid #d4d4d8;
+    background: #fff;
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+.group-poll-option-remove-btn:active {
+    transform: scale(0.98);
+}
+
+.group-poll-option-remove-btn.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.group-poll-option-add-btn {
+    height: 38px;
+    border-radius: 12px;
+    border: 1px dashed #9ca3af;
+    background: #fff;
+    color: #374151;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.group-poll-option-add-btn:hover {
+    border-color: #6b7280;
+    background: #f9fafb;
+}
+
+.group-poll-option-add-btn:active {
+    transform: scale(0.99);
+}
+
+.group-poll-options-hint {
+    font-size: 11px;
+    color: #9ca3af;
+    line-height: 1.4;
+}
+
+.meeting-ios-dialog-root {
+    position: fixed;
+    inset: 0;
+    z-index: 420;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+}
+
+.meeting-ios-dialog-root.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.meeting-ios-dialog-mask {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+.meeting-ios-dialog-card {
+    position: relative;
+    width: min(86vw, 344px);
+    max-height: min(72vh, 520px);
+    overflow: auto;
+    background: #ffffff;
+    border: 1px solid #e5e5e7;
+    border-radius: 20px;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
+    padding: 18px 18px 16px;
+    transform: translateY(12px) scale(0.97);
+    opacity: 0.92;
+    transition: transform 0.24s cubic-bezier(0.2, 0.9, 0.2, 1), opacity 0.24s ease;
+}
+
+.meeting-ios-dialog-root.is-visible .meeting-ios-dialog-card {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+
+.meeting-ios-dialog-kicker {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: #a1a1aa;
+    margin-bottom: 8px;
+}
+
+.meeting-ios-dialog-title {
+    font-size: 17px;
+    line-height: 1.35;
+    font-weight: 600;
+    color: #111111;
+}
+
+.meeting-ios-dialog-message {
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #4b5563;
+    white-space: pre-wrap;
+}
+
+.meeting-ios-dialog-input-wrap {
+    margin-top: 12px;
+}
+
+.meeting-ios-dialog-input {
+    width: 100%;
+    height: 40px;
+    border: 1px solid #d4d4d8;
+    border-radius: 12px;
+    background: #fafafa;
+    padding: 0 12px;
+    font-size: 14px;
+    color: #111827;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.meeting-ios-dialog-input:focus {
+    border-color: #111827;
+    box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.08);
+    background: #ffffff;
+}
+
+.meeting-ios-dialog-input.is-error {
+    border-color: #f87171;
+}
+
+.meeting-ios-dialog-actions {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.meeting-ios-dialog-btn {
+    min-width: 76px;
+    height: 34px;
+    border-radius: 11px;
+    border: 1px solid #d4d4d8;
+    background: #ffffff;
+    color: #4b5563;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.meeting-ios-dialog-btn:active {
+    transform: scale(0.98);
+}
+
+.meeting-ios-dialog-btn.secondary {
+    background: #f8f8f8;
+    color: #6b7280;
+}
+
+.meeting-ios-dialog-btn.primary {
+    background: #111111;
+    border-color: #111111;
+    color: #ffffff;
+}
+
+.meeting-ios-dialog-btn.primary:hover {
+    background: #000000;
 }
