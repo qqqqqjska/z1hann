@@ -950,6 +950,18 @@
                                 </div>
                             </div>
                             <div class="mag-field">
+                                <label class="mag-label">Call Worldbooks <span class="separator">/</span> <span class="mag-zh">通话关联世界书</span></label>
+                                <div class="mag-multi-select-field" data-multiselect-key="call-worldbooks">
+                                    <button id="chat-setting-call-wb-trigger" class="mag-multi-select-trigger" type="button">
+                                        <span id="chat-setting-call-wb-tags" class="mag-inline-tag-list"></span>
+                                        <i class="ri-arrow-down-s-line mag-location-arrow"></i>
+                                    </button>
+                                    <div id="chat-setting-call-wb-list" class="mag-multi-select-panel mag-hidden">
+                                        <!-- 通话世界书分类列表将通过JS生成 -->
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mag-field">
                                 <label class="mag-label">Linked Sticker Packs <span class="separator">/</span> <span class="mag-zh">关联表情包</span></label>
                                 <div class="mag-multi-select-field" data-multiselect-key="stickers">
                                     <button id="chat-setting-sticker-trigger" class="mag-multi-select-trigger" type="button">
@@ -1345,6 +1357,11 @@
                             <div class="mag-toggle">
                                 <span class="mag-toggle-text">Show Timestamps <span class="separator">/</span> <span class="mag-zh">时间戳显示</span></span>
                                 <label><input type="checkbox" id="chat-setting-show-timestamp" class="mag-toggle-input" checked><div class="mag-toggle-switch"></div></label>
+                            </div>
+
+                            <div class="mag-toggle">
+                                <span class="mag-toggle-text">Sticker Suggestion <span class="separator">/</span> <span class="mag-zh">表情包联想</span></span>
+                                <label><input type="checkbox" id="chat-setting-sticker-suggestion-enabled" class="mag-toggle-input" checked><div class="mag-toggle-switch"></div></label>
                             </div>
 
                             <div class="mag-field editorial-interval-field" style="margin-top: 18px;">
@@ -1996,6 +2013,9 @@
                                 <div class="fire-buddy-mention-desc">@TA 后可触发小火人连发回复</div>
                             </div>
                         </button>
+                    </div>
+                    <div id="chat-sticker-suggestion-bar" class="chat-sticker-suggestion-bar hidden">
+                        <div id="chat-sticker-suggestion-list" class="chat-sticker-suggestion-list"></div>
                     </div>
                     <div class="chat-input-area">
                         <button id="chat-more-btn" class="chat-icon-btn" aria-label="更多功能">
@@ -3743,32 +3763,40 @@
             <input type="file" id="personal-moments-bg-input" accept="image/*" class="file-input-hidden">
         </div>
 
-        <!-- 通话记录列表全屏页 -->
-        <div id="call-history-screen" class="sub-screen hidden" style="z-index: 250; background-color: #f2f2f7;">
-            <div class="app-header">
-                <button id="close-call-history" class="back-btn"><i class="fas fa-chevron-left"></i> 返回</button>
-                <h3>通话记录</h3>
-                <div style="width: 60px;"></div>
-            </div>
-            <div class="app-body">
-                <div id="call-history-list" class="ios-list-group" style="margin-top: 10px; background: transparent;">
+        <!-- 通话记录列表全屏页（v1样式） -->
+        <div id="call-history-screen" class="sub-screen hidden call-history-v1-screen" style="z-index: 250;">
+            <div class="call-history-v1-page call-history-v1-page-list" id="call-history-list-page">
+                <div class="call-history-v1-header">
+                    <div>
+                        <div class="call-history-v1-subtitle">// CALL LOG</div>
+                        <h1>通话记录</h1>
+                    </div>
+                    <button id="close-call-history" class="call-history-v1-close-btn" aria-label="关闭">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="call-history-v1-list-container" id="call-history-list">
                     <!-- 列表项将通过JS生成 -->
                 </div>
-                <div class="empty-state" id="call-history-empty" style="display: none; text-align: center; color: #999; margin-top: 50px;">
-                    暂无通话记录
-                </div>
+                <div id="call-history-empty" class="call-history-v1-empty hidden">暂无通话记录</div>
             </div>
         </div>
 
-        <!-- 通话记录详情全屏页 -->
-        <div id="call-detail-screen" class="sub-screen hidden" style="z-index: 260; background-color: #fff;">
-            <div class="app-header">
-                <button id="close-call-detail" class="back-btn"><i class="fas fa-chevron-left"></i> 返回</button>
-                <h3 id="call-detail-title">通话详情</h3>
-                <div style="width: 60px;"></div>
-            </div>
-            <div class="app-body" id="call-detail-content" style="padding: 20px;">
-                <!-- 详情内容将通过JS生成 -->
+        <!-- 通话记录详情全屏页（v1样式） -->
+        <div id="call-detail-screen" class="sub-screen hidden call-history-v1-screen" style="z-index: 260;">
+            <div class="call-history-v1-page call-history-v1-page-detail">
+                <div class="call-history-v1-detail-header">
+                    <button id="close-call-detail" class="call-history-v1-back-btn" aria-label="返回">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <div class="call-history-v1-detail-title">
+                        <span id="call-detail-title" class="call-history-v1-d-name">通话详情</span>
+                        <span id="call-detail-type" class="call-history-v1-d-type">CALL</span>
+                    </div>
+                </div>
+                <div class="call-history-v1-chat-container" id="call-detail-content">
+                    <!-- 详情内容将通过JS生成 -->
+                </div>
             </div>
         </div>
 
@@ -3813,6 +3841,7 @@
 
             <!-- 底部输入框 -->
             <div class="voice-call-input-area">
+                <button id="voice-call-regenerate-btn" title="重回"><i class="ri-refresh-line"></i></button>
                 <input type="text" id="voice-call-input" placeholder="发送消息...">
                 <button id="voice-call-send-btn"><i class="fas fa-arrow-up"></i></button>
             </div>
@@ -3901,6 +3930,7 @@
 
             <!-- 底部输入框 -->
             <div class="voice-call-input-area">
+                <button id="video-call-regenerate-btn" title="重回"><i class="ri-refresh-line"></i></button>
                 <input type="text" id="video-call-input" placeholder="发送消息...">
                 <button id="video-call-snapshot-btn"><i class="fas fa-camera"></i></button>
                 <button id="video-call-send-btn"><i class="fas fa-arrow-up"></i></button>

@@ -164,9 +164,11 @@ const CHAT_OOTD_V5_DRAG_LIMIT_X = 160;
 const CHAT_OOTD_V5_DRAG_LIMIT_Y = 240;
 const CHAT_OOTD_V5_FLIPPED_BASE_Y = -40;
 const CHAT_OOTD_V5_FLIPPED_SCALE = 1.05;
+let currentEditingVoiceCallMsgId = null;
 let chatOotdGenerateRequestSeq = 0;
 let chatLootGenerateRequestSeq = 0;
 let chatVlogGenerateRequestSeq = 0;
+const CHAT_STICKER_SUGGESTION_LIMIT = 24;
 const AI_PROFILE_HIGHLIGHT_KEYS = ['vlog', 'ootd', 'cafe', 'moment'];
 const AI_PROFILE_CUSTOMIZE_TRANSITION_MS = 360;
 let aiProfileCustomizeDraft = null;
@@ -186,6 +188,520 @@ const chatOotdV5DragState = {
     offsetX: 0,
     offsetY: 0
 };
+
+function getCurrentVoiceCallMessageStore() {
+    const contactId = window.iphoneSimState && window.iphoneSimState.currentChatContactId;
+    if (!contactId || !window.iphoneSimState || !window.iphoneSimState.chatHistory) return [];
+    const history = window.iphoneSimState.chatHistory[contactId];
+    if (!Array.isArray(history)) return [];
+    return history.filter(msg => msg && msg.type === 'voice_call_text');
+}
+
+function getCurrentVoiceCallSessionMeta() {
+    const contactId = window.iphoneSimState && window.iphoneSimState.currentChatContactId;
+    if (!contactId || !window.iphoneSimState || !window.iphoneSimState.chatHistory) {
+        return { contactId: null, history: [], startIndex: 0, activeCall: false };
+    }
+    const history = Array.isArray(window.iphoneSimState.chatHistory[contactId])
+        ? window.iphoneSimState.chatHistory[contactId]
+        : [];
+    const rawStart = Number(voiceCallStartIndex || 0);
+    const startIndex = Number.isFinite(rawStart) ? Math.max(0, Math.min(history.length, rawStart)) : 0;
+    const voiceScreen = document.getElementById('voice-call-screen');
+    const videoScreen = document.getElementById('video-call-screen');
+    const activeCall = !!(
+        (voiceScreen && !voiceScreen.classList.contains('hidden'))
+        || (videoScreen && !videoScreen.classList.contains('hidden'))
+    );
+    return { contactId, history, startIndex, activeCall };
+}
+
+function getCurrentVoiceCallSessionMessageStore() {
+    const session = getCurrentVoiceCallSessionMeta();
+    if (!session.history.length) return [];
+    return session.history
+        .slice(session.startIndex)
+        .filter(msg => msg && msg.type === 'voice_call_text');
+}
+
+function isVoiceCallMessageInCurrentSession(messageId) {
+    if (!messageId) return false;
+    const session = getCurrentVoiceCallSessionMeta();
+    if (!session.history.length) return false;
+    const index = session.history.findIndex(msg => String(msg && msg.id) === String(messageId));
+    if (index < 0) return false;
+    if (session.activeCall && index < session.startIndex) return false;
+    const targetMsg = session.history[index];
+    return !!(targetMsg && targetMsg.type === 'voice_call_text');
+}
+
+function normalizeVoiceCallTranslatedText(rawText) {
+    const text = String(rawText || '').trim();
+    if (!text) return '';
+    if (typeof normalizeBilingualTranslatedText === 'function') {
+        try {
+            const normalized = normalizeBilingualTranslatedText(text);
+            return String(normalized || '').trim();
+        } catch (e) {}
+    }
+    return text;
+}
+
+function normalizeVoiceCallBilingualTranslationMeta(meta) {
+    if (!meta || typeof meta !== 'object') return null;
+    const translatedText = normalizeVoiceCallTranslatedText(meta.translatedText);
+    if (!translatedText) return null;
+    return {
+        sourceLang: String(meta.sourceLang || '').trim(),
+        targetLang: String(meta.targetLang || '').trim(),
+        translatedText
+    };
+}
+
+function getVoiceCallBilingualConfig(contact) {
+    if (!contact || typeof contact !== 'object') return null;
+    if (typeof window.ensureContactBilingualTranslationFields === 'function') {
+        window.ensureContactBilingualTranslationFields(contact);
+    }
+    if (!contact.bilingualTranslationEnabled) return null;
+    const sourceLang = String(contact.bilingualSourceLang || 'zh-CN').trim() || 'zh-CN';
+    const targetLang = String(contact.bilingualTargetLang || 'en').trim() || 'en';
+    return {
+        sourceLang,
+        targetLang,
+        sourceLabel: typeof window.getChatBilingualLanguageLabel === 'function'
+            ? window.getChatBilingualLanguageLabel(sourceLang)
+            : sourceLang,
+        targetLabel: typeof window.getChatBilingualLanguageLabel === 'function'
+            ? window.getChatBilingualLanguageLabel(targetLang)
+            : targetLang
+    };
+}
+
+async function requestVoiceCallBilingualTranslation(text, contact, settingsOverride = null) {
+    const sourceText = String(text || '').trim();
+    if (!sourceText) return null;
+    const bilingualConfig = getVoiceCallBilingualConfig(contact);
+    if (!bilingualConfig) return null;
+    if (bilingualConfig.sourceLang === bilingualConfig.targetLang) return null;
+
+    const settings = settingsOverride || (
+        window.iphoneSimState && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url
+            ? window.iphoneSimState.aiSettings
+            : (window.iphoneSimState ? window.iphoneSimState.aiSettings2 : null)
+    );
+    if (!settings || !settings.url || !settings.key || !settings.model) return null;
+
+    let fetchUrl = settings.url;
+    if (!fetchUrl.endsWith('/chat/completions')) {
+        fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+    }
+
+    const systemPrompt = [
+        '你是一个高精度翻译助手。',
+        `请把用户给你的内容从 ${bilingualConfig.sourceLabel}（${bilingualConfig.sourceLang}）翻译为 ${bilingualConfig.targetLabel}（${bilingualConfig.targetLang}）。`,
+        '只输出译文纯文本，不要解释，不要加引号，不要输出任何额外内容。'
+    ].join('\n');
+
+    try {
+        const response = await fetch(fetchUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${settings.key}`
+            },
+            body: JSON.stringify({
+                model: settings.model,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: sourceText }
+                ],
+                temperature: 0.1
+            })
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        const rawTranslatedText = data
+            && data.choices
+            && data.choices[0]
+            && data.choices[0].message
+            && typeof data.choices[0].message.content === 'string'
+            ? data.choices[0].message.content
+            : '';
+        const translatedText = normalizeVoiceCallTranslatedText(rawTranslatedText)
+            .replace(/^["'`]+/, '')
+            .replace(/["'`]+$/, '')
+            .trim();
+        if (!translatedText) return null;
+        return {
+            sourceLang: bilingualConfig.sourceLang,
+            targetLang: bilingualConfig.targetLang,
+            translatedText
+        };
+    } catch (error) {
+        console.warn('voice call bilingual translation failed:', error);
+        return null;
+    }
+}
+
+async function requestVoiceCallBilingualPair(text, contact, settingsOverride = null) {
+    const sourceText = String(text || '').trim();
+    if (!sourceText) return null;
+    const bilingualConfig = getVoiceCallBilingualConfig(contact);
+    if (!bilingualConfig) return null;
+    if (bilingualConfig.sourceLang === bilingualConfig.targetLang) return null;
+
+    const settings = settingsOverride || (
+        window.iphoneSimState && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url
+            ? window.iphoneSimState.aiSettings
+            : (window.iphoneSimState ? window.iphoneSimState.aiSettings2 : null)
+    );
+    if (!settings || !settings.url || !settings.key || !settings.model) return null;
+
+    let fetchUrl = settings.url;
+    if (!fetchUrl.endsWith('/chat/completions')) {
+        fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+    }
+
+    const systemPrompt = [
+        '你是一个精确翻译与语种规范化助手。',
+        `目标原语言（source）是 ${bilingualConfig.sourceLabel}（${bilingualConfig.sourceLang}）。`,
+        `目标翻译语言（target）是 ${bilingualConfig.targetLabel}（${bilingualConfig.targetLang}）。`,
+        '你会收到一段对话文本，这段文本可能是 source，也可能是 target，或混合。',
+        '请输出一个 JSON 对象，字段固定为：{"source_text":"...","target_text":"..."}。',
+        '- source_text 必须是完整 source 语言文本。',
+        '- target_text 必须是对应完整 target 语言文本。',
+        '- 若输入本来就是 source，则 source_text 可等于输入并补全语病，target_text 为译文。',
+        '- 若输入本来是 target，则 target_text 可等于输入并补全语病，source_text 为反向译文。',
+        '- 只输出 JSON，不要输出任何额外文字，不要 markdown。'
+    ].join('\n');
+
+    try {
+        const response = await fetch(fetchUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${settings.key}`
+            },
+            body: JSON.stringify({
+                model: settings.model,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: sourceText }
+                ],
+                temperature: 0.1
+            })
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        const rawText = data
+            && data.choices
+            && data.choices[0]
+            && data.choices[0].message
+            && typeof data.choices[0].message.content === 'string'
+            ? data.choices[0].message.content
+            : '';
+        if (!rawText) return null;
+        const jsonText = String(rawText)
+            .replace(/```json/gi, '')
+            .replace(/```/g, '')
+            .trim();
+        const startIndex = jsonText.indexOf('{');
+        const endIndex = jsonText.lastIndexOf('}');
+        const safeJson = startIndex !== -1 && endIndex > startIndex
+            ? jsonText.slice(startIndex, endIndex + 1)
+            : jsonText;
+        const parsed = JSON.parse(safeJson);
+        const sourceNormalized = normalizeVoiceCallTranslatedText(parsed && parsed.source_text)
+            .replace(/^["'`]+/, '')
+            .replace(/["'`]+$/, '')
+            .trim();
+        const targetNormalized = normalizeVoiceCallTranslatedText(parsed && parsed.target_text)
+            .replace(/^["'`]+/, '')
+            .replace(/["'`]+$/, '')
+            .trim();
+        if (!sourceNormalized || !targetNormalized) return null;
+        return {
+            sourceText: sourceNormalized,
+            targetText: targetNormalized,
+            sourceLang: bilingualConfig.sourceLang,
+            targetLang: bilingualConfig.targetLang
+        };
+    } catch (error) {
+        console.warn('voice call bilingual pair failed:', error);
+        return null;
+    }
+}
+
+function parseVoiceCallAssistantPayload(msg) {
+    if (!msg || msg.role !== 'assistant') return null;
+    try {
+        const payload = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+        if (!payload || typeof payload !== 'object') return null;
+        return payload;
+    } catch (e) {
+        return null;
+    }
+}
+
+function buildVoiceCallDisplayDataFromMessage(msg) {
+    if (!msg) {
+        return {
+            text: '',
+            description: '',
+            bilingualTranslation: null
+        };
+    }
+    if (msg.role === 'assistant') {
+        const payload = parseVoiceCallAssistantPayload(msg);
+        if (payload) {
+            return {
+                text: typeof payload.text === 'string' ? payload.text : '',
+                description: typeof payload.description === 'string' ? payload.description : '',
+                bilingualTranslation: normalizeVoiceCallBilingualTranslationMeta(payload.bilingualTranslation)
+            };
+        }
+    }
+    return {
+        text: String(msg.content || ''),
+        description: '',
+        bilingualTranslation: null
+    };
+}
+
+function buildVoiceCallDisplayTextFromMessage(msg) {
+    return buildVoiceCallDisplayDataFromMessage(msg).text;
+}
+
+function isVoiceCallMicEnabled() {
+    const voiceScreen = document.getElementById('voice-call-screen');
+    const videoScreen = document.getElementById('video-call-screen');
+    const voiceActive = voiceScreen && !voiceScreen.classList.contains('hidden');
+    const videoActive = videoScreen && !videoScreen.classList.contains('hidden');
+
+    if (videoActive) {
+        const videoMicBtn = document.getElementById('video-call-mic-btn');
+        return !!(videoMicBtn && videoMicBtn.classList.contains('active'));
+    }
+    if (voiceActive) {
+        const voiceMicBtn = document.getElementById('voice-call-mic-btn');
+        return !!(voiceMicBtn && voiceMicBtn.classList.contains('active'));
+    }
+    return false;
+}
+
+function handleVoiceCallRegenerateReply() {
+    if (!window.iphoneSimState || !window.iphoneSimState.currentChatContactId) return;
+    const session = getCurrentVoiceCallSessionMeta();
+    if (!session.history.length) {
+        if (window.showChatToast) window.showChatToast('没有可重回的通话消息');
+        return;
+    }
+    if (session.activeCall && session.history.length <= session.startIndex) {
+        if (window.showChatToast) window.showChatToast('当前通话还没有可重回内容');
+        return;
+    }
+
+    let removedAny = false;
+    while (session.history.length > 0) {
+        if (session.activeCall && session.history.length <= session.startIndex) break;
+        const last = session.history[session.history.length - 1];
+        if (!(last && last.type === 'voice_call_text')) break;
+        if (last.role === 'assistant') {
+            session.history.pop();
+            removedAny = true;
+        } else {
+            break;
+        }
+    }
+
+    if (!removedAny) {
+        if (window.showChatToast) window.showChatToast('没有可重回的 AI 通话回复');
+        return;
+    }
+
+    saveConfig();
+    refreshActiveCallMessageView();
+
+    isProcessingResponse = false;
+    generateVoiceCallAiReply();
+}
+
+function openEditVoiceCallMessageModal(messageId) {
+    if (!messageId || !window.iphoneSimState || !window.iphoneSimState.currentChatContactId) return;
+    const history = window.iphoneSimState.chatHistory[window.iphoneSimState.currentChatContactId];
+    if (!Array.isArray(history)) return;
+    const targetMsg = history.find(msg => String(msg && msg.id) === String(messageId));
+    if (!targetMsg || targetMsg.type !== 'voice_call_text') return;
+    if (!isVoiceCallMessageInCurrentSession(messageId)) {
+        if (window.showChatToast) window.showChatToast('仅可编辑本次通话消息');
+        return;
+    }
+
+    const textarea = document.getElementById('edit-chat-msg-content');
+    const typeInput = document.getElementById('edit-chat-msg-type');
+    const modal = document.getElementById('edit-chat-msg-modal');
+    const typeSwitch = document.getElementById('edit-chat-msg-type-switch');
+    const addInsertedBtn = document.getElementById('add-inserted-chat-msg-btn');
+    const insertedList = document.getElementById('inserted-chat-msg-list');
+    if (!textarea || !modal) return;
+
+    currentEditingVoiceCallMsgId = String(messageId);
+    currentEditingChatMsgId = null;
+    textarea.value = buildVoiceCallDisplayTextFromMessage(targetMsg);
+    if (typeInput) typeInput.value = 'text';
+    if (insertedList) insertedList.innerHTML = '';
+    if (typeSwitch) typeSwitch.style.display = 'none';
+    if (addInsertedBtn) addInsertedBtn.style.display = 'none';
+    if (insertedList) insertedList.style.display = 'none';
+
+    modal.querySelectorAll('.edit-chat-msg-type-btn').forEach(btn => {
+        if (btn.closest('.edit-chat-msg-insert-item')) return;
+        btn.classList.toggle('active', btn.dataset.msgType === 'text');
+    });
+    modal.classList.remove('hidden');
+}
+
+function refreshActiveCallMessageView() {
+    const voiceContainer = document.getElementById('voice-call-content');
+    const videoContainer = document.getElementById('video-call-content');
+    const voiceScreen = document.getElementById('voice-call-screen');
+    const videoScreen = document.getElementById('video-call-screen');
+    const voiceVisible = !!(voiceScreen && !voiceScreen.classList.contains('hidden'));
+    const videoVisible = !!(videoScreen && !videoScreen.classList.contains('hidden'));
+
+    if (!voiceVisible && !videoVisible) return;
+    if (voiceVisible && voiceContainer) voiceContainer.innerHTML = '';
+    if (videoVisible && videoContainer) videoContainer.innerHTML = '';
+
+    getCurrentVoiceCallSessionMessageStore().forEach(msg => {
+        const displayData = buildVoiceCallDisplayDataFromMessage(msg);
+        const role = msg.role === 'assistant' ? 'ai' : 'user';
+        if (videoVisible && role === 'ai' && displayData.description) {
+            addVoiceCallMessage(displayData.description, 'description');
+        }
+        if (!displayData.text) return;
+        addVoiceCallMessage(displayData.text, role, msg.id, {
+            bilingualTranslation: role === 'ai' ? displayData.bilingualTranslation : null
+        });
+    });
+}
+
+function showVoiceCallMessageMenu(targetEl, messageId) {
+    if (!isVoiceCallMessageInCurrentSession(messageId)) {
+        if (window.showChatToast) window.showChatToast('仅可操作本次通话消息');
+        return;
+    }
+    const oldMenu = document.querySelector('.context-menu');
+    if (oldMenu) oldMenu.remove();
+
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.innerHTML = `
+        <div class="context-menu-item" id="menu-edit">编辑</div>
+        <div class="context-menu-item" id="menu-delete" style="color: #ff3b30;">删除</div>
+    `;
+
+    menu.style.visibility = 'hidden';
+    document.body.appendChild(menu);
+
+    const menuRect = menu.getBoundingClientRect();
+    const targetRect = targetEl.getBoundingClientRect();
+    const edgePadding = 8;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    let left = targetRect.left + ((targetRect.width - menuRect.width) / 2) + scrollX;
+    let top = targetRect.top - menuRect.height - 10 + scrollY;
+    const minLeft = scrollX + edgePadding;
+    const maxLeft = scrollX + window.innerWidth - menuRect.width - edgePadding;
+    const minTop = scrollY + edgePadding;
+    const maxTop = scrollY + window.innerHeight - menuRect.height - edgePadding;
+    left = Math.max(minLeft, Math.min(maxLeft, left));
+    top = Math.max(minTop, Math.min(maxTop, top));
+
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.visibility = 'visible';
+
+    const closeMenu = (event) => {
+        if (!menu.contains(event.target)) {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+        }
+    };
+
+    menu.querySelector('#menu-edit').onclick = () => {
+        menu.remove();
+        openEditVoiceCallMessageModal(messageId);
+    };
+
+    menu.querySelector('#menu-delete').onclick = () => {
+        menu.remove();
+        if (!window.iphoneSimState || !window.iphoneSimState.currentChatContactId) return;
+        if (!isVoiceCallMessageInCurrentSession(messageId)) {
+            if (window.showChatToast) window.showChatToast('仅可删除本次通话消息');
+            return;
+        }
+        const history = window.iphoneSimState.chatHistory[window.iphoneSimState.currentChatContactId];
+        if (!Array.isArray(history)) return;
+        const idx = history.findIndex(msg => String(msg && msg.id) === String(messageId));
+        if (idx < 0) return;
+        history.splice(idx, 1);
+        saveConfig();
+        refreshActiveCallMessageView();
+    };
+
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+}
+
+function bindVoiceCallMessageLongPress(msgDiv, messageId) {
+    if (!msgDiv || !messageId) return;
+    let pressTimer = null;
+    let touchMoved = false;
+
+    const clearPressTimer = () => {
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+        }
+    };
+
+    const openMenuAtPoint = (clientX, clientY) => {
+        if (!isVoiceCallMessageInCurrentSession(messageId)) return;
+        const el = document.elementFromPoint(clientX, clientY) || msgDiv;
+        msgDiv.dataset.preventTranslateToggle = '1';
+        showVoiceCallMessageMenu(el.closest('.voice-call-msg') || msgDiv, messageId);
+    };
+
+    msgDiv.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (!isVoiceCallMessageInCurrentSession(messageId)) return;
+        msgDiv.dataset.preventTranslateToggle = '1';
+        showVoiceCallMessageMenu(msgDiv, messageId);
+    });
+
+    msgDiv.addEventListener('touchstart', (e) => {
+        touchMoved = false;
+        const touch = e.touches && e.touches[0];
+        if (!touch) return;
+        clearPressTimer();
+        pressTimer = setTimeout(() => {
+            openMenuAtPoint(touch.clientX, touch.clientY);
+        }, 460);
+    }, { passive: true });
+
+    msgDiv.addEventListener('touchmove', () => {
+        touchMoved = true;
+        clearPressTimer();
+    }, { passive: true });
+
+    msgDiv.addEventListener('touchend', () => {
+        if (!touchMoved) clearPressTimer();
+    }, { passive: true });
+
+    msgDiv.addEventListener('touchcancel', clearPressTimer, { passive: true });
+}
 
 function escapeChatOotdHtml(text) {
     return String(text == null ? '' : text)
@@ -4491,18 +5007,49 @@ function initVoiceCallButtons() {
     
     const handleSend = () => {
         const text = input.value.trim();
+        const micEnabled = isVoiceCallMicEnabled();
+
         if (text) {
             input.value = '';
-            sendMessage(text, true, 'voice_call_text');
-            addVoiceCallMessage(text, 'user');
+            const sentMsg = sendMessage(text, true, 'voice_call_text');
+            addVoiceCallMessage(text, 'user', sentMsg && sentMsg.id ? sentMsg.id : null);
+            if (!micEnabled) {
+                return;
+            }
+            isProcessingResponse = true;
+            generateVoiceCallAiReply();
+            return;
+        }
+
+        if (!micEnabled) {
+            if (isProcessingResponse || isAiSpeaking) return;
+            isProcessingResponse = true;
             generateVoiceCallAiReply();
         }
     };
 
     newSendBtn.onclick = handleSend;
     input.onkeydown = (e) => {
-        if (e.key === 'Enter') handleSend();
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const text = input.value.trim();
+            if (!text) return;
+            if (!isVoiceCallMicEnabled()) {
+                const sentMsg = sendMessage(text, true, 'voice_call_text');
+                addVoiceCallMessage(text, 'user', sentMsg && sentMsg.id ? sentMsg.id : null);
+                input.value = '';
+                return;
+            }
+            handleSend();
+        }
     };
+
+    const regenerateBtn = document.getElementById('voice-call-regenerate-btn');
+    if (regenerateBtn) {
+        const newRegenerateBtn = regenerateBtn.cloneNode(true);
+        regenerateBtn.parentNode.replaceChild(newRegenerateBtn, regenerateBtn);
+        newRegenerateBtn.onclick = handleVoiceCallRegenerateReply;
+    }
 }
 
 function closeVoiceCallScreen(hangupType = 'user') {
@@ -5415,11 +5962,24 @@ function startVideoCall() {
     
     const handleSend = () => {
         const text = input.value.trim();
+        const micEnabled = isVoiceCallMicEnabled();
+
         if (text) {
             input.value = '';
-            sendMessage(text, true, 'voice_call_text');
-            addVoiceCallMessage(text, 'user'); // 复用 addVoiceCallMessage，它会自动判断容器
-            generateVoiceCallAiReply(); 
+            const sentMsg = sendMessage(text, true, 'voice_call_text');
+            addVoiceCallMessage(text, 'user', sentMsg && sentMsg.id ? sentMsg.id : null); // 复用 addVoiceCallMessage，它会自动判断容器
+            if (!micEnabled) {
+                return;
+            }
+            isProcessingResponse = true;
+            generateVoiceCallAiReply();
+            return;
+        }
+
+        if (!micEnabled) {
+            if (isProcessingResponse || isAiSpeaking) return;
+            isProcessingResponse = true;
+            generateVoiceCallAiReply();
         }
     };
 
@@ -5431,8 +5991,26 @@ function startVideoCall() {
     
     if (input) {
         input.onkeydown = (e) => {
-            if (e.key === 'Enter') handleSend();
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const text = input.value.trim();
+                if (!text) return;
+                if (!isVoiceCallMicEnabled()) {
+                    const sentMsg = sendMessage(text, true, 'voice_call_text');
+                    addVoiceCallMessage(text, 'user', sentMsg && sentMsg.id ? sentMsg.id : null);
+                    input.value = '';
+                    return;
+                }
+                handleSend();
+            }
         };
+    }
+
+    const regenerateBtn = document.getElementById('video-call-regenerate-btn');
+    if (regenerateBtn) {
+        const newRegenerateBtn = regenerateBtn.cloneNode(true);
+        regenerateBtn.parentNode.replaceChild(newRegenerateBtn, regenerateBtn);
+        newRegenerateBtn.onclick = handleVoiceCallRegenerateReply;
     }
 
     // 清空内容区域
@@ -5623,37 +6201,66 @@ function handleSaveAutoSnapshotSettings() {
     }
 }
 
-function addVoiceCallMessage(text, role) {
-    // 尝试添加到语音通话容器
-    const voiceContainer = document.getElementById('voice-call-content');
-    if (voiceContainer && !document.getElementById('voice-call-screen').classList.contains('hidden')) {
+function addVoiceCallMessage(text, role, messageId = null, options = {}) {
+    const safeText = String(text || '');
+    const translationMeta = role === 'ai'
+        ? normalizeVoiceCallBilingualTranslationMeta(options && options.bilingualTranslation)
+        : null;
+
+    const appendMessageNode = (container, isVideoCall = false) => {
+        if (!container) return;
+
         const msgDiv = document.createElement('div');
         msgDiv.className = `voice-call-msg ${role}`;
-        msgDiv.textContent = text;
-        voiceContainer.appendChild(msgDiv);
-        voiceContainer.scrollTop = voiceContainer.scrollHeight;
+
+        if (role === 'description') {
+            msgDiv.textContent = safeText;
+        } else if (isVideoCall && safeText.trim().startsWith('<img')) {
+            msgDiv.innerHTML = safeText;
+        } else {
+            msgDiv.textContent = safeText;
+        }
+
+        const canToggleTranslation = role === 'ai'
+            && !!translationMeta
+            && role !== 'description'
+            && !safeText.trim().startsWith('<img');
+
+        if (canToggleTranslation) {
+            const translatedDiv = document.createElement('div');
+            translatedDiv.className = 'voice-call-translated-msg hidden';
+            translatedDiv.textContent = translationMeta.translatedText;
+            msgDiv.appendChild(translatedDiv);
+            msgDiv.classList.add('voice-call-msg-with-translation');
+
+            msgDiv.addEventListener('click', (event) => {
+                if (event && event.defaultPrevented) return;
+                if (msgDiv.dataset.preventTranslateToggle === '1') {
+                    msgDiv.dataset.preventTranslateToggle = '';
+                    return;
+                }
+                translatedDiv.classList.toggle('hidden');
+                msgDiv.classList.toggle('translation-open', !translatedDiv.classList.contains('hidden'));
+            });
+        }
+
+        if (messageId) {
+            msgDiv.dataset.msgId = String(messageId);
+            bindVoiceCallMessageLongPress(msgDiv, messageId);
+        }
+
+        container.appendChild(msgDiv);
+        container.scrollTop = container.scrollHeight;
+    };
+
+    const voiceContainer = document.getElementById('voice-call-content');
+    if (voiceContainer && !document.getElementById('voice-call-screen').classList.contains('hidden')) {
+        appendMessageNode(voiceContainer, false);
     }
 
-    // 尝试添加到视频通话容器
     const videoContainer = document.getElementById('video-call-content');
     if (videoContainer && !document.getElementById('video-call-screen').classList.contains('hidden')) {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `voice-call-msg ${role}`; // 复用样式
-        
-        if (role === 'description') {
-            // 描述消息可能包含换行，使用 innerText 或 textContent 都可以，但为了安全使用 textContent
-            // 如果需要支持 HTML 格式（如加粗），可以改用 innerHTML，但这里纯文本即可
-            msgDiv.textContent = text;
-        } else {
-            if (text.startsWith('<img')) {
-                msgDiv.innerHTML = text;
-            } else {
-                msgDiv.textContent = text;
-            }
-        }
-        
-        videoContainer.appendChild(msgDiv);
-        videoContainer.scrollTop = videoContainer.scrollHeight;
+        appendMessageNode(videoContainer, true);
     }
 }
 
@@ -5761,6 +6368,7 @@ async function generateVoiceCallAiReply() {
     
     const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
     if (!contact) return;
+    const callBilingualConfig = getVoiceCallBilingualConfig(contact);
 
     const settings = window.iphoneSimState.aiSettings.url ? window.iphoneSimState.aiSettings : window.iphoneSimState.aiSettings2;
     
@@ -5813,8 +6421,15 @@ async function generateVoiceCallAiReply() {
     let worldbookContext = '';
     if (window.iphoneSimState.worldbook && window.iphoneSimState.worldbook.length > 0) {
         let activeEntries = window.iphoneSimState.worldbook.filter(e => e.enabled);
-        if (contact.linkedWbCategories) {
-            activeEntries = activeEntries.filter(e => contact.linkedWbCategories.includes(e.categoryId));
+        if (typeof window.ensureContactCallWorldbookFields === 'function') {
+            window.ensureContactCallWorldbookFields(contact);
+        }
+        if (Array.isArray(contact.callLinkedWbCategories)) {
+            if (contact.callLinkedWbCategories.length > 0) {
+                activeEntries = activeEntries.filter(e => contact.callLinkedWbCategories.includes(e.categoryId));
+            } else {
+                activeEntries = [];
+            }
         }
         if (activeEntries.length > 0) {
             worldbookContext += '\n\n世界书信息：\n';
@@ -5857,11 +6472,13 @@ ${worldbookContext}
 1. 你们正在进行视频通话。
 2. 用户可能会发送图片，这些图片是用户方的实时视频画面截图，代表你通过视频通话"看到"的用户当前的画面。请将这些图片理解为你正在视频通话中看到的实时场景，而不是用户发送的静态照片。
 3. 请严格遵守以下格式，同时输出一个描述部分和一个对话部分：
-{{DESC}}在这里写下你的动作、表情或环境描述。{{/DESC}}
+{{DESC}}在这里写下你的动作、表情或环境描述（必须是中文）。{{/DESC}}
 {{DIALOGUE}}在这里写下你以第一人称说的话。{{/DIALOGUE}}
 4. 语气要自然、流畅。
 5. 如果你想挂断电话，请在回复的最后另起一行输出：ACTION: HANGUP_CALL
 6. **严禁**输出 "BAKA"、"baka" 等词汇。
+7. {{DESC}} 部分只能使用中文，不要混入其他语言。
+8. {{DIALOGUE}} 部分必须使用 ${callBilingualConfig ? `${callBilingualConfig.sourceLabel}（${callBilingualConfig.sourceLang}）` : '当前对话语言'}。
 
 请回复对方。`;
     } else {
@@ -5884,6 +6501,7 @@ ${worldbookContext}
 7. 如果你想挂断电话，请在回复的最后另起一行输出：ACTION: HANGUP_CALL
 8. 仅仅输出你要说的话（和可能的挂断指令）。
 9. **严禁**输出 "BAKA"、"baka" 等词汇。
+10. 回复内容必须使用 ${callBilingualConfig ? `${callBilingualConfig.sourceLabel}（${callBilingualConfig.sourceLang}）` : '当前对话语言'}。
 
 请回复对方。`;
     }
@@ -6047,6 +6665,8 @@ ${worldbookContext}
 
         // 处理对话部分
         let audioData = null;
+        let bilingualTranslationMeta = null;
+        let normalizedDialogueText = dialogue;
         let isSpeakerOn = false;
         
         if (isVideoCall) {
@@ -6057,8 +6677,22 @@ ${worldbookContext}
             if (speakerBtn && speakerBtn.classList.contains('active')) isSpeakerOn = true;
         }
 
-        if (isSpeakerOn && dialogue) {
-            audioData = await generateMinimaxTTS(dialogue, contact.ttsVoiceId);
+        if (dialogue) {
+            const bilingualPair = await requestVoiceCallBilingualPair(dialogue, contact, settings);
+            if (bilingualPair) {
+                normalizedDialogueText = bilingualPair.sourceText;
+                bilingualTranslationMeta = {
+                    sourceLang: bilingualPair.sourceLang,
+                    targetLang: bilingualPair.targetLang,
+                    translatedText: bilingualPair.targetText
+                };
+            } else {
+                bilingualTranslationMeta = await requestVoiceCallBilingualTranslation(dialogue, contact, settings);
+            }
+        }
+
+        if (isSpeakerOn && normalizedDialogueText) {
+            audioData = await generateMinimaxTTS(normalizedDialogueText, contact.ttsVoiceId);
         }
 
         if (audioData) {
@@ -6070,16 +6704,19 @@ ${worldbookContext}
         }
 
         const msgPayload = {
-            text: dialogue,
+            text: normalizedDialogueText,
             description: desc,
-            audio: audioData
+            audio: audioData,
+            bilingualTranslation: bilingualTranslationMeta
         };
         
-        sendMessage(JSON.stringify(msgPayload), false, 'voice_call_text');
-        addVoiceCallMessage(dialogue, 'ai');
+        const aiMsg = sendMessage(JSON.stringify(msgPayload), false, 'voice_call_text');
+        addVoiceCallMessage(normalizedDialogueText, 'ai', aiMsg && aiMsg.id ? aiMsg.id : null, {
+            bilingualTranslation: bilingualTranslationMeta
+        });
 
         if (shouldHangup) {
-            const delay = audioData ? (dialogue.length * 300 + 1000) : 2000;
+            const delay = audioData ? (normalizedDialogueText.length * 300 + 1000) : 2000;
             
             setTimeout(() => {
                 closeVoiceCallScreen('ai');
@@ -6354,8 +6991,8 @@ async function processVoiceCallAudio(audioBlob) {
 
         if (text) {
             console.log('VAD Recognized:', text);
-            sendMessage(text, true, 'voice_call_text');
-            addVoiceCallMessage(text, 'user');
+            const sentMsg = sendMessage(text, true, 'voice_call_text');
+            addVoiceCallMessage(text, 'user', sentMsg && sentMsg.id ? sentMsg.id : null);
             hasRecognizedText = true;
             
             // 识别成功，进入处理状态，暂停VAD
@@ -6558,14 +7195,20 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
 
 window.openEditChatMessageModal = function(msgId, currentContent) {
     currentEditingChatMsgId = msgId;
+    currentEditingVoiceCallMsgId = null;
     const textarea = document.getElementById('edit-chat-msg-content');
     const typeInput = document.getElementById('edit-chat-msg-type');
     const modal = document.getElementById('edit-chat-msg-modal');
+    const typeSwitch = document.getElementById('edit-chat-msg-type-switch');
+    const addInsertedBtn = document.getElementById('add-inserted-chat-msg-btn');
     const insertedList = document.getElementById('inserted-chat-msg-list');
     const selectedType = resolveEditChatMessageType(msgId);
     textarea.value = resolveEditChatMessageTextValue(msgId, currentContent);
     if (typeInput) typeInput.value = selectedType;
     if (insertedList) insertedList.innerHTML = '';
+    if (typeSwitch) typeSwitch.style.display = '';
+    if (addInsertedBtn) addInsertedBtn.style.display = '';
+    if (insertedList) insertedList.style.display = '';
     if (modal) {
         modal.querySelectorAll('.edit-chat-msg-type-btn').forEach(btn => {
             if (btn.closest('.edit-chat-msg-insert-item')) return;
@@ -6964,6 +7607,60 @@ function handleSaveEditBlock() {
 }
 
 function handleSaveEditedChatMessage() {
+    if (currentEditingVoiceCallMsgId && window.iphoneSimState && window.iphoneSimState.currentChatContactId) {
+        if (!isVoiceCallMessageInCurrentSession(currentEditingVoiceCallMsgId)) {
+            if (window.showChatToast) window.showChatToast('仅可编辑本次通话消息');
+            document.getElementById('edit-chat-msg-modal').classList.add('hidden');
+            currentEditingVoiceCallMsgId = null;
+            currentEditingChatMsgId = null;
+            return;
+        }
+        const newContentForCall = document.getElementById('edit-chat-msg-content').value.trim();
+        if (!newContentForCall) {
+            alert('消息内容不能为空');
+            return;
+        }
+        const messagesForCall = window.iphoneSimState.chatHistory[window.iphoneSimState.currentChatContactId];
+        const callMsgIndex = Array.isArray(messagesForCall)
+            ? messagesForCall.findIndex(m => String(m && m.id) === String(currentEditingVoiceCallMsgId))
+            : -1;
+        if (callMsgIndex === -1) {
+            alert('找不到原消息，可能已被删除');
+            document.getElementById('edit-chat-msg-modal').classList.add('hidden');
+            currentEditingVoiceCallMsgId = null;
+            return;
+        }
+
+        const targetMsg = messagesForCall[callMsgIndex];
+        if (targetMsg.role === 'assistant') {
+            let payload = {};
+            try {
+                payload = typeof targetMsg.content === 'string' ? JSON.parse(targetMsg.content) : (targetMsg.content || {});
+            } catch (e) {
+                payload = {};
+            }
+            payload.text = newContentForCall;
+            payload.bilingualTranslation = null;
+            targetMsg.content = JSON.stringify(payload);
+        } else {
+            targetMsg.content = newContentForCall;
+        }
+
+        saveConfig();
+        refreshActiveCallMessageView();
+        document.getElementById('edit-chat-msg-modal').classList.add('hidden');
+        const typeSwitch = document.getElementById('edit-chat-msg-type-switch');
+        const addInsertedBtn = document.getElementById('add-inserted-chat-msg-btn');
+        const insertedList = document.getElementById('inserted-chat-msg-list');
+        if (typeSwitch) typeSwitch.style.display = '';
+        if (addInsertedBtn) addInsertedBtn.style.display = '';
+        if (insertedList) insertedList.style.display = '';
+        if (insertedList) insertedList.innerHTML = '';
+        currentEditingVoiceCallMsgId = null;
+        currentEditingChatMsgId = null;
+        return;
+    }
+
     if (!currentEditingChatMsgId || !window.iphoneSimState.currentChatContactId) return;
 
     const newContent = document.getElementById('edit-chat-msg-content').value.trim();
@@ -7089,6 +7786,12 @@ function handleSaveEditedChatMessage() {
             saveConfig();
             renderChatHistory(contactId);
             document.getElementById('edit-chat-msg-modal').classList.add('hidden');
+            const typeSwitch = document.getElementById('edit-chat-msg-type-switch');
+            const addInsertedBtn = document.getElementById('add-inserted-chat-msg-btn');
+            const insertedList = document.getElementById('inserted-chat-msg-list');
+            if (typeSwitch) typeSwitch.style.display = '';
+            if (addInsertedBtn) addInsertedBtn.style.display = '';
+            if (insertedList) insertedList.style.display = '';
             currentEditingChatMsgId = null;
             
         } catch (e) {
@@ -7138,12 +7841,23 @@ function handleSaveEditedChatMessage() {
         renderChatHistory(window.iphoneSimState.currentChatContactId);
         
         document.getElementById('edit-chat-msg-modal').classList.add('hidden');
+        const typeSwitch = document.getElementById('edit-chat-msg-type-switch');
+        const addInsertedBtn = document.getElementById('add-inserted-chat-msg-btn');
         const insertedList = document.getElementById('inserted-chat-msg-list');
+        if (typeSwitch) typeSwitch.style.display = '';
+        if (addInsertedBtn) addInsertedBtn.style.display = '';
+        if (insertedList) insertedList.style.display = '';
         if (insertedList) insertedList.innerHTML = '';
         currentEditingChatMsgId = null;
     } else {
         alert('找不到原消息，可能已被删除');
         document.getElementById('edit-chat-msg-modal').classList.add('hidden');
+        const typeSwitch = document.getElementById('edit-chat-msg-type-switch');
+        const addInsertedBtn = document.getElementById('add-inserted-chat-msg-btn');
+        const insertedList = document.getElementById('inserted-chat-msg-list');
+        if (typeSwitch) typeSwitch.style.display = '';
+        if (addInsertedBtn) addInsertedBtn.style.display = '';
+        if (insertedList) insertedList.style.display = '';
     }
 }
 
@@ -7158,6 +7872,165 @@ function openWechatMomentsTab() {
         window.switchTab('moments');
     }
 }
+
+function getCurrentChatContactForStickerSuggestion() {
+    const state = window.iphoneSimState;
+    if (!state || !Array.isArray(state.contacts)) return null;
+    const contactId = state.currentChatContactId;
+    if (!contactId) return null;
+    return state.contacts.find(item => String(item.id) === String(contactId)) || null;
+}
+
+function isStickerSuggestionEnabledForContact(contact) {
+    if (!contact) return false;
+    if (typeof window.ensureContactStickerSuggestionFields === 'function') {
+        try {
+            window.ensureContactStickerSuggestionFields(contact);
+        } catch (e) {}
+    }
+    return contact.stickerSuggestionEnabled !== false;
+}
+
+function getStickerSuggestionPoolForContact(contact) {
+    if (!window.iphoneSimState || !Array.isArray(window.iphoneSimState.stickerCategories)) return [];
+    const categories = window.iphoneSimState.stickerCategories;
+    const pool = [];
+    categories.forEach((cat) => {
+        if (!cat || !Array.isArray(cat.list)) return;
+        cat.list.forEach((sticker) => {
+            if (!sticker || !sticker.url) return;
+            pool.push({
+                url: String(sticker.url),
+                desc: String(sticker.desc || '').trim()
+            });
+        });
+    });
+    return pool;
+}
+
+function scoreStickerSuggestion(descLower, queryLower, queryNoSpace) {
+    if (!descLower || !queryLower) return -1;
+    if (descLower === queryLower) return 1200;
+    if (descLower.startsWith(queryLower)) return 1000 - Math.min(descLower.length, 120);
+    if (descLower.includes(queryLower)) return 800 - Math.min(descLower.indexOf(queryLower), 120);
+    if (queryNoSpace && descLower.includes(queryNoSpace)) return 700;
+    const parts = queryLower.split(/\s+/).filter(Boolean);
+    if (!parts.length) return -1;
+    let matchCount = 0;
+    parts.forEach((part) => {
+        if (part && descLower.includes(part)) matchCount += 1;
+    });
+    if (!matchCount) return -1;
+    return 500 + matchCount * 20;
+}
+
+function getStickerSuggestionMatches(contact, rawQuery, limit = CHAT_STICKER_SUGGESTION_LIMIT) {
+    const query = String(rawQuery || '').trim();
+    if (!query) return [];
+    const pool = getStickerSuggestionPoolForContact(contact);
+    if (!pool.length) return [];
+
+    const queryLower = query.toLowerCase();
+    const queryNoSpace = queryLower.replace(/\s+/g, '');
+    const dedupe = new Set();
+    const candidates = [];
+
+    pool.forEach((item, index) => {
+        const desc = String(item.desc || '').trim();
+        if (!desc) return;
+        const key = `${item.url}::${desc}`;
+        if (dedupe.has(key)) return;
+        dedupe.add(key);
+        const descLower = desc.toLowerCase();
+        const score = scoreStickerSuggestion(descLower, queryLower, queryNoSpace);
+        if (score < 0) return;
+        candidates.push({
+            url: item.url,
+            desc,
+            score,
+            index
+        });
+    });
+
+    candidates.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.index - b.index;
+    });
+
+    return candidates.slice(0, Math.max(1, Number(limit) || CHAT_STICKER_SUGGESTION_LIMIT));
+}
+
+function hideChatStickerSuggestionBar() {
+    const bar = document.getElementById('chat-sticker-suggestion-bar');
+    const list = document.getElementById('chat-sticker-suggestion-list');
+    if (list) list.innerHTML = '';
+    if (bar) bar.classList.add('hidden');
+}
+
+function sendStickerFromSuggestion(sticker) {
+    if (!sticker || !sticker.url || typeof window.sendMessage !== 'function') return;
+    window.sendMessage(sticker.url, true, 'sticker', sticker.desc || '');
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+        chatInput.value = '';
+        chatInput.focus();
+    }
+}
+
+function renderChatStickerSuggestionBar(contact, rawQuery) {
+    const bar = document.getElementById('chat-sticker-suggestion-bar');
+    const list = document.getElementById('chat-sticker-suggestion-list');
+    if (!bar || !list) return;
+    if (!contact || !isStickerSuggestionEnabledForContact(contact)) {
+        hideChatStickerSuggestionBar();
+        return;
+    }
+
+    const matches = getStickerSuggestionMatches(contact, rawQuery, CHAT_STICKER_SUGGESTION_LIMIT);
+    if (!matches.length) {
+        hideChatStickerSuggestionBar();
+        return;
+    }
+
+    list.innerHTML = '';
+    matches.forEach((item) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'chat-sticker-suggestion-item';
+        button.setAttribute('title', item.desc || '表情包');
+        button.setAttribute('aria-label', item.desc || '发送表情包');
+        button.innerHTML = `
+            <img src="${item.url}" alt="${item.desc || 'sticker'}" loading="lazy">
+            <span class="chat-sticker-suggestion-desc">${item.desc || '表情包'}</span>
+        `;
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            sendStickerFromSuggestion(item);
+            hideChatStickerSuggestionBar();
+        });
+        list.appendChild(button);
+    });
+    bar.classList.remove('hidden');
+}
+
+function refreshChatStickerSuggestionBarForCurrentInput() {
+    const chatInput = document.getElementById('chat-input');
+    if (!chatInput) return;
+    const chatScreen = document.getElementById('chat-screen');
+    if (!chatScreen || chatScreen.classList.contains('hidden')) {
+        hideChatStickerSuggestionBar();
+        return;
+    }
+    const contact = getCurrentChatContactForStickerSuggestion();
+    if (!contact || !isStickerSuggestionEnabledForContact(contact)) {
+        hideChatStickerSuggestionBar();
+        return;
+    }
+    renderChatStickerSuggestionBar(contact, chatInput.value || '');
+}
+
+window.refreshChatStickerSuggestionBarForCurrentInput = refreshChatStickerSuggestionBarForCurrentInput;
 
 function setupChatListeners() {
     // 仅选择主微信应用的底栏 Tab
@@ -7953,8 +8826,18 @@ function setupChatListeners() {
     const triggerAiReplyBtn = document.getElementById('trigger-ai-reply-btn');
 
     if (chatInput) {
+        chatInput.addEventListener('input', () => {
+            const contact = getCurrentChatContactForStickerSuggestion();
+            if (!contact || !isStickerSuggestionEnabledForContact(contact)) {
+                hideChatStickerSuggestionBar();
+                return;
+            }
+            renderChatStickerSuggestionBar(contact, chatInput.value || '');
+        });
+
         chatInput.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter') {
+                e.preventDefault();
                 const text = chatInput.value.trim();
                 if (text) {
                     const sentMsg = sendMessage(text, true);
@@ -7977,6 +8860,7 @@ function setupChatListeners() {
                         }
                     }
                 }
+                hideChatStickerSuggestionBar();
             }
         });
     }
@@ -7998,6 +8882,7 @@ function setupChatListeners() {
 
     if (triggerAiReplyBtn) {
         triggerAiReplyBtn.addEventListener('click', async () => {
+            hideChatStickerSuggestionBar();
             await triggerCurrentChatAiReply(chatInput, { triggerSource: 'manual' });
         });
     }
@@ -8007,6 +8892,7 @@ function setupChatListeners() {
     const stickerBtn = document.getElementById('sticker-btn');
     const stickerPanel = document.getElementById('sticker-panel');
     const chatInputArea = document.querySelector('.chat-input-area');
+    const chatStickerSuggestionBar = document.getElementById('chat-sticker-suggestion-bar');
     
     // 分页相关元素
     const chatMorePages = document.getElementById('chat-more-pages');
@@ -8061,6 +8947,9 @@ function setupChatListeners() {
         if (chatInputArea) {
             chatInputArea.classList.remove('push-up');
             chatInputArea.classList.remove('push-up-more');
+        }
+        if (chatStickerSuggestionBar && (!chatInput || !chatInput.matches(':focus'))) {
+            hideChatStickerSuggestionBar();
         }
     }
 
@@ -8286,6 +9175,14 @@ function setupChatListeners() {
                 chatInputArea.classList.remove('push-up');
                 chatInputArea.classList.remove('push-up-more');
             }
+            refreshChatStickerSuggestionBarForCurrentInput();
+        });
+        chatInput.addEventListener('blur', () => {
+            setTimeout(() => {
+                const active = document.activeElement;
+                if (active && active.closest && active.closest('#chat-sticker-suggestion-bar')) return;
+                hideChatStickerSuggestionBar();
+            }, 120);
         });
     }
 
@@ -8971,6 +9868,12 @@ function setupChatListeners() {
         closeEditChatMsgBtn.addEventListener('click', () => {
             editChatMsgModal.classList.add('hidden');
             currentEditingChatMsgId = null;
+            currentEditingVoiceCallMsgId = null;
+            const typeSwitch = document.getElementById('edit-chat-msg-type-switch');
+            const addInsertedBtn = document.getElementById('add-inserted-chat-msg-btn');
+            if (typeSwitch) typeSwitch.style.display = '';
+            if (addInsertedBtn) addInsertedBtn.style.display = '';
+            if (insertedChatMsgList) insertedChatMsgList.style.display = '';
             if (insertedChatMsgList) insertedChatMsgList.innerHTML = '';
         });
     }

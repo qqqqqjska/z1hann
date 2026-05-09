@@ -1,305 +1,327 @@
-// 通话记录功能模块
+// 通话记录功能模块（按 call_history_v1.html 视觉还原，全屏版）
 
-// 打开通话记录列表
-function openCallHistoryScreen() {
-    const screen = document.getElementById('call-history-screen');
-    const list = document.getElementById('call-history-list');
-    const emptyState = document.getElementById('call-history-empty');
-    
-    if (!screen || !list) return;
-
-    // 关闭视频通话弹窗
-    document.getElementById('video-call-modal').classList.add('hidden');
-    
-    screen.classList.remove('hidden');
-    renderCallHistoryList();
+function formatCallHistoryTime(timestamp) {
+    const date = new Date(Number(timestamp || 0));
+    if (Number.isNaN(date.getTime())) return '';
+    const now = new Date();
+    const sameYear = date.getFullYear() === now.getFullYear();
+    const sameMonth = sameYear && date.getMonth() === now.getMonth();
+    const sameDate = sameMonth && date.getDate() === now.getDate();
+    const hh = date.getHours().toString().padStart(2, '0');
+    const mm = date.getMinutes().toString().padStart(2, '0');
+    if (sameDate) return `${hh}:${mm}`;
+    return `${date.getMonth() + 1}/${date.getDate()} ${hh}:${mm}`;
 }
 
-// 渲染通话记录列表
-function renderCallHistoryList() {
-    const list = document.getElementById('call-history-list');
-    const emptyState = document.getElementById('call-history-empty');
-    
-    if (!list) return;
-    
-    list.innerHTML = '';
-    
-    // 获取当前联系人的通话记录
-    // 我们需要遍历聊天记录，找出所有 type 为 'voice_call_text' 的消息，并按时间分组或作为单独的通话记录
-    // 但为了简化，我们假设每次通话结束时会生成一条总结性的消息，或者我们可以解析连续的通话消息
-    // 这里我们采用一种更健壮的方法：查找所有通话相关的消息，并按时间聚类
-    
-    if (!window.iphoneSimState.currentChatContactId) {
-        if (emptyState) emptyState.style.display = 'block';
+function extractCallDurationLabel(summaryText) {
+    const text = String(summaryText || '').trim();
+    if (!text) return '';
+    const matched = text.match(/(\d{1,2}:\d{2}(?::\d{2})?)/);
+    if (!matched) return '';
+    const duration = matched[1];
+    const parts = duration.split(':').map(part => Number.parseInt(part, 10) || 0);
+    if (parts.length === 2) {
+        const mins = parts[0];
+        const secs = parts[1];
+        return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+    }
+    const hours = parts[0];
+    const mins = parts[1];
+    const secs = parts[2];
+    const totalMins = hours * 60 + mins;
+    return `${totalMins}m ${secs.toString().padStart(2, '0')}s`;
+}
+
+function sanitizeVideoDialogueText(text) {
+    const rawText = String(text || '');
+    return rawText
+        .replace(/{{DESC}}[\s\S]*?{{\/DESC}}/gi, '')
+        .replace(/{{DIALOGUE}}/gi, '')
+        .replace(/{{\/DIALOGUE}}/gi, '')
+        .trim();
+}
+
+function parseCallMessagePayload(content) {
+    const payload = {
+        dialogue: String(content || ''),
+        desc: '',
+        audio: null
+    };
+    try {
+        const data = typeof content === 'string' ? JSON.parse(content) : content;
+        if (data && typeof data === 'object') {
+            if (typeof data.text === 'string') payload.dialogue = data.text;
+            if (typeof data.description === 'string') payload.desc = data.description;
+            if (data.audio) payload.audio = data.audio;
+        }
+    } catch (e) {}
+    return payload;
+}
+
+function getCurrentCallHistoryContactName() {
+    const contact = getCurrentCallHistoryContact();
+    return contact ? String(contact.remark || contact.name || 'Unknown') : 'Unknown';
+}
+
+function getCurrentCallHistoryContact() {
+    const state = window.iphoneSimState;
+    if (!state) return null;
+    const contactId = state.currentChatContactId;
+    const contacts = Array.isArray(state.contacts) ? state.contacts : [];
+    if (!contactId) return null;
+    return contacts.find(item => String(item.id) === String(contactId)) || null;
+}
+
+function resolveCallDetailBackground(session) {
+    const contact = getCurrentCallHistoryContact();
+    if (!contact) return '';
+    if (session && session.type === 'video') {
+        return String(contact.videoCallBgImage || contact.chatBg || '').trim();
+    }
+    return String(contact.voiceCallBg || contact.chatBg || '').trim();
+}
+
+function applyCallDetailBackground(session, container) {
+    if (!container) return;
+    const bgValue = resolveCallDetailBackground(session);
+    if (bgValue) {
+        container.style.backgroundImage = `url(${bgValue})`;
+        container.style.backgroundSize = 'cover';
+        container.style.backgroundPosition = 'center';
+        container.style.backgroundRepeat = 'no-repeat';
         return;
     }
-    
-    const history = window.iphoneSimState.chatHistory[window.iphoneSimState.currentChatContactId] || [];
-    
-    // 筛选出通话相关的消息
-    // 1. 语音/视频通话时长消息 (作为通话结束的标志)
-    // 2. 通话内容消息 (type: 'voice_call_text')
-    
-    const callSessions = [];
+    container.style.backgroundImage = '';
+    container.style.backgroundSize = '';
+    container.style.backgroundPosition = '';
+    container.style.backgroundRepeat = '';
+}
+
+function buildCallSessionsForCurrentContact() {
+    const contactId = window.iphoneSimState && window.iphoneSimState.currentChatContactId;
+    if (!contactId) return [];
+    const history = Array.isArray(window.iphoneSimState.chatHistory[contactId])
+        ? window.iphoneSimState.chatHistory[contactId]
+        : [];
+
+    const sessions = [];
     let currentSession = null;
-    
-    // 按时间顺序遍历
-    history.forEach(msg => {
+    const sessionGapMs = 5 * 60 * 1000;
+
+    history.forEach((msg) => {
+        if (!msg) return;
         const isCallContent = msg.type === 'voice_call_text';
-        const isCallEnd = msg.type === 'text' && (msg.content.includes('通话时长：') || msg.content.includes('视频通话时长：'));
-        const isCallStart = msg.type === 'text' && (msg.content === 'ACTION: START_VOICE_CALL' || msg.content === 'ACTION: START_VIDEO_CALL'); // 虽然这些通常不显示，但作为逻辑参考
-        
-        // 如果是通话内容，且当前没有会话，或者与上一个会话间隔太久（比如5分钟），则视为新会话
+        const contentText = String(msg.content || '');
+        const isCallEnd = msg.type === 'text'
+            && (contentText.includes('通话时长：') || contentText.includes('视频通话时长：'));
+
         if (isCallContent) {
-            if (!currentSession || (msg.time - currentSession.endTime > 5 * 60 * 1000)) {
-                if (currentSession) callSessions.push(currentSession);
+            if (!currentSession || (Number(msg.time || 0) - Number(currentSession.endTime || 0) > sessionGapMs)) {
+                if (currentSession) sessions.push(currentSession);
                 currentSession = {
-                    id: msg.id, // 使用第一条消息ID作为会话ID
-                    startTime: msg.time,
-                    endTime: msg.time,
-                    type: 'voice', // 默认为语音，稍后检测
+                    id: String(msg.id || Date.now()),
+                    startTime: Number(msg.time || Date.now()),
+                    endTime: Number(msg.time || Date.now()),
+                    type: 'voice',
                     messages: [msg],
                     summary: ''
                 };
             } else {
                 currentSession.messages.push(msg);
-                currentSession.endTime = msg.time;
+                currentSession.endTime = Number(msg.time || currentSession.endTime || Date.now());
             }
-            
-            // 检测是否包含视频通话特征
-            if (msg.content.includes('{{DESC}}') || msg.content.includes('{{DIALOGUE}}')) {
+
+            const payload = parseCallMessagePayload(msg.content);
+            if (String(payload.desc || '').trim() || /{{DESC}}|{{DIALOGUE}}/i.test(contentText)) {
                 currentSession.type = 'video';
             }
-        } else if (isCallEnd) {
-            if (currentSession && (msg.time - currentSession.endTime < 5 * 60 * 1000)) {
-                currentSession.endTime = msg.time;
-                currentSession.summary = msg.content; // "通话时长：00:12"
-                if (msg.content.includes('视频通话')) {
-                    currentSession.type = 'video';
-                }
-                callSessions.push(currentSession);
-                currentSession = null;
+            return;
+        }
+
+        if (isCallEnd && currentSession && (Number(msg.time || 0) - Number(currentSession.endTime || 0) < sessionGapMs)) {
+            currentSession.endTime = Number(msg.time || currentSession.endTime || Date.now());
+            currentSession.summary = contentText;
+            if (contentText.includes('视频通话')) {
+                currentSession.type = 'video';
             }
+            sessions.push(currentSession);
+            currentSession = null;
         }
     });
-    
-    if (currentSession) {
-        callSessions.push(currentSession);
-    }
-    
-    // 倒序排列（最新的在最前）
-    callSessions.reverse();
-    
-    if (callSessions.length === 0) {
-        if (emptyState) emptyState.style.display = 'block';
+
+    if (currentSession) sessions.push(currentSession);
+    return sessions.reverse();
+}
+
+function openCallHistoryScreen() {
+    const screen = document.getElementById('call-history-screen');
+    if (!screen) return;
+    const modal = document.getElementById('video-call-modal');
+    if (modal) modal.classList.add('hidden');
+    screen.classList.remove('hidden');
+    renderCallHistoryList();
+}
+
+function renderCallHistoryList() {
+    const list = document.getElementById('call-history-list');
+    const emptyState = document.getElementById('call-history-empty');
+    if (!list) return;
+
+    list.innerHTML = '';
+    const sessions = buildCallSessionsForCurrentContact();
+    if (!sessions.length) {
+        if (emptyState) emptyState.classList.remove('hidden');
         return;
     }
-    
-    if (emptyState) emptyState.style.display = 'none';
-    
-    callSessions.forEach(session => {
+    if (emptyState) emptyState.classList.add('hidden');
+
+    sessions.forEach((session) => {
         const item = document.createElement('div');
-        item.className = 'meeting-item'; // 复用见面记录的卡片样式
-        
-        const date = new Date(session.startTime);
-        const timeStr = `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-        
-        const iconClass = session.type === 'video' ? 'fas fa-video' : 'fas fa-phone-alt';
-        const iconColor = session.type === 'video' ? '#007AFF' : '#34C759';
-        const title = session.type === 'video' ? '视频通话' : '语音通话';
-        
-        // 提取摘要：显示前两条对话
-        let preview = '';
-        if (session.messages.length > 0) {
-            const firstMsg = session.messages[0];
-            let content = firstMsg.content;
-            try {
-                const data = JSON.parse(content);
-                if (typeof data.text === 'string') content = data.text;
-            } catch(e) {}
-            
-            // 清理视频通话标签
-            content = content.replace(/{{DESC}}[\s\S]*?{{\/DESC}}/gi, '')
-                             .replace(/{{DIALOGUE}}/gi, '')
-                             .replace(/{{\/DIALOGUE}}/gi, '')
-                             .trim();
-                             
-            preview = content;
-        }
-        
+        item.className = 'call-history-v1-list-card';
+        const contactName = getCurrentCallHistoryContactName();
+        const typeTag = session.type === 'video' ? 'VIDEO' : 'AUDIO';
+        const durationText = extractCallDurationLabel(session.summary) || '--';
+        const timeText = formatCallHistoryTime(session.startTime);
+        const iconMarkup = session.type === 'video'
+            ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>'
+            : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>';
+
         item.innerHTML = `
-            <div class="meeting-item-header">
-                <span style="display: flex; align-items: center; gap: 5px; color: #000; font-weight: 600;">
-                    <i class="${iconClass}" style="color: ${iconColor};"></i> ${title}
-                </span>
-                <span>${timeStr}</span>
+            <div class="call-history-v1-icon">
+                ${iconMarkup}
             </div>
-            <div class="meeting-item-summary" style="color: #666; font-size: 14px; margin-top: 5px;">
-                ${preview || '无对话内容'}
-            </div>
-            <div style="font-size: 12px; color: #999; margin-top: 5px; text-align: right;">
-                ${session.summary || '通话结束'}
+            <div class="call-history-v1-info">
+                <div class="call-history-v1-name-row">
+                    <div class="call-history-v1-name">${contactName}</div>
+                    <div class="call-history-v1-time">${timeText}</div>
+                </div>
+                <div class="call-history-v1-desc-row">
+                    <span class="call-history-v1-tag ${session.type === 'video' ? 'video' : 'audio'}">${typeTag}</span>
+                    <span class="call-history-v1-dur">${durationText}</span>
+                </div>
             </div>
         `;
-        
+
         item.onclick = () => openCallDetailScreen(session);
         list.appendChild(item);
     });
 }
 
-// 打开通话详情页
+function renderCallDetailMessage(session, msg, index) {
+    const payload = parseCallMessagePayload(msg.content);
+    const isUser = msg.role === 'user';
+    let dialogueText = sanitizeVideoDialogueText(payload.dialogue || '');
+    let descText = String(payload.desc || '').trim();
+
+    if (session.type === 'video') {
+        const raw = String(msg.content || '');
+        const descMatch = raw.match(/{{DESC}}([\s\S]*?){{\/DESC}}/i);
+        const dialogueMatch = raw.match(/{{DIALOGUE}}([\s\S]*?){{\/DIALOGUE}}/i);
+        if (descMatch && !descText) descText = descMatch[1].trim();
+        if (dialogueMatch) dialogueText = dialogueMatch[1].trim();
+    }
+
+    const row = document.createElement('div');
+    row.className = `call-history-v1-msg ${isUser ? 'me' : 'other'}`;
+    row.style.animationDelay = `${Math.min(index, 6) * 0.08}s`;
+
+    let inner = '';
+    if (descText) {
+        inner += `
+            <div class="call-history-v1-visual-desc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:2px;">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <span>${descText}</span>
+            </div>
+        `;
+    }
+    if (dialogueText) {
+        inner += `<div class="call-history-v1-bubble">${dialogueText}</div>`;
+    }
+
+    row.innerHTML = inner || '<div class="call-history-v1-bubble">[空消息]</div>';
+    return row;
+}
+
 function openCallDetailScreen(session) {
     const screen = document.getElementById('call-detail-screen');
     const content = document.getElementById('call-detail-content');
     const title = document.getElementById('call-detail-title');
-    
-    if (!screen || !content) return;
-    
-    title.textContent = session.type === 'video' ? '视频通话详情' : '语音通话详情';
+    const type = document.getElementById('call-detail-type');
+    if (!screen || !content || !title || !type) return;
+
+    title.textContent = getCurrentCallHistoryContactName();
+    type.textContent = session.type === 'video' ? 'VIDEO CALL' : 'AUDIO CALL';
     content.innerHTML = '';
-    
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
-    const aiName = contact ? (contact.remark || contact.name) : 'AI';
-    
-    session.messages.forEach(msg => {
-        let rawContent = msg.content;
-        let audioUrl = null;
-        let descContent = '';
-        
-        try {
-            const data = JSON.parse(rawContent);
-            if (typeof data.text === 'string') rawContent = data.text;
-            if (typeof data.description === 'string') descContent = data.description;
-            if (data.audio) audioUrl = data.audio;
-        } catch(e) {}
-        
-        const card = document.createElement('div');
-        card.className = 'meeting-card'; // 复用见面记录的卡片样式
-        card.style.marginBottom = '15px';
-        
-        const isUser = msg.role === 'user';
-        const avatar = isUser ? (contact.myAvatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=User') : contact.avatar;
-        const name = isUser ? '我' : aiName;
-        const roleClass = isUser ? 'meeting-card-role-user' : 'meeting-card-role-ai';
-        
-        let displayContent = '';
-        
-        if (session.type === 'video') {
-            // 解析视频通话格式 (兼容旧数据或原始标签格式)
-            const descMatch = rawContent.match(/{{DESC}}([\s\S]*?){{\/DESC}}/i);
-            const dialogueMatch = rawContent.match(/{{DIALOGUE}}([\s\S]*?){{\/DIALOGUE}}/i);
-            
-            if (descMatch) {
-                descContent = descMatch[1].trim();
-            }
-            
-            if (dialogueMatch) {
-                displayContent = dialogueMatch[1].trim();
-            } else {
-                // 如果没有标签，尝试清理后显示
-                displayContent = rawContent.replace(/{{DESC}}[\s\S]*?{{\/DESC}}/gi, '')
-                                           .replace(/{{.*?}}/g, '')
-                                           .trim();
-            }
-        } else {
-            displayContent = rawContent;
-        }
-        
-        let html = `
-            <div class="meeting-card-header">
-                <img src="${avatar}" class="meeting-card-avatar">
-                <span class="meeting-card-name ${roleClass}">${name}</span>
-            </div>
-        `;
-        
-        if (descContent) {
-            html += `
-                <div class="meeting-card-content" style="font-style: italic; color: #666; margin-bottom: 8px; font-size: 14px;">
-                    ${descContent}
-                </div>
-            `;
-        }
-        
-        if (displayContent) {
-            html += `
-                <div class="meeting-card-content">
-                    ${displayContent}
-                </div>
-            `;
-        }
-        
-        // 如果有音频，添加播放按钮
-        if (audioUrl) {
-            const audioId = `audio-${msg.id}`;
-            html += `
-                <div class="meeting-card-actions">
-                    <i class="fas fa-volume-up meeting-action-icon" onclick="playHistoryAudio('${audioUrl}', this)"></i>
-                </div>
-            `;
-        }
-        
-        card.innerHTML = html;
-        content.appendChild(card);
+    applyCallDetailBackground(session, content);
+
+    const startMeta = document.createElement('div');
+    startMeta.className = 'call-history-v1-meta';
+    startMeta.textContent = session.type === 'video'
+        ? '--- CONNECTION ESTABLISHED ---'
+        : '--- AUDIO STREAM CONNECTED ---';
+    content.appendChild(startMeta);
+
+    session.messages.forEach((msg, idx) => {
+        if (!msg || msg.type !== 'voice_call_text') return;
+        content.appendChild(renderCallDetailMessage(session, msg, idx));
     });
-    
+
+    const endMeta = document.createElement('div');
+    endMeta.className = 'call-history-v1-meta';
+    endMeta.textContent = `--- CALL ENDED ${extractCallDurationLabel(session.summary) || '--'} ---`;
+    content.appendChild(endMeta);
+
     screen.classList.remove('hidden');
 }
 
-// 播放历史音频
 window.playHistoryAudio = function(url, btn) {
     if (window.currentHistoryAudio) {
         window.currentHistoryAudio.pause();
         if (window.currentHistoryBtn) {
-            window.currentHistoryBtn.classList.remove('active');
             window.currentHistoryBtn.style.color = '';
         }
     }
-    
     const audio = new Audio(url);
     window.currentHistoryAudio = audio;
     window.currentHistoryBtn = btn;
-    
-    btn.classList.add('active');
-    btn.style.color = '#007AFF';
-    
+    if (btn) btn.style.color = '#007AFF';
     audio.onended = () => {
-        btn.classList.remove('active');
-        btn.style.color = '';
+        if (btn) btn.style.color = '';
         window.currentHistoryAudio = null;
     };
-    
-    audio.play().catch(e => {
-        console.error('Play failed', e);
+    audio.play().catch(() => {
+        if (btn) btn.style.color = '';
         alert('播放失败');
-        btn.classList.remove('active');
-        btn.style.color = '';
     });
 };
 
-// 初始化监听器
 function setupCallHistoryListeners() {
     const viewHistoryBtn = document.getElementById('view-call-history-btn');
     const closeHistoryBtn = document.getElementById('close-call-history');
     const closeDetailBtn = document.getElementById('close-call-detail');
-    
+
     if (viewHistoryBtn) {
         viewHistoryBtn.addEventListener('click', openCallHistoryScreen);
     }
-    
+
     if (closeHistoryBtn) {
         closeHistoryBtn.addEventListener('click', () => {
-            document.getElementById('call-history-screen').classList.add('hidden');
+            const screen = document.getElementById('call-history-screen');
+            if (screen) screen.classList.add('hidden');
         });
     }
-    
+
     if (closeDetailBtn) {
         closeDetailBtn.addEventListener('click', () => {
-            document.getElementById('call-detail-screen').classList.add('hidden');
+            const screen = document.getElementById('call-detail-screen');
+            if (screen) screen.classList.add('hidden');
         });
     }
 }
 
-// 注册初始化函数
 if (window.appInitFunctions) {
     window.appInitFunctions.push(setupCallHistoryListeners);
 } else {

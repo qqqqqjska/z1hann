@@ -10204,6 +10204,9 @@ function sendSticker(sticker) {
     
     if (panel) panel.classList.remove('slide-in');
     if (chatInputArea) chatInputArea.classList.remove('push-up');
+    if (typeof window.refreshChatStickerSuggestionBarForCurrentInput === 'function') {
+        window.refreshChatStickerSuggestionBarForCurrentInput();
+    }
 }
 
 function toggleStickerManageMode() {

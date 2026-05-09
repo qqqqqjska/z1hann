@@ -5,12 +5,11 @@
  * 2. 修改 CHANGELOG_CONTENT 里的更新内容
  */
 
-const CHANGELOG_VERSION = 'v1.0.8'; // 修改这个版本号来让弹窗再次显示
+const CHANGELOG_VERSION = 'v1.0.9'; // 修改这个版本号来让弹窗再次显示
 const CHANGELOG_IMAGE = 'https://i.postimg.cc/7Lm6s43m/IMG-8241.jpg';
 const CHANGELOG_ITEMS = [
-    '查手机中加了一些应用，但是微博和icity还是懒得没做、、',
-    '在微信功能菜单中增加了“吃什么”和“导航”的功能，可以让char帮你看附近有什么吃的以及帮你规划路线，需要一个另外的高德地图apikey（申请key时选择web服务，lookus的地图部分用的是web端js api）'
-];
+    '语音通话和视频通话也加了翻译、重回、编辑、删除功能，然后做了单独关联世界书，以及通话记录页面也重做了',
+    '增加了表情包联想功能，在聊天设置的外观部分，默认开启']
 const CHANGELOG_ACCESS_READY_EVENT = 'z1han:access-ready';
 
 let changelogPopupShown = false;

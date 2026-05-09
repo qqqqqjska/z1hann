@@ -492,6 +492,26 @@ function ensureContactTopbarAvatarFields(contact) {
     return contact;
 }
 
+function ensureContactCallWorldbookFields(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+    if (!Array.isArray(contact.callLinkedWbCategories)) {
+        contact.callLinkedWbCategories = [];
+    } else {
+        contact.callLinkedWbCategories = contact.callLinkedWbCategories
+            .map(id => Number(id))
+            .filter(Number.isFinite);
+    }
+    return contact;
+}
+
+function ensureContactStickerSuggestionFields(contact) {
+    if (!contact || typeof contact !== 'object') return contact;
+    if (typeof contact.stickerSuggestionEnabled !== 'boolean') {
+        contact.stickerSuggestionEnabled = true;
+    }
+    return contact;
+}
+
 function syncChatTopbarAvatarSettingsVisibility() {
     const enabledInput = document.getElementById('chat-setting-topbar-avatar-visible');
     const panel = document.getElementById('chat-setting-topbar-avatar-position-field');
@@ -629,6 +649,8 @@ window.applyChatAppearancePreset = applyChatAppearancePreset;
 window.ensureContactTopbarAvatarFields = ensureContactTopbarAvatarFields;
 window.syncChatTopbarAvatarSettingsVisibility = syncChatTopbarAvatarSettingsVisibility;
 window.applyChatTopbarAppearance = applyChatTopbarAppearance;
+window.ensureContactCallWorldbookFields = ensureContactCallWorldbookFields;
+window.ensureContactStickerSuggestionFields = ensureContactStickerSuggestionFields;
 window.CHAT_BILINGUAL_LANGUAGE_OPTIONS = CHAT_BILINGUAL_LANGUAGE_OPTIONS.slice();
 
 if (document.readyState === 'loading') {
@@ -914,6 +936,15 @@ const CHAT_SETTINGS_LINKED_MULTI_SELECTS = {
         placeholder: '点击选择关联世界书',
         chipClass: 'is-accent',
         checkboxClass: 'wb-category-checkbox',
+        emptyText: '暂无世界书分类'
+    },
+    callWorldbooks: {
+        triggerId: 'chat-setting-call-wb-trigger',
+        panelId: 'chat-setting-call-wb-list',
+        tagsId: 'chat-setting-call-wb-tags',
+        placeholder: '点击选择通话关联世界书',
+        chipClass: 'is-accent',
+        checkboxClass: 'call-wb-category-checkbox',
         emptyText: '暂无世界书分类'
     },
     stickers: {
@@ -1255,16 +1286,21 @@ function toggleChatSettingsMultiSelect(key, forceOpen) {
 }
 
 function initializeChatSettingsLinkedSelectors(contact) {
+    ensureContactCallWorldbookFields(contact);
     const worldbookOptions = Array.isArray(window.iphoneSimState.wbCategories) ? window.iphoneSimState.wbCategories : [];
     const stickerOptions = Array.isArray(window.iphoneSimState.stickerCategories) ? window.iphoneSimState.stickerCategories : [];
     const selectedWorldbooks = Array.isArray(contact.linkedWbCategories)
         ? new Set(contact.linkedWbCategories.map(id => Number(id)))
         : new Set(worldbookOptions.map(option => Number(option.id)));
+    const selectedCallWorldbooks = Array.isArray(contact.callLinkedWbCategories)
+        ? new Set(contact.callLinkedWbCategories.map(id => Number(id)))
+        : new Set();
     const selectedStickers = Array.isArray(contact.linkedStickerCategories)
         ? new Set(contact.linkedStickerCategories.map(id => Number(id)))
         : new Set(stickerOptions.map(option => Number(option.id)));
 
     renderChatSettingsMultiSelectOptions('worldbooks', worldbookOptions, selectedWorldbooks);
+    renderChatSettingsMultiSelectOptions('callWorldbooks', worldbookOptions, selectedCallWorldbooks);
     renderChatSettingsMultiSelectOptions('stickers', stickerOptions, selectedStickers);
 
     Object.keys(CHAT_SETTINGS_LINKED_MULTI_SELECTS).forEach(key => {
@@ -1632,8 +1668,10 @@ function createBaseContactPayload({ name, remark = '', persona = '', avatar = ''
         thoughtPetSize: 88,
         thoughtPetPosition: { xRatio: 0.86, yRatio: 0.72 },
         linkedWbCategories: [],
+        callLinkedWbCategories: [],
         meetingLinkedWbCategories: [],
-        linkedStickerCategories: []
+        linkedStickerCategories: [],
+        stickerSuggestionEnabled: true
     };
 }
 
@@ -2020,6 +2058,7 @@ function buildImportedContactBundle(payload, options = {}) {
     contact.persona = resolvedPersona;
     contact.avatar = String(contact.avatar || options.avatarDataUrl || fallbackContact.avatar);
     contact.linkedWbCategories = [];
+    contact.callLinkedWbCategories = [];
     contact.linkedStickerCategories = [];
 
     const firstMessage = String(root?.first_mes || payload?.first_mes || '').trim();
@@ -3084,6 +3123,9 @@ function openChat(contactId) {
     applyChatTopbarAppearance(contact);
     
     chatScreen.classList.remove('hidden');
+    if (typeof window.refreshChatStickerSuggestionBarForCurrentInput === 'function') {
+        window.refreshChatStickerSuggestionBarForCurrentInput();
+    }
     
     renderChatHistory(contactId);
     syncWechatBlockedChatUi(contact);
@@ -4440,6 +4482,8 @@ function openChatSettings() {
     ensureContactRestWindowFields(contact);
     ensureContactBilingualTranslationFields(contact);
     ensureContactTopbarAvatarFields(contact);
+    ensureContactCallWorldbookFields(contact);
+    ensureContactStickerSuggestionFields(contact);
     ensureContactChatAppearancePresetField(contact);
     if (typeof window.ensureContactWechatBlockFields === 'function') {
         window.ensureContactWechatBlockFields(contact);
@@ -4590,6 +4634,11 @@ function openChatSettings() {
         showTimestampToggle.checked = contact.showTimestamp !== false;
     }
 
+    const stickerSuggestionToggle = document.getElementById('chat-setting-sticker-suggestion-enabled');
+    if (stickerSuggestionToggle) {
+        stickerSuggestionToggle.checked = contact.stickerSuggestionEnabled !== false;
+    }
+
     const topbarAvatarVisibleToggle = document.getElementById('chat-setting-topbar-avatar-visible');
     if (topbarAvatarVisibleToggle) {
         topbarAvatarVisibleToggle.checked = !!contact.topbarAvatarVisible;
@@ -4730,12 +4779,14 @@ function openChatSettings() {
     syncChatSettingsNavIndicator();
     requestAnimationFrame(() => {
         renderChatSettingsMultiSelectTags('worldbooks');
+        renderChatSettingsMultiSelectTags('callWorldbooks');
         renderChatSettingsMultiSelectTags('stickers');
         syncChatSettingsStickyChrome();
         syncChatSettingsNavIndicator();
     });
     setTimeout(() => {
         renderChatSettingsMultiSelectTags('worldbooks');
+        renderChatSettingsMultiSelectTags('callWorldbooks');
         renderChatSettingsMultiSelectTags('stickers');
         syncChatSettingsStickyChrome();
         syncChatSettingsNavIndicator();
@@ -5142,6 +5193,8 @@ function handleSaveChatSettings() {
     const isGroupChat = !!(typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact));
     ensureContactRestWindowFields(contact);
     ensureContactBilingualTranslationFields(contact);
+    ensureContactCallWorldbookFields(contact);
+    ensureContactStickerSuggestionFields(contact);
     ensureContactChatAppearancePresetField(contact);
     const previousRestWindowSnapshot = `${contact.restWindowEnabled ? '1' : '0'}|${contact.restWindowStart || ''}|${contact.restWindowEnd || ''}`;
 
@@ -5194,6 +5247,9 @@ function handleSaveChatSettings() {
         ? document.getElementById('chat-setting-avatar-visibility').value
         : 'show-both';
     const showTimestamp = document.getElementById('chat-setting-show-timestamp') ? document.getElementById('chat-setting-show-timestamp').checked : true;
+    const stickerSuggestionEnabled = document.getElementById('chat-setting-sticker-suggestion-enabled')
+        ? document.getElementById('chat-setting-sticker-suggestion-enabled').checked
+        : true;
     const topbarAvatarVisible = document.getElementById('chat-setting-topbar-avatar-visible') ? document.getElementById('chat-setting-topbar-avatar-visible').checked : false;
     const topbarAvatarPosition = document.getElementById('chat-setting-topbar-avatar-position')
         ? normalizeChatTopbarAvatarPosition(document.getElementById('chat-setting-topbar-avatar-position').value)
@@ -5227,6 +5283,14 @@ function handleSaveChatSettings() {
         }
     });
     contact.linkedWbCategories = selectedWbCategories;
+
+    const selectedCallWbCategories = [];
+    document.querySelectorAll('.call-wb-category-checkbox').forEach(cb => {
+        if (cb.checked) {
+            selectedCallWbCategories.push(parseInt(cb.dataset.id));
+        }
+    });
+    contact.callLinkedWbCategories = selectedCallWbCategories;
 
     const selectedStickerCategories = [];
     document.querySelectorAll('.sticker-category-checkbox').forEach(cb => {
@@ -5291,6 +5355,7 @@ function handleSaveChatSettings() {
     // Backward-compat for any old logic relying on showAvatar.
     contact.showAvatar = avatarVisibility !== 'hide-both';
     contact.showTimestamp = showTimestamp;
+    contact.stickerSuggestionEnabled = !!stickerSuggestionEnabled;
     contact.topbarAvatarVisible = !!topbarAvatarVisible;
     contact.topbarAvatarPosition = topbarAvatarPosition;
     contact.topbarStatusVisible = !!topbarStatusVisible;
@@ -5471,6 +5536,9 @@ function handleSaveChatSettings() {
         applyChatAppearancePreset(contact);
         applyChatDisplayPreferences(contact);
         applyChatTopbarAppearance(contact);
+        if (typeof window.refreshChatStickerSuggestionBarForCurrentInput === 'function') {
+            window.refreshChatStickerSuggestionBarForCurrentInput();
+        }
 
         document.getElementById('chat-settings-screen').classList.add('hidden');
         setChatSettingsFloatingSaveVisible(false);
@@ -5531,6 +5599,7 @@ function buildChatSettingsDraftContact(contact) {
         userPersonaId: Number.isFinite(userPersonaId) ? userPersonaId : null,
         userPersonaPromptOverride: userPromptInput ? userPromptInput.value : (contact.userPersonaPromptOverride || ''),
         linkedWbCategories: getChatSettingsCheckedIds('.wb-category-checkbox'),
+        callLinkedWbCategories: getChatSettingsCheckedIds('.call-wb-category-checkbox'),
         linkedStickerCategories: getChatSettingsCheckedIds('.sticker-category-checkbox')
     };
 }
@@ -5656,6 +5725,15 @@ function ensureChatSettingsTokenPreviewBindings() {
     if (wbList) {
         wbList.addEventListener('change', event => {
             if (event.target && event.target.classList.contains('wb-category-checkbox')) {
+                scheduleChatSettingsTokenPreviewRefresh();
+            }
+        });
+    }
+
+    const callWbList = document.getElementById('chat-setting-call-wb-list');
+    if (callWbList) {
+        callWbList.addEventListener('change', event => {
+            if (event.target && event.target.classList.contains('call-wb-category-checkbox')) {
                 scheduleChatSettingsTokenPreviewRefresh();
             }
         });
