@@ -28,6 +28,11 @@ function createDefaultMemorySettingsV2() {
             other: 7
         },
         dedupeThreshold: 0.75,
+        customPrompts: {
+            enabled: false,
+            summaryPrompt: '',
+            refinePrompt: ''
+        },
         vectorRetrieval: {
             enabled: false,
             endpoint: 'https://api.siliconflow.cn/v1',
@@ -63,6 +68,7 @@ function normalizeMemorySettingsV2(raw) {
     const recentDays = src.injectRecentDays && typeof src.injectRecentDays === 'object' ? src.injectRecentDays : {};
     const importanceMin = src.injectImportanceMin && typeof src.injectImportanceMin === 'object' ? src.injectImportanceMin : {};
     const ttl = src.stateTtlDays && typeof src.stateTtlDays === 'object' ? src.stateTtlDays : {};
+    const customPrompts = src.customPrompts && typeof src.customPrompts === 'object' ? src.customPrompts : {};
     const vectorRetrieval = src.vectorRetrieval && typeof src.vectorRetrieval === 'object'
         ? src.vectorRetrieval
         : {};
@@ -112,6 +118,13 @@ function normalizeMemorySettingsV2(raw) {
             other: toInt(ttl.other, defaults.stateTtlDays.other, 1, 365)
         },
         dedupeThreshold: toFloat(src.dedupeThreshold, defaults.dedupeThreshold, 0.3, 0.99),
+        customPrompts: {
+            enabled: customPrompts.enabled === undefined
+                ? !!defaults.customPrompts.enabled
+                : !!customPrompts.enabled,
+            summaryPrompt: String(customPrompts.summaryPrompt || defaults.customPrompts.summaryPrompt || '').trim(),
+            refinePrompt: String(customPrompts.refinePrompt || defaults.customPrompts.refinePrompt || '').trim()
+        },
         vectorRetrieval: {
             enabled: vectorRetrieval.enabled === undefined
                 ? !!defaults.vectorRetrieval.enabled

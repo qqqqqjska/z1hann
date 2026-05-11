@@ -5,9 +5,13 @@
  * 2. 修改 CHANGELOG_CONTENT 里的更新内容
  */
 
-const CHANGELOG_VERSION = 'v1.0.9'; // 修改这个版本号来让弹窗再次显示
+const CHANGELOG_VERSION = 'v1.0.10'; // 修改这个版本号来让弹窗再次显示
 const CHANGELOG_IMAGE = 'https://i.postimg.cc/7Lm6s43m/IMG-8241.jpg';
 const CHANGELOG_ITEMS = [
+    '5.11更新',
+    '增加了自定义总结提示词以及精炼字数要求、替换原记忆',
+    '联系人的状态显示可以自选,更新时在聊天页面也会显示了',
+    '5.9更新',
     '语音通话和视频通话也加了翻译、重回、编辑、删除功能，然后做了单独关联世界书，以及通话记录页面也重做了',
     '增加了表情包联想功能，在聊天设置的外观部分，默认开启']
 const CHANGELOG_ACCESS_READY_EVENT = 'z1han:access-ready';

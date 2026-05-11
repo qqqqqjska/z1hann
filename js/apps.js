@@ -7,6 +7,7 @@ let currentMemoryFilter = 'all';
 let memorySelectMode = false;
 let selectedMemoryIds = new Set();
 let memoryRefinePanelVisible = false;
+let pendingRefineMemoryIds = [];
 
 // --- 朋友圈功能 ---
 
@@ -2379,6 +2380,40 @@ function buildNaturalSummaryRetryPrompt(context = {}, firstDraft = '') {
 8. 必须基于原聊天重写，不要只在上一版后面随便补两句。
 
 只返回重写后的正文。`;
+}
+
+function resolveMemoryCustomPrompt(type = 'summary') {
+    const settings = ensureMemorySettingsV2();
+    const cp = settings && settings.customPrompts && typeof settings.customPrompts === 'object'
+        ? settings.customPrompts
+        : null;
+    if (!cp || !cp.enabled) return '';
+    const key = type === 'refine' ? 'refinePrompt' : 'summaryPrompt';
+    return String(cp[key] || '').trim();
+}
+
+function fillCustomPromptTemplate(templateText, context = {}) {
+    const template = String(templateText || '').trim();
+    if (!template) return '';
+    const range = context && context.range && typeof context.range === 'object' ? context.range : {};
+    const replacements = {
+        '{user_label}': String(context.userLabel || '用户'),
+        '{contact_label}': String(context.contactLabel || '联系人'),
+        '{range_target}': String(Number.isFinite(Number(range.target)) ? Math.round(Number(range.target)) : ''),
+        '{range_min}': String(Number.isFinite(Number(range.min)) ? Math.round(Number(range.min)) : ''),
+        '{range_max}': String(Number.isFinite(Number(range.max)) ? Math.round(Number(range.max)) : ''),
+        '{total_message_count}': String(Number.isFinite(Number(context.totalMessageCount)) ? Number(context.totalMessageCount) : ''),
+        '{date}': String(context.dateStr || ''),
+        '{time}': String(context.timeStr || ''),
+        '{reference_time}': `${String(context.dateStr || '')} ${String(context.timeStr || '')}`.trim(),
+        '{detail_hint}': String(context.detailModeHint || '')
+    };
+    let output = template;
+    Object.keys(replacements).forEach(key => {
+        const value = replacements[key];
+        output = output.split(key).join(value);
+    });
+    return output.trim();
 }
 
 function shouldUseFirstPersonSummary(messages, userLabel, contactLabel) {
@@ -5017,6 +5052,11 @@ function getDefaultMemorySettingsRuntime() {
         injectImportanceMin: { short_term: 0.5, long_term: 0.5, state: 0.5, refined: 0.5 },
         stateTtlDays: { health: 7, exam: 14, travel: 10, emotion: 3, other: 7 },
         dedupeThreshold: 0.75,
+        customPrompts: {
+            enabled: false,
+            summaryPrompt: '',
+            refinePrompt: ''
+        },
         vectorRetrieval: {
             enabled: false,
             endpoint: 'https://api.siliconflow.cn/v1',
@@ -5058,6 +5098,7 @@ function ensureMemorySettingsV2() {
     const recentDays = raw.injectRecentDays && typeof raw.injectRecentDays === 'object' ? raw.injectRecentDays : {};
     const importanceMin = raw.injectImportanceMin && typeof raw.injectImportanceMin === 'object' ? raw.injectImportanceMin : {};
     const ttl = raw.stateTtlDays && typeof raw.stateTtlDays === 'object' ? raw.stateTtlDays : {};
+    const customPrompts = raw.customPrompts && typeof raw.customPrompts === 'object' ? raw.customPrompts : {};
     const vectorRetrieval = raw.vectorRetrieval && typeof raw.vectorRetrieval === 'object'
         ? raw.vectorRetrieval
         : {};
@@ -5093,6 +5134,13 @@ function ensureMemorySettingsV2() {
             other: clampInt(ttl.other, defaults.stateTtlDays.other, 1, 365)
         },
         dedupeThreshold: clampFloat(raw.dedupeThreshold, defaults.dedupeThreshold, 0.3, 0.99),
+        customPrompts: {
+            enabled: customPrompts.enabled === undefined
+                ? !!defaults.customPrompts.enabled
+                : !!customPrompts.enabled,
+            summaryPrompt: String(customPrompts.summaryPrompt || defaults.customPrompts.summaryPrompt || '').trim(),
+            refinePrompt: String(customPrompts.refinePrompt || defaults.customPrompts.refinePrompt || '').trim()
+        },
         vectorRetrieval: {
             enabled: vectorRetrieval.enabled === undefined
                 ? !!defaults.vectorRetrieval.enabled
@@ -7747,68 +7795,117 @@ window.extractSpecificNamesFromUserText = function(text) {
     return normalizeExactNames(names);
 };
 
-async function callRefineMemoryBatchModel(contact, selectedMemories) {
+async function callRefineMemoryBatchModel(contact, selectedMemories, targetChars = 300) {
+    const list = Array.isArray(selectedMemories) ? selectedMemories.filter(Boolean) : [];
+    if (list.length === 0) return { refined_summary: '' };
+
+    const now = new Date();
     const settings = window.iphoneSimState.aiSettings2.url ? window.iphoneSimState.aiSettings2 : window.iphoneSimState.aiSettings;
     if (!settings || !settings.url || !settings.key) return null;
 
-    const records = selectedMemories.map(memory => {
-        const date = new Date(memory.time || Date.now());
-        const timeText = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-        return `#${memory.id} [${timeText}] ${memory.content}`;
-    }).join('\n');
+    let userName = '';
+    if (contact && contact.userPersonaId && Array.isArray(window.iphoneSimState.userPersonas)) {
+        const persona = window.iphoneSimState.userPersonas.find(item => item.id === contact.userPersonaId);
+        if (persona && persona.name) userName = String(persona.name).trim();
+    }
+    if (!userName && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name) {
+        userName = String(window.iphoneSimState.userProfile.name).trim();
+    }
+    if (!userName) userName = '用户';
 
-    let fetchUrl = settings.url;
-    if (!fetchUrl.endsWith('/chat/completions')) {
-        fetchUrl = fetchUrl.endsWith('/') ? `${fetchUrl}chat/completions` : `${fetchUrl}/chat/completions`;
+    const actorNames = resolveSummaryActorNames(contact || {}, userName);
+    const userLabel = actorNames.userLabel;
+    const contactLabel = actorNames.contactLabel;
+
+    const normalizedMessages = list.map(memory => ({
+        role: 'assistant',
+        time: memory && memory.time ? Number(memory.time) : Date.now(),
+        content: String(memory && memory.content ? memory.content : '').trim(),
+        type: 'text'
+    })).filter(msg => msg.content);
+    if (normalizedMessages.length === 0) return { refined_summary: '' };
+
+    const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const safeTarget = clampInt(targetChars, 300, 80, 3000);
+    const minChars = Math.max(60, Math.floor(safeTarget * 0.82));
+    const maxChars = Math.max(minChars + 24, Math.ceil(safeTarget * 1.2));
+    const tokenBudget = Math.max(700, Math.min(4000, Math.round(maxChars * 2.6)));
+    const range = getChannelNaturalSummaryLengthRange(normalizedMessages.length, 'chat', 'manual', {
+        count: normalizedMessages.length,
+        target: safeTarget,
+        min: minChars,
+        max: maxChars,
+        maxTokens: tokenBudget
+    });
+    const runtimeContext = {
+        channel: 'chat',
+        mode: 'manual',
+        rangeLabel: `共${normalizedMessages.length}条记忆`,
+        totalMessageCount: normalizedMessages.length,
+        sourceMessageCount: normalizedMessages.length,
+        dateStr,
+        timeStr,
+        userLabel,
+        contactLabel,
+        persona: String(contact && contact.persona ? contact.persona : '傲娇、温柔').trim(),
+        detailModeHint: `当前是记忆精炼总结，需要保留多条记忆中的关键事实与时间顺序，尽量接近${safeTarget}字。`,
+        range
+    };
+
+    const chatContext = buildNaturalSummaryChatContext(normalizedMessages, userLabel, contactLabel);
+    if (!chatContext) return null;
+    const customRefinePromptTemplate = resolveMemoryCustomPrompt('refine');
+    const systemPrompt = customRefinePromptTemplate
+        ? fillCustomPromptTemplate(customRefinePromptTemplate, runtimeContext)
+        : buildManualNaturalSummaryPrompt(runtimeContext);
+    const userContent = buildNaturalSummaryUserContent(chatContext, runtimeContext);
+
+    let firstRaw = '';
+    try {
+        firstRaw = await requestNaturalSummaryText(settings, {
+            stage: 'refine_first_pass',
+            mode: 'manual',
+            systemPrompt,
+            userContent,
+            temperature: 0.45,
+            presencePenalty: 0.2,
+            frequencyPenalty: 0.15,
+            maxTokens: range.maxTokens
+        });
+    } catch (error) {
+        console.warn('callRefineMemoryBatchModel first pass failed', error);
+        return null;
     }
 
-    const response = await fetch(fetchUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${settings.key}`
-        },
-        body: JSON.stringify({
-            model: settings.model,
-            messages: [
-                {
-                    role: 'system',
-                    content: `你是记忆精炼助手。输入是同一联系人的多条记忆，请输出严格 JSON：
-{
-  "refined_summary": "1-2句总览"
-}
-要求：
-1) 只输出 JSON，不要 Markdown。
-2) 只生成一条适合归档的精炼总览，不要额外字段。`
-                },
-                {
-                    role: 'user',
-                    content: `联系人：${contact && contact.name ? contact.name : '未知联系人'}\n记忆列表：\n${records}`
-                }
-            ],
-            temperature: 0.2
-        })
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    const content = String(data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '').trim();
-    if (!content) return null;
-
-    const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
-    try {
-        return JSON.parse(cleaned);
-    } catch (error) {
-        const match = cleaned.match(/\{[\s\S]*\}/);
-        if (!match) return null;
+    let summary = normalizeNaturalSummaryOutput(firstRaw, runtimeContext).trim();
+    if (!summary) return null;
+    const minAcceptableChars = Math.max(60, Math.floor(range.min * 0.85));
+    if (countSummaryChars(summary) < minAcceptableChars) {
         try {
-            return JSON.parse(match[0]);
-        } catch (error2) {
-            return null;
+            const retryRaw = await requestNaturalSummaryText(settings, {
+                stage: 'refine_retry_expand',
+                mode: 'manual',
+                systemPrompt: buildNaturalSummaryRetryPrompt(runtimeContext, summary),
+                userContent: buildNaturalSummaryUserContent(chatContext, runtimeContext, summary),
+                temperature: 0.5,
+                presencePenalty: 0.25,
+                frequencyPenalty: 0.1,
+                maxTokens: Math.max(range.maxTokens, Math.round(maxChars * 3))
+            });
+            const retrySummary = normalizeNaturalSummaryOutput(retryRaw, runtimeContext).trim();
+            if (retrySummary && countSummaryChars(retrySummary) >= minAcceptableChars) {
+                summary = retrySummary;
+            }
+        } catch (error) {
+            console.warn('callRefineMemoryBatchModel retry failed', error);
         }
     }
+    summary = enforceSummaryLengthRange(summary, range, runtimeContext).trim();
+    return { refined_summary: summary };
 }
 
-window.refineSelectedMemories = async function(contactId, selectedIds) {
+window.refineSelectedMemories = async function(contactId, selectedIds, options = {}) {
     const cid = Number(contactId);
     if (!Number.isFinite(cid)) return null;
     const uniqueIds = Array.from(new Set((Array.isArray(selectedIds) ? selectedIds : []).map(id => Number(id)).filter(id => Number.isFinite(id))));
@@ -7816,6 +7913,7 @@ window.refineSelectedMemories = async function(contactId, selectedIds) {
         showNotification('请先选择要精炼的记忆', 1800);
         return null;
     }
+    const targetChars = clampInt(options && options.targetChars, 300, 80, 3000);
 
     const selectedMemories = getContactMemories(cid)
         .filter(memory => uniqueIds.includes(Number(memory.id)))
@@ -7830,7 +7928,7 @@ window.refineSelectedMemories = async function(contactId, selectedIds) {
 
     let result = null;
     try {
-        result = await callRefineMemoryBatchModel(contact, selectedMemories);
+        result = await callRefineMemoryBatchModel(contact, selectedMemories, targetChars);
     } catch (error) {
         console.warn('refineSelectedMemories model call failed', error);
     }
@@ -7841,14 +7939,15 @@ window.refineSelectedMemories = async function(contactId, selectedIds) {
     }
     if (!refinedSummary) {
         refinedSummary = selectedMemories.map(memory => String(memory.content || '').trim()).filter(Boolean).slice(0, 2).join('；');
-        if (refinedSummary.length > 140) refinedSummary = `${refinedSummary.slice(0, 140)}...`;
+        const fallbackMax = Math.max(90, Math.ceil(targetChars * 1.1));
+        if (refinedSummary.length > fallbackMax) refinedSummary = `${refinedSummary.slice(0, fallbackMax)}...`;
     }
     if (!refinedSummary) {
         showNotification('精炼失败，请稍后重试', 1800);
         return null;
     }
 
-    createOrMergeApprovedMemory({
+    const createdResult = createOrMergeApprovedMemory({
         contactId: cid,
         content: refinedSummary,
         memoryTags: ['refined'],
@@ -7857,20 +7956,83 @@ window.refineSelectedMemories = async function(contactId, selectedIds) {
         refinedFrom: uniqueIds,
         refinedMeta: {
             selectedMemoryIds: uniqueIds,
-            sourceMemoryCount: uniqueIds.length
+            sourceMemoryCount: uniqueIds.length,
+            targetChars: targetChars
         }
     });
 
+    let replacedCount = 0;
+    const shouldConfirmReplace = options && options.promptReplace !== false;
+    if (shouldConfirmReplace) {
+        const ask = confirm(`精炼已完成，是否用这条精炼记忆替换掉已选择的 ${uniqueIds.length} 条原记忆？\n\n选择“确定”会删除原记忆，仅保留精炼结果。`);
+        if (ask) {
+            const keepMemoryId = createdResult && createdResult.memory ? Number(createdResult.memory.id) : NaN;
+            const removeSet = new Set(uniqueIds.filter(id => Number(id) !== keepMemoryId));
+            if (removeSet.size > 0) {
+                const before = window.iphoneSimState.memories.length;
+                window.iphoneSimState.memories = window.iphoneSimState.memories.filter(memory => {
+                    const sameContact = String(memory && memory.contactId) === String(cid);
+                    if (!sameContact) return true;
+                    return !removeSet.has(Number(memory.id));
+                });
+                replacedCount = Math.max(0, before - window.iphoneSimState.memories.length);
+            }
+        }
+    }
+
     syncLegacyPerceptionAndState(cid);
     saveConfig();
+    markMemoryVectorIndexDirty(cid);
     resetMemorySelection();
     renderMemoryList();
-    showNotification('精炼归档完成：总览 1 条', 2200, 'success');
+    if (replacedCount > 0) {
+        showNotification(`精炼归档完成：已替换 ${replacedCount} 条原记忆`, 2400, 'success');
+    } else {
+        showNotification('精炼归档完成：总览 1 条', 2200, 'success');
+    }
     return {
         refinedSummary,
-        keyFacts: []
+        keyFacts: [],
+        replacedCount: replacedCount
     };
 };
+
+function openRefineConfirmModal(explicitIds = null) {
+    const modal = document.getElementById('memory-refine-confirm-modal');
+    if (!modal) return false;
+    const contactId = window.iphoneSimState.currentChatContactId;
+    if (!contactId) return false;
+
+    let ids = [];
+    if (Array.isArray(explicitIds) && explicitIds.length > 0) {
+        ids = explicitIds.map(id => Number(id)).filter(id => Number.isFinite(id));
+    } else {
+        if (!memorySelectMode || selectedMemoryIds.size === 0) {
+            showNotification('请先选择要精炼的记忆', 1600);
+            return false;
+        }
+        ids = Array.from(selectedMemoryIds).map(id => Number(id)).filter(id => Number.isFinite(id));
+    }
+
+    ids = Array.from(new Set(ids));
+    if (ids.length === 0) {
+        showNotification('请先选择要精炼的记忆', 1600);
+        return false;
+    }
+
+    pendingRefineMemoryIds = ids;
+    const countEl = document.getElementById('memory-refine-selected-count-modal');
+    if (countEl) countEl.textContent = String(ids.length);
+    const targetInput = document.getElementById('memory-refine-target-chars');
+    if (targetInput) {
+        const remembered = clampInt(targetInput.value, 300, 80, 3000);
+        targetInput.value = String(remembered);
+        try { targetInput.focus(); } catch (error) {}
+        try { targetInput.select(); } catch (error) {}
+    }
+    modal.classList.remove('hidden');
+    return true;
+}
 
 function openMemoryApp() {
     if (!window.iphoneSimState.currentChatContactId) {
@@ -8006,6 +8168,17 @@ function openMemorySettings() {
     });
     const dedupeEl = document.getElementById('modal-memory-dedupe-threshold');
     if (dedupeEl) dedupeEl.value = settings.dedupeThreshold;
+    const customPrompts = settings.customPrompts && typeof settings.customPrompts === 'object'
+        ? settings.customPrompts
+        : { enabled: false, summaryPrompt: '', refinePrompt: '' };
+    const customEnabledEl = document.getElementById('modal-memory-custom-prompts-enabled');
+    const customPanelEl = document.getElementById('modal-memory-custom-prompts-panel');
+    const customSummaryEl = document.getElementById('modal-memory-summary-prompt');
+    const customRefineEl = document.getElementById('modal-memory-refine-prompt');
+    if (customEnabledEl) customEnabledEl.checked = !!customPrompts.enabled;
+    if (customPanelEl) customPanelEl.style.display = customPrompts.enabled ? '' : 'none';
+    if (customSummaryEl) customSummaryEl.value = String(customPrompts.summaryPrompt || '');
+    if (customRefineEl) customRefineEl.value = String(customPrompts.refinePrompt || '');
     const vectorSettings = settings.vectorRetrieval || {};
     const vectorEnabledEl = document.getElementById('modal-memory-vector-enabled');
     if (vectorEnabledEl) vectorEnabledEl.checked = !!vectorSettings.enabled;
@@ -8052,6 +8225,14 @@ function handleSaveMemorySettings() {
     if (dedupeEl) {
         settings.dedupeThreshold = clampFloat(dedupeEl.value, settings.dedupeThreshold, 0.3, 0.99);
     }
+    const customEnabledEl = document.getElementById('modal-memory-custom-prompts-enabled');
+    const customSummaryEl = document.getElementById('modal-memory-summary-prompt');
+    const customRefineEl = document.getElementById('modal-memory-refine-prompt');
+    settings.customPrompts = {
+        enabled: customEnabledEl ? !!customEnabledEl.checked : false,
+        summaryPrompt: customSummaryEl ? String(customSummaryEl.value || '').trim() : '',
+        refinePrompt: customRefineEl ? String(customRefineEl.value || '').trim() : ''
+    };
     const currentVector = settings.vectorRetrieval && typeof settings.vectorRetrieval === 'object'
         ? settings.vectorRetrieval
         : {};
@@ -8421,7 +8602,7 @@ window.extendStateMemory = function(id) {
 window.refineMemory = async function(id) {
     const memory = window.iphoneSimState.memories.find(m => m.id === id);
     if (!memory) return;
-    await window.refineSelectedMemories(memory.contactId, [memory.id]);
+    openRefineConfirmModal([memory.id]);
 };
 
 async function checkAndSummarize(contactId) {
@@ -8663,14 +8844,20 @@ async function generateChannelNaturalSummary(contact, textMessages, options = {}
     }
 
     const isImportant = isImportantConversation(normalizedMessages, resolvedUserName, contactLabel);
-    const systemPrompt = isImportant
-        ? buildFirstPersonSummaryPrompt(runtimeContext, chatContext)
-        : (mode === 'manual'
-            ? buildManualNaturalSummaryPrompt(runtimeContext)
-            : buildAutoNaturalSummaryPrompt(runtimeContext));
-    const userContent = isImportant
-        ? '请根据上述提示生成深度记忆。'
-        : buildNaturalSummaryUserContent(chatContext, runtimeContext);
+    const customSummaryPromptTemplate = resolveMemoryCustomPrompt('summary');
+    const usingCustomSummaryPrompt = !!customSummaryPromptTemplate;
+    const systemPrompt = customSummaryPromptTemplate
+        ? fillCustomPromptTemplate(customSummaryPromptTemplate, runtimeContext)
+        : (isImportant
+            ? buildFirstPersonSummaryPrompt(runtimeContext, chatContext)
+            : (mode === 'manual'
+                ? buildManualNaturalSummaryPrompt(runtimeContext)
+                : buildAutoNaturalSummaryPrompt(runtimeContext)));
+    const userContent = usingCustomSummaryPrompt
+        ? buildNaturalSummaryUserContent(chatContext, runtimeContext)
+        : (isImportant
+            ? '请根据上述提示生成深度记忆。'
+            : buildNaturalSummaryUserContent(chatContext, runtimeContext));
     const firstRaw = await requestNaturalSummaryText(settings, {
         stage: 'first_pass',
         mode,
@@ -10635,6 +10822,9 @@ function setupAppsListeners() {
     const cancelMemoryRefineConfirmBtn = document.getElementById('cancel-memory-refine-confirm');
     const confirmMemoryRefineBtn = document.getElementById('confirm-memory-refine-btn');
     const memoryRefineSelectedCountModal = document.getElementById('memory-refine-selected-count-modal');
+    const memoryRefineTargetCharsInput = document.getElementById('memory-refine-target-chars');
+    const memoryCustomPromptsEnabledInput = document.getElementById('modal-memory-custom-prompts-enabled');
+    const memoryCustomPromptsPanel = document.getElementById('modal-memory-custom-prompts-panel');
     const manualStateTagInput = document.querySelector('#manual-memory-tags input[value="state"]');
     const editStateTagInput = document.querySelector('#edit-memory-tags input[value="state"]');
     const manualStateOptions = document.getElementById('manual-memory-state-options');
@@ -10645,6 +10835,7 @@ function setupAppsListeners() {
         resetMemorySelection();
         closeMemoryFilterDropdown();
         setMemoryRefinePanelVisible(false);
+        pendingRefineMemoryIds = [];
         if (memoryRefineConfirmModal) memoryRefineConfirmModal.classList.add('hidden');
     });
     if (closeEditMemoryBtn) closeEditMemoryBtn.addEventListener('click', () => {
@@ -10661,6 +10852,11 @@ function setupAppsListeners() {
     if (editStateTagInput && editStateOptions) {
         editStateTagInput.addEventListener('change', () => {
             editStateOptions.style.display = editStateTagInput.checked ? '' : 'none';
+        });
+    }
+    if (memoryCustomPromptsEnabledInput && memoryCustomPromptsPanel) {
+        memoryCustomPromptsEnabledInput.addEventListener('change', () => {
+            memoryCustomPromptsPanel.style.display = memoryCustomPromptsEnabledInput.checked ? '' : 'none';
         });
     }
 
@@ -10755,41 +10951,49 @@ function setupAppsListeners() {
 
     if (memoryRefineSelectedBtn) {
         memoryRefineSelectedBtn.addEventListener('click', () => {
-            if (!memorySelectMode || selectedMemoryIds.size === 0) {
-                showNotification('请先选择要精炼的记忆', 1600);
-                return;
-            }
-            if (memoryRefineSelectedCountModal) {
-                memoryRefineSelectedCountModal.textContent = String(selectedMemoryIds.size);
-            }
-            if (memoryRefineConfirmModal) {
-                memoryRefineConfirmModal.classList.remove('hidden');
-            }
+            openRefineConfirmModal(null);
         });
     }
 
     if (closeMemoryRefineConfirmBtn) {
         closeMemoryRefineConfirmBtn.addEventListener('click', () => {
+            pendingRefineMemoryIds = [];
             if (memoryRefineConfirmModal) memoryRefineConfirmModal.classList.add('hidden');
         });
     }
     if (cancelMemoryRefineConfirmBtn) {
         cancelMemoryRefineConfirmBtn.addEventListener('click', () => {
+            pendingRefineMemoryIds = [];
             if (memoryRefineConfirmModal) memoryRefineConfirmModal.classList.add('hidden');
+        });
+    }
+    if (memoryRefineTargetCharsInput) {
+        memoryRefineTargetCharsInput.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            if (confirmMemoryRefineBtn) confirmMemoryRefineBtn.click();
         });
     }
     if (confirmMemoryRefineBtn) {
         confirmMemoryRefineBtn.addEventListener('click', async () => {
             const contactId = window.iphoneSimState.currentChatContactId;
             if (!contactId) return;
-            const selectedIds = Array.from(selectedMemoryIds);
+            const selectedIds = pendingRefineMemoryIds.length > 0
+                ? pendingRefineMemoryIds.slice(0)
+                : Array.from(selectedMemoryIds);
+            const targetChars = memoryRefineTargetCharsInput
+                ? clampInt(memoryRefineTargetCharsInput.value, 300, 80, 3000)
+                : 300;
+            if (memoryRefineTargetCharsInput) memoryRefineTargetCharsInput.value = String(targetChars);
             if (memoryRefineConfirmModal) memoryRefineConfirmModal.classList.add('hidden');
-            await window.refineSelectedMemories(contactId, selectedIds);
+            pendingRefineMemoryIds = [];
+            await window.refineSelectedMemories(contactId, selectedIds, { targetChars });
         });
     }
     if (memoryRefineConfirmModal) {
         memoryRefineConfirmModal.addEventListener('click', (event) => {
             if (event.target === memoryRefineConfirmModal) {
+                pendingRefineMemoryIds = [];
                 memoryRefineConfirmModal.classList.add('hidden');
             }
         });

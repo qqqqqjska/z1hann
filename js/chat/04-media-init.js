@@ -1683,6 +1683,97 @@ function getChatVlogCachedEntry(contact, dateKey = getChatOotdDateKey(new Date()
     return entry;
 }
 
+function getAiProfileResolvedUserPersonaContext(contact) {
+    const state = window.iphoneSimState || {};
+    const personas = Array.isArray(state.userPersonas) ? state.userPersonas : [];
+    const profile = state.userProfile && typeof state.userProfile === 'object' ? state.userProfile : {};
+    let persona = null;
+    if (contact && contact.userPersonaId) {
+        persona = personas.find(item => String(item && item.id) === String(contact.userPersonaId)) || null;
+    }
+    if (!persona && state.currentUserPersonaId) {
+        persona = personas.find(item => String(item && item.id) === String(state.currentUserPersonaId)) || null;
+    }
+    const displayName = normalizeChatOotdText(
+        (persona && persona.name) || profile.name || '用户',
+        '用户',
+        48
+    );
+    const personaPrompt = normalizeChatOotdText(
+        (contact && contact.userPersonaPromptOverride) || (persona && persona.aiPrompt) || '',
+        '',
+        1800
+    );
+    return {
+        name: displayName,
+        prompt: personaPrompt
+    };
+}
+
+function buildAiProfileWorldbookContext(contact) {
+    const state = window.iphoneSimState || {};
+    const worldbook = Array.isArray(state.worldbook) ? state.worldbook : [];
+    if (!worldbook.length) return '';
+    let activeEntries = worldbook.filter(entry => entry && entry.enabled);
+    if (contact && Array.isArray(contact.linkedWbCategories)) {
+        if (contact.linkedWbCategories.length > 0) {
+            activeEntries = activeEntries.filter(entry => contact.linkedWbCategories.includes(entry.categoryId));
+        } else {
+            activeEntries = [];
+        }
+    }
+    const lines = activeEntries
+        .map(entry => normalizeChatOotdText(entry && entry.content, '', 1500))
+        .filter(Boolean)
+        .slice(0, 8);
+    if (!lines.length) return '';
+    return lines.join('\n');
+}
+
+function buildAiProfileRecentChatContext(contact, limit = 14) {
+    const state = window.iphoneSimState || {};
+    const chatHistoryMap = state.chatHistory && typeof state.chatHistory === 'object' ? state.chatHistory : {};
+    if (!contact || !Object.prototype.hasOwnProperty.call(chatHistoryMap, contact.id)) return '';
+    const history = Array.isArray(chatHistoryMap[contact.id]) ? chatHistoryMap[contact.id] : [];
+    if (!history.length) return '';
+    const filtered = history
+        .filter(msg => msg && msg.type === 'text' && String(msg.content || '').trim())
+        .slice(-Math.max(1, limit));
+    if (!filtered.length) return '';
+    const userName = getAiProfileResolvedUserPersonaContext(contact).name || '用户';
+    const contactName = getChatOotdContactDisplayName(contact);
+    const lines = filtered.map(msg => {
+        const roleName = msg.role === 'user' ? userName : contactName;
+        const content = normalizeChatOotdText(String(msg.content || ''), '', 220);
+        if (!content) return '';
+        return `${roleName}: ${content}`;
+    }).filter(Boolean);
+    return lines.join('\n');
+}
+
+function buildAiProfileGenerationExtraPrompt(contact) {
+    const userPersona = getAiProfileResolvedUserPersonaContext(contact);
+    const worldbookContext = buildAiProfileWorldbookContext(contact);
+    const recentChatContext = buildAiProfileRecentChatContext(contact, 14);
+    const parts = [];
+    parts.push(`用户网名：${userPersona.name || '用户'}`);
+    if (userPersona.prompt) {
+        parts.push(`用户人设：\n${userPersona.prompt}`);
+    }
+    if (worldbookContext) {
+        parts.push(`绑定世界书：\n${worldbookContext}`);
+    } else {
+        parts.push('绑定世界书：无');
+    }
+    if (recentChatContext) {
+        parts.push(`最近聊天记录（用户与该联系人）：\n${recentChatContext}`);
+    } else {
+        parts.push('最近聊天记录（用户与该联系人）：无');
+    }
+    parts.push('请把以上上下文用于风格、称呼、细节一致性，不要与其冲突。');
+    return parts.join('\n\n');
+}
+
 async function requestChatVlogPayloadFromApi(contact, weatherMeta, userMeta) {
     const state = window.iphoneSimState || {};
     const settings = state.aiSettings2 && state.aiSettings2.url ? state.aiSettings2 : state.aiSettings;
@@ -1697,6 +1788,7 @@ async function requestChatVlogPayloadFromApi(contact, weatherMeta, userMeta) {
     const cleanKey = String(settings.key || '').replace(/[^\x00-\x7F]/g, '').trim();
     const contactName = getChatOotdContactDisplayName(contact);
     const personaText = normalizeChatOotdText(contact && contact.persona, '无', 1200);
+    const extraContext = buildAiProfileGenerationExtraPrompt(contact);
     const today = new Date();
     const dateLabel = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const forbiddenNames = Array.from((userMeta && userMeta.aliasSet) || []).slice(0, 12).join(' / ');
@@ -1723,6 +1815,7 @@ async function requestChatVlogPayloadFromApi(contact, weatherMeta, userMeta) {
         `联系人设：${personaText}`,
         `日期：${dateLabel}`,
         `天气：${weatherMeta.locationText}，${weatherMeta.weatherText}，${weatherMeta.promptTemperature}`,
+        extraContext,
         '请生成 JSON。'
     ].join('\n');
 
@@ -2455,6 +2548,7 @@ async function requestChatLootPayloadFromApi(contact) {
     const cleanKey = String(settings.key || '').replace(/[^\x00-\x7F]/g, '').trim();
     const contactName = getChatOotdContactDisplayName(contact);
     const personaText = normalizeChatOotdText(contact && contact.persona, '无', 1200);
+    const extraContext = buildAiProfileGenerationExtraPrompt(contact);
     const now = new Date();
     const dateLabel = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
@@ -2476,6 +2570,7 @@ async function requestChatLootPayloadFromApi(contact) {
         `联系人：${contactName}`,
         `人设：${personaText}`,
         `日期：${dateLabel}`,
+        extraContext,
         '请生成这位联系人今天会携带的随身物品 JSON。'
     ].join('\n');
 
@@ -2602,6 +2697,7 @@ async function requestChatOotdPayloadFromApi(contact, weatherMeta) {
     const cleanKey = String(settings.key || '').replace(/[^\x00-\x7F]/g, '').trim();
     const contactName = getChatOotdContactDisplayName(contact);
     const personaText = normalizeChatOotdText(contact && contact.persona, '无', 1200);
+    const extraContext = buildAiProfileGenerationExtraPrompt(contact);
     const weatherLine = `天气：${weatherMeta.locationText}，${weatherMeta.weatherText}，${weatherMeta.promptTemperature}`;
     const reportLine = weatherMeta.reportTime ? `天气报告时间：${weatherMeta.reportTime}` : '';
     const systemPrompt = [
@@ -2622,6 +2718,7 @@ async function requestChatOotdPayloadFromApi(contact, weatherMeta) {
         `人设：${personaText}`,
         weatherLine,
         reportLine,
+        extraContext,
         '请生成今天这位联系人的 OOTD JSON。'
     ].filter(Boolean).join('\n');
 
@@ -8227,6 +8324,7 @@ function setupChatListeners() {
     const topbarAvatarVisibleInput = document.getElementById('chat-setting-topbar-avatar-visible');
     const topbarAvatarPositionSelect = document.getElementById('chat-setting-topbar-avatar-position');
     const topbarStatusVisibleInput = document.getElementById('chat-setting-topbar-status-visible');
+    const topbarStatusSourceSelect = document.getElementById('chat-setting-topbar-status-source');
     const topbarStatusTextInput = document.getElementById('chat-setting-topbar-status-text');
 
     const syncThoughtPetPreviewSize = () => {
@@ -8328,6 +8426,14 @@ function setupChatListeners() {
     }
     if (topbarStatusVisibleInput) {
         topbarStatusVisibleInput.addEventListener('change', () => {
+            if (typeof window.syncChatTopbarAvatarSettingsVisibility === 'function') {
+                window.syncChatTopbarAvatarSettingsVisibility();
+            }
+            markChatSettingsDirty();
+        });
+    }
+    if (topbarStatusSourceSelect) {
+        topbarStatusSourceSelect.addEventListener('change', () => {
             if (typeof window.syncChatTopbarAvatarSettingsVisibility === 'function') {
                 window.syncChatTopbarAvatarSettingsVisibility();
             }

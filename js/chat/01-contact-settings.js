@@ -331,6 +331,11 @@ function normalizeChatTopbarAvatarPosition(value) {
     return 'left';
 }
 
+function normalizeContactTopbarStatusSource(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'activity' ? 'activity' : 'custom';
+}
+
 function normalizeChatAppearancePreset(value) {
     const normalized = String(value || '').trim();
     if (!normalized) return 'default';
@@ -488,6 +493,7 @@ function ensureContactTopbarAvatarFields(contact) {
         contact.topbarStatusText = '';
     }
     contact.topbarStatusText = String(contact.topbarStatusText || '');
+    contact.topbarStatusSource = normalizeContactTopbarStatusSource(contact.topbarStatusSource);
     contact.topbarAvatarPosition = normalizeChatTopbarAvatarPosition(contact.topbarAvatarPosition);
     return contact;
 }
@@ -518,6 +524,8 @@ function syncChatTopbarAvatarSettingsVisibility() {
     const select = document.getElementById('chat-setting-topbar-avatar-position');
     const statusToggleRow = document.getElementById('chat-setting-topbar-status-visible-row');
     const statusToggleInput = document.getElementById('chat-setting-topbar-status-visible');
+    const statusSourceField = document.getElementById('chat-setting-topbar-status-source-field');
+    const statusSourceSelect = document.getElementById('chat-setting-topbar-status-source');
     const statusTextField = document.getElementById('chat-setting-topbar-status-text-field');
     const statusTextInput = document.getElementById('chat-setting-topbar-status-text');
     if (!enabledInput || !panel) return;
@@ -525,12 +533,16 @@ function syncChatTopbarAvatarSettingsVisibility() {
     const position = normalizeChatTopbarAvatarPosition(select ? select.value : 'left');
     const allowStatusText = enabled && (position === 'left' || position === 'right');
     const statusEnabled = allowStatusText && !!(statusToggleInput && statusToggleInput.checked);
+    const statusSource = normalizeContactTopbarStatusSource(statusSourceSelect ? statusSourceSelect.value : 'custom');
+    const showCustomStatusTextField = statusEnabled && statusSource === 'custom';
     panel.style.display = enabled ? '' : 'none';
     if (select) select.disabled = !enabled;
     if (statusToggleRow) statusToggleRow.style.display = allowStatusText ? '' : 'none';
     if (statusToggleInput) statusToggleInput.disabled = !allowStatusText;
-    if (statusTextField) statusTextField.style.display = statusEnabled ? '' : 'none';
-    if (statusTextInput) statusTextInput.disabled = !statusEnabled;
+    if (statusSourceField) statusSourceField.style.display = statusEnabled ? '' : 'none';
+    if (statusSourceSelect) statusSourceSelect.disabled = !statusEnabled;
+    if (statusTextField) statusTextField.style.display = showCustomStatusTextField ? '' : 'none';
+    if (statusTextInput) statusTextInput.disabled = !showCustomStatusTextField;
 }
 
 function setChatTopbarAvatarButton(button, imageUrl, fallbackHtml, visible) {
@@ -613,7 +625,17 @@ function applyChatTopbarAppearance(contactOrId = null) {
 
     const shouldShowStatus = (position === 'left' || position === 'right') && !!contact.topbarStatusVisible;
     if (shouldShowStatus && statusText) {
-        statusText.textContent = String(contact.topbarStatusText || '').trim() || '5G Online';
+        const statusSource = normalizeContactTopbarStatusSource(contact.topbarStatusSource);
+        let resolvedTopbarStatusText = '';
+        if (statusSource === 'activity') {
+            const liveStatus = String(getAiProfileLiveStatusText(contact.id) || '').trim();
+            const activityStatus = String(contact.activityStatusText || '').trim();
+            const explicitStatus = String(contact.profileStatus || contact.statusText || contact.presenceStatus || '').trim();
+            resolvedTopbarStatusText = liveStatus || activityStatus || explicitStatus || 'Online';
+        } else {
+            resolvedTopbarStatusText = String(contact.topbarStatusText || '').trim() || '5G Online';
+        }
+        statusText.textContent = resolvedTopbarStatusText;
         statusText.classList.remove('hidden');
         header.classList.add('show-topbar-status');
     }
@@ -1661,6 +1683,7 @@ function createBaseContactPayload({ name, remark = '', persona = '', avatar = ''
         topbarAvatarVisible: false,
         topbarAvatarPosition: 'left',
         topbarStatusVisible: false,
+        topbarStatusSource: 'custom',
         topbarStatusText: '5G Online',
         userPerception: [],
         thoughtDisplayMode: 'title',
@@ -3305,7 +3328,14 @@ function setContactActivityStatusText(contactOrId, statusText, options = {}) {
         : window.iphoneSimState.contacts.find((item) => String(item && item.id) === key);
     if (!contact) return false;
 
+    const previousText = normalizeContactActivityStatusText(contact.activityStatusText);
     const normalizedText = normalizeContactActivityStatusText(statusText);
+    const hasMeaningfulChange = previousText !== normalizedText;
+
+    if (!hasMeaningfulChange && !(options && options.force === true)) {
+        return false;
+    }
+
     if (!normalizedText) {
         delete contact.activityStatusText;
         delete contact.activityStatusUpdatedAt;
@@ -3321,6 +3351,19 @@ function setContactActivityStatusText(contactOrId, statusText, options = {}) {
     }
 
     refreshAiProfileLiveStatusIfVisible(key);
+    if (window.iphoneSimState && String(window.iphoneSimState.currentChatContactId || '') === key) {
+        applyChatTopbarAppearance(contact);
+    }
+    if (
+        normalizedText
+        && hasMeaningfulChange
+        && !(options && options.silent === true)
+        && typeof window.sendMessage === 'function'
+    ) {
+        window.sendMessage(`[系统消息]: 对方更新了状态：${normalizedText}`, false, 'text', null, contact.id, {
+            ignoreReplyingState: true
+        });
+    }
     return true;
 }
 
@@ -4651,6 +4694,10 @@ function openChatSettings() {
     if (topbarStatusVisibleToggle) {
         topbarStatusVisibleToggle.checked = !!contact.topbarStatusVisible;
     }
+    const topbarStatusSourceSelect = document.getElementById('chat-setting-topbar-status-source');
+    if (topbarStatusSourceSelect) {
+        topbarStatusSourceSelect.value = normalizeContactTopbarStatusSource(contact.topbarStatusSource);
+    }
     const topbarStatusTextInput = document.getElementById('chat-setting-topbar-status-text');
     if (topbarStatusTextInput) {
         topbarStatusTextInput.value = String(contact.topbarStatusText || '');
@@ -5255,6 +5302,9 @@ function handleSaveChatSettings() {
         ? normalizeChatTopbarAvatarPosition(document.getElementById('chat-setting-topbar-avatar-position').value)
         : 'left';
     const topbarStatusVisible = document.getElementById('chat-setting-topbar-status-visible') ? document.getElementById('chat-setting-topbar-status-visible').checked : false;
+    const topbarStatusSource = document.getElementById('chat-setting-topbar-status-source')
+        ? normalizeContactTopbarStatusSource(document.getElementById('chat-setting-topbar-status-source').value)
+        : 'custom';
     const topbarStatusText = document.getElementById('chat-setting-topbar-status-text') ? document.getElementById('chat-setting-topbar-status-text').value : ''; 
     const intervalMin = document.getElementById('chat-setting-interval-min').value;
     const intervalMax = document.getElementById('chat-setting-interval-max').value;
@@ -5359,6 +5409,7 @@ function handleSaveChatSettings() {
     contact.topbarAvatarVisible = !!topbarAvatarVisible;
     contact.topbarAvatarPosition = topbarAvatarPosition;
     contact.topbarStatusVisible = !!topbarStatusVisible;
+    contact.topbarStatusSource = topbarStatusSource;
     contact.topbarStatusText = String(topbarStatusText || '').trim();
     contact.replyIntervalMin = intervalMin ? parseInt(intervalMin) : null;
     contact.replyIntervalMax = intervalMax ? parseInt(intervalMax) : null;

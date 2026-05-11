@@ -1349,6 +1349,14 @@
                                 <label><input type="checkbox" id="chat-setting-topbar-status-visible" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
                             </div>
 
+                            <div id="chat-setting-topbar-status-source-field" class="mag-field editorial-visual-select-field" style="margin-top: 18px; display: none;">
+                                <label class="mag-label">Status Source <span class="separator">/</span> <span class="mag-zh">状态来源</span></label>
+                                <select id="chat-setting-topbar-status-source" class="mag-select">
+                                    <option value="custom">Custom Text / 自定义文本</option>
+                                    <option value="activity">Contact Updated / 联系人动态状态</option>
+                                </select>
+                            </div>
+
                             <div id="chat-setting-topbar-status-text-field" class="mag-field editorial-visual-select-field" style="margin-top: 18px; display: none;">
                                 <label class="mag-label">Status Text <span class="separator">/</span> <span class="mag-zh">状态文本内容</span></label>
                                 <input type="text" id="chat-setting-topbar-status-text" class="mag-input" maxlength="40" placeholder="例如：5G Online">
@@ -5002,6 +5010,21 @@
                     margin-bottom: 14px;
                 }
 
+                #memory-app .memory-refine-length-group {
+                    margin-bottom: 12px;
+                }
+
+                #memory-app .memory-refine-length-group input {
+                    width: 100%;
+                }
+
+                #memory-app .memory-refine-length-hint {
+                    margin-top: 6px;
+                    font-size: 12px;
+                    color: #666;
+                    line-height: 1.4;
+                }
+
                 #memory-app .memory-refine-confirm-actions {
                     display: flex;
                     gap: 8px;
@@ -5356,6 +5379,21 @@
                         </div>
                         <div class="setting-group">
                             <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="modal-memory-custom-prompts-enabled">
+                                启用自定义总结/精炼提示词
+                            </label>
+                            <div class="memory-setting-hint">开启后，总结与精炼会优先使用你填写的提示词模板。</div>
+                        </div>
+                        <div id="modal-memory-custom-prompts-panel" class="setting-group" style="display:none;">
+                            <label for="modal-memory-summary-prompt">自定义总结提示词</label>
+                            <textarea id="modal-memory-summary-prompt" placeholder="" style="height: 130px;"></textarea>
+                            <div class="memory-setting-hint">该提示词用于聊天总结（手动/自动）。如需控制字数，建议明确写入目标字数与范围。</div>
+                            <label for="modal-memory-refine-prompt" style="margin-top: 10px;">自定义精炼提示词</label>
+                            <textarea id="modal-memory-refine-prompt" placeholder="" style="height: 130px;"></textarea>
+                            <div class="memory-setting-hint">该提示词用于记忆精炼。开启后精炼将不再使用内置默认提示词。</div>
+                        </div>
+                        <div class="setting-group">
+                            <label style="display:flex;align-items:center;gap:8px;">
                                 <input type="checkbox" id="modal-memory-vector-enabled">
                                 启用向量记忆检索（在线聊天）
                             </label>
@@ -5406,6 +5444,11 @@
                         <div class="memory-refine-confirm-summary">
                             已选择 <span id="memory-refine-selected-count-modal">0</span> 条记忆。
                             将生成 1 条精炼总览并归档。
+                        </div>
+                        <div class="setting-group memory-refine-length-group">
+                            <label for="memory-refine-target-chars">希望精炼结果字数</label>
+                            <input type="number" id="memory-refine-target-chars" min="80" max="3000" step="10" value="300">
+                            <div class="memory-refine-length-hint">将按“总结”同款提示词生成，目标字数允许小范围浮动。</div>
                         </div>
                         <div class="memory-refine-confirm-actions">
                             <button id="cancel-memory-refine-confirm">取消</button>
