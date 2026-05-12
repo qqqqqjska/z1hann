@@ -133,9 +133,619 @@
             isGenerating: false
         },
         topicPostsCache: JSON.parse(localStorage.getItem('forum_topic_posts_cache') || '{}'),
-        topicPostsRequestToken: 0
+        topicPostsRequestToken: 0,
+        activeAccountContactId: (localStorage.getItem('forum_active_account_contact_id') || '').trim(),
+        accountSeedState: JSON.parse(localStorage.getItem('forum_account_seed_state') || '{}')
     };
     let forumPostForwardState = null;
+
+    function getLinkedForumContactIds() {
+        const linkedIds = (forumState.settings && Array.isArray(forumState.settings.linkedContacts))
+            ? forumState.settings.linkedContacts
+            : [];
+        return linkedIds.map(id => String(id));
+    }
+
+    function ensureActiveForumAccountValid() {
+        const current = String(forumState.activeAccountContactId || '').trim();
+        if (!current) {
+            forumState.activeAccountContactId = '';
+            return '';
+        }
+        const linkedIds = getLinkedForumContactIds();
+        if (!linkedIds.includes(current)) {
+            forumState.activeAccountContactId = '';
+            localStorage.setItem('forum_active_account_contact_id', '');
+            return '';
+        }
+        forumState.activeAccountContactId = current;
+        return current;
+    }
+
+    function setActiveForumAccountContactId(contactId) {
+        const linkedIds = getLinkedForumContactIds();
+        const next = String(contactId == null ? '' : contactId).trim();
+        if (next && !linkedIds.includes(next)) return false;
+        forumState.activeAccountContactId = next;
+        localStorage.setItem('forum_active_account_contact_id', next);
+        return true;
+    }
+
+    function getActiveForumAccountContext() {
+        const activeContactId = ensureActiveForumAccountValid();
+        if (!activeContactId) {
+            const baseUser = forumState.currentUser || {};
+            return {
+                isSelf: true,
+                contactId: null,
+                syncWechat: false,
+                user: {
+                    ...baseUser,
+                    name: baseUser.bio || baseUser.username || '我',
+                    bio: baseUser.bio || baseUser.username || '我',
+                    username: baseUser.username || 'me'
+                },
+                followers: Number(baseUser.followers || 0) || 0
+            };
+        }
+
+        const contacts = (window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts))
+            ? window.iphoneSimState.contacts
+            : [];
+        const contact = contacts.find(c => String(c.id) === activeContactId) || null;
+        const profiles = (forumState.settings && forumState.settings.contactProfiles)
+            ? forumState.settings.contactProfiles
+            : {};
+        const profile = profiles[activeContactId] || profiles[String(activeContactId)] || {};
+
+        const displayName = profile.name || (contact ? (contact.remark || contact.name) : '') || `联系人${activeContactId}`;
+        const username = profile.username || String(activeContactId);
+        const avatar = profile.avatar
+            || (contact && contact.avatar)
+            || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(displayName))}`;
+        const followers = Number(profile.followers || 0) || 0;
+        const following = Number(profile.following || 0) || 0;
+        const signature = profile.bio || '';
+        const identity = profile.identity || '';
+        const postsCount = (forumState.posts || []).filter(p => String(p && p.userId) === activeContactId).length;
+
+        return {
+            isSelf: false,
+            contactId: contact ? contact.id : activeContactId,
+            syncWechat: !!profile.syncWechat,
+            user: {
+                id: contact ? contact.id : activeContactId,
+                name: displayName,
+                bio: displayName,
+                username,
+                avatar,
+                followers,
+                following,
+                posts: postsCount,
+                signature,
+                publicIdentity: identity,
+                verified: !!profile.verified,
+                subtitle: identity
+            },
+            followers
+        };
+    }
+
+    function getActiveForumAuthorProfile() {
+        const actor = getActiveForumAccountContext();
+        if (actor && !actor.isSelf && actor.contactId) {
+            return resolveForumAuthorProfile(actor.contactId);
+        }
+        return {
+            user: { ...forumState.currentUser, name: forumState.currentUser.bio || forumState.currentUser.username },
+            followers: Number((forumState.currentUser && forumState.currentUser.followers) || 0) || 0
+        };
+    }
+
+    function notifyProxyAccountUsage(actionText) {
+        const actor = getActiveForumAccountContext();
+        if (!actor || actor.isSelf || !actor.contactId || !actionText) return;
+        window.syncForumEventToChat(actor.contactId, `[账号代操作] ${actionText}`, 'system', 'live_sync_hidden');
+    }
+
+    function saveAccountSeedState() {
+        try {
+            localStorage.setItem('forum_account_seed_state', JSON.stringify(forumState.accountSeedState || {}));
+        } catch (e) {
+            console.warn('[Forum] Could not save account seed state:', e.message);
+        }
+    }
+
+    function getForumSeedContactContext(contactId) {
+        const id = String(contactId || '').trim();
+        if (!id) return null;
+        const contacts = (window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts))
+            ? window.iphoneSimState.contacts
+            : [];
+        const profiles = (forumState.settings && forumState.settings.contactProfiles)
+            ? forumState.settings.contactProfiles
+            : {};
+        const contact = contacts.find(c => String(c.id) === id) || null;
+        const profile = profiles[id] || profiles[String(id)] || {};
+        const displayName = profile.name || (contact ? (contact.remark || contact.name) : '') || `联系人${id}`;
+        const username = profile.username || String(id);
+        const avatar = profile.avatar
+            || (contact && contact.avatar)
+            || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(displayName))}`;
+        const identity = (profile.identity || '普通用户').trim();
+        const persona = String((contact && contact.persona) || profile.bio || '').trim();
+        const worldview = String((forumState.settings && forumState.settings.forumWorldview) || '').trim();
+        const rawTagText = `${identity} ${persona} ${worldview}`;
+        const tagSet = new Set();
+        rawTagText
+            .split(/[，,。.!！？?；;、\s\n\r/|]+/)
+            .map(s => s.trim())
+            .filter(Boolean)
+            .forEach((word) => {
+                if (word.length < 2 || word.length > 8) return;
+                if (/^\d+$/.test(word)) return;
+                tagSet.add(word);
+            });
+        const tags = Array.from(tagSet).slice(0, 8);
+        if (tags.length === 0) tags.push('生活', '讨论', '观点');
+        return {
+            contactId: id,
+            displayName,
+            username,
+            avatar,
+            verified: !!profile.verified,
+            identity,
+            persona,
+            worldview,
+            tags
+        };
+    }
+
+    function getOtherLinkedContactTokensForSeed(targetContactId) {
+        const targetId = String(targetContactId || '').trim();
+        const tokens = new Set();
+        const contacts = (window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts))
+            ? window.iphoneSimState.contacts
+            : [];
+        const profiles = (forumState.settings && forumState.settings.contactProfiles)
+            ? forumState.settings.contactProfiles
+            : {};
+        const linkedIds = getLinkedForumContactIds();
+        linkedIds.forEach((id) => {
+            const sid = String(id || '').trim();
+            if (!sid || sid === targetId) return;
+            const contact = contacts.find(c => String(c.id) === sid) || null;
+            const profile = profiles[sid] || profiles[String(sid)] || {};
+            [
+                profile.name,
+                profile.username,
+                contact && contact.remark,
+                contact && contact.name
+            ].forEach((raw) => {
+                const text = normalizeForumText(raw || '').toLowerCase();
+                if (text.length >= 2) tokens.add(text);
+            });
+        });
+        return Array.from(tokens);
+    }
+
+    function textMentionsOtherLinkedContact(text, forbiddenTokens) {
+        const clean = normalizeForumText(text || '').toLowerCase();
+        if (!clean || !Array.isArray(forbiddenTokens) || forbiddenTokens.length === 0) return false;
+        return forbiddenTokens.some(token => token && clean.includes(token));
+    }
+
+    function getSeedRecentContactPostHints(contactId, limit = 6) {
+        const id = String(contactId || '').trim();
+        if (!id) return [];
+        return (forumState.posts || [])
+            .filter(p => p && String(p.userId || '') === id)
+            .map(p => normalizeForumText(p.caption || p.image_description_zh || p.image_description || ''))
+            .filter(Boolean)
+            .slice(0, limit);
+    }
+
+    function isPlaceholderGeneratedName(name) {
+        const n = String(name || '').trim().toLowerCase();
+        if (!n) return false;
+        return /^(用户\d*|网友\d*|联系人\d*|陌生人\d*|路人\d*|commenter\d*|replyuser\d*|author\d*|test\d*|user\d*|username|name|匿名用户)$/.test(n);
+    }
+
+    function cleanupGeneratedName(name) {
+        const normalized = normalizeForumText(name || '');
+        if (!normalized) return '';
+        return isPlaceholderGeneratedName(normalized) ? '' : normalized;
+    }
+
+    function buildForumGeneratedAvatar(name, scope = 'forum') {
+        const normalizedName = normalizeForumText(name || '').replace(/\s+/g, '_');
+        const seed = `${scope}|${normalizedName || 'user'}`;
+        return `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(seed)}`;
+    }
+
+    function resolveGeneratedAvatar(rawAvatar, seedText) {
+        const value = String(rawAvatar || '').trim();
+        if (value && (/^https?:\/\//i.test(value) || /^data:image\//i.test(value))) {
+            return value;
+        }
+        return buildForumGeneratedAvatar(String(seedText || 'forum_user'), 'generated_fallback');
+    }
+
+    function parseJsonFromModelContent(content) {
+        let raw = String(content || '').trim();
+        if (!raw) return null;
+        raw = raw.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+        try {
+            return JSON.parse(raw);
+        } catch (_) {
+            const objStart = raw.indexOf('{');
+            const objEnd = raw.lastIndexOf('}');
+            if (objStart !== -1 && objEnd > objStart) {
+                const maybeObj = raw.slice(objStart, objEnd + 1);
+                try { return JSON.parse(maybeObj); } catch (e2) {}
+            }
+            const arrStart = raw.indexOf('[');
+            const arrEnd = raw.lastIndexOf(']');
+            if (arrStart !== -1 && arrEnd > arrStart) {
+                const maybeArr = raw.slice(arrStart, arrEnd + 1);
+                try { return JSON.parse(maybeArr); } catch (e3) {}
+            }
+            return null;
+        }
+    }
+
+    function buildSwitchedAccountSeedPrompt(context) {
+        const worldbookContent = getWorldbookContextForPrompt();
+        const topicHint = (context.tags && context.tags.length > 0) ? context.tags.join('、') : '生活、观点、讨论';
+        const recentPostHints = getSeedRecentContactPostHints(context.contactId, 6);
+        return `你是论坛内容生成器。现在用户切换到联系人账号，需要生成“这个联系人平时会看到的首页帖子”以及“私信页里已有的历史对话”。
+
+目标联系人信息:
+- 联系人ID: ${context.contactId}
+- 显示名: ${context.displayName || ''}
+- 论坛账号: ${context.username || ''}
+- 论坛身份: ${context.identity || ''}
+- 人设: ${context.persona || ''}
+- 关注关键词: ${topicHint}
+
+论坛世界观: ${context.worldview || ''}
+世界设定(Worldbook): ${worldbookContent || ''}
+该联系人近期发帖参考(仅供语气参考):
+${recentPostHints.length > 0 ? recentPostHints.map(t => `- ${t.substring(0, 88)}`).join('\n') : '- 暂无'}
+
+请只返回一个 JSON 对象，不要 Markdown，不要额外解释，格式如下:
+{
+  "feed_posts": [
+    {
+      "user": {"name":"", "avatar":"", "verified":false, "subtitle":""},
+      "caption":"帖子正文",
+      "time":"刚刚",
+      "likes":1234,
+      "forwards":88,
+      "shares":66,
+      "comments_list":[
+        {
+          "user":{"name":"","avatar":"","verified":false},
+          "text":"评论内容",
+          "likes":23,
+          "replies":[{"user":{"name":"","avatar":""},"text":"回复内容","likes":3}]
+        }
+      ]
+    }
+  ],
+  "dm_threads": [
+    {
+      "name":"会话对象名字",
+      "username":"账号字符串",
+      "avatar":"头像URL",
+      "verified":false,
+      "time":"3月2日 21:30",
+      "history":[
+        {"role":"other","text":"..."},
+        {"role":"me","text":"..."},
+        {"role":"other","text":"..."}
+      ]
+    }
+  ]
+}
+
+硬性要求:
+1. feed_posts 生成 6~10 条，每条 comments_list 至少 10 条，并尽量给出 replies。
+2. dm_threads 生成 4~8 个，每个 history 至少 4 条有效文本消息。
+3. 禁止使用占位用户名，例如“用户1/网友123/联系人A/测试账号/username/name”等。
+4. 文案必须自然真实，和目标联系人身份、人设、世界观一致。
+5. 绝对禁止出现或影射其他已关联联系人，禁止出现“另一个联系人/朋友A/某某联系人”等多联系人关系表达。`;
+    }
+
+    async function fetchSwitchedAccountSeedFromApi(context) {
+        const settings = getForumAiSettings();
+        if (!settings.url || !settings.key) {
+            throw new Error('请先在设置中配置AI接口信息');
+        }
+        let fetchUrl = settings.url;
+        if (!fetchUrl.endsWith('/chat/completions')) {
+            fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+        }
+        const response = await fetch(fetchUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + settings.key
+            },
+            body: JSON.stringify({
+                model: settings.model || 'gpt-3.5-turbo',
+                messages: [
+                    { role: 'system', content: '你是论坛内容模拟器，只返回 JSON。' },
+                    { role: 'user', content: buildSwitchedAccountSeedPrompt(context) }
+                ],
+                temperature: 0.85
+            })
+        });
+        if (!response.ok) throw new Error('API request failed');
+        const data = await response.json();
+        const content = (((data || {}).choices || [])[0] || {}).message?.content || '';
+        const parsed = parseJsonFromModelContent(content);
+        if (!parsed || typeof parsed !== 'object') throw new Error('API返回格式无效');
+        return parsed;
+    }
+
+    function normalizeSeedFeedPostsFromApi(rawFeedPosts, context) {
+        const posts = Array.isArray(rawFeedPosts) ? rawFeedPosts : [];
+        const now = Date.now();
+        const forbiddenTokens = getOtherLinkedContactTokensForSeed(context.contactId);
+        return posts.map((post, pIndex) => {
+            if (!post || typeof post !== 'object') return null;
+            const caption = normalizeForumText(post.caption || post.text || '');
+            if (!caption) return null;
+            if (textMentionsOtherLinkedContact(caption, forbiddenTokens)) return null;
+
+            const userRaw = (post.user && typeof post.user === 'object') ? post.user : {};
+            const authorName = cleanupGeneratedName(userRaw.name || post.author_name || post.name || '');
+            if (textMentionsOtherLinkedContact(authorName, forbiddenTokens)) return null;
+            const authorUsername = normalizeForumText(userRaw.username || post.username || post.author || '');
+            const authorSubtitle = normalizeForumText(userRaw.subtitle || post.subtitle || '');
+            const rawPostUserId = String(post.userId || post.contactId || post.authorId || post.author_id || '').trim();
+            const authorNameLower = String(authorName || '').toLowerCase();
+            const authorUsernameLower = String(authorUsername || '').toLowerCase();
+            const contextNameLower = String(context.displayName || '').toLowerCase();
+            const contextUsernameLower = String(context.username || '').toLowerCase();
+            const isContactAuthored = !!(
+                (rawPostUserId && rawPostUserId === String(context.contactId))
+                || (authorNameLower && (authorNameLower === contextNameLower || authorNameLower === contextUsernameLower))
+                || (authorUsernameLower && (authorUsernameLower === contextNameLower || authorUsernameLower === contextUsernameLower))
+            );
+            const authorAvatar = isContactAuthored
+                ? (context.avatar || buildForumGeneratedAvatar(context.displayName || context.username || context.contactId, `contact_${context.contactId}`))
+                : buildForumGeneratedAvatar(
+                    authorName || authorUsername || `陌生发帖人${pIndex + 1}`,
+                    `switched_feed_author_${context.contactId}`
+                );
+
+            const commentsRaw = Array.isArray(post.comments_list)
+                ? post.comments_list
+                : (Array.isArray(post.comments) ? post.comments : []);
+            const commentsList = commentsRaw.map((c, cIndex) => {
+                if (!c || typeof c !== 'object') return null;
+                const cUser = (c.user && typeof c.user === 'object') ? c.user : {};
+                const commentText = normalizeForumText(c.text || c.content || '');
+                if (!commentText) return null;
+                if (textMentionsOtherLinkedContact(commentText, forbiddenTokens)) return null;
+                const commentName = cleanupGeneratedName(cUser.name || c.username || '');
+                if (textMentionsOtherLinkedContact(commentName, forbiddenTokens)) return null;
+                const commentAvatar = buildForumGeneratedAvatar(
+                    commentName || `评论者${pIndex + 1}_${cIndex + 1}`,
+                    `switched_feed_comment_${context.contactId}`
+                );
+                const repliesRaw = Array.isArray(c.replies) ? c.replies : [];
+                const replies = repliesRaw.map((r, rIndex) => {
+                    if (!r || typeof r !== 'object') return null;
+                    const rUser = (r.user && typeof r.user === 'object') ? r.user : {};
+                    const replyText = normalizeForumText(r.text || r.content || '');
+                    if (!replyText) return null;
+                    if (textMentionsOtherLinkedContact(replyText, forbiddenTokens)) return null;
+                    const replyName = cleanupGeneratedName(rUser.name || r.username || '');
+                    if (textMentionsOtherLinkedContact(replyName, forbiddenTokens)) return null;
+                    const replyAvatar = buildForumGeneratedAvatar(
+                        replyName || `回复者${pIndex + 1}_${cIndex + 1}_${rIndex + 1}`,
+                        `switched_feed_reply_${context.contactId}`
+                    );
+                    return {
+                        id: Number(`${now + 30000 + pIndex}${String(cIndex + 1).padStart(2, '0')}${rIndex + 1}`),
+                        user: {
+                            name: replyName,
+                            avatar: replyAvatar,
+                            verified: !!rUser.verified
+                        },
+                        text: replyText,
+                        time: normalizeForumText(r.time || '') || '刚刚',
+                        likes: Math.max(0, Number(r.likes) || 0)
+                    };
+                }).filter(Boolean);
+
+                return {
+                    id: Number(`${now + 30000 + pIndex}${String(cIndex + 1).padStart(2, '0')}`),
+                    user: {
+                        name: commentName,
+                        avatar: commentAvatar,
+                        verified: !!cUser.verified
+                    },
+                    text: commentText,
+                    time: normalizeForumText(c.time || '') || '刚刚',
+                    likes: Math.max(0, Number(c.likes) || 0),
+                    replies
+                };
+            }).filter(Boolean);
+
+            const replyCount = commentsList.reduce((sum, item) => sum + (Array.isArray(item.replies) ? item.replies.length : 0), 0);
+            const totalComments = commentsList.length + replyCount;
+            return {
+                id: now + 30000 + pIndex,
+                userId: isContactAuthored ? context.contactId : null,
+                user: {
+                    name: isContactAuthored ? (context.displayName || context.username || `联系人${context.contactId}`) : authorName,
+                    avatar: authorAvatar,
+                    verified: isContactAuthored ? !!context.verified : !!userRaw.verified,
+                    subtitle: isContactAuthored ? (context.identity || authorSubtitle) : authorSubtitle
+                },
+                post_type: 'text',
+                image: null,
+                caption,
+                time: normalizeForumText(post.time || '') || '刚刚',
+                translation: '查看翻译',
+                liked: false,
+                comments_list: commentsList,
+                stats: {
+                    likes: Math.max(0, Number(post.likes || (post.stats && post.stats.likes) || 0)),
+                    comments: Math.max(totalComments, Number(post.comments || (post.stats && post.stats.comments) || 0)),
+                    forwards: Math.max(0, Number(post.forwards || (post.stats && post.stats.forwards) || 0)),
+                    shares: Math.max(0, Number(post.shares || (post.stats && post.stats.shares) || 0)),
+                    sends: Math.max(0, Number(post.sends || (post.stats && post.stats.sends) || 0))
+                },
+                _accountSeedFor: context.contactId,
+                _accountSeedKind: 'feed',
+                _accountSeedKey: `feed_${context.contactId}_${pIndex}_${now}`
+            };
+        }).filter(Boolean);
+    }
+
+    function normalizeSeedDmFromApi(rawDmThreads, context) {
+        const threads = Array.isArray(rawDmThreads) ? rawDmThreads : [];
+        const now = Date.now();
+        const forbiddenTokens = getOtherLinkedContactTokensForSeed(context.contactId);
+        return threads.map((thread, index) => {
+            if (!thread || typeof thread !== 'object') return null;
+            const name = cleanupGeneratedName(thread.name || (thread.user && thread.user.name) || '');
+            if (textMentionsOtherLinkedContact(name, forbiddenTokens)) return null;
+            const username = normalizeForumText(thread.username || (thread.user && thread.user.username) || '');
+            const avatar = buildForumGeneratedAvatar(
+                name || `陌生私信${index + 1}`,
+                `switched_dm_${context.contactId}`
+            );
+            const historyRaw = Array.isArray(thread.history)
+                ? thread.history
+                : (Array.isArray(thread.messages) ? thread.messages : []);
+            const history = [];
+            historyRaw.forEach((item) => {
+                if (!item || typeof item !== 'object') return;
+                const role = String(item.role || item.type || '').trim().toLowerCase();
+                const text = normalizeForumText(item.text || item.content || '');
+                if (!text) return;
+                if (textMentionsOtherLinkedContact(text, forbiddenTokens)) return;
+                if (role === 'time') {
+                    history.push({ type: 'time', text });
+                    return;
+                }
+                if (role === 'me' || role === 'user' || role === 'self') {
+                    history.push({ type: 'me', text });
+                    return;
+                }
+                history.push({ type: 'other', text, avatar });
+            });
+            const lastText = (() => {
+                for (let i = history.length - 1; i >= 0; i--) {
+                    if (history[i] && history[i].type !== 'time') return history[i].text || '';
+                }
+                return '';
+            })();
+            if (history.filter(h => h.type === 'me' || h.type === 'other').length === 0) return null;
+            const messageId = now + 80000 + index;
+            return {
+                message: {
+                    id: messageId,
+                    name,
+                    username: username || `chat_${context.username}_${index + 1}`,
+                    avatar,
+                    verified: !!thread.verified,
+                    subtext: lastText,
+                    isStranger: false,
+                    _accountSeedFor: context.contactId,
+                    _accountSeedKind: 'dm'
+                },
+                history: history.length > 0
+                    ? history
+                    : [{ type: 'time', text: normalizeForumText(thread.time || '') || '' }]
+            };
+        }).filter(item => item && item.message && item.message.name);
+    }
+
+    async function ensureSwitchedAccountFeedAndDm(contactId) {
+        const id = String(contactId || '').trim();
+        if (!id) return { addedPosts: 0, addedDmThreads: 0 };
+        if (!forumState.accountSeedState || typeof forumState.accountSeedState !== 'object') {
+            forumState.accountSeedState = {};
+        }
+        const context = getForumSeedContactContext(id);
+        if (!context) return { addedPosts: 0, addedDmThreads: 0 };
+
+        const existingFeedPosts = (forumState.posts || []).filter(p =>
+            p && String(p._accountSeedFor || '') === id && p._accountSeedKind === 'feed'
+        );
+        const existingDm = (forumState.messages || []).filter(m =>
+            m && String(m._accountSeedFor || '') === id && m._accountSeedKind === 'dm'
+        );
+        const seedEntry = forumState.accountSeedState[id] || {};
+        if (seedEntry.isGenerating) return { addedPosts: 0, addedDmThreads: 0, pending: true };
+        if (seedEntry.feedReady && seedEntry.dmReady && existingFeedPosts.length > 0 && existingDm.length > 0) {
+            return { addedPosts: 0, addedDmThreads: 0, cached: true };
+        }
+
+        seedEntry.isGenerating = true;
+        seedEntry.error = '';
+        forumState.accountSeedState[id] = seedEntry;
+        saveAccountSeedState();
+
+        let addedPosts = 0;
+        let addedDmThreads = 0;
+        try {
+            const apiData = await fetchSwitchedAccountSeedFromApi(context);
+            const feedPosts = normalizeSeedFeedPostsFromApi(apiData.feed_posts || apiData.posts || [], context);
+            const dmThreads = normalizeSeedDmFromApi(apiData.dm_threads || apiData.messages || apiData.dms || [], context);
+
+            const feedKeys = new Set((forumState.posts || []).map(p => String((p && p._accountSeedKey) || '')));
+            const mergedFeed = feedPosts.filter(p => !feedKeys.has(String(p._accountSeedKey || '')));
+            if (mergedFeed.length > 0) {
+                forumState.posts = [...mergedFeed, ...forumState.posts];
+                addedPosts = mergedFeed.length;
+                saveForumData();
+            }
+
+            if (!forumState.chatHistory || typeof forumState.chatHistory !== 'object') {
+                forumState.chatHistory = {};
+            }
+            const existingDmNameSet = new Set((forumState.messages || []).map(m => `${String((m && m.name) || '').trim()}|${String((m && m._accountSeedFor) || '')}`));
+            dmThreads.forEach((item) => {
+                if (!item || !item.message) return;
+                const dedupeKey = `${String(item.message.name || '').trim()}|${id}`;
+                if (existingDmNameSet.has(dedupeKey)) return;
+                existingDmNameSet.add(dedupeKey);
+                forumState.messages.unshift(item.message);
+                forumState.chatHistory[item.message.id] = Array.isArray(item.history) ? item.history : [];
+                addedDmThreads += 1;
+            });
+            if (addedDmThreads > 0) {
+                saveMessages();
+                saveChatHistory();
+            }
+
+            const finalFeedCount = existingFeedPosts.length + addedPosts;
+            const finalDmCount = existingDm.length + addedDmThreads;
+            seedEntry.feedReady = finalFeedCount > 0;
+            seedEntry.dmReady = finalDmCount > 0;
+            seedEntry.lastGeneratedAt = Date.now();
+            seedEntry.error = '';
+        } catch (e) {
+            seedEntry.error = e && e.message ? e.message : '生成失败';
+            console.error('[Forum] switched account seed generation failed:', e);
+        } finally {
+            seedEntry.isGenerating = false;
+            forumState.accountSeedState[id] = seedEntry;
+            saveAccountSeedState();
+            if (['home', 'share', 'profile'].includes(forumState.activeTab)) {
+                renderForum(false);
+            }
+        }
+        return { addedPosts, addedDmThreads };
+    }
 
     function initForum() {
         const app = document.getElementById('forum-app');
@@ -204,7 +814,10 @@
 
         // Helper to post a new forum entry programmatically
         window.addForumPost = function(contactId, caption, images = []) {
-            const authorProfile = resolveForumAuthorProfile(contactId);
+            const explicitContactId = contactId == null ? '' : String(contactId).trim();
+            const activeActor = getActiveForumAccountContext();
+            const effectiveContactId = explicitContactId || (activeActor && !activeActor.isSelf && activeActor.contactId ? String(activeActor.contactId) : '');
+            const authorProfile = resolveForumAuthorProfile(effectiveContactId || null);
             const user = authorProfile.user;
             const followers = authorProfile.followers;
 
@@ -228,7 +841,7 @@
                 time: '刚刚',
                 stats: { likes, comments: commentsCount, forwards, shares, sends: shares },
                 comments_list: [],
-                userId: contactId || null
+                userId: effectiveContactId || null
             };
             forumState.posts.unshift(newPost);
             saveForumData();
@@ -236,8 +849,11 @@
             renderForum();
             generateCommentsForPost(newPost);
             generateStrangerDMs(newPost);
-            if (contactId) {
-                window.syncForumEventToChat(contactId, `[发布了论坛帖子]: "${caption}"`);
+            if (effectiveContactId) {
+                window.syncForumEventToChat(effectiveContactId, `[发布了论坛帖子]: "${caption}"`);
+                if (!explicitContactId) {
+                    notifyProxyAccountUsage(`发布了帖子「${truncateForumText(caption || '图片帖子', 20) || '图片帖子'}」`);
+                }
             }
         };
 
@@ -315,6 +931,8 @@
         }
 
         function getCurrentUserLiveAvatar() {
+            const actor = getActiveForumAccountContext();
+            if (actor && actor.user && actor.user.avatar) return actor.user.avatar;
             return (forumState.currentUser && forumState.currentUser.avatar) ||
                 (window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.avatar) ||
                 `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent((forumState.currentUser && (forumState.currentUser.bio || forumState.currentUser.username)) || 'me')}`;
@@ -1219,7 +1837,9 @@ ${personaContext}
         };
 
         window.startMyLiveRoom = function() {
-            const myName = forumState.currentUser.bio || forumState.currentUser.username || '我';
+            const actor = getActiveForumAccountContext();
+            const actorUser = actor && actor.user ? actor.user : forumState.currentUser;
+            const myName = actorUser.bio || actorUser.username || '我';
             const title = '我的直播间';
             const actionDesc = '我调整好镜头，和大家打招呼，准备开始今天的直播内容。';
             const initialComments = buildHostInitialComments(actionDesc);
@@ -1264,7 +1884,14 @@ ${personaContext}
                 return h;
             });
             localStorage.setItem('forum_leaderboard', JSON.stringify({ hosts }));
-            window.openForumLiveRoom(title, myName, actionDesc, initialCommentsStr, viewers, { mode: 'host' });
+            const hostOptions = {
+                mode: 'host',
+                hostContactId: actor && !actor.isSelf ? actor.contactId : null
+            };
+            window.openForumLiveRoom(title, myName, actionDesc, initialCommentsStr, viewers, hostOptions);
+            if (actor && !actor.isSelf) {
+                notifyProxyAccountUsage(`开启了直播「${title}」`);
+            }
         };
 
         function ensureWalletReadyForLiveSettlement() {
@@ -1347,15 +1974,33 @@ ${personaContext}
             const viewBoost = Math.max(0, Math.floor((Number(room.sessionPeakViewers) || 0) / 800));
             const gainedFans = Math.max(1, baseFans + giftBoost + viewBoost);
 
-            forumState.currentUser.followers = Math.max(0, Number(forumState.currentUser.followers || 0) + gainedFans);
-            localStorage.setItem('forum_currentUser', JSON.stringify(forumState.currentUser));
+            const liveActorContactId = room && room.userId ? String(room.userId) : '';
+            if (liveActorContactId) {
+                const profiles = (forumState.settings && forumState.settings.contactProfiles)
+                    ? forumState.settings.contactProfiles
+                    : {};
+                const key = String(liveActorContactId);
+                if (!profiles[key]) profiles[key] = {};
+                const currentFollowers = Number(profiles[key].followers || 0) || 0;
+                profiles[key].followers = Math.max(0, currentFollowers + gainedFans);
+                forumState.settings.contactProfiles = profiles;
+                localStorage.setItem('forum_settings', JSON.stringify(forumState.settings));
+                window.syncForumEventToChat(liveActorContactId, `[账号代操作] 结束直播并新增 ${gainedFans} 粉丝`, 'system', 'live_sync_hidden');
+            } else {
+                forumState.currentUser.followers = Math.max(0, Number(forumState.currentUser.followers || 0) + gainedFans);
+                localStorage.setItem('forum_currentUser', JSON.stringify(forumState.currentUser));
+            }
 
             const wallet = ensureWalletReadyForLiveSettlement();
             let rank = 99;
             try {
                 const lb = JSON.parse(localStorage.getItem('forum_leaderboard') || '{"hosts":[]}');
                 let hosts = Array.isArray(lb.hosts) ? lb.hosts : [];
-                const myAvatar = (forumState.currentUser && forumState.currentUser.avatar) || '';
+                const actor = getActiveForumAccountContext();
+                const actorAvatar = liveActorContactId
+                    ? (((forumState.settings && forumState.settings.contactProfiles && forumState.settings.contactProfiles[liveActorContactId]) || {}).avatar || '')
+                    : '';
+                const myAvatar = actorAvatar || (actor && actor.user && actor.user.avatar) || (forumState.currentUser && forumState.currentUser.avatar) || '';
                 const me = room.host;
                 const mine = hosts.find(h => h.name === me);
                 if (mine) {
@@ -1451,6 +2096,7 @@ ${personaContext}
                 modeOptions = maybeOptions;
             }
             const isHostMode = modeOptions.mode === 'host';
+            const hostContactIdOption = modeOptions.hostContactId == null ? '' : String(modeOptions.hostContactId).trim();
 
             // Resolve Host Info (Avatar & Display Name)
             let avatarUrl = '';
@@ -1511,7 +2157,9 @@ ${personaContext}
                 avatarUrl = `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(host)}`;
             }
             if (isHostMode) {
-                displayName = forumState.currentUser.username || forumState.currentUser.bio || host || '我';
+                const actor = getActiveForumAccountContext();
+                const actorUser = actor && actor.user ? actor.user : forumState.currentUser;
+                displayName = actorUser.username || actorUser.bio || host || '我';
                 avatarUrl = getCurrentUserLiveAvatar() || avatarUrl;
             }
 
@@ -1530,7 +2178,9 @@ ${personaContext}
                 actionDesc: actionDesc,
                 comments: [],
                 preGenState: null,
-                userId: (foundContact && foundContact.id) ? foundContact.id : null,
+                userId: isHostMode
+                    ? (hostContactIdOption || ((foundContact && foundContact.id) ? foundContact.id : null))
+                    : ((foundContact && foundContact.id) ? foundContact.id : null),
                 mode: isHostMode ? 'host' : 'viewer',
                 viewers: viewersText || randomHostViewers(),
                 suggestedActions: [],
@@ -3022,6 +3672,10 @@ ${hostModeExtra}
                 headerHtml = renderProfileHeader();
                 contentHtml = renderProfileTab();
                 break;
+            case 'following_list':
+                headerHtml = renderFollowingListHeader();
+                contentHtml = renderFollowingListTab();
+                break;
             case 'forum_wallet':
                 headerHtml = renderForumWalletHeader();
                 contentHtml = renderForumWallet();
@@ -3062,7 +3716,7 @@ ${hostModeExtra}
                 contentHtml = renderHomeTab();
         }
 
-        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts' && forumState.activeTab !== 'my_profile_posts' && forumState.activeTab !== 'create_post' && forumState.activeTab !== 'forum_wallet' && forumState.activeTab !== 'topic_posts';
+        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts' && forumState.activeTab !== 'my_profile_posts' && forumState.activeTab !== 'create_post' && forumState.activeTab !== 'forum_wallet' && forumState.activeTab !== 'topic_posts' && forumState.activeTab !== 'following_list';
 
         const multiSelectBarHtml = forumState.multiSelectMode ? `
             <div class="forum-multi-select-bar">
@@ -4058,6 +4712,9 @@ ${hostModeExtra}
     }
 
     function renderProfileHeader() {
+        const actor = getActiveForumAccountContext();
+        const actorUser = actor && actor.user ? actor.user : (forumState.currentUser || {});
+        const displayUsername = actorUser.username || 'me';
         return `
             <div class="forum-header">
                 <div class="header-left">
@@ -4066,13 +4723,27 @@ ${hostModeExtra}
                     </div>
                 </div>
                 <div class="header-center">
-                    <span style="font-weight: 700; font-size: 22px;">${forumState.currentUser.username}</span>
+                    <span style="font-weight: 700; font-size: 22px;">${displayUsername}</span>
                     <i class="fas fa-chevron-down header-title-arrow"></i>
                 </div>
                 <div class="header-right">
                     <img src="https://i.postimg.cc/QCfGKHGC/无标题98_20260215024118.png" id="forum-wallet-entry-btn" style="height: 32px; width: auto; margin-top: 5px; cursor: pointer;">
-                    <img src="https://i.postimg.cc/vT0FxcF9/无标题98_20260215024227.png" style="height: 32px; width: auto; margin-top: 5px;">
+                    <img src="https://i.postimg.cc/vT0FxcF9/无标题98_20260215024227.png" id="forum-account-switch-btn" style="height: 32px; width: auto; margin-top: 5px; cursor: pointer;">
                 </div>
+            </div>
+        `;
+    }
+
+    function renderFollowingListHeader() {
+        return `
+            <div class="forum-header">
+                <div class="header-left">
+                    <i class="fas fa-chevron-left" id="forum-following-back" style="font-size: 24px; cursor: pointer;"></i>
+                </div>
+                <div class="header-center">
+                    <span style="font-weight: 700; font-size: 18px;">关注</span>
+                </div>
+                <div class="header-right"></div>
             </div>
         `;
     }
@@ -4517,13 +5188,74 @@ ${hostModeExtra}
 
     // --- Tabs Content ---
 
+    function getActiveAccountSeedLoadingState() {
+        const activeId = ensureActiveForumAccountValid();
+        if (!activeId) return { activeId: '', isGenerating: false };
+        const seedState = (forumState.accountSeedState && typeof forumState.accountSeedState === 'object')
+            ? forumState.accountSeedState[String(activeId)]
+            : null;
+        return {
+            activeId: String(activeId),
+            isGenerating: !!(seedState && seedState.isGenerating)
+        };
+    }
+
+    function renderForumInlineLoadingBlock(label = '正在生成...') {
+        return `
+            <div style="padding: 44px 20px; text-align: center; color: #8e8e8e;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 18px; margin-bottom: 10px; display: block;"></i>
+                <div style="font-size: 13px;">${escapeForumHtml(label)}</div>
+            </div>
+        `;
+    }
+
+    function getVisibleHomePostsForActiveAccount() {
+        const activeId = ensureActiveForumAccountValid();
+        const posts = Array.isArray(forumState.posts) ? forumState.posts : [];
+        if (!activeId) {
+            // Self account should not see contact-account-only generated content.
+            return posts.filter(p => p && !p._accountSeedFor);
+        }
+        return posts.filter((p) => {
+            if (!p) return false;
+            const seedFor = String(p._accountSeedFor || '').trim();
+            if (!seedFor) return true;
+            return seedFor === String(activeId);
+        });
+    }
+
+    function getVisibleDmMessagesForActiveAccount() {
+        const activeId = ensureActiveForumAccountValid();
+        const messages = Array.isArray(forumState.messages) ? forumState.messages : [];
+        if (!activeId) {
+            return messages.filter(m => m && !m._accountSeedFor);
+        }
+        return messages.filter((m) => {
+            if (!m) return false;
+            const seedFor = String(m._accountSeedFor || '').trim();
+            if (!seedFor) return true;
+            return seedFor === String(activeId);
+        });
+    }
+
     function renderHomeTab() {
+        const loadingState = getActiveAccountSeedLoadingState();
+        const visiblePosts = getVisibleHomePostsForActiveAccount();
+        const hasSeededFeed = !!(
+            loadingState.activeId &&
+            Array.isArray(forumState.posts) &&
+            forumState.posts.some(p => p && p._accountSeedKind === 'feed' && String(p._accountSeedFor || '') === loadingState.activeId)
+        );
+        const loadingHtml = (loadingState.isGenerating && !hasSeededFeed)
+            ? renderForumInlineLoadingBlock('正在生成该账号主页内容...')
+            : '';
         return `
             <div class="stories-container">
                 ${forumState.stories.map(renderStory).join('')}
             </div>
+            ${loadingHtml}
             <div class="feed-container">
-                ${forumState.posts.map(renderPost).join('')}
+                ${visiblePosts.map(renderPost).join('')}
             </div>
         `;
     }
@@ -4891,14 +5623,24 @@ ${hostModeExtra}
 
     function renderDMTab() {
         // Search bar + Notes + Messages List
+        const loadingState = getActiveAccountSeedLoadingState();
+        const visibleMessages = getVisibleDmMessagesForActiveAccount();
+        const visibleIdSet = new Set(visibleMessages.map(m => m.id));
+        forumState.selectedDmIds = new Set(Array.from(forumState.selectedDmIds || []).filter(id => visibleIdSet.has(id)));
+        const visibleSelectedCount = forumState.selectedDmIds.size;
+        const hasSeededDm = !!(
+            loadingState.activeId &&
+            Array.isArray(forumState.messages) &&
+            forumState.messages.some(m => m && m._accountSeedKind === 'dm' && String(m._accountSeedFor || '') === loadingState.activeId)
+        );
         
         const multiSelectBarHtml = forumState.dmMultiSelectMode ? `
             <div class="forum-multi-select-bar" style="position: absolute; bottom: 0; left: 0; width: 100%; z-index: 2005;">
                 <div class="multi-select-left-actions">
                     <button class="multi-select-cancel-btn" id="dm-ms-cancel">取消</button>
-                    <button class="multi-select-all-btn" id="dm-ms-all">${forumState.selectedDmIds.size === forumState.messages.length && forumState.messages.length > 0 ? '取消全选' : '全选'}</button>
+                    <button class="multi-select-all-btn" id="dm-ms-all">${visibleSelectedCount === visibleMessages.length && visibleMessages.length > 0 ? '取消全选' : '全选'}</button>
                 </div>
-                <button class="multi-select-delete-btn ${forumState.selectedDmIds.size === 0 ? 'is-disabled' : ''}" id="dm-ms-delete">删除 (${forumState.selectedDmIds.size})</button>
+                <button class="multi-select-delete-btn ${visibleSelectedCount === 0 ? 'is-disabled' : ''}" id="dm-ms-delete">删除 (${visibleSelectedCount})</button>
             </div>
         ` : '';
 
@@ -4915,10 +5657,78 @@ ${hostModeExtra}
                 <div class="dm-section-action">陌生消息</div>
             </div>
 
+            ${(loadingState.isGenerating && !hasSeededDm) ? renderForumInlineLoadingBlock('正在生成该账号私信...') : ''}
+
             <div class="dm-messages-list" style="${listStyle}">
-                ${forumState.messages.map(renderDMMessage).join('')}
+                ${visibleMessages.map(renderDMMessage).join('')}
             </div>
             ${multiSelectBarHtml}
+        `;
+    }
+
+    function renderFollowingListTab() {
+        const linkedIds = getLinkedForumContactIds();
+        const contacts = (window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts))
+            ? window.iphoneSimState.contacts
+            : [];
+        const profiles = (forumState.settings && forumState.settings.contactProfiles)
+            ? forumState.settings.contactProfiles
+            : {};
+
+        const rows = linkedIds.map((id) => {
+            const sid = String(id);
+            const contact = contacts.find(c => String(c.id) === sid);
+            const profile = profiles[sid] || profiles[id] || {};
+            const displayName = profile.name || (contact ? (contact.remark || contact.name) : '') || `联系人${sid}`;
+            const username = profile.username || (contact ? (contact.id || '') : '') || sid;
+            const subtitle = profile.identity || '';
+            const avatar = profile.avatar
+                || (contact && contact.avatar)
+                || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(displayName)}`;
+            const userPayload = {
+                id: contact ? contact.id : sid,
+                name: displayName,
+                username: username,
+                avatar: avatar,
+                verified: !!profile.verified,
+                subtitle: subtitle,
+                bio: profile.bio || '',
+                realName: contact ? (contact.remark || contact.name || displayName) : displayName,
+                isFollowing: true,
+                stats: {
+                    posts: (forumState.posts || []).filter(p => String((p && p.userId) || '') === sid).length,
+                    followers: Number(profile.followers || 0) || 0,
+                    following: Number(profile.following || 0) || 0
+                }
+            };
+            const userJson = encodeURIComponent(JSON.stringify(userPayload));
+
+            return `
+                <div class="dm-user-row forum-following-row user-profile-trigger" style="padding: 12px 16px; cursor: pointer;" data-contact-id="${escapeForumHtml(sid)}" data-user-json="${userJson}">
+                    <img src="${avatar}" class="dm-user-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(displayName)}';">
+                    <div class="dm-user-info">
+                        <div class="dm-user-name">
+                            ${escapeForumHtml(displayName)}
+                            ${profile.verified ? '<i class="fas fa-check-circle verified-badge"></i>' : ''}
+                        </div>
+                        <div class="dm-user-sub">${escapeForumHtml('@' + username)}${subtitle ? ' · ' + escapeForumHtml(subtitle) : ''}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        if (!rows) {
+            return `
+                <div style="padding: 42px 20px; text-align: center; color: #8e8e8e; font-size: 14px;">
+                    暂无已关联联系人
+                </div>
+            `;
+        }
+
+        return `
+            <div style="padding-top: 6px;">
+                ${rows}
+            </div>
         `;
     }
 
@@ -5166,12 +5976,131 @@ ${hostModeExtra}
         renderForum();
     };
 
+    function closeForumAccountSwitchSheet() {
+        const existing = document.getElementById('forum-account-switch-sheet');
+        if (existing) existing.remove();
+    }
+
+    window.openForumAccountSwitchSheet = function() {
+        closeForumAccountSwitchSheet();
+        const linkedIds = getLinkedForumContactIds();
+        const contacts = (window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts))
+            ? window.iphoneSimState.contacts
+            : [];
+        const profiles = (forumState.settings && forumState.settings.contactProfiles)
+            ? forumState.settings.contactProfiles
+            : {};
+
+        const options = [
+            {
+                key: '__self__',
+                label: forumState.currentUser && (forumState.currentUser.bio || forumState.currentUser.username) ? (forumState.currentUser.bio || forumState.currentUser.username) : '我',
+                subtitle: '我的论坛账号',
+                avatar: (forumState.currentUser && forumState.currentUser.avatar)
+                    || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent('me')}`,
+                contactId: null
+            }
+        ];
+
+        linkedIds.forEach((id) => {
+            const contact = contacts.find(c => String(c.id) === String(id));
+            const profile = profiles[id] || profiles[String(id)] || {};
+            const label = profile.name || (contact ? (contact.remark || contact.name) : '') || `联系人${id}`;
+            const subtitle = `${profile.identity || '已关联联系人'}${profile.syncWechat ? ' · 互通已开' : ''}`;
+            const avatar = profile.avatar
+                || (contact && contact.avatar)
+                || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(label))}`;
+            options.push({
+                key: String(id),
+                label,
+                subtitle,
+                avatar,
+                contactId: id
+            });
+        });
+
+        const activeId = ensureActiveForumAccountValid();
+        const activeKey = activeId ? String(activeId) : '__self__';
+
+        const overlay = document.createElement('div');
+        overlay.id = 'forum-account-switch-sheet';
+        overlay.className = 'action-menu-overlay forum-account-switch-overlay';
+        overlay.innerHTML = `
+            <div class="forum-account-switch-sheet">
+                <div class="forum-account-switch-handle"></div>
+                <div class="forum-account-switch-title">切换账号</div>
+                <div class="forum-account-switch-list">
+                    ${options.map(item => `
+                        <button class="forum-account-switch-row ${item.key === activeKey ? 'active' : ''}" data-account-key="${escapeForumHtml(item.key)}" type="button">
+                            <img src="${item.avatar}" class="forum-account-switch-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(item.label || 'account'))}';">
+                            <div class="forum-account-switch-meta">
+                                <div class="forum-account-switch-name">${escapeForumHtml(item.label)}</div>
+                                <div class="forum-account-switch-subtitle">${escapeForumHtml(item.subtitle)}</div>
+                            </div>
+                            <div class="forum-account-switch-check">${item.key === activeKey ? '<i class="fas fa-check"></i>' : ''}</div>
+                        </button>
+                    `).join('')}
+                </div>
+                <div class="forum-account-switch-actions">
+                    <button class="forum-account-switch-btn secondary" id="forum-account-switch-cancel" type="button">取消</button>
+                </div>
+            </div>
+        `;
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                closeForumAccountSwitchSheet();
+                return;
+            }
+            const row = e.target.closest('.forum-account-switch-row');
+            if (row) {
+                const key = String(row.dataset.accountKey || '').trim();
+                const ok = setActiveForumAccountContactId(key === '__self__' ? '' : key);
+                if (!ok) {
+                    alert('该账号不可用');
+                    return;
+                }
+                closeForumAccountSwitchSheet();
+                if (forumState.activeTab === 'profile') {
+                    renderForum(false);
+                } else {
+                    forumState.activeTab = 'profile';
+                    renderForum();
+                }
+                if (key !== '__self__') {
+                    ensureSwitchedAccountFeedAndDm(key);
+                }
+                return;
+            }
+            if (e.target.closest('#forum-account-switch-cancel')) {
+                closeForumAccountSwitchSheet();
+            }
+        });
+
+        const app = document.getElementById('forum-app');
+        if (!app) return;
+        app.appendChild(overlay);
+    };
+
     function renderProfileTab() {
-        const user = forumState.currentUser;
+        const actor = getActiveForumAccountContext();
+        const user = (actor && actor.user) ? actor.user : forumState.currentUser;
+        const actorContactId = actor && !actor.isSelf ? String(actor.contactId) : '';
+        const loadingState = getActiveAccountSeedLoadingState();
+        const visiblePosts = getVisibleHomePostsForActiveAccount();
+        const linkedFollowingCount = getLinkedForumContactIds().length;
+        const followingDisplayCount = actorContactId ? (Number(user.following || 0) || 0) : linkedFollowingCount;
+        const followingStatAttrs = actorContactId
+            ? ''
+            : 'id="profile-following-entry" style="cursor: pointer;"';
         const activeTab = forumState.profileActiveTab || 'posts';
         
         // Filter my posts
-        const myPosts = forumState.posts.filter(p => p.user.username === user.username);
+        const myPosts = visiblePosts.filter((p) => {
+            if (!p) return false;
+            if (actorContactId) return String(p.userId || '') === actorContactId;
+            return p.user && p.user.username === user.username;
+        });
         
         let postsContent = '';
         if (myPosts.length > 0) {
@@ -5199,11 +6128,15 @@ ${hostModeExtra}
                 </div>
             `;
         } else {
-             postsContent = `
-                <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
-                    暂无帖子
-                </div>
-            `;
+            if (actorContactId && loadingState.isGenerating) {
+                postsContent = renderForumInlineLoadingBlock('正在生成该账号帖子...');
+            } else {
+                postsContent = `
+                    <div style="padding: 40px; text-align: center; color: #8e8e8e; font-size: 14px;">
+                        暂无帖子
+                    </div>
+                `;
+            }
         }
 
         const taggedContent = `
@@ -5233,8 +6166,8 @@ ${hostModeExtra}
                                         <span class="stat-num">${formatCount(user.followers)}</span>
                                         <span class="stat-label">粉丝</span>
                                     </div>
-                                    <div class="stat-item">
-                                        <span class="stat-num">${formatCount(user.following)}</span>
+                                    <div class="stat-item" ${followingStatAttrs}>
+                                        <span class="stat-num">${formatCount(followingDisplayCount)}</span>
                                         <span class="stat-label">关注</span>
                                     </div>
                                 </div>
@@ -5654,7 +6587,7 @@ ${hostModeExtra}
     window.openUserProfile = function(user) {
         if (!user) return;
         // If it's me, go to my profile tab
-        if (user.username === forumState.currentUser.username || user.name === forumState.currentUser.name) {
+        if (user.username === forumState.currentUser.username || user.name === forumState.currentUser.name || user.bio === forumState.currentUser.bio) {
              forumState.activeTab = 'profile';
         } else {
              forumState.viewingUser = user;
@@ -6304,7 +7237,8 @@ ${hostModeExtra}
     window.openForumChat = function(id) {
         if (forumState.dmMultiSelectMode) return; // Prevent opening chat in multi-select mode
         
-        const user = forumState.messages.find(m => m.id === id);
+        const visibleMessages = getVisibleDmMessagesForActiveAccount();
+        const user = visibleMessages.find(m => m.id === id);
         if (user) {
             forumState.activeChatUser = user;
             forumState.activeTab = 'chat';
@@ -7145,6 +8079,26 @@ ${hostModeExtra}
                 ensureForumWalletInitialized();
             });
         }
+        const forumAccountSwitchBtn = document.getElementById('forum-account-switch-btn');
+        if (forumAccountSwitchBtn) {
+            forumAccountSwitchBtn.addEventListener('click', () => {
+                window.openForumAccountSwitchSheet();
+            });
+        }
+        const profileFollowingEntry = document.getElementById('profile-following-entry');
+        if (profileFollowingEntry) {
+            profileFollowingEntry.addEventListener('click', () => {
+                forumState.activeTab = 'following_list';
+                renderForum();
+            });
+        }
+        const followingBackBtn = document.getElementById('forum-following-back');
+        if (followingBackBtn) {
+            followingBackBtn.addEventListener('click', () => {
+                forumState.activeTab = 'profile';
+                renderForum();
+            });
+        }
 
         const forumWalletBackBtn = document.getElementById('forum-wallet-back-title');
         if (forumWalletBackBtn) {
@@ -7360,6 +8314,7 @@ ${hostModeExtra}
                 forumState.settings.contactProfiles[contactId] = profile;
                 
                 localStorage.setItem('forum_settings', JSON.stringify(forumState.settings));
+                ensureActiveForumAccountValid();
                 
                 forumState.activeTab = 'forum_settings';
                 renderForum();
@@ -7736,10 +8691,13 @@ ${hostModeExtra}
     }
 
     function toggleDMSelectAll() {
-        if (forumState.selectedDmIds.size === forumState.messages.length) {
+        const visibleMessages = getVisibleDmMessagesForActiveAccount();
+        const allVisibleIds = visibleMessages.map(m => m.id);
+        const allSelected = allVisibleIds.length > 0 && allVisibleIds.every(id => forumState.selectedDmIds.has(id));
+        if (allSelected) {
             forumState.selectedDmIds.clear();
         } else {
-            forumState.messages.forEach(m => forumState.selectedDmIds.add(m.id));
+            forumState.selectedDmIds = new Set(allVisibleIds);
         }
         renderForum(false);
     }
@@ -8548,12 +9506,19 @@ ${charList}
 
                     // Fallback for user if missing (e.g. AI error or stranger mode)
                     if (!post.user) {
+                        const fallbackStrangerName = '路人' + Math.floor(Math.random() * 1000);
                         post.user = {
-                            name: '路人' + Math.floor(Math.random() * 1000),
-                            avatar: 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + Math.random(),
+                            name: fallbackStrangerName,
+                            avatar: buildForumGeneratedAvatar(fallbackStrangerName, 'main_generate_post_author'),
                             verified: false,
                             subtitle: ''
                         };
+                    } else if (!post.userId) {
+                        // Keep stranger author avatar style consistent with all generated stranger avatars.
+                        post.user.avatar = buildForumGeneratedAvatar(
+                            post.user.name || post.username || `路人${index + 1}`,
+                            'main_generate_post_author'
+                        );
                     }
 
                     if (Array.isArray(post.images)) {
@@ -8604,7 +9569,12 @@ ${charList}
                                     comment.user.name = '网友' + Math.floor(Math.random()*1000);
                                 }
                                 
-                                if (!comment.user.avatar) comment.user.avatar = `https://api.dicebear.com/7.x/lorelei/svg?seed=${Math.random()}`;
+                                if (!comment.user.avatar || !post.userId) {
+                                    comment.user.avatar = buildForumGeneratedAvatar(
+                                        comment.user.name || `评论者${index + 1}_${cIndex + 1}`,
+                                        'main_generate_post_commenter'
+                                    );
+                                }
                                 if (!comment.text) comment.text = '...';
                                 if (!comment.time) comment.time = '刚刚';
                                 
@@ -8632,7 +9602,12 @@ ${charList}
                                             if (!reply.user.name || reply.user.name === currentUserName || reply.user.name === '我') {
                                                 reply.user.name = '网友' + Math.floor(Math.random()*1000);
                                             }
-                                            if (!reply.user.avatar) reply.user.avatar = `https://api.dicebear.com/7.x/lorelei/svg?seed=${Math.random()}`;
+                                            if (!reply.user.avatar || !post.userId) {
+                                                reply.user.avatar = buildForumGeneratedAvatar(
+                                                    reply.user.name || `回复者${index + 1}_${cIndex + 1}_${rIndex + 1}`,
+                                                    'main_generate_post_reply'
+                                                );
+                                            }
                                         }
                                         
                                         if (!reply.text) reply.text = '...';
@@ -9042,8 +10017,8 @@ ${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人�
                     // Determine avatar: check if commenter is a known linked contact (by name match)
                     const matchedContact = linkedContactsData.find(lc => lc.name === c.name);
                     let avatar = matchedContact
-                        ? (matchedContact.avatar || 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + encodeURIComponent(c.name))
-                        : 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + encodeURIComponent(c.name) + Math.random();
+                        ? (matchedContact.avatar || buildForumGeneratedAvatar(c.name, 'main_generate_post_commenter'))
+                        : buildForumGeneratedAvatar(c.name, 'main_generate_post_commenter');
                     
                     post.comments_list.push({
                         id: Date.now() + Math.random(),
@@ -9078,8 +10053,10 @@ ${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人�
             return;
         }
 
+        const actor = getActiveForumAccountContext();
+        const actorUser = actor && actor.user ? actor.user : forumState.currentUser;
         // Calculate stats based on followers
-        const followers = forumState.currentUser.followers || 0;
+        const followers = Number(actorUser && actorUser.followers) || 0;
         let likes = 0, commentsCount = 0, forwards = 0, shares = 0;
 
         if (followers > 0) {
@@ -9100,8 +10077,8 @@ ${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人�
         const newPost = {
             id: Date.now(),
             user: { 
-                ...forumState.currentUser,
-                name: forumState.currentUser.bio || forumState.currentUser.username 
+                ...actorUser,
+                name: actorUser.bio || actorUser.username
             },
             // Store all images in the images array; keep image for backward compat
             images: (images && images.length > 0) ? [...images] : [],
@@ -9109,7 +10086,8 @@ ${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人�
             caption: caption || '',
             time: '刚刚',
             stats: { likes, comments: commentsCount, forwards, shares, sends: shares },
-            comments_list: []
+            comments_list: [],
+            userId: actor && !actor.isSelf ? actor.contactId : null
         };
         
         forumState.posts.unshift(newPost);
@@ -9123,6 +10101,11 @@ ${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人�
 
         // Trigger stranger DM generation
         generateStrangerDMs(newPost);
+
+        if (actor && !actor.isSelf && actor.contactId) {
+            window.syncForumEventToChat(actor.contactId, `[发布了论坛帖子]: "${caption || '图片帖子'}"`);
+            notifyProxyAccountUsage(`发布了帖子「${truncateForumText(caption || '图片帖子', 20) || '图片帖子'}」`);
+        }
     };
 
     // --- Stranger DM Generation ---
@@ -9205,7 +10188,10 @@ ${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人�
                 if (!dm.name || !dm.message) return;
 
                 const newMsgId = now + idx + 9000;
-                const avatarUrl = 'https://api.dicebear.com/7.x/lorelei/svg?seed=' + encodeURIComponent(dm.avatarSeed || dm.name + Math.random());
+                const avatarUrl = buildForumGeneratedAvatar(
+                    dm.name || dm.username || `陌生私信${idx + 1}`,
+                    'main_generate_stranger_dm'
+                );
 
                 // Add to messages list (shown in DM tab)
                 forumState.messages.unshift({

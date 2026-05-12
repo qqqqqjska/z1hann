@@ -3849,3 +3849,133 @@ input:checked + .slider:before {
     background: #111;
     color: #fff;
 }
+
+.forum-account-switch-overlay {
+    z-index: 2300;
+}
+
+.forum-account-switch-sheet {
+    background: #fff;
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+    padding: 8px 0 16px;
+    max-height: 72vh;
+    display: flex;
+    flex-direction: column;
+    animation: slideUpBar 0.22s ease-out;
+}
+
+.forum-account-switch-handle {
+    width: 42px;
+    height: 5px;
+    border-radius: 999px;
+    background: #d7d7dc;
+    margin: 2px auto 10px;
+}
+
+.forum-account-switch-title {
+    text-align: center;
+    font-size: 17px;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 8px;
+}
+
+.forum-account-switch-list {
+    overflow-y: auto;
+    padding: 0 10px;
+    flex: 1;
+}
+
+.forum-account-switch-row {
+    width: 100%;
+    border: none;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 8px;
+    border-radius: 12px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.forum-account-switch-row:active {
+    background: #f3f4f6;
+}
+
+.forum-account-switch-row.active {
+    background: #eef5ff;
+}
+
+.forum-account-switch-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.forum-account-switch-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.forum-account-switch-name {
+    font-size: 15px;
+    color: #121212;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.forum-account-switch-subtitle {
+    font-size: 12px;
+    color: #8b8b90;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.forum-account-switch-check {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #c9c9cf;
+    border-radius: 50%;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
+.forum-account-switch-row.active .forum-account-switch-check {
+    border-color: #1677ff;
+    background: #1677ff;
+}
+
+.forum-account-switch-actions {
+    display: flex;
+    gap: 10px;
+    padding: 10px 14px 0;
+    border-top: 1px solid #f0f0f2;
+    margin-top: 8px;
+}
+
+.forum-account-switch-btn {
+    flex: 1;
+    border: none;
+    border-radius: 12px;
+    padding: 11px 0;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.forum-account-switch-btn.secondary {
+    background: #f1f2f4;
+    color: #222;
+}
