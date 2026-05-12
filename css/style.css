@@ -4378,6 +4378,152 @@ input:checked + .slider:before {
     line-height: 0 !important;
 }
 
+.chat-message .message-content.forum-post-share-msg {
+    width: fit-content !important;
+    height: fit-content !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
+    display: block !important;
+    align-self: flex-start;
+}
+
+.forum-post-share-card {
+    width: min(264px, 76vw);
+    border-radius: 14px;
+    background: #ffffff;
+    border: 1px solid #f0f0f0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+    padding: 11px 12px 10px;
+    color: #111;
+    cursor: pointer;
+    user-select: none;
+}
+
+.chat-message.user .forum-post-share-card {
+    background: #ffffff;
+    border-color: #eaeaea;
+}
+
+.forum-post-share-logo {
+    display: block;
+    height: 40px;
+    width: auto;
+    margin-top: -12px;
+}
+
+.forum-post-share-title {
+    margin-top: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #111;
+}
+
+.forum-post-share-title-hidden {
+    display: none;
+}
+
+.forum-post-share-author {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.forum-post-share-preview {
+    margin-top: 7px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #1f1f1f;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.forum-post-share-stats {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #555;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.forum-post-share-stat-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #444;
+}
+
+.forum-post-share-stat-icon {
+    width: 14px;
+    height: 14px;
+    object-fit: contain;
+    display: block;
+}
+
+.forum-post-share-stat-heart-icon {
+    font-size: 14px;
+    line-height: 1;
+    color: #111;
+}
+
+.forum-post-share-summary {
+    margin-top: 8px;
+    border-top: 1px solid #e4e4e8;
+    padding-top: 7px;
+}
+
+.forum-post-share-summary-line {
+    display: flex;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.32;
+    color: #3d3d3d;
+    margin-bottom: 4px;
+}
+
+.forum-post-share-summary-name {
+    flex-shrink: 0;
+    font-weight: 700;
+    color: #222;
+}
+
+.forum-post-share-summary-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.forum-post-share-foot {
+    margin-top: 5px;
+    font-size: 11px;
+    color: #666;
+    font-weight: 600;
+}
+
+.forum-share-target-flash {
+    animation: forumShareTargetFlash 1.2s ease-out 1;
+    outline: 2px solid rgba(0, 0, 0, 0.26);
+    outline-offset: 2px;
+    border-radius: 10px;
+}
+
+@keyframes forumShareTargetFlash {
+    0% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.18); }
+    55% { box-shadow: 0 0 0 8px rgba(0, 0, 0, 0.06); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+
 /* --------------------------------------------------------- */
 /* Music Listen Invite Card (Pure CSS Version)                */
 /* 调位置入口：直接改这里的变量，分别控制每个元素上下偏�?*/

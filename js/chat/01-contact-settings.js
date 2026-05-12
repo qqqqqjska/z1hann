@@ -2447,6 +2447,7 @@ function formatLastMsgPreview(lastMsg, contact = null) {
     else if (lastMsg.type === 'savings_invite') preview = '[共同存钱邀请]';
     else if (lastMsg.type === 'savings_withdraw_request') preview = '[共同存钱转出申请]';
     else if (lastMsg.type === 'savings_progress') preview = '[共同存钱进度]';
+    else if (lastMsg.type === 'forum_post_share') preview = '[论坛帖子分享]';
     else if (lastMsg.type === 'voice_call_text') preview = '[通话]';
     else if (lastMsg.type === 'text' || lastMsg.type === 'html') {
         const content = typeof lastMsg.content === 'string' ? lastMsg.content : '';
@@ -3721,7 +3722,7 @@ async function generateInitialProfile(contact, options = {}) {
     const forceRegenerate = !!(options && options.forceRegenerate);
     const previousSnapshot = options && options.previousSnapshot ? options.previousSnapshot : null;
 
-    document.getElementById('ai-profile-name').textContent = forceRegenerate ? '正在重新生成资料...' : '正在生成资料...';
+    document.getElementById('ai-profile-name').textContent = forceRegenerate ? '正在重新加载资料...' : '正在加载资料...';
     document.getElementById('ai-profile-screen').classList.remove('hidden');
 
     try {

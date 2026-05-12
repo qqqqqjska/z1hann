@@ -275,6 +275,149 @@ function escapeChatMessageHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function parseForumPostSharePayload(rawPayload) {
+    try {
+        let payloadSource = rawPayload;
+        if (typeof payloadSource === 'string') {
+            const trimmed = payloadSource.trim();
+            if (!trimmed) return null;
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                payloadSource = trimmed;
+            } else {
+                try {
+                    payloadSource = decodeURIComponent(trimmed);
+                } catch (decodeErr) {
+                    payloadSource = trimmed;
+                }
+            }
+        }
+        const parsed = typeof payloadSource === 'string' ? JSON.parse(payloadSource) : payloadSource;
+        if (!parsed || typeof parsed !== 'object') return null;
+        return parsed;
+    } catch (e) {
+        return null;
+    }
+}
+
+function openForumAppFromShareCard(postId) {
+    const openByDock = () => {
+        const dockItem = document.querySelector('.dock-item[data-app-id="forum-app"]');
+        if (dockItem) {
+            dockItem.click();
+            return true;
+        }
+        return false;
+    };
+
+    const closeCurrentMainApps = () => {
+        document.querySelectorAll('.app-screen').forEach((el) => {
+            if (el && el.id !== 'forum-app') el.classList.add('hidden');
+        });
+    };
+
+    const jumpToPost = () => {
+        if (typeof window.openForumPostById === 'function') {
+            return window.openForumPostById(postId);
+        }
+        return false;
+    };
+
+    if (!openByDock()) {
+        closeCurrentMainApps();
+        const forumScreen = document.getElementById('forum-app');
+        if (forumScreen) forumScreen.classList.remove('hidden');
+        if (typeof window.initForumApp === 'function') {
+            try { window.initForumApp(); } catch (e) {}
+        }
+    }
+
+    let attempts = 0;
+    const maxAttempts = 22;
+    const timer = setInterval(() => {
+        attempts += 1;
+        const ok = jumpToPost();
+        if (ok || attempts >= maxAttempts) {
+            clearInterval(timer);
+            if (!ok && typeof window.showChatToast === 'function') {
+                window.showChatToast('未找到该帖子，已打开论坛');
+            }
+        }
+    }, 80);
+}
+
+function openForumPostShareDetail(payload) {
+    const data = parseForumPostSharePayload(payload);
+    if (!data) {
+        if (typeof window.showChatToast === 'function') window.showChatToast('分享卡片已损坏');
+        return;
+    }
+
+    const numericPostId = Number(data.postId);
+    if (Number.isFinite(numericPostId) && numericPostId > 0) {
+        openForumAppFromShareCard(numericPostId);
+        return;
+    }
+
+    let modal = document.getElementById('forum-post-share-detail-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'forum-post-share-detail-modal';
+        modal.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:10060',
+            'background:rgba(0,0,0,0.46)',
+            'display:none',
+            'align-items:center',
+            'justify-content:center',
+            'padding:16px'
+        ].join(';');
+        modal.innerHTML = `
+            <div id="forum-post-share-detail-card" style="width:min(92vw,360px);max-height:80vh;overflow:hidden;background:#fff;border-radius:18px;box-shadow:0 16px 36px rgba(0,0,0,0.24);display:flex;flex-direction:column;">
+                <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;">
+                    <strong style="font-size:16px;color:#111;">论坛帖子分享</strong>
+                    <button id="forum-post-share-detail-close" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">×</button>
+                </div>
+                <div id="forum-post-share-detail-body" style="padding:14px 16px 16px;font-size:13px;color:#222;line-height:1.55;overflow:auto;"></div>
+            </div>
+        `;
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.style.display = 'none';
+        });
+        document.body.appendChild(modal);
+        const closeBtn = modal.querySelector('#forum-post-share-detail-close');
+        if (closeBtn) {
+            closeBtn.onclick = () => { modal.style.display = 'none'; };
+        }
+    }
+
+    const body = modal.querySelector('#forum-post-share-detail-body');
+    if (body) {
+        const authorName = escapeChatMessageHtml(data.authorName || '未知作者');
+        const authorSubtitle = escapeChatMessageHtml(data.authorSubtitle || '');
+        const timeText = escapeChatMessageHtml(data.time || '刚刚');
+        const contentPreview = escapeChatMessageHtml(data.contentPreview || '（无正文）');
+        const stats = data.stats || {};
+        const likes = Number(stats.likes || 0);
+        const comments = Number(stats.comments || 0);
+        const forwards = Number(stats.forwards || 0);
+        const shares = Number(stats.shares || 0);
+        body.innerHTML = `
+            <div style="font-size:14px;font-weight:700;color:#111;margin-bottom:4px;">${authorName}${authorSubtitle ? ` · ${authorSubtitle}` : ''}</div>
+            <div style="font-size:12px;color:#7b7b80;margin-bottom:8px;">${timeText}</div>
+            <div style="font-size:14px;color:#111;line-height:1.6;padding:10px 12px;border-radius:10px;background:#f7f7f9;margin-bottom:10px;">${contentPreview}</div>
+            <div style="font-size:12px;color:#4b5563;margin-bottom:10px;">❤️ ${likes}　💬 ${comments}　🔁 ${forwards}　✈️ ${shares}</div>
+            <div style="font-size:12px;color:#6b7280;">无可跳转帖子 ID，仅显示卡片详情。</div>
+        `;
+    }
+
+    modal.style.display = 'flex';
+}
+
+if (!window.openForumPostShareDetail) {
+    window.openForumPostShareDetail = openForumPostShareDetail;
+}
+
 function isLikelyChatImageUrl(value) {
     const text = String(value || '').trim();
     if (!text || !/^https?:\/\/\S+$/i.test(text)) return false;
@@ -684,7 +827,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         }
     }
 
-    const noBubbleTypes = new Set(['image', 'sticker', 'virtual_image', 'description', 'transfer', 'red_packet', 'group_poll', 'group_relay', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite']);
+    const noBubbleTypes = new Set(['image', 'sticker', 'virtual_image', 'description', 'transfer', 'red_packet', 'group_poll', 'group_relay', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite', 'forum_post_share']);
     const currentMessageUsesBubbleTail = !noBubbleTypes.has(type);
 
     if (!showTimestamp && currentMessageUsesBubbleTail && lastMsg && lastMsg.classList.contains('chat-message')) {
@@ -1141,7 +1284,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
 
     let extraClass = '';
     const isHtmlTextMessage = type === 'text' && isHtmlPayloadForParser(text);
-    const cardTypes = ['transfer', 'red_packet', 'group_poll', 'group_relay', 'private_chat_invite', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite'];
+    const cardTypes = ['transfer', 'red_packet', 'group_poll', 'group_relay', 'private_chat_invite', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite', 'forum_post_share'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
     }
@@ -1304,6 +1447,41 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                         <i class="fas fa-play"></i>
                     </div>
                 </div>
+            </div>
+        `;
+    } else if (type === 'forum_post_share') {
+        extraClass += ' forum-post-share-msg';
+        const shareData = parseForumPostSharePayload(text) || {};
+        const safePayload = encodeURIComponent(JSON.stringify(shareData || {})).replace(/'/g, "\\'");
+        const author = escapeChatMessageHtml(shareData.authorName || '未知作者');
+        const subtitle = escapeChatMessageHtml(shareData.authorSubtitle || '');
+        const title = escapeChatMessageHtml(shareData.title || '论坛帖子分享');
+        const preview = escapeChatMessageHtml(shareData.contentPreview || '（无正文）');
+        const stats = shareData.stats || {};
+        const summaryList = Array.isArray(shareData.commentsSummary) ? shareData.commentsSummary : [];
+        void summaryList;
+
+        contentHtml = `
+            <div class="forum-post-share-card" onclick="window.openForumPostShareDetail && window.openForumPostShareDetail('${safePayload}')">
+                <img src="https://i.postimg.cc/B6rSJSKs/wu-biao-ti94-20260213222425.png" class="forum-post-share-logo" alt="Forum">
+                <div class="forum-post-share-title forum-post-share-title-hidden">${title}</div>
+                <div class="forum-post-share-author">${author}${subtitle ? ` · ${subtitle}` : ''}</div>
+                <div class="forum-post-share-preview">${preview}</div>
+                <div class="forum-post-share-stats">
+                    <span class="forum-post-share-stat-item">
+                        <i class="far fa-heart forum-post-share-stat-heart-icon" aria-hidden="true"></i>
+                        <span>${Number(stats.likes || 0)}</span>
+                    </span>
+                    <span class="forum-post-share-stat-item">
+                        <img src="https://i.postimg.cc/GmHtkm1B/无标题98_20260213233618.png" class="forum-post-share-stat-icon">
+                        <span>${Number(stats.comments || 0)}</span>
+                    </span>
+                    <span class="forum-post-share-stat-item">
+                        <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="forum-post-share-stat-icon">
+                        <span>${Number(stats.forwards || 0)}</span>
+                    </span>
+                </div>
+                <div class="forum-post-share-foot">点击跳转论坛帖子</div>
             </div>
         `;
     } else if (type === 'delivery_share') {
@@ -2834,6 +3012,7 @@ function handleQuote(msgData) {
     else if (msgData.type === 'family_card') previewText = '[亲属卡]';
     else if (msgData.type === 'pay_request') previewText = '[代付请求]';
     else if (msgData.type === 'music_listen_invite') previewText = '[一起听邀请]';
+    else if (msgData.type === 'forum_post_share') previewText = '[论坛帖子分享]';
     
     document.getElementById('reply-text').textContent = previewText;
     replyBar.classList.remove('hidden');
@@ -6704,6 +6883,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         else if (msg.type === 'savings_withdraw_request') notifContent = '[共同存钱转出申请]';
                         else if (msg.type === 'savings_progress') notifContent = '[共同存钱进度]';
                         else if (msg.type === 'music_listen_invite') notifContent = '[一起听邀请]';
+                        else if (msg.type === 'forum_post_share') notifContent = '[论坛帖子分享]';
                         else if (msg.type === 'virtual_image') notifContent = '[图片]';
                         else if (msg.type === 'sticker') notifContent = '[表情包]';
                         else if (msg.type === 'red_packet') notifContent = '[红包]';

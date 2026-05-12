@@ -123,8 +123,19 @@
                 source: raw && raw.source ? raw.source : 'none',
                 generatedAt: raw && raw.generatedAt ? raw.generatedAt : null
             };
-        })()
+        })(),
+        hotSearchKeywords: JSON.parse(localStorage.getItem('forum_hot_search_keywords') || '[]'),
+        hotSearchData: JSON.parse(localStorage.getItem('forum_hot_search_data') || 'null'),
+        isGeneratingHotSearch: false,
+        topicPostsView: {
+            title: '',
+            posts: [],
+            isGenerating: false
+        },
+        topicPostsCache: JSON.parse(localStorage.getItem('forum_topic_posts_cache') || '{}'),
+        topicPostsRequestToken: 0
     };
+    let forumPostForwardState = null;
 
     function initForum() {
         const app = document.getElementById('forum-app');
@@ -2999,6 +3010,14 @@ ${hostModeExtra}
                 headerHtml = renderDMHeader(); // Special header for this view
                 contentHtml = renderDMTab();
                 break;
+            case 'explore':
+                headerHtml = renderExploreHeader();
+                contentHtml = renderExploreTab();
+                break;
+            case 'topic_posts':
+                headerHtml = renderTopicPostsHeader();
+                contentHtml = renderTopicPostsTab();
+                break;
             case 'profile':
                 headerHtml = renderProfileHeader();
                 contentHtml = renderProfileTab();
@@ -3043,7 +3062,7 @@ ${hostModeExtra}
                 contentHtml = renderHomeTab();
         }
 
-        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts' && forumState.activeTab !== 'my_profile_posts' && forumState.activeTab !== 'create_post' && forumState.activeTab !== 'forum_wallet';
+        const showNav = forumState.activeTab !== 'edit_profile' && forumState.activeTab !== 'forum_settings' && forumState.activeTab !== 'forum_edit_contact' && forumState.activeTab !== 'chat' && forumState.activeTab !== 'other_profile' && forumState.activeTab !== 'other_profile_posts' && forumState.activeTab !== 'my_profile_posts' && forumState.activeTab !== 'create_post' && forumState.activeTab !== 'forum_wallet' && forumState.activeTab !== 'topic_posts';
 
         const multiSelectBarHtml = forumState.multiSelectMode ? `
             <div class="forum-multi-select-bar">
@@ -3393,7 +3412,9 @@ ${hostModeExtra}
         const existing = document.getElementById('comments-overlay');
         
         // Initialize post comments if needed
-        if (post && !post.comments_list) {
+        if (post && post._generatedTopicPost && Array.isArray(post.comments_list)) {
+            comments = post.comments_list;
+        } else if (post && !post.comments_list) {
             post.comments_list = JSON.parse(JSON.stringify(mockComments));
         }
         
@@ -3418,7 +3439,7 @@ ${hostModeExtra}
                         return `
                         <div class="comment-item reply-item" data-id="${reply.id}">
                              ${replyCheckboxHtml}
-                             <img src="${reply.user.avatar}" class="comment-avatar reply-avatar">
+                             <img src="${reply.user.avatar}" class="comment-avatar reply-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String((reply.user && reply.user.name) || 'reply'))}';">
                              <div class="comment-content">
                                 <div class="comment-row-1">
                                     <span class="comment-username">${reply.user.name}</span>
@@ -3444,7 +3465,7 @@ ${hostModeExtra}
                 <div class="comment-wrapper">
                     <div class="comment-item" data-id="${comment.id}">
                         ${checkboxHtml}
-                        <img src="${comment.user.avatar}" class="comment-avatar">
+                        <img src="${comment.user.avatar}" class="comment-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String((comment.user && comment.user.name) || 'commenter'))}';">
                         <div class="comment-content">
                             <div class="comment-row-1">
                                 <span class="comment-username">${comment.user.name}</span>
@@ -3536,8 +3557,9 @@ ${hostModeExtra}
                 const text = input.value.trim();
                 if (!text) return;
                 
-                if (post) {
-                    const newComment = {
+                    if (post) {
+                        if (!Array.isArray(post.comments_list)) post.comments_list = [];
+                        const newComment = {
                         id: Date.now(),
                         user: {
                             ...forumState.currentUser,
@@ -3883,6 +3905,116 @@ ${hostModeExtra}
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                 </div>
+            </div>
+        `;
+    }
+
+    function renderExploreHeader() {
+        const rightIconClass = forumState.isGeneratingHotSearch
+            ? 'ri-loader-4-line forum-hotsearch-spin'
+            : 'ri-loader-4-line';
+        return `
+            <div class="forum-hotsearch-nav">
+                <div class="forum-hotsearch-nav-logo">
+                    Discover<span>_</span>
+                </div>
+                <div class="forum-hotsearch-nav-actions">
+                    <button class="forum-hotsearch-icon-btn" id="forum-hotsearch-generate-btn" type="button" aria-label="生成热搜">
+                        <i class="${rightIconClass}"></i>
+                    </button>
+                    <button class="forum-hotsearch-icon-btn" id="forum-hotsearch-search-btn" type="button" aria-label="关键词搜索">
+                        <i class="ri-menu-4-line"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    function closeForumHotSearchKeywordOverlay() {
+        const existing = document.getElementById('forum-hotsearch-search-overlay');
+        if (existing) existing.remove();
+    }
+
+    window.openForumHotSearchKeywordBox = function(defaultKeyword = '') {
+        closeForumHotSearchKeywordOverlay();
+        const safeDefault = escapeForumHtml(String(defaultKeyword || ''));
+        const overlay = document.createElement('div');
+        overlay.id = 'forum-hotsearch-search-overlay';
+        overlay.className = 'action-menu-overlay forum-hotsearch-search-overlay';
+        overlay.innerHTML = `
+            <div class="forum-hotsearch-search-box">
+                <div class="forum-hotsearch-search-title">关键词搜索</div>
+                <div class="forum-hotsearch-search-subtitle">输入关键词并回车，生成相关帖子和评论</div>
+                <input
+                    id="forum-hotsearch-search-input"
+                    class="forum-hotsearch-search-input"
+                    type="text"
+                    maxlength="40"
+                    value="${safeDefault}"
+                    placeholder="例如：地铁通勤、校园穿搭、夜跑安全"
+                >
+                <div class="forum-hotsearch-search-actions">
+                    <button class="forum-hotsearch-search-btn secondary" id="forum-hotsearch-search-cancel" type="button">取消</button>
+                    <button class="forum-hotsearch-search-btn primary" id="forum-hotsearch-search-submit" type="button">搜索</button>
+                </div>
+            </div>
+        `;
+
+        const app = document.getElementById('forum-app');
+        if (!app) return;
+        app.appendChild(overlay);
+
+        const input = overlay.querySelector('#forum-hotsearch-search-input');
+        const submitBtn = overlay.querySelector('#forum-hotsearch-search-submit');
+        const cancelBtn = overlay.querySelector('#forum-hotsearch-search-cancel');
+
+        const handleSubmit = () => {
+            const keyword = normalizeForumText(input ? input.value : '');
+            if (!keyword) {
+                alert('请输入关键词');
+                if (input) input.focus();
+                return;
+            }
+
+            const existingKeywords = Array.isArray(forumState.hotSearchKeywords) ? forumState.hotSearchKeywords : [];
+            forumState.hotSearchKeywords = [keyword, ...existingKeywords.filter(item => String(item || '').trim().toLowerCase() !== keyword.toLowerCase())].slice(0, 16);
+            saveHotSearchData();
+
+            closeForumHotSearchKeywordOverlay();
+            window.openHotTopicPosts(keyword);
+        };
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                closeForumHotSearchKeywordOverlay();
+            }
+        });
+        if (submitBtn) submitBtn.addEventListener('click', handleSubmit);
+        if (cancelBtn) cancelBtn.addEventListener('click', closeForumHotSearchKeywordOverlay);
+        if (input) {
+            input.focus();
+            input.select();
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSubmit();
+                }
+            });
+        }
+    };
+
+    function renderTopicPostsHeader() {
+        const topic = (forumState.topicPostsView && forumState.topicPostsView.title) ? forumState.topicPostsView.title : '话题帖子';
+        return `
+            <div class="forum-header">
+                <div class="header-left">
+                    <i class="fas fa-chevron-left" onclick="window.backToExploreFromTopicPosts()" style="font-size: 24px; cursor: pointer;"></i>
+                </div>
+                <div class="header-center" style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="font-size: 16px; color: #000; font-weight: 700; line-height: 1.2;">帖子</div>
+                    <div style="font-size: 12px; color: #666; font-weight: 400; line-height: 1.2;">${topic}</div>
+                </div>
+                <div class="header-right"></div>
             </div>
         `;
     }
@@ -4596,6 +4728,167 @@ ${hostModeExtra}
         `;
     }
 
+    function formatCompactNumber(value) {
+        const n = Number(value) || 0;
+        if (n >= 100000000) return (Math.round((n / 100000000) * 10) / 10) + '亿';
+        if (n >= 10000) return (Math.round((n / 10000) * 10) / 10) + 'w';
+        if (n >= 1000) return (Math.round((n / 1000) * 10) / 10) + 'k';
+        return String(Math.max(0, Math.round(n)));
+    }
+
+    function normalizeHotSearchData(payload) {
+        const fallbackCategories = ['热点', '趋势', '讨论', '生活', '社会', '科技', '娱乐', '观点'];
+        const fallbackTrends = ['up', 'flat', 'down'];
+        const arr = Array.isArray(payload)
+            ? payload
+            : (payload && Array.isArray(payload.items) ? payload.items : []);
+        const normalized = arr.map((item, index) => {
+            const title = String(
+                (item && (item.title || item.name || item.keyword || item.topic)) || `热搜话题 ${index + 1}`
+            ).trim();
+            const category = String(
+                (item && (item.category || item.tag || item.type)) || fallbackCategories[index % fallbackCategories.length]
+            ).trim();
+            const rawViews = item && (item.views || item.heat || item.engagements || item.engagement || item.popularity);
+            let views = Number(rawViews);
+            if (!Number.isFinite(views) || views <= 0) {
+                views = Math.max(120000, Math.round((Math.random() * 1.1 + 0.9) * (1000000 - index * 68000)));
+            }
+            const trendRaw = String((item && (item.trend || item.direction)) || '').toLowerCase();
+            const trend = trendRaw.includes('down') || trendRaw.includes('下降') || trendRaw.includes('跌')
+                ? 'down'
+                : (trendRaw.includes('flat') || trendRaw.includes('stable') || trendRaw.includes('持平') || trendRaw.includes('平')
+                    ? 'flat'
+                    : (trendRaw.includes('up') || trendRaw.includes('rise') || trendRaw.includes('升') || trendRaw.includes('涨')
+                        ? 'up'
+                        : fallbackTrends[index % fallbackTrends.length]));
+            return {
+                title,
+                category,
+                views,
+                trend
+            };
+        }).filter(item => item.title);
+
+        const sorted = normalized.sort((a, b) => b.views - a.views).slice(0, 8);
+        if (sorted.length === 0) {
+            return [
+                { title: '城市通勤效率突然提升', category: '社会', views: 3600000, trend: 'up' },
+                { title: '新型电池技术完成实测', category: '科技', views: 2980000, trend: 'up' },
+                { title: '周末市集打卡路线爆火', category: '生活', views: 2140000, trend: 'flat' },
+                { title: '短途旅行预算模板走红', category: '趋势', views: 1620000, trend: 'down' },
+                { title: '雨夜摄影参数分享', category: '讨论', views: 980000, trend: 'up' }
+            ];
+        }
+        return sorted;
+    }
+
+    function buildFallbackHotSearchData() {
+        const worldview = (forumState.settings && forumState.settings.forumWorldview)
+            ? String(forumState.settings.forumWorldview).trim()
+            : '';
+        const topicPrefix = worldview ? worldview.substring(0, 12) : '城市日常';
+        return normalizeHotSearchData([
+            { title: `${topicPrefix}下班高峰避堵路线`, category: '社会', views: 4280000, trend: 'up' },
+            { title: `${topicPrefix}咖啡馆夜读打卡`, category: '生活', views: 3520000, trend: 'up' },
+            { title: '实时天气穿搭讨论', category: '趋势', views: 2880000, trend: 'flat' },
+            { title: '便携相机参数推荐', category: '科技', views: 2140000, trend: 'up' },
+            { title: '周末短途游路线', category: '热点', views: 1830000, trend: 'down' },
+            { title: '地铁口小吃排名', category: '讨论', views: 1540000, trend: 'up' },
+            { title: '独立乐队现场片段', category: '娱乐', views: 1280000, trend: 'flat' },
+            { title: '夜跑安全装备清单', category: '生活', views: 940000, trend: 'up' }
+        ]);
+    }
+
+    function renderExploreTrendIcon(trend) {
+        if (trend === 'down') {
+            return '<i class="ri-arrow-right-down-line forum-hotsearch-trend-down"></i>';
+        }
+        if (trend === 'flat') {
+            return '<i class="ri-subtract-line"></i>';
+        }
+        return '<i class="ri-arrow-right-up-line"></i>';
+    }
+
+    function renderExploreTab() {
+        const hotItems = normalizeHotSearchData(forumState.hotSearchData || buildFallbackHotSearchData());
+        forumState.hotSearchData = hotItems;
+        const topCards = hotItems.slice(0, 3);
+        const listItems = hotItems.slice(3);
+
+        const cardsHtml = topCards.map((item, index) => {
+            const rank = String(index + 1).padStart(2, '0');
+            const lightClass = index === 0 ? '' : 'light';
+            const tag = index === 0 ? 'Trending #1' : (item.category || 'Hot Topic');
+            return `
+                <div class="forum-hotsearch-card ${lightClass}" data-hot-topic="${encodeURIComponent(item.title)}">
+                    <div class="forum-hotsearch-card-rank">${rank}</div>
+                    <div class="forum-hotsearch-card-tag">${tag}</div>
+                    <div class="forum-hotsearch-card-title">${item.title}</div>
+                    <div class="forum-hotsearch-card-stats">
+                        <i class="ri-fire-line"></i> ${formatCompactNumber(item.views)} Engagements
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        const listHtml = listItems.map((item, idx) => `
+            <div class="forum-hotsearch-list-item" data-hot-topic="${encodeURIComponent(item.title)}">
+                <div class="forum-hotsearch-item-index">${String(idx + 4).padStart(2, '0')}</div>
+                <div class="forum-hotsearch-item-content">
+                    <div class="forum-hotsearch-item-name">${item.title}</div>
+                    <div class="forum-hotsearch-item-category"><span>${item.category}</span><span>•</span><span>${formatCompactNumber(item.views)} views</span></div>
+                </div>
+                <div class="forum-hotsearch-item-trend">${renderExploreTrendIcon(item.trend)}</div>
+            </div>
+        `).join('');
+
+        return `
+            <div class="forum-hotsearch-page">
+                <header class="forum-hotsearch-section-header">
+                    <h2>Highlights</h2>
+                    <p>Top discussions in the last 24 hours.</p>
+                </header>
+
+                <div class="forum-hotsearch-top-cards">
+                    ${cardsHtml}
+                </div>
+
+                <div class="forum-hotsearch-divider"></div>
+
+                <div class="forum-hotsearch-list-container">
+                    <div class="forum-hotsearch-list-title">More Trending Searches</div>
+                    ${listHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderTopicPostsTab() {
+        const view = forumState.topicPostsView || {};
+        const posts = Array.isArray(view.posts) ? view.posts : [];
+        if (view.isGenerating) {
+            return `
+                <div class="feed-container" style="padding: 40px 20px;">
+                    <div style="text-align: center; color: #8e8e8e;">
+                        <i class="fas fa-spinner fa-spin" style="font-size: 18px; margin-right: 8px;"></i> 正在加载话题帖子与评论...
+                    </div>
+                </div>
+            `;
+        }
+        if (posts.length === 0) {
+            return '<div style="padding: 40px; text-align: center; color: #8e8e8e;">暂无帖子</div>';
+        }
+        return `
+            <div class="feed-container" style="padding-bottom: 20px;">
+                ${posts.map(post => {
+                    const postHtml = renderPost(post);
+                    return postHtml.replace('class="post-item', `class="post-item topic-post-item`);
+                }).join('')}
+            </div>
+        `;
+    }
+
     function renderDMTab() {
         // Search bar + Notes + Messages List
         
@@ -5006,7 +5299,7 @@ ${hostModeExtra}
             return `
                 <div class="profile-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
                     <i class="fas fa-spinner fa-spin" style="font-size: 32px; color: #0095f6; margin-bottom: 20px;"></i>
-                    <div style="color: #8e8e8e;">正在生成主页内容...</div>
+                    <div style="color: #8e8e8e;">正在加载主页内容...</div>
                 </div>
             `;
         }
@@ -6275,6 +6568,9 @@ ${hostModeExtra}
     };
 
     function renderPost(post) {
+        const safeUserAvatar = (post && post.user && post.user.avatar)
+            ? post.user.avatar
+            : `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String((post && post.user && post.user.name) || 'user'))}`;
         // Determine images array: support both single image and multi-image posts
         const images = ((Array.isArray(post.images) && post.images.length > 0)
             ? post.images
@@ -6304,9 +6600,9 @@ ${hostModeExtra}
                         <img src="https://i.postimg.cc/fyG4XnSn/wu-biao-ti98-20260215020652.png" class="post-action-icon">
                         <span class="action-count">${formatCount(post.stats.forwards || 0)}</span>
                     </div>
-                    <div class="action-item">
+                    <div class="action-item post-forward-btn" data-id="${post.id}">
                         <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="post-action-icon">
-                        <span class="action-count">${formatCount(post.stats.shares)}</span>
+                        <span class="action-count">${formatCount(post.stats.shares || 0)}</span>
                     </div>
                 </div>
                 <div class="actions-right-group">
@@ -6406,7 +6702,7 @@ ${hostModeExtra}
                 ${isMultiSelect ? `<div class="post-select-checkbox ${isSelected ? 'selected' : ''}" data-post-id="${post.id}"></div>` : ''}
                 <div class="post-header">
                     <div class="post-user-info-wrapper user-profile-trigger" data-user-json="${encodeURIComponent(JSON.stringify(post.user))}" style="cursor: pointer;">
-                        <img src="${post.user.avatar}" class="post-user-avatar">
+                        <img src="${safeUserAvatar}" class="post-user-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String((post && post.user && post.user.name) || 'user'))}';">
                         <div class="post-user-text">
                             <div class="post-username-row">
                                 <span class="post-username">${post.user.name}</span>
@@ -6424,6 +6720,313 @@ ${hostModeExtra}
             </div>
         `;
     }
+
+    function escapeForumHtml(raw) {
+        return String(raw == null ? '' : raw)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function normalizeForumText(raw) {
+        return String(raw == null ? '' : raw)
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function truncateForumText(raw, maxLen) {
+        const text = normalizeForumText(raw);
+        if (!maxLen || text.length <= maxLen) return text;
+        return `${text.slice(0, maxLen)}…`;
+    }
+
+    function buildForumPostSharePayload(post) {
+        if (!post || typeof post !== 'object') {
+            return {
+                cardType: 'forum_post_share',
+                title: '论坛帖子分享',
+                contentPreview: '内容加载失败',
+                authorName: '未知作者',
+                authorSubtitle: '',
+                time: '刚刚',
+                stats: { likes: 0, comments: 0, forwards: 0, shares: 0 },
+                commentsSummary: [],
+                detailComments: []
+            };
+        }
+
+        const authorName = (post.user && post.user.name) ? post.user.name : '未知作者';
+        const authorSubtitle = (post.user && post.user.subtitle) ? String(post.user.subtitle).trim() : '';
+        const contentPreview = truncateForumText(
+            post.caption || post.image_description_zh || post.image_description || '',
+            92
+        ) || '（无正文）';
+
+        const comments = Array.isArray(post.comments_list) ? post.comments_list : [];
+        let totalCommentCount = 0;
+        comments.forEach((item) => {
+            totalCommentCount += 1;
+            if (Array.isArray(item && item.replies)) totalCommentCount += item.replies.length;
+        });
+
+        const commentsSummary = [];
+        const detailComments = [];
+
+        comments.slice(0, 6).forEach((comment) => {
+            if (!comment) return;
+            const cName = (comment.user && comment.user.name) ? comment.user.name : '网友';
+            const cText = truncateForumText(comment.text, 60) || '（无内容）';
+
+            if (commentsSummary.length < 2) {
+                commentsSummary.push({ name: cName, text: cText });
+            }
+
+            detailComments.push({ name: cName, text: truncateForumText(comment.text, 100) || '（无内容）' });
+
+            if (Array.isArray(comment.replies)) {
+                comment.replies.slice(0, 2).forEach((reply) => {
+                    const rName = (reply && reply.user && reply.user.name) ? reply.user.name : '网友';
+                    const rText = truncateForumText(reply && reply.text, 86) || '（无内容）';
+                    detailComments.push({ name: `↳ ${rName}`, text: rText });
+                });
+            }
+        });
+
+        return {
+            cardType: 'forum_post_share',
+            title: '论坛帖子分享',
+            postId: post.id,
+            authorName,
+            authorSubtitle,
+            time: post.time || '刚刚',
+            contentPreview,
+            stats: {
+                likes: Math.max(0, Number(post.stats && post.stats.likes) || 0),
+                comments: Math.max(0, Number(totalCommentCount) || 0),
+                forwards: Math.max(0, Number(post.stats && post.stats.forwards) || 0),
+                shares: Math.max(0, Number(post.stats && post.stats.shares) || 0)
+            },
+            commentsSummary,
+            detailComments
+        };
+    }
+
+    function closeForumPostForwardSheet() {
+        const existing = document.getElementById('forum-post-forward-sheet');
+        if (existing) existing.remove();
+        forumPostForwardState = null;
+    }
+
+    function sendForumForwardCardToContact(contactId, sharePayload) {
+        if (!contactId || !sharePayload) return false;
+        const payloadText = JSON.stringify(sharePayload);
+        const previewText = `【论坛帖子】${truncateForumText(sharePayload.contentPreview || '', 36) || '点击查看'}`;
+
+        if (typeof window.sendMessage === 'function') {
+            const result = window.sendMessage(
+                payloadText,
+                true,
+                'forum_post_share',
+                previewText,
+                contactId,
+                { channel: 'wechat' }
+            );
+            return result !== null;
+        }
+
+        if (!window.iphoneSimState) window.iphoneSimState = {};
+        if (!window.iphoneSimState.chatHistory || typeof window.iphoneSimState.chatHistory !== 'object') {
+            window.iphoneSimState.chatHistory = {};
+        }
+        if (!window.iphoneSimState.chatHistory[contactId]) {
+            window.iphoneSimState.chatHistory[contactId] = [];
+        }
+        window.iphoneSimState.chatHistory[contactId].push({
+            id: `forum_forward_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            time: Date.now(),
+            role: 'user',
+            type: 'forum_post_share',
+            channel: 'wechat',
+            content: payloadText,
+            description: previewText
+        });
+        if (typeof window.saveConfig === 'function') window.saveConfig();
+        return true;
+    }
+
+    function updateForumForwardSendButtonState() {
+        const sendBtn = document.getElementById('forum-forward-send-btn');
+        if (!sendBtn || !forumPostForwardState) return;
+        const selectedCount = forumPostForwardState.selectedContactKeys.size;
+        sendBtn.disabled = selectedCount === 0;
+        sendBtn.textContent = selectedCount > 0 ? `发送 (${selectedCount})` : '发送';
+    }
+
+    function toggleForumForwardContactSelection(contactKey, rowEl) {
+        if (!forumPostForwardState || !contactKey) return;
+        if (forumPostForwardState.selectedContactKeys.has(contactKey)) {
+            forumPostForwardState.selectedContactKeys.delete(contactKey);
+            if (rowEl) rowEl.classList.remove('selected');
+        } else {
+            forumPostForwardState.selectedContactKeys.add(contactKey);
+            if (rowEl) rowEl.classList.add('selected');
+        }
+        updateForumForwardSendButtonState();
+    }
+
+    window.openForumPostForwardSheet = function(post) {
+        if (!post || !post.id) return;
+        closeForumPostForwardSheet();
+
+        const contactsRaw = (window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts))
+            ? window.iphoneSimState.contacts
+            : [];
+        if (!contactsRaw.length) {
+            alert('当前没有可转发的微信联系人');
+            return;
+        }
+
+        const profiles = (forumState.settings && forumState.settings.contactProfiles)
+            ? forumState.settings.contactProfiles
+            : {};
+        const contacts = contactsRaw.map((contact) => {
+            const profile = profiles[contact.id] || {};
+            const displayName = profile.name || contact.remark || contact.name || `联系人${contact.id}`;
+            const avatar = profile.avatar
+                || contact.avatar
+                || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(displayName))}`;
+            const subtitle = profile.identity || '';
+            return {
+                key: String(contact.id),
+                id: contact.id,
+                displayName,
+                avatar,
+                subtitle
+            };
+        });
+
+        forumPostForwardState = {
+            postId: post.id,
+            selectedContactKeys: new Set(),
+            contactMap: contacts.reduce((acc, item) => {
+                acc[item.key] = item.id;
+                return acc;
+            }, {})
+        };
+
+        const preview = truncateForumText(post.caption || post.image_description_zh || post.image_description || '', 80)
+            || '分享了一个论坛帖子';
+        const overlay = document.createElement('div');
+        overlay.id = 'forum-post-forward-sheet';
+        overlay.className = 'action-menu-overlay forum-forward-sheet-overlay';
+        overlay.innerHTML = `
+            <div class="forum-forward-sheet">
+                <div class="forum-forward-sheet-handle"></div>
+                <div class="forum-forward-sheet-title">转发到微信</div>
+                <div class="forum-forward-sheet-preview">
+                    <div class="forum-forward-sheet-preview-label">帖子预览</div>
+                    <div class="forum-forward-sheet-preview-text">${escapeForumHtml(preview)}</div>
+                </div>
+                <div class="forum-forward-contact-list">
+                    ${contacts.map((item) => `
+                        <button class="forum-forward-contact-row" data-contact-key="${escapeForumHtml(item.key)}" type="button">
+                            <img src="${item.avatar}" class="forum-forward-contact-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(item.displayName || 'contact'))}';">
+                            <div class="forum-forward-contact-meta">
+                                <div class="forum-forward-contact-name">${escapeForumHtml(item.displayName)}</div>
+                                <div class="forum-forward-contact-subtitle">${escapeForumHtml(item.subtitle || '微信联系人')}</div>
+                            </div>
+                            <div class="forum-forward-contact-check"></div>
+                        </button>
+                    `).join('')}
+                </div>
+                <div class="forum-forward-sheet-actions">
+                    <button class="forum-forward-sheet-btn secondary" id="forum-forward-cancel-btn" type="button">取消</button>
+                    <button class="forum-forward-sheet-btn primary" id="forum-forward-send-btn" type="button" disabled>发送</button>
+                </div>
+            </div>
+        `;
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                closeForumPostForwardSheet();
+                return;
+            }
+
+            const row = e.target.closest('.forum-forward-contact-row');
+            if (row) {
+                toggleForumForwardContactSelection(row.dataset.contactKey, row);
+                return;
+            }
+
+            if (e.target.closest('#forum-forward-cancel-btn')) {
+                closeForumPostForwardSheet();
+                return;
+            }
+
+            if (e.target.closest('#forum-forward-send-btn')) {
+                if (!forumPostForwardState || forumPostForwardState.selectedContactKeys.size === 0) return;
+                const sourcePost = forumState.posts.find((p) => String(p.id) === String(forumPostForwardState.postId)) || post;
+                const sharePayload = buildForumPostSharePayload(sourcePost);
+
+                let sentCount = 0;
+                let failedCount = 0;
+                forumPostForwardState.selectedContactKeys.forEach((key) => {
+                    const targetId = forumPostForwardState.contactMap[key];
+                    if (sendForumForwardCardToContact(targetId, sharePayload)) sentCount += 1;
+                    else failedCount += 1;
+                });
+
+                if (sentCount > 0) {
+                    if (!sourcePost.stats) sourcePost.stats = {};
+                    sourcePost.stats.shares = Math.max(0, Number(sourcePost.stats.shares) || 0) + sentCount;
+                    sourcePost.stats.sends = Math.max(0, Number(sourcePost.stats.sends) || 0) + sentCount;
+                    saveForumData();
+
+                    const countEl = document.querySelector(`.post-forward-btn[data-id="${sourcePost.id}"] .action-count`);
+                    if (countEl) countEl.textContent = formatCount(sourcePost.stats.shares || 0);
+                }
+
+                closeForumPostForwardSheet();
+                if (sentCount > 0 && failedCount === 0) {
+                    alert(`已转发给 ${sentCount} 位联系人`);
+                } else if (sentCount > 0) {
+                    alert(`已转发 ${sentCount} 位，失败 ${failedCount} 位`);
+                } else {
+                    alert('转发失败，请重试');
+                }
+            }
+        });
+
+        const app = document.getElementById('forum-app');
+        if (!app) return;
+        app.appendChild(overlay);
+        updateForumForwardSendButtonState();
+    };
+
+    window.openForumPostById = function(postId) {
+        const numericId = parseInt(postId, 10);
+        if (!Number.isFinite(numericId)) return false;
+
+        const post = (forumState.posts || []).find((item) => Number(item && item.id) === numericId);
+        if (!post) return false;
+
+        forumState.activeTab = 'home';
+        forumState.multiSelectMode = false;
+        forumState.selectedPostIds = new Set();
+        renderForum(false);
+
+        setTimeout(() => {
+            const target = document.querySelector(`.post-item[data-post-id="${numericId}"]`);
+            if (!target) return;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.add('forum-share-target-flash');
+            setTimeout(() => target.classList.remove('forum-share-target-flash'), 1200);
+        }, 20);
+
+        return true;
+    };
 
     function renderBottomNav() {
         const activeTab = forumState.activeTab;
@@ -6682,7 +7285,11 @@ ${hostModeExtra}
                 
                 const selectedContacts = [];
                 document.querySelectorAll('.forum-contact-check-icon').forEach(icon => {
-                    if (icon.dataset.checked === 'true') selectedContacts.push(parseInt(icon.dataset.id));
+                    if (icon.dataset.checked === 'true') {
+                        const rawId = icon.dataset.id;
+                        const numId = Number(rawId);
+                        selectedContacts.push(Number.isFinite(numId) ? numId : rawId);
+                    }
                 });
                 forumState.settings.linkedContacts = selectedContacts;
 
@@ -6802,6 +7409,17 @@ ${hostModeExtra}
             generateBtn.addEventListener('click', generateForumPosts);
         }
 
+        const hotSearchGenerateBtn = document.getElementById('forum-hotsearch-generate-btn');
+        if (hotSearchGenerateBtn) {
+            hotSearchGenerateBtn.addEventListener('click', window.generateForumHotSearch);
+        }
+        const hotSearchSearchBtn = document.getElementById('forum-hotsearch-search-btn');
+        if (hotSearchSearchBtn) {
+            hotSearchSearchBtn.addEventListener('click', () => {
+                window.openForumHotSearchKeywordBox('');
+            });
+        }
+
 
         // Avatar Upload Logic
         const avatarWrapper = document.querySelector('.edit-avatar-wrapper');
@@ -6884,6 +7502,16 @@ ${hostModeExtra}
         const contentArea = document.getElementById('forum-content-area');
         if (contentArea) {
             contentArea.addEventListener('click', (e) => {
+                const hotTopicTarget = e.target.closest('[data-hot-topic]');
+                if (hotTopicTarget) {
+                    e.stopPropagation();
+                    const topic = decodeURIComponent(hotTopicTarget.dataset.hotTopic || '');
+                    if (topic) {
+                        window.openHotTopicPosts(topic);
+                    }
+                    return;
+                }
+
                 // Profile Trigger
                 const profileTrigger = e.target.closest('.user-profile-trigger');
                 if (profileTrigger) {
@@ -6930,6 +7558,7 @@ ${hostModeExtra}
                 if (likeBtn) {
                     const postId = likeBtn.dataset.id;
                     toggleLike(postId);
+                    return;
                 }
 
                 const commentBtn = e.target.closest('.comment-btn');
@@ -6937,6 +7566,15 @@ ${hostModeExtra}
                     const postId = commentBtn.dataset.id;
                     const post = forumState.posts.find(p => p.id === parseInt(postId));
                     renderCommentsOverlay(post ? post.comments_list : null, post);
+                    return;
+                }
+
+                const postForwardBtn = e.target.closest('.post-forward-btn');
+                if (postForwardBtn) {
+                    const postId = postForwardBtn.dataset.id;
+                    const post = forumState.posts.find(p => p.id === parseInt(postId));
+                    if (post) window.openForumPostForwardSheet(post);
+                    return;
                 }
 
                 // Image Click Listener for Description
@@ -7361,6 +7999,23 @@ ${hostModeExtra}
                     console.error('Critical: Cannot save forum data even after aggressive cleanup');
                 }
             }
+        }
+    }
+
+    function saveHotSearchData() {
+        try {
+            localStorage.setItem('forum_hot_search_data', JSON.stringify(forumState.hotSearchData || []));
+            localStorage.setItem('forum_hot_search_keywords', JSON.stringify(forumState.hotSearchKeywords || []));
+        } catch (e) {
+            console.warn('Save hot search data failed:', e);
+        }
+    }
+
+    function saveTopicPostsCache() {
+        try {
+            localStorage.setItem('forum_topic_posts_cache', JSON.stringify(forumState.topicPostsCache || {}));
+        } catch (e) {
+            console.warn('Save topic posts cache failed:', e);
         }
     }
 
@@ -8893,6 +9548,541 @@ ${linkedContactsData.length > 0 ? linkedContactsData.map(c => `- ${c.name} (人�
             window.addEventListener('mouseup', onMouseUp);
         });
     }
+
+    function getForumAiSettings() {
+        let settings = { url: '', key: '', model: '' };
+        if (window.iphoneSimState) {
+            if (window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.url) {
+                settings = window.iphoneSimState.aiSettings;
+            } else if (window.iphoneSimState.aiSettings2 && window.iphoneSimState.aiSettings2.url) {
+                settings = window.iphoneSimState.aiSettings2;
+            }
+        }
+        return settings;
+    }
+
+    function getLinkedContactsContextForPrompt() {
+        const linkedContactIds = (forumState.settings && forumState.settings.linkedContacts) || [];
+        const contacts = (window.iphoneSimState && window.iphoneSimState.contacts) || [];
+        const profiles = (forumState.settings && forumState.settings.contactProfiles) || {};
+        return linkedContactIds.map(id => {
+            const contact = contacts.find(c => String(c.id) === String(id));
+            if (!contact) return null;
+            const profile = profiles[id] || profiles[String(id)] || {};
+            return {
+                id: contact.id,
+                name: profile.name || contact.remark || contact.name,
+                avatar: profile.avatar || contact.avatar || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(profile.name || contact.remark || contact.name || contact.id))}`,
+                identity: profile.identity || '',
+                followers: Number(profile.followers || 0) || 0,
+                persona: contact.persona || '普通网友'
+            };
+        }).filter(Boolean);
+    }
+
+    function getWorldbookContextForPrompt() {
+        const wbId = forumState.settings && forumState.settings.linkedWorldbook;
+        if (!wbId || !window.iphoneSimState || !Array.isArray(window.iphoneSimState.wbCategories)) return '';
+        const wb = window.iphoneSimState.wbCategories.find(c => c.id === wbId);
+        if (!wb || !Array.isArray(wb.entries)) return '';
+        return wb.entries
+            .slice(0, 20)
+            .map(e => `${e.key}: ${e.content}`)
+            .join('\n')
+            .substring(0, 3000);
+    }
+
+    function extractHotSearchKeywordsFromPosts(limit = 8) {
+        const rawPool = [];
+        (forumState.posts || []).slice(0, 40).forEach(post => {
+            const text = [post && post.caption, post && post.type, post && post.user && post.user.subtitle]
+                .filter(Boolean)
+                .join(' ');
+            text.split(/[，。,.\s!！?？:：;；、|/\\()[\]{}"'`~\-_\n\r]+/)
+                .map(word => word.trim())
+                .filter(Boolean)
+                .forEach(word => rawPool.push(word));
+        });
+        const stopWords = new Set([
+            '的', '了', '和', '在', '就', '都', '是', '我', '你', '他', '她', '它',
+            '我们', '你们', '他们', '一个', '这个', '那个', '今天', '刚刚', '展开',
+            'the', 'and', 'for', 'with', 'this', 'that', 'from', 'just'
+        ]);
+        const countMap = new Map();
+        rawPool.forEach(word => {
+            if (!word) return;
+            if (stopWords.has(word.toLowerCase())) return;
+            if (word.length < 2) return;
+            if (/^\d+$/.test(word)) return;
+            countMap.set(word, (countMap.get(word) || 0) + 1);
+        });
+        const top = Array.from(countMap.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, limit)
+            .map(entry => entry[0]);
+        forumState.hotSearchKeywords = top;
+        return top;
+    }
+
+    function buildHotSearchPrompt() {
+        const linkedContactsData = getLinkedContactsContextForPrompt();
+        const forumWorldview = (forumState.settings && forumState.settings.forumWorldview) || '';
+        const worldbookContent = getWorldbookContextForPrompt();
+        const currentUserName = (forumState.currentUser && (forumState.currentUser.bio || forumState.currentUser.username)) || '我';
+        const keywords = extractHotSearchKeywordsFromPosts(8);
+        const latestCaptions = (forumState.posts || [])
+            .slice(0, 12)
+            .map(post => String((post && post.caption) || '').trim())
+            .filter(Boolean)
+            .slice(0, 8)
+            .map(text => `- ${text.substring(0, 80)}`)
+            .join('\n');
+        const contactBlock = linkedContactsData.length > 0
+            ? linkedContactsData
+                .map(c => `- ${c.name} | Identity: ${c.identity || '未填写'} | Followers: ${c.followers} | Persona: ${c.persona}`)
+                .join('\n')
+            : '无指定联系人';
+        const keywordBlock = keywords.length > 0 ? keywords.join('、') : '无';
+        return `
+请模拟社交论坛的“热搜榜”内容生成。
+世界观背景: ${forumWorldview}
+世界设定(Worldbook): ${worldbookContent}
+当前用户名称(避免混淆身份): ${currentUserName}
+已关联联系人:
+${contactBlock}
+近期帖子主题:
+${latestCaptions || '- 暂无'}
+近期高频关键词:
+${keywordBlock}
+
+任务:
+生成 8 条热搜条目（按热度降序），每条都要有“真实社交平台讨论感”，题目和话题必须尽量贴合以上世界观、联系人身份、近期帖子主题。
+
+输出要求:
+1. 只返回 JSON 数组，不要 Markdown。
+2. 每个对象包含:
+   - title: 热搜标题 (16~34字，口语化但具体)
+   - category: 分类 (例如: 热点/趋势/讨论/生活/社会/科技/娱乐)
+   - views: 热度数值（整数，建议 200000 ~ 12000000）
+   - trend: "up" | "flat" | "down"
+3. 不要生成过度科幻或离题内容；避免和同榜其他条目语义重复。
+`;
+    }
+
+    function normalizeTopicPostsData(payload, topicTitle) {
+        const arr = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.posts) ? payload.posts : []);
+        const now = Date.now();
+        const currentUserName = (forumState.currentUser && (forumState.currentUser.bio || forumState.currentUser.username)) || '我';
+        const linkedContactsData = getLinkedContactsContextForPrompt();
+        const linkedByName = new Map();
+        linkedContactsData.forEach(c => {
+            if (c && c.name) linkedByName.set(String(c.name).trim(), c);
+        });
+
+        function ensureDenseComments(commentsInput, postSeed, topic) {
+            const comments = Array.isArray(commentsInput) ? commentsInput.slice(0, 28) : [];
+            const remarkPool = [
+                '这个点很真实',
+                '我就是被这个细节打动',
+                '有没有完整过程可以看',
+                '这次讨论终于说到关键了',
+                '不同城市体感差异很大',
+                '等更多数据再下结论',
+                '现场反馈比想象中激烈',
+                '这条信息很有参考价值',
+                '我身边人也是这个反应',
+                `围观 ${topic} 的后续`
+            ];
+            const replyPool = [
+                '同意，我也这么觉得',
+                '你这个补充很关键',
+                '可以具体说说吗',
+                '我这边体验不太一样',
+                '谢谢分享，信息量很大',
+                '先收藏，回头复盘',
+                '这个视角很少见',
+                '坐等更多一手反馈'
+            ];
+            const safe = comments.map((c, idx) => {
+                const item = c || {};
+                if (!item.text) item.text = `关于 ${topic}，${remarkPool[idx % remarkPool.length]}`;
+                if (!item.user) {
+                    item.user = {
+                        name: `热评用户${Math.floor(Math.random() * 900 + 100)}`,
+                        avatar: `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent('hot_comment_' + postSeed + '_' + idx)}`,
+                        verified: false
+                    };
+                }
+                if (!Array.isArray(item.replies)) item.replies = [];
+                while (item.replies.length < 1) {
+                    const rid = item.id ? (item.id * 1000 + item.replies.length + 1) : (postSeed * 100000 + idx * 1000 + item.replies.length + 1);
+                    item.replies.push({
+                        id: rid,
+                        user: {
+                            name: `回复用户${Math.floor(Math.random() * 900 + 100)}`,
+                            avatar: `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent('hot_reply_' + postSeed + '_' + idx + '_' + item.replies.length)}`,
+                            verified: false
+                        },
+                        text: replyPool[(idx + item.replies.length) % replyPool.length],
+                        time: '刚刚',
+                        likes: Math.floor(Math.random() * 20)
+                    });
+                }
+                return item;
+            });
+
+            while (safe.length < 12) {
+                const i = safe.length;
+                safe.push({
+                    id: postSeed * 1000 + i + 1,
+                    user: {
+                        name: `热评用户${Math.floor(Math.random() * 900 + 100)}`,
+                        avatar: `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent('hot_fill_' + postSeed + '_' + i)}`,
+                        verified: false
+                    },
+                    text: `关于 ${topic}，${remarkPool[i % remarkPool.length]}`,
+                    time: '刚刚',
+                    likes: Math.floor(Math.random() * 90) + 6,
+                    replies: [
+                        {
+                            id: postSeed * 100000 + i * 1000 + 1,
+                            user: {
+                                name: `回复用户${Math.floor(Math.random() * 900 + 100)}`,
+                                avatar: `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent('hot_fill_reply_' + postSeed + '_' + i)}`,
+                                verified: false
+                            },
+                            text: replyPool[i % replyPool.length],
+                            time: '刚刚',
+                            likes: Math.floor(Math.random() * 20)
+                        }
+                    ]
+                });
+            }
+            return safe.slice(0, 24);
+        }
+
+        const items = arr.map((post, pIndex) => {
+            const id = now + pIndex;
+            const userName = (post && post.user && post.user.name) || (post && post.username) || `网友${Math.floor(Math.random() * 900 + 100)}`;
+            const safeUserName = (userName === currentUserName || userName === '我') ? `网友${Math.floor(Math.random() * 900 + 100)}` : userName;
+            const linkedMatched = linkedByName.get(String(safeUserName).trim());
+            const userSubtitle = linkedMatched
+                ? (linkedMatched.identity || '已关联联系人')
+                : ((post && post.user && post.user.subtitle) || (post && post.subtitle) || '热门讨论参与者');
+            const userAvatar = linkedMatched
+                ? (linkedMatched.avatar || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(linkedMatched.name))}`)
+                : ((post && post.user && post.user.avatar) || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(String(safeUserName) + String(pIndex))}`);
+            const captionRaw = (post && post.caption) || (post && post.text) || `${topicTitle} 相关讨论`;
+            const caption = String(captionRaw).trim();
+            const commentsRaw = (post && post.comments_list) || (post && post.comments) || [];
+            const comments = ensureDenseComments((Array.isArray(commentsRaw) ? commentsRaw : []).map((c, cIndex) => {
+                const commentNameRaw = (c && c.user && c.user.name) || c.username || `热评用户${Math.floor(Math.random() * 900 + 100)}`;
+                const commentName = (commentNameRaw === currentUserName || commentNameRaw === '我') ? `热评用户${Math.floor(Math.random() * 900 + 100)}` : commentNameRaw;
+                const commentText = String((c && c.text) || c.content || '有同感').trim() || '有同感';
+                const repliesRaw = (c && c.replies) || [];
+                const replies = (Array.isArray(repliesRaw) ? repliesRaw : []).map((r, rIndex) => {
+                    const replyNameRaw = (r && r.user && r.user.name) || r.username || `回复用户${Math.floor(Math.random() * 900 + 100)}`;
+                    const replyName = (replyNameRaw === currentUserName || replyNameRaw === '我') ? `回复用户${Math.floor(Math.random() * 900 + 100)}` : replyNameRaw;
+                    return {
+                        id: id * 100000 + cIndex * 1000 + rIndex + 1,
+                        user: {
+                            name: replyName,
+                            avatar: (r && r.user && r.user.avatar) || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(replyName + String(rIndex))}`,
+                            verified: !!(r && r.user && r.user.verified)
+                        },
+                        text: String((r && r.text) || r.content || '确实').trim() || '确实',
+                        time: (r && r.time) || '刚刚',
+                        likes: Number((r && r.likes) || Math.floor(Math.random() * 20))
+                    };
+                }).slice(0, 6);
+                return {
+                    id: id * 1000 + cIndex + 1,
+                    user: {
+                        name: commentName,
+                        avatar: (c && c.user && c.user.avatar) || (c && c.avatar) || `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(commentName + String(cIndex))}`,
+                        verified: !!(c && c.user && c.user.verified)
+                    },
+                    text: commentText,
+                    time: (c && c.time) || '刚刚',
+                    likes: Number((c && c.likes) || Math.floor(Math.random() * 80)),
+                    replies
+                };
+            }).filter(c => c.text).slice(0, 22), id, topicTitle);
+            const totalReplyCount = comments.reduce((sum, c) => sum + (Array.isArray(c.replies) ? c.replies.length : 0), 0);
+            const viewsBase = Number(post && post.views);
+            const likesBase = Number(post && post.likes);
+            const sharesBase = Number(post && post.shares);
+            const forwardsBase = Number(post && post.forwards);
+            const commentsCount = comments.length + totalReplyCount;
+            return {
+                id,
+                userId: linkedMatched ? linkedMatched.id : null,
+                user: {
+                    name: linkedMatched ? linkedMatched.name : safeUserName,
+                    avatar: userAvatar,
+                    verified: linkedMatched ? false : !!(post && post.user && post.user.verified),
+                    subtitle: userSubtitle
+                },
+                post_type: 'text',
+                image: null,
+                caption,
+                topic: topicTitle,
+                time: (post && post.time) || '刚刚',
+                translation: '查看翻译',
+                liked: false,
+                comments_list: comments,
+                stats: {
+                    likes: Number.isFinite(likesBase) && likesBase > 0 ? likesBase : Math.max(200, commentsCount * (6 + Math.floor(Math.random() * 8))),
+                    comments: Math.max(commentsCount, Number((post && post.stats && post.stats.comments) || 0)),
+                    forwards: Number.isFinite(forwardsBase) && forwardsBase > 0 ? forwardsBase : Math.max(20, Math.floor(commentsCount * 0.8)),
+                    shares: Number.isFinite(sharesBase) && sharesBase > 0 ? sharesBase : Math.max(18, Math.floor(commentsCount * 0.7)),
+                    views: Number.isFinite(viewsBase) && viewsBase > 0 ? viewsBase : Math.max(16000, commentsCount * 520)
+                },
+                _generatedTopicPost: true
+            };
+        }).filter(post => post.caption);
+        return items.slice(0, 8);
+    }
+
+    function buildFallbackTopicPosts(topicTitle) {
+        return normalizeTopicPostsData([
+            {
+                user: { name: '城市观察员', subtitle: '热点评论员' },
+                caption: `关于「${topicTitle}」这件事，大家的情绪都很满，但真正能落地的方案还没出现。`,
+                comments: [
+                    { username: '晚风', content: '我觉得核心是执行细节，口号已经够多了。', replies: [{ username: '人间清醒', content: '同意，流程不改啥都白搭。' }] },
+                    { username: '纸飞机', content: '今天线下已经吵翻了，线上反而更理性一点。' },
+                    { username: '海盐拿铁', content: '等一个更完整的数据面板。', replies: [{ username: '路过', content: '同蹲，别只看截图。' }] }
+                ]
+            },
+            {
+                user: { name: '记录生活的阿岚', subtitle: '普通上班族' },
+                caption: `昨天亲身体验了一轮「${topicTitle}」相关变化，只能说利好一半人，另一半更焦虑了。`,
+                comments: [
+                    { username: '夜跑选手', content: '你这个视角很真实，我就是那“一半焦虑”的。' },
+                    { username: '零点电台', content: '分层影响确实明显，别一刀切评价。', replies: [{ username: '阿木', content: '对，地域差异也很大。' }] },
+                    { username: '像素猫', content: '你有完整流程图吗，想参考。' }
+                ]
+            }
+        ], topicTitle);
+    }
+
+    function buildTopicPostsPrompt(topicTitle) {
+        const linkedContactsData = getLinkedContactsContextForPrompt();
+        const forumWorldview = (forumState.settings && forumState.settings.forumWorldview) || '';
+        const worldbookContent = getWorldbookContextForPrompt();
+        const keywordBlock = (forumState.hotSearchKeywords && forumState.hotSearchKeywords.length > 0)
+            ? forumState.hotSearchKeywords.join('、')
+            : extractHotSearchKeywordsFromPosts(8).join('、');
+        const contactBlock = linkedContactsData.length > 0
+            ? linkedContactsData.map(c => `- ${c.name} | ${c.identity || '未填写'} | 人设:${c.persona}`).join('\n')
+            : '无指定联系人';
+        return `
+请围绕论坛热搜话题生成帖子流。
+热搜话题: ${topicTitle}
+世界观背景: ${forumWorldview}
+世界设定(Worldbook): ${worldbookContent}
+关联角色参考:
+${contactBlock}
+近期关键词:
+${keywordBlock || '无'}
+
+任务:
+生成 6 条帖子，并为每条帖子生成较多讨论评论，模拟“话题正在爆发”的论坛现场。
+
+要求:
+1. 只返回 JSON 数组，不要 Markdown。
+2. 每个帖子对象包含:
+   - user: { name, subtitle, avatar(可选), verified(可选) }
+   - caption: 帖子正文（与话题强相关，风格多样）
+   - time: 例如 "刚刚" / "3分钟前"
+   - comments_list: 数组，至少 12 条评论。
+3. comments_list 中每条评论包含:
+   - user: { name, avatar(可选), verified(可选) } 或 username
+   - text/content: 评论内容
+   - likes: 点赞数(可选)
+   - replies: 0~3条回复（尽量多给，增强讨论密度）
+4. 评论区禁止重复文案，且不要出现 "${(forumState.currentUser && (forumState.currentUser.bio || forumState.currentUser.username)) || '我'}" 或 "我" 作为网名。
+5. 语气贴近真实社交平台，有赞同、有反驳、有追问、有补充信息。
+`;
+    }
+
+    window.backToExploreFromTopicPosts = function() {
+        forumState.activeTab = 'explore';
+        renderForum();
+    };
+
+    window.openHotTopicPosts = async function(topicTitle) {
+        const title = String(topicTitle || '').trim();
+        if (!title) return;
+        const requestToken = ++forumState.topicPostsRequestToken;
+        const cacheKey = title.toLowerCase();
+        const cached = forumState.topicPostsCache && forumState.topicPostsCache[cacheKey];
+        if (cached && Array.isArray(cached.posts) && cached.posts.length > 0) {
+            if (requestToken !== forumState.topicPostsRequestToken) return;
+            forumState.posts = [...cached.posts, ...forumState.posts];
+            forumState.topicPostsView = {
+                title,
+                posts: cached.posts,
+                isGenerating: false
+            };
+            forumState.activeTab = 'topic_posts';
+            renderForum();
+            return;
+        }
+
+        forumState.topicPostsView = {
+            title,
+            posts: [],
+            isGenerating: true
+        };
+        forumState.activeTab = 'topic_posts';
+        renderForum();
+
+        try {
+            const settings = getForumAiSettings();
+            if (!settings.url || !settings.key) {
+                throw new Error('请先在设置中配置AI接口信息');
+            }
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+            const prompt = buildTopicPostsPrompt(title);
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + settings.key
+                },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: '你是模拟社交网络数据的生成器。只返回JSON数据。' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.85
+                })
+            });
+            if (!response.ok) throw new Error('API request failed');
+            const data = await response.json();
+            let content = (((data || {}).choices || [])[0] || {}).message?.content || '';
+            content = content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+            const startIdx = content.indexOf('[');
+            const endIdx = content.lastIndexOf(']');
+            if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                content = content.substring(startIdx, endIdx + 1);
+            }
+            if (requestToken !== forumState.topicPostsRequestToken) return;
+            const parsed = JSON.parse(content);
+            let posts = normalizeTopicPostsData(parsed, title);
+            if (posts.length === 0) {
+                posts = buildFallbackTopicPosts(title);
+            }
+            // Ensure these posts are queryable by id for comment overlay actions.
+            forumState.posts = [...posts, ...forumState.posts];
+            if (!forumState.topicPostsCache || typeof forumState.topicPostsCache !== 'object') {
+                forumState.topicPostsCache = {};
+            }
+            forumState.topicPostsCache[cacheKey] = {
+                title,
+                posts,
+                updatedAt: Date.now()
+            };
+            const cacheKeys = Object.keys(forumState.topicPostsCache);
+            if (cacheKeys.length > 30) {
+                const sortedKeys = cacheKeys.sort((a, b) => {
+                    const ta = (forumState.topicPostsCache[a] && forumState.topicPostsCache[a].updatedAt) || 0;
+                    const tb = (forumState.topicPostsCache[b] && forumState.topicPostsCache[b].updatedAt) || 0;
+                    return ta - tb;
+                });
+                while (sortedKeys.length > 30) {
+                    const oldKey = sortedKeys.shift();
+                    delete forumState.topicPostsCache[oldKey];
+                }
+            }
+            saveTopicPostsCache();
+            if (requestToken !== forumState.topicPostsRequestToken) return;
+            forumState.topicPostsView = {
+                title,
+                posts,
+                isGenerating: false
+            };
+            if (forumState.activeTab === 'topic_posts') renderForum(false);
+        } catch (error) {
+            if (requestToken !== forumState.topicPostsRequestToken) return;
+            console.error('Generate topic posts error:', error);
+            const fallbackPosts = buildFallbackTopicPosts(title);
+            forumState.posts = [...fallbackPosts, ...forumState.posts];
+            forumState.topicPostsView = {
+                title,
+                posts: fallbackPosts,
+                isGenerating: false
+            };
+            if (forumState.activeTab === 'topic_posts') renderForum(false);
+            alert('生成话题帖子失败: ' + error.message);
+        }
+    };
+
+    window.generateForumHotSearch = async function() {
+        if (forumState.isGeneratingHotSearch) return;
+        forumState.isGeneratingHotSearch = true;
+        if (forumState.activeTab === 'explore') renderForum(false);
+
+        try {
+            const settings = getForumAiSettings();
+            if (!settings.url || !settings.key) {
+                throw new Error('请先在设置中配置AI接口信息');
+            }
+            let fetchUrl = settings.url;
+            if (!fetchUrl.endsWith('/chat/completions')) {
+                fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
+            }
+            const prompt = buildHotSearchPrompt();
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + settings.key
+                },
+                body: JSON.stringify({
+                    model: settings.model || 'gpt-3.5-turbo',
+                    messages: [
+                        { role: 'system', content: '你是模拟社交网络数据的生成器。只返回JSON数据。' },
+                        { role: 'user', content: prompt }
+                    ],
+                    temperature: 0.8
+                })
+            });
+            if (!response.ok) {
+                throw new Error('API request failed');
+            }
+            const data = await response.json();
+            let content = (((data || {}).choices || [])[0] || {}).message?.content || '';
+            content = content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+            const startIdx = content.indexOf('[');
+            const endIdx = content.lastIndexOf(']');
+            if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                content = content.substring(startIdx, endIdx + 1);
+            }
+            const parsed = JSON.parse(content);
+            const normalized = normalizeHotSearchData(parsed);
+            forumState.hotSearchData = normalized;
+            saveHotSearchData();
+            if (forumState.activeTab === 'explore') renderForum(false);
+        } catch (error) {
+            console.error('Generate hot search error:', error);
+            if (!forumState.hotSearchData || forumState.hotSearchData.length === 0) {
+                forumState.hotSearchData = buildFallbackHotSearchData();
+                saveHotSearchData();
+                if (forumState.activeTab === 'explore') renderForum(false);
+            }
+            alert('生成热搜失败: ' + error.message);
+        } finally {
+            forumState.isGeneratingHotSearch = false;
+            if (forumState.activeTab === 'explore') renderForum(false);
+        }
+    };
 
     window.generateForumLives = async function() {
         const btn = document.querySelector('.forum-live-header-icon');

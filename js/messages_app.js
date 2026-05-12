@@ -92,6 +92,17 @@
     function formatBubbleText(message) {
         if (!message) return '[消息]';
 
+        if (message.type === 'forum_post_share') {
+            let payload = null;
+            try {
+                payload = typeof message.content === 'string' ? JSON.parse(message.content) : message.content;
+            } catch (e) {
+                payload = null;
+            }
+            const preview = payload && payload.contentPreview ? String(payload.contentPreview).trim() : '';
+            return preview ? `【论坛帖子】${preview}` : '[论坛帖子分享]';
+        }
+
         if (message.type === 'text' || message.type === 'description' || message.type === 'html') {
             const content = String(message.content || '').trim();
             return content || '[消息]';

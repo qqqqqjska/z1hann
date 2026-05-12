@@ -365,7 +365,8 @@
 #chat-screen .chat-message .message-content.gift-card-msg,
 #chat-screen .chat-message .message-content.shopping-gift-msg,
 #chat-screen .chat-message .message-content.delivery-share-msg,
-#chat-screen .chat-message .message-content.order-progress-msg {
+#chat-screen .chat-message .message-content.order-progress-msg,
+#chat-screen .chat-message .message-content.forum-post-share-msg {
     padding: 0 !important;
     padding-left: 0 !important;
     padding-right: 0 !important;
