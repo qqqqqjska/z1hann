@@ -789,6 +789,53 @@ function appendWechatTypingBubble() {
     container.appendChild(row);
     return row;
 }
+
+function getActiveChatTimestampRenderSettings() {
+    const normalizePosition = (value) => {
+        if (typeof window.normalizeTimestampPosition === 'function') {
+            return window.normalizeTimestampPosition(value);
+        }
+        return String(value || '').trim().toLowerCase() === 'inside' ? 'inside' : 'outside';
+    };
+    const normalizeFormat = (value) => {
+        if (typeof window.normalizeTimestampFormat === 'function') {
+            return window.normalizeTimestampFormat(value);
+        }
+        return String(value || '').trim().toLowerCase() === '12h' ? '12h' : '24h';
+    };
+
+    const contactId = window.iphoneSimState ? window.iphoneSimState.currentChatContactId : null;
+    const contacts = window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts)
+        ? window.iphoneSimState.contacts
+        : [];
+    const contact = contactId !== null && contactId !== undefined
+        ? (contacts.find(item => String(item.id) === String(contactId)) || null)
+        : null;
+
+    return {
+        showTimestamp: contact ? (contact.showTimestamp !== false) : true,
+        position: normalizePosition(contact ? contact.timestampPosition : 'outside'),
+        format: normalizeFormat(contact ? contact.timestampFormat : '24h')
+    };
+}
+
+function formatChatTimestampText(timestamp, format = '24h') {
+    const raw = Number(timestamp);
+    const validTs = Number.isFinite(raw) ? raw : Date.now();
+    const date = new Date(validTs);
+    if (Number.isNaN(date.getTime())) return '--:--';
+
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    if (String(format).toLowerCase() === '12h') {
+        const rawHours = date.getHours();
+        const meridiem = rawHours >= 12 ? 'PM' : 'AM';
+        const hour12 = rawHours % 12 || 12;
+        return `${hour12}:${minutes} ${meridiem}`;
+    }
+    const hours = String(date.getHours()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+}
+
 function appendMessageToUI(text, isUser, type = 'text', description = null, replyTo = null, msgId = null, timestamp = null, isHistory = false) {
     if (type === 'text' && text && typeof text === 'string') {
         // Strip hidden image data from display
@@ -813,35 +860,35 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     }
 
     const container = document.getElementById('chat-messages');
+    const timestampPrefs = getActiveChatTimestampRenderSettings();
     
     const lastMsg = container.lastElementChild;
-    let showTimestamp = false;
+    let shouldShowTimeDivider = false;
     const now = timestamp || Date.now();
     
     if (!lastMsg || lastMsg.classList.contains('system') || !lastMsg.dataset.time) {
-        showTimestamp = true;
+        shouldShowTimeDivider = true;
     } else {
         const lastTime = parseInt(lastMsg.dataset.time);
         if (now - lastTime > 5 * 60 * 1000) {
-            showTimestamp = true;
+            shouldShowTimeDivider = true;
         }
     }
 
     const noBubbleTypes = new Set(['image', 'sticker', 'virtual_image', 'description', 'transfer', 'red_packet', 'group_poll', 'group_relay', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite', 'forum_post_share']);
     const currentMessageUsesBubbleTail = !noBubbleTypes.has(type);
 
-    if (!showTimestamp && currentMessageUsesBubbleTail && lastMsg && lastMsg.classList.contains('chat-message')) {
+    if (!shouldShowTimeDivider && currentMessageUsesBubbleTail && lastMsg && lastMsg.classList.contains('chat-message')) {
         const lastIsUser = lastMsg.classList.contains('user');
         if (lastIsUser === isUser) {
             lastMsg.classList.remove('has-tail');
         }
     }
 
-    if (showTimestamp) {
+    if (shouldShowTimeDivider) {
         const timeDiv = document.createElement('div');
         timeDiv.className = 'chat-time-stamp';
-        const date = new Date(now);
-        const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        const timeStr = formatChatTimestampText(now, timestampPrefs.format);
         timeDiv.innerHTML = `<span>${timeStr}</span>`;
         container.appendChild(timeDiv);
     }
@@ -2061,9 +2108,9 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         }
     }
 
-    const date = new Date(now);
-    const msgTimeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    const timeHtml = `<div class="msg-time">${msgTimeStr}</div>`;
+    const msgTimeStr = formatChatTimestampText(now, timestampPrefs.format);
+    // Keep both class names for backward compatibility with existing custom CSS.
+    const timeHtml = `<div class="msg-time message-time">${msgTimeStr}</div>`;
 
     function buildGroupSpeakerLabelHtml(meta, isSelf = false) {
         if (!meta || (!meta.name && !meta.title)) return '';
@@ -2141,6 +2188,40 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
             ${timeHtml}
         `;
+    }
+
+    const bubbleContentEl = msgDiv.querySelector('.message-content');
+    const outsideTimeEl = msgDiv.querySelector('.msg-time');
+    const canAttachInlineTime = !!(
+        bubbleContentEl
+        && outsideTimeEl
+        && (msgDiv.classList.contains('user') || msgDiv.classList.contains('other'))
+        && currentMessageUsesBubbleTail
+        && !shouldForceNoBubble
+        && type !== 'voice'
+    );
+    if (canAttachInlineTime) {
+        msgDiv.classList.add('supports-inline-time');
+        const textBlocks = bubbleContentEl.querySelectorAll('.text-message-block');
+        const inlineTimeHost = textBlocks.length > 0
+            ? textBlocks[textBlocks.length - 1]
+            : bubbleContentEl;
+
+        let inlineTimeEl = bubbleContentEl.querySelector('.bubble-inline-time');
+        if (!inlineTimeEl) {
+            inlineTimeEl = document.createElement('span');
+            // Keep both legacy timestamp class names on the visible inline node
+            // so user custom CSS can target either .msg-time or .message-time.
+            inlineTimeEl.className = 'bubble-inline-time msg-time message-time';
+            inlineTimeEl.setAttribute('aria-hidden', 'true');
+        }
+        if (inlineTimeEl.parentElement !== inlineTimeHost) {
+            inlineTimeHost.appendChild(inlineTimeEl);
+        }
+        inlineTimeEl.textContent = msgTimeStr;
+        msgDiv.dataset.timestampPosition = timestampPrefs.position;
+    } else if (msgDiv.classList.contains('supports-inline-time')) {
+        msgDiv.classList.remove('supports-inline-time');
     }
 
     if (!isUser) {

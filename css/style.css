@@ -2610,7 +2610,8 @@ textarea {
 }
 
 /* Message Time (Side) */
-.msg-time {
+.chat-message > .msg-time,
+.chat-message > .message-time {
     font-size: 10px;
     color: #b2b2b2;
     margin: 0 6px;
@@ -2619,12 +2620,14 @@ textarea {
     margin-bottom: 5px;
 }
 
-.chat-message.user .msg-time {
+.chat-message.user > .msg-time,
+.chat-message.user > .message-time {
     /* order: -1; �?DOM 结构中控制顺序更稳定 */
     margin-right: 8px;
 }
 
-.chat-message.other .msg-time {
+.chat-message.other > .msg-time,
+.chat-message.other > .message-time {
     margin-left: 8px;
 }
 
@@ -4975,7 +4978,8 @@ input:checked + .slider:before {
 }
 
 .chat-message.description-row .chat-avatar,
-.chat-message.description-row .msg-time {
+.chat-message.description-row .msg-time,
+.chat-message.description-row .message-time {
     display: none;
 }
 

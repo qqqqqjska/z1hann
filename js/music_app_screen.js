@@ -3968,6 +3968,25 @@
         return { ok: false, message: '暂不支持该一起听指令' };
     };
 
+    window.musicV2SearchAndPlayByKeyword = async function (keyword, options) {
+        const opts = options && typeof options === 'object' ? options : {};
+        const inviteSong = await musicV2BuildInviteSongFromKeyword(keyword, {
+            persistToLibrary: opts.persistToLibrary !== false
+        });
+        const songId = String(inviteSong && inviteSong.songId ? inviteSong.songId : '');
+        if (!songId) {
+            throw new Error('music_song_not_found');
+        }
+        await musicV2PlaySong(songId, '');
+        const song = musicV2GetSong(songId);
+        return {
+            songId,
+            title: String((song && song.title) || inviteSong.songTitle || ''),
+            artist: String((song && song.artist) || inviteSong.songArtist || ''),
+            cover: String((song && song.cover) || inviteSong.songCover || '')
+        };
+    };
+
     function musicV2GetPlaylistCover(playlist) {
         if (playlist && playlist.cover) return playlist.cover;
         if (playlist && playlist.songs && playlist.songs.length > 0) {

@@ -1367,6 +1367,22 @@
                                 <label><input type="checkbox" id="chat-setting-show-timestamp" class="mag-toggle-input" checked><div class="mag-toggle-switch"></div></label>
                             </div>
 
+                            <div class="mag-field editorial-visual-select-field" style="margin-top: 18px;">
+                                <label class="mag-label">Timestamp Position <span class="separator">/</span> <span class="mag-zh">时间戳位置</span></label>
+                                <select id="chat-setting-timestamp-position" class="mag-select">
+                                    <option value="outside">Outside Bubble / 气泡外</option>
+                                    <option value="inside">Inside Bubble / 气泡内</option>
+                                </select>
+                            </div>
+
+                            <div class="mag-field editorial-visual-select-field" style="margin-top: 18px;">
+                                <label class="mag-label">Time Format <span class="separator">/</span> <span class="mag-zh">时间格式</span></label>
+                                <select id="chat-setting-time-format" class="mag-select">
+                                    <option value="24h">24-hour / 24小时制</option>
+                                    <option value="12h">12-hour (AM/PM) / 12小时制（AM/PM）</option>
+                                </select>
+                            </div>
+
                             <div class="mag-toggle">
                                 <span class="mag-toggle-text">Sticker Suggestion <span class="separator">/</span> <span class="mag-zh">表情包联想</span></span>
                                 <label><input type="checkbox" id="chat-setting-sticker-suggestion-enabled" class="mag-toggle-input" checked><div class="mag-toggle-switch"></div></label>
@@ -9708,6 +9724,7 @@
     <script src="js/chat/05-addressbook-friends.js"></script>
     <script src="js/chat/06-oracle-quick-replies.js"></script>
     <script src="js/chat/07-group-chat.js"></script>
+    <script src="js/520_event_integration.js"></script>
     <script src="js/fire_buddy.js?v=20260324b1"></script>
     <script src="js/offline_push_sync.js"></script>
     <script src="js/shopping.js"></script>

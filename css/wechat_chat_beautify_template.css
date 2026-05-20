@@ -1,0 +1,322 @@
+/*
+ * 微信聊天页面美化模板（可编辑）
+ * 使用方式：
+ * 1) 在 index.html 里，把本文件放在默认聊天样式之后引入。
+ * 2) 优先修改变量区（URL/颜色/圆角），再按模块细改。
+ * 3) 需要贴图的位置都提供了 URL 占位：把 none 改成 url("你的图片URL")
+ */
+
+#chat-screen {
+    /* ========== 颜色变量 ========== */
+    --wx-bg-color: #f2f4f8;
+    --wx-header-text: #1f2937;
+    --wx-other-bubble-text: #111827;
+    --wx-self-bubble-text: #ffffff;
+    --wx-time-text: #9ca3af;
+
+    /* ========== 贴图 URL（自行替换） ========== */
+    --wx-chat-bg-image: none;                 /* 聊天主背景图 */
+    --wx-chat-bg-overlay: linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.8));
+
+    --wx-header-bg-image: none;               /* 顶栏主背景图 */
+    --wx-header-pattern-image: none;          /* 顶栏纹理叠加图 */
+
+    --wx-other-bubble-image: none;            /* 对方文本气泡贴图 */
+    --wx-self-bubble-image: none;             /* 自己文本气泡贴图 */
+    --wx-voice-other-bubble-image: none;      /* 对方语音气泡贴图 */
+    --wx-voice-self-bubble-image: none;       /* 自己语音气泡贴图 */
+    --wx-quote-bg-image: none;                /* 引用条贴图 */
+
+    --wx-input-bar-bg-image: none;            /* 输入栏背景贴图 */
+    --wx-input-shell-bg-image: none;          /* 输入框背景贴图 */
+    --wx-more-btn-image: none;                /* + 按钮贴图 */
+    --wx-sticker-btn-image: none;             /* 贴纸按钮贴图 */
+    --wx-mic-btn-image: none;                 /* 麦克风按钮贴图 */
+
+    --wx-more-panel-bg-image: none;           /* 更多面板背景图 */
+    --wx-more-item-bg-image: none;            /* 更多面板图标方块贴图 */
+
+    --wx-sticker-panel-bg-image: none;        /* 贴纸面板背景图 */
+    --wx-sticker-item-bg-image: none;         /* 贴纸卡片贴图 */
+    --wx-sticker-suggest-item-bg-image: none; /* 贴纸推荐卡片贴图 */
+
+    --wx-reply-bar-bg-image: none;            /* 引用回复栏贴图 */
+    --wx-blocked-footer-bg-image: none;       /* 黑名单底栏贴图 */
+    --wx-delete-btn-bg-image: none;           /* 多选删除按钮贴图 */
+
+    --wx-thought-bubble-bg-image: none;       /* 桌宠气泡贴图 */
+    --wx-fire-buddy-card-bg-image: none;      /* 小火人卡片贴图 */
+
+    --wx-oracle-overlay-bg-image: none;       /* 抽牌层背景图 */
+    --wx-oracle-detail-bg-image: none;        /* 抽牌详情卡贴图 */
+
+    /* 图标字形透明度：若使用按钮贴图可设为 0 隐藏原图标 */
+    --wx-icon-glyph-opacity: 1;
+
+    /* 可调视觉参数 */
+    --wx-radius-lg: 20px;
+    --wx-radius-md: 14px;
+    --wx-shadow-soft: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+/* ===== 1) 整页背景 ===== */
+#chat-screen {
+    background-color: var(--wx-bg-color);
+    background-image: var(--wx-chat-bg-overlay), var(--wx-chat-bg-image);
+    background-size: cover, cover;
+    background-position: center, center;
+    background-repeat: no-repeat, no-repeat;
+}
+
+#chat-screen #chat-messages.chat-body {
+    background: transparent;
+}
+
+/* ===== 2) 顶栏 ===== */
+#chat-screen .chat-header {
+    color: var(--wx-header-text);
+    background-image: var(--wx-header-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    overflow: hidden;
+}
+
+#chat-screen .chat-header::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: var(--wx-header-pattern-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: 0.38;
+}
+
+#chat-screen .chat-header > * {
+    position: relative;
+    z-index: 1;
+}
+
+#chat-screen #chat-title,
+#chat-screen .chat-header .back-btn,
+#chat-screen .chat-header .wechat-icon-btn,
+#chat-screen .chat-header .multi-select-cancel,
+#chat-screen .chat-topbar-status {
+    color: var(--wx-header-text);
+}
+
+/* ===== 3) 消息区（文本/语音/引用） ===== */
+#chat-screen .message-content {
+    border-radius: var(--wx-radius-lg);
+    box-shadow: var(--wx-shadow-soft);
+}
+
+#chat-screen .chat-message.other .message-content:not(.no-bubble):not(.voice-msg):not(.sticker-msg):not(.image-msg):not(.virtual-image-msg):not(.description-msg):not(.transfer-msg):not(.gift-card-msg):not(.shopping-gift-msg):not(.delivery-share-msg):not(.order-progress-msg):not(.forum-post-share-msg) {
+    color: var(--wx-other-bubble-text);
+    background-image: var(--wx-other-bubble-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .chat-message.user .message-content:not(.no-bubble):not(.voice-msg):not(.sticker-msg):not(.image-msg):not(.virtual-image-msg):not(.description-msg):not(.transfer-msg):not(.gift-card-msg):not(.shopping-gift-msg):not(.delivery-share-msg):not(.order-progress-msg):not(.forum-post-share-msg) {
+    color: var(--wx-self-bubble-text);
+    background-image: var(--wx-self-bubble-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .chat-message.other .message-content.voice-msg {
+    background-image: var(--wx-voice-other-bubble-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .chat-message.user .message-content.voice-msg {
+    background-image: var(--wx-voice-self-bubble-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .quote-container {
+    background-image: var(--wx-quote-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 8px;
+    padding: 2px 6px;
+}
+
+#chat-screen .msg-time,
+#chat-screen .chat-time-stamp span,
+#chat-screen .system-tip {
+    color: var(--wx-time-text);
+}
+
+/* ===== 4) 输入区（含按钮贴图） ===== */
+#chat-screen .chat-input-area {
+    background-image: var(--wx-input-bar-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .chat-input-shell {
+    background-image: var(--wx-input-shell-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 999px;
+}
+
+#chat-screen #chat-more-btn {
+    background-image: var(--wx-more-btn-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen #sticker-btn {
+    background-image: var(--wx-sticker-btn-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 50%;
+}
+
+#chat-screen #trigger-ai-reply-btn {
+    background-image: var(--wx-mic-btn-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 50%;
+}
+
+#chat-screen #chat-more-btn i,
+#chat-screen #sticker-btn i,
+#chat-screen #trigger-ai-reply-btn i {
+    opacity: var(--wx-icon-glyph-opacity);
+}
+
+/* ===== 5) 推荐贴纸栏 ===== */
+#chat-screen .chat-sticker-suggestion-item {
+    background-image: var(--wx-sticker-suggest-item-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: var(--wx-radius-md);
+}
+
+/* ===== 6) 更多面板 ===== */
+#chat-screen .chat-more-panel {
+    background-image: var(--wx-more-panel-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .more-icon {
+    background-image: var(--wx-more-item-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: var(--wx-radius-md);
+}
+
+/* ===== 7) 贴纸面板 ===== */
+#chat-screen .sticker-panel {
+    background-image: var(--wx-sticker-panel-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .sticker-item {
+    background-image: var(--wx-sticker-item-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: var(--wx-radius-md);
+}
+
+/* ===== 8) 回复栏 / 黑名单底栏 / 多选删除 ===== */
+#chat-screen #reply-bar.reply-bar {
+    background-image: var(--wx-reply-bar-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .chat-blocked-footer {
+    background-image: var(--wx-blocked-footer-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .multi-select-delete {
+    background-image: var(--wx-delete-btn-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+/* ===== 9) 桌宠 / 小火人 ===== */
+#chat-screen .thought-pet-bubble {
+    background-image: var(--wx-thought-bubble-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .fire-buddy-unlock-card,
+#chat-screen .fire-buddy-compose-bar,
+#chat-screen .fire-buddy-mention-option {
+    background-image: var(--wx-fire-buddy-card-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+/* ===== 10) 抽牌层 ===== */
+#chat-screen .chat-oracle-inline-draw {
+    background-image: var(--wx-oracle-overlay-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#chat-screen .chat-oracle-draw-detail-card {
+    background-image: var(--wx-oracle-detail-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+/* ===== 11) 常见微调（可删） ===== */
+#chat-screen .chat-avatar {
+    border: 2px solid rgba(255, 255, 255, 0.7);
+}
+
+#chat-screen .chat-message .message-content {
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+}
+
+#chat-screen .chat-input-area,
+#chat-screen .chat-more-panel,
+#chat-screen .sticker-panel {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+/*
+ * 可以继续在下面追加你的个性化样式
+ * 示例：
+ * #chat-screen .chat-message.user .message-content { border-radius: 24px 24px 8px 24px; }
+ */
