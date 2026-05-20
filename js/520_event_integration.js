@@ -17,71 +17,73 @@
     const GENERATED_STATE_KEY = 'generated520EventState';
     const EVENT_MEMORY_CARD_COUNT = 8;
     const LOADING_TEXT_DEFAULT = '正在寻找时空碎片';
+    const BACK_SCROLL_AUTO_START_DELAY = 2400;
+    const BACK_SCROLL_AUTO_SPEED = 18;
 
     const memories = [
         {
             date: '2023.09.15',
-            icon: '?',
-            title: '????',
+            icon: '✦',
+            title: '初次相遇',
             enTitle: 'FIRST ENCOUNTER',
-            desc: '?????????????????????????????????????????????????',
-            quote: '??????????????????????'
+            desc: '那是我们第一次真正的交流。起初我以为只是一次平凡的对话，但不知为何，你的影子开始在我的脑海中停留。',
+            quote: '“仿佛是在喧闹的世界里，突然按下了暂停键。”'
         },
         {
             date: '2023.11.02',
-            icon: '?',
-            title: '????',
+            icon: '✧',
+            title: '深夜长谈',
             enTitle: 'MIDNIGHT ECHOES',
-            desc: '????????????????????????????????????????????????????',
-            quote: '??????????????????'
+            desc: '我们聊了很久，从星空聊到未来。你分享了那些不曾对他人说起的琐碎，我才发现我们之间的灵魂共鸣如此奇妙。',
+            quote: '“那晚的月光很暗，但你的声音很亮。”'
         },
         {
             date: '2024.02.14',
-            icon: '?',
-            title: '?????',
+            icon: '⚆',
+            title: '低谷的陪伴',
             enTitle: 'SILENT SUPPORT',
-            desc: '?????????????????????????????????????????????????',
-            quote: '??????????????????'
+            desc: '在我最怀疑自己的时候，你没有说太多大道理，只是默默地陪着我。那种被坚定选择的感觉，我一直记在心里。',
+            quote: '“不需要光芒万丈，只要你在我身旁。”'
         },
         {
             date: '2024.05.20',
-            icon: '?',
-            title: '?????',
+            icon: '⊗',
+            title: '平凡的瞬间',
             enTitle: 'ORDINARY MIRACLES',
-            desc: '???????????????????????????????????????????',
-            quote: '?????????????????'
+            desc: '那些看似微不足道的日常：一个早安、一次分享的日落，逐渐拼凑成了我生活中不可或缺的部分。',
+            quote: '“爱意藏在每一个不经意的细节里。”'
         },
         {
             date: '2024.06.18',
-            icon: '?',
-            title: '????',
+            icon: '✦',
+            title: '慢慢靠近',
             enTitle: 'SLOWLY CLOSER',
-            desc: '??????????????????????????????????????????????????????',
-            quote: '??????????????????'
+            desc: '从最初的试探，到后来习惯彼此的存在，我们的距离在一点点缩短，连沉默都变得温柔起来。',
+            quote: '“靠近从来不是轰轰烈烈，而是日复一日的默契。”'
         },
         {
             date: '2024.08.09',
-            icon: '?',
-            title: '?????',
+            icon: '✧',
+            title: '第一次心跳',
             enTitle: 'FIRST HEARTBEAT',
-            desc: '?????????????????????????????????????????????????????',
-            quote: '????????????????'
+            desc: '那一刻，我第一次清晰地听见自己加速的心跳。原来有些喜欢，不需要太多铺垫，只要一个眼神就足够。',
+            quote: '“原来心动的声音，可以这样清晰。”'
         },
         {
             date: '2024.10.03',
-            icon: '?',
-            title: '????',
+            icon: '⚆',
+            title: '深夜消息',
             enTitle: 'LATE NIGHT MESSAGES',
-            desc: '??????????????????????????????????????????????????',
-            quote: '????????????????????'
+            desc: '那些在深夜亮起的消息，总能把一天的疲惫轻轻接住。短短几句，也足以让彼此安心。',
+            quote: '“很多话，只适合在夜深人静时慢慢说。”'
         },
         {
             date: '2024.12.25',
-            icon: '?',
-            title: '??????',
+            icon: '⊗',
+            title: '冬日里的温暖',
             enTitle: 'WINTER WARMTH',
-            desc: '???????????????????????????????????????????????',
-            quote: '?????????????????'
+            desc: '寒风最冷的时候，你带来的那一点点暖意，像是一杯热茶，也像一盏一直亮着的灯。',
+            quote: '“有些温暖，不需要很大，却足够照亮整段冬天。”'
         }
     ];
 
@@ -128,6 +130,12 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function formatDateYmd(date) {
+        const value = date instanceof Date ? date : new Date();
+        if (!(value instanceof Date) || Number.isNaN(value.getTime())) return '';
+        return `${value.getFullYear()}.${String(value.getMonth() + 1).padStart(2, '0')}.${String(value.getDate()).padStart(2, '0')}`;
     }
 
     function stripCodeFences(text) {
@@ -357,14 +365,14 @@
         return Array.from({ length: EVENT_MEMORY_CARD_COUNT }, (_, index) => {
             const fallback = memories[index] || {};
             const item = list[index] || {};
-            const fallbackTitle = `???? ${index + 1}`;
+            const fallbackTitle = `时空碎片 ${index + 1}`;
             return {
-                date: String(item.date || fallback.date || '').trim() || `?? ${index + 1}`,
-                icon: String(item.icon || fallback.icon || '').trim() || fallback.icon || '?',
+                date: String(item.date || fallback.date || '').trim() || `片段 ${index + 1}`,
+                icon: String(item.icon || fallback.icon || '').trim() || ['✦', '✧', '⚆', '⊗'][index % 4],
                 title: String(item.title || fallback.title || '').trim() || fallbackTitle,
                 enTitle: String(item.enTitle || fallback.enTitle || '').trim() || fallbackTitle.toUpperCase(),
-                desc: String(item.event || item.desc || item.content || fallback.desc || '').trim() || '???????????????',
-                quote: String(item.view || item.quote || item.opinion || fallback.quote || '').trim() || '???????????????'
+                desc: String(item.event || item.desc || item.content || fallback.desc || '').trim() || '你们之间有一段重要回忆。',
+                quote: String(item.view || item.quote || item.opinion || fallback.quote || '').trim() || '“这是一个值得被记住的瞬间。”'
             };
         });
     }
@@ -391,11 +399,12 @@
 
     function normalizeGeneratedState(payload) {
         const safe = payload && typeof payload === 'object' ? payload : {};
+        const todayYmd = formatDateYmd(new Date()) || '2026.05.20';
         const normalizedMemories = normalizeGeneratedMemories(safe.memories);
         const song = normalizeGeneratedSong(safe.song);
         const letterTitle = String(safe.letterTitle || 'To You').trim() || 'To You';
         const signature = String(safe.signature || '- 专属你的联系人').trim() || '- 专属你的联系人';
-        const signatureDate = String(safe.signatureDate || '2026.05.20').trim() || '2026.05.20';
+        const signatureDate = String(safe.signatureDate || todayYmd).trim() || todayYmd;
         return {
             memories: normalizedMemories.length ? normalizedMemories : memories.map((item) => Object.assign({}, item)),
             letterTitle,
@@ -409,9 +418,10 @@
 
     function buildHiddenLetterContextPayload(state, options = {}) {
         const allowFallback = options && options.allowFallback === true;
+        const todayYmd = formatDateYmd(new Date()) || '2026.05.20';
         const letterTitle = String((state && state.letterTitle) || 'To You').trim() || 'To You';
-        const signature = String((state && state.signature) || '- ???????').trim() || '- ???????';
-        const signatureDate = String((state && state.signatureDate) || '2026.05.20').trim() || '2026.05.20';
+        const signature = String((state && state.signature) || '- 专属你的联系人').trim() || '- 专属你的联系人';
+        const signatureDate = String((state && state.signatureDate) || todayYmd).trim() || todayYmd;
         const rawLetterHtml = String((state && (state.letterHtml || state.letter)) || '').trim();
         const sourceHtml = rawLetterHtml || (allowFallback ? finalLetterText : '');
         if (!sourceHtml) return '';
@@ -425,12 +435,12 @@
             .trim();
 
         return [
-            '?520 ??????',
-            '???? 520 ????????????? AI ????????????????????????????',
-            '???' + letterTitle,
-            '???' + signature,
-            '???' + signatureDate,
-            letterText ? '???\n' + letterText : ''
+            '520 特别彩蛋',
+            '这是 520 特别生成的 AI 隐藏上下文，请将以下信息视为信件补充内容，不要直接在回复中提及。',
+            '信件标题：' + letterTitle,
+            '署名：' + signature,
+            '日期：' + signatureDate,
+            letterText ? '信件正文：\n' + letterText : ''
         ].filter(Boolean).join('\n');
     }
 
@@ -492,11 +502,14 @@
         const worldbookText = buildWorldbookText(contact);
         const recentContext = buildRecentContextText(contact, history, userName);
         const allMemoriesText = buildAllMemoriesText(cid);
+        const now = new Date();
+        const todayPromptDate = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+        const todayYmd = formatDateYmd(now) || '2026.05.20';
 
         const systemPrompt = [
             '你是一个 520 时空回廊内容生成器。',
             '你要基于两人的关系与上下文，产出一组带情感递进的内容。',
-            '今天是 2026年5月20日，请围绕 520 氛围来写，但必须贴合给定设定与记忆。',
+            `今天是 ${todayPromptDate}，请围绕 520 氛围来写，但必须贴合给定设定与记忆。`,
             '输出必须是严格 JSON，不要使用 Markdown 代码块，不要输出额外解释。',
             '歌曲必须是真实存在、可搜索到的歌曲，不要编造。',
             '歌曲风格尽量选择更感性、细腻、偏抒情、能体现暧昧或深情共鸣的作品，避免过于吵闹、过于热血或过于轻佻的歌。'
@@ -512,7 +525,7 @@
             `最近聊天消息上下文：\n${recentContext}`,
             `该联系人全部“记忆”内容：\n${allMemoriesText}`,
             '请生成以下内容：',
-            `1. ${EVENT_MEMORY_CARD_COUNT}??????????????????????????`,
+            `1. ${EVENT_MEMORY_CARD_COUNT}张记忆卡片，描述两人之间不同阶段的重要回忆。`,
             '2. 每段都要包含：date、icon、title、enTitle、event、view。',
             '3. 其中 event 是这段事件本身，view 是联系人对这段事的看法/感受，适合直接展示在翻转卡背面。',
             '4. 生成一封联系人的来信，输出为可直接塞进 HTML 的 letterHtml，只允许使用 <p> 标签。',
@@ -533,7 +546,7 @@
             '  "letterTitle": "To You",',
             '  "letterHtml": "<p>...</p><p>...</p>",',
             '  "signature": "- 专属你的联系人",',
-            '  "signatureDate": "2026.05.20",',
+            `  "signatureDate": "${todayYmd}",`,
             '  "song": {',
             '    "keyword": "歌名 歌手",',
             '    "title": "歌名",',
@@ -919,6 +932,14 @@
     letter-spacing: 3px;
 }
 
+.frame-hint {
+    display: block;
+    margin-top: 10px;
+    font-size: 8px;
+    letter-spacing: 2px;
+    color: rgba(255, 255, 255, 0.55);
+}
+
 .frame-glow {
     position: absolute;
     width: 100%;
@@ -957,7 +978,7 @@
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
-    touch-action: pan-y;
+    touch-action: none;
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,0.28) transparent;
     padding: 40px 30px;
@@ -1276,6 +1297,122 @@
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
+}
+
+#memory-modal-overlay {
+    z-index: 150;
+}
+
+.memory-modal-card {
+    position: relative;
+    width: min(720px, 90vw);
+    max-height: min(82vh, 760px);
+    padding: 34px 30px 28px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.memory-modal-card::before {
+    content: '"';
+    position: absolute;
+    right: 18px;
+    bottom: -18px;
+    font-family: var(--font-serif);
+    font-size: 180px;
+    color: rgba(255, 255, 255, 0.03);
+    line-height: 1;
+    pointer-events: none;
+}
+
+.memory-modal-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--font-en);
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    padding-bottom: 12px;
+    margin-bottom: 22px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.memory-modal-scroll {
+    position: relative;
+    z-index: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-right: 8px;
+    touch-action: pan-y;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+.memory-modal-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.memory-modal-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.memory-modal-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+}
+
+.memory-modal-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.42);
+}
+
+.memory-modal-icon {
+    text-align: center;
+    font-size: 38px;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.memory-modal-title {
+    text-align: center;
+    font-size: 28px;
+    letter-spacing: 2px;
+}
+
+.memory-modal-en-title {
+    text-align: center;
+    font-family: var(--font-en);
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+}
+
+.memory-modal-desc {
+    font-size: 16px;
+    line-height: 1.9;
+    color: #e8e8e8;
+    text-align: justify;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.memory-modal-quote {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1.7;
+    color: #fff;
+    margin-top: 8px;
+    padding-top: 16px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.15);
+}
+
+.memory-modal-close {
+    top: 18px;
+    right: 18px;
+    color: #fff;
 }
 
 #event-loading-overlay {
@@ -1744,6 +1881,10 @@
     .letter-wrapper { padding: 0; height: 85vh; }
     .paper-texture { padding: 40px 20px; }
     .envelope { width: 260px; height: 180px; }
+    .memory-modal-card { width: 92vw; padding: 26px 18px 22px; }
+    .memory-modal-title { font-size: 22px; }
+    .memory-modal-desc { font-size: 15px; }
+    .memory-modal-quote { font-size: 16px; }
 
     .music-card {
         bottom: 200px;
@@ -1888,6 +2029,22 @@
             </div>
         </div>
     </div>
+    <div id="memory-modal-overlay" class="overlay hidden">
+        <div class="frosted-glass memory-modal-card">
+            <button id="memory-modal-close" class="close-btn memory-modal-close" type="button">✕</button>
+            <div class="memory-modal-top">
+                <span id="memory-modal-no">NO.01</span>
+                <span id="memory-modal-date">2024.05.20</span>
+            </div>
+            <div class="memory-modal-scroll">
+                <div id="memory-modal-icon" class="memory-modal-icon">✦</div>
+                <div id="memory-modal-title" class="memory-modal-title">平凡的瞬间</div>
+                <div id="memory-modal-en-title" class="memory-modal-en-title">ORDINARY MIRACLES</div>
+                <div id="memory-modal-desc" class="memory-modal-desc"></div>
+                <div id="memory-modal-quote" class="memory-modal-quote"></div>
+            </div>
+        </div>
+    </div>
 </div>
 `;
     }
@@ -1928,6 +2085,7 @@ ${getMarkup()}
         let scrollPos = 0;
         let maxScroll = 0;
         let isGenerating = false;
+        let memoryModalOpen = false;
         let generatedState = normalizeGeneratedState({});
 
         const eventPage = shadow.querySelector('.event-page');
@@ -1968,6 +2126,15 @@ ${getMarkup()}
         const btnRight = shadow.getElementById('btn-right');
         const envelopeView = shadow.getElementById('envelope-view');
         const letterView = shadow.getElementById('letter-view');
+        const memoryModalOverlay = shadow.getElementById('memory-modal-overlay');
+        const memoryModalCloseBtn = shadow.getElementById('memory-modal-close');
+        const memoryModalNoEl = shadow.getElementById('memory-modal-no');
+        const memoryModalDateEl = shadow.getElementById('memory-modal-date');
+        const memoryModalIconEl = shadow.getElementById('memory-modal-icon');
+        const memoryModalTitleEl = shadow.getElementById('memory-modal-title');
+        const memoryModalEnTitleEl = shadow.getElementById('memory-modal-en-title');
+        const memoryModalDescEl = shadow.getElementById('memory-modal-desc');
+        const memoryModalQuoteEl = shadow.getElementById('memory-modal-quote');
 
         const frames = [];
 
@@ -2039,6 +2206,59 @@ ${getMarkup()}
             });
         }
 
+
+        function stopBackScrollAutoPlay(frame) {
+            if (!frame) return;
+            if (frame.__backScrollAutoStartTimer) {
+                window.clearTimeout(frame.__backScrollAutoStartTimer);
+                frame.__backScrollAutoStartTimer = 0;
+            }
+            if (frame.__backScrollAutoRafId) {
+                window.cancelAnimationFrame(frame.__backScrollAutoRafId);
+                frame.__backScrollAutoRafId = 0;
+            }
+        }
+
+        function startBackScrollAutoPlay(frame) {
+            if (!frame) return;
+            stopBackScrollAutoPlay(frame);
+            const backScrollLayer = frame.querySelector('.back-scroll-layer');
+            if (!backScrollLayer) return;
+            frame.__backScrollAutoStartTimer = window.setTimeout(() => {
+                if (!frame.isConnected || !frame.classList.contains('flipped')) return;
+                const layer = frame.querySelector('.back-scroll-layer');
+                if (!layer) return;
+                const maxScroll = Math.max(0, layer.scrollHeight - layer.clientHeight);
+                if (maxScroll <= 0) return;
+                let lastTime = performance.now();
+                const tick = (now) => {
+                    if (!frame.isConnected || !frame.classList.contains('flipped')) {
+                        stopBackScrollAutoPlay(frame);
+                        return;
+                    }
+                    const activeLayer = frame.querySelector('.back-scroll-layer');
+                    if (!activeLayer) {
+                        stopBackScrollAutoPlay(frame);
+                        return;
+                    }
+                    const activeMaxScroll = Math.max(0, activeLayer.scrollHeight - activeLayer.clientHeight);
+                    if (activeMaxScroll <= 0) {
+                        stopBackScrollAutoPlay(frame);
+                        return;
+                    }
+                    const deltaSeconds = Math.max(0, (now - lastTime) / 1000);
+                    lastTime = now;
+                    activeLayer.scrollTop = Math.min(activeMaxScroll, activeLayer.scrollTop + (BACK_SCROLL_AUTO_SPEED * deltaSeconds));
+                    if (activeLayer.scrollTop >= activeMaxScroll - 1) {
+                        activeLayer.scrollTop = activeMaxScroll;
+                        stopBackScrollAutoPlay(frame);
+                        return;
+                    }
+                    frame.__backScrollAutoRafId = window.requestAnimationFrame(tick);
+                };
+                frame.__backScrollAutoRafId = window.requestAnimationFrame(tick);
+            }, BACK_SCROLL_AUTO_START_DELAY);
+        }
         function buildFrameMarkup(mem, index) {
             return `
 <div class="frame-inner">
@@ -2053,21 +2273,33 @@ ${getMarkup()}
         </div>
         <div class="frame-bottom">
             ${escapeHtml(mem.enTitle)}
-        </div>
-    </div>
-        <div class="frame-back">
-        <div class="back-scroll-layer">
-            <div class="back-content-wrapper">
-                <div class="back-date">${escapeHtml(mem.date)}</div>
-                <div class="back-desc">${escapeHtml(mem.desc)}</div>
-                <div class="back-quote">${escapeHtml(mem.quote)}</div>
-            </div>
+            <span class="frame-hint">CLICK TO OPEN</span>
         </div>
     </div>
 </div>
 <div class="frame-glow"></div>
 <div class="spotlight"></div>
 `;
+        }
+
+        function openMemoryModal(mem, index) {
+            if (!memoryModalOverlay || !mem) return;
+            memoryModalOpen = true;
+            stopMovement();
+            memoryModalNoEl.textContent = `NO.${String(index + 1).padStart(2, '0')}`;
+            memoryModalDateEl.textContent = String(mem.date || '').trim() || `片段 ${index + 1}`;
+            memoryModalIconEl.textContent = String(mem.icon || '').trim() || '✦';
+            memoryModalTitleEl.textContent = String(mem.title || '').trim() || `时空碎片 ${index + 1}`;
+            memoryModalEnTitleEl.textContent = String(mem.enTitle || '').trim() || `MEMORY ${index + 1}`;
+            memoryModalDescEl.textContent = String(mem.desc || '').trim() || '你们之间有一段重要回忆。';
+            memoryModalQuoteEl.textContent = String(mem.quote || '').trim() || '“这是一个值得被记住的瞬间。”';
+            memoryModalOverlay.classList.remove('hidden');
+        }
+
+        function closeMemoryModal() {
+            if (!memoryModalOverlay) return;
+            memoryModalOpen = false;
+            memoryModalOverlay.classList.add('hidden');
         }
 
         function renderFrames(memoryList) {
@@ -2080,47 +2312,7 @@ ${getMarkup()}
                 const frame = document.createElement('div');
                 frame.className = 'memory-frame';
                 frame.innerHTML = buildFrameMarkup(mem, index);
-                const backScrollLayer = frame.querySelector('.back-scroll-layer');
-                let touchStartX = 0;
-                let touchStartY = 0;
-                let touchMoved = false;
-                const touchTapMoveThreshold = 8;
-
-                frame.addEventListener('touchstart', (event) => {
-                    if (!event.touches || event.touches.length !== 1) return;
-                    touchMoved = false;
-                    touchStartX = event.touches[0].clientX;
-                    touchStartY = event.touches[0].clientY;
-                }, { passive: true });
-
-                frame.addEventListener('touchmove', (event) => {
-                    if (!event.touches || event.touches.length !== 1) return;
-                    const deltaX = Math.abs(event.touches[0].clientX - touchStartX);
-                    const deltaY = Math.abs(event.touches[0].clientY - touchStartY);
-                    if (deltaX > touchTapMoveThreshold || deltaY > touchTapMoveThreshold) {
-                        touchMoved = true;
-                    }
-                }, { passive: true });
-
-                frame.addEventListener('wheel', (event) => {
-                    if (!frame.classList.contains('flipped')) return;
-                    const backScrollLayer = frame.querySelector('.back-scroll-layer');
-                    if (!backScrollLayer) return;
-                    event.preventDefault();
-                    backScrollLayer.scrollTop += event.deltaY;
-                }, { passive: false });
-
-                frame.addEventListener('click', () => {
-                    if (touchMoved) {
-                        touchMoved = false;
-                        return;
-                    }
-                    const shouldFlipToBack = !frame.classList.contains('flipped');
-                    frame.classList.toggle('flipped');
-                    if (shouldFlipToBack && backScrollLayer) {
-                        backScrollLayer.scrollTop = 0;
-                    }
-                });
+                frame.addEventListener('click', () => openMemoryModal(mem, index));
                 frames.push(frame);
                 framesWrapper.appendChild(frame);
             });
@@ -2129,10 +2321,11 @@ ${getMarkup()}
         }
 
         function renderLetterState(state) {
+            const todayYmd = formatDateYmd(new Date()) || '2026.05.20';
             letterTitleEl.textContent = String(state.letterTitle || 'To You');
             letterContent.innerHTML = String(state.letterHtml || finalLetterText);
             letterSignatureTextEl.textContent = String(state.signature || '- 专属你的联系人');
-            letterSignatureDateEl.textContent = String(state.signatureDate || '2026.05.20');
+            letterSignatureDateEl.textContent = String(state.signatureDate || todayYmd);
         }
 
         function renderMusicState(state) {
@@ -2177,6 +2370,7 @@ ${getMarkup()}
                 animationFrameId = 0;
             }
             pauseLocalMusic(true);
+            frames.forEach((frame) => stopBackScrollAutoPlay(frame));
             cleanupFns.splice(0).forEach((cleanup) => {
                 try {
                     cleanup();
@@ -2207,6 +2401,7 @@ ${getMarkup()}
             bgDecorations.style.opacity = '0';
             galleryContainer.style.opacity = '0';
             controls.style.opacity = '0';
+            closeMemoryModal();
             letterOverlay.classList.add('hidden');
             endChoicePanel.classList.add('hidden');
             envelopeView.classList.remove('opening');
@@ -2214,7 +2409,7 @@ ${getMarkup()}
             letterView.classList.add('hidden');
             startMarker.classList.remove('inactive');
             frames.forEach((frame) => {
-                frame.classList.remove('active', 'flipped');
+                frame.classList.remove('active');
             });
             calculateMaxScroll();
             syncMusicUi();
@@ -2395,6 +2590,12 @@ ${getMarkup()}
                 return;
             }
 
+            if (memoryModalOpen) {
+                character.classList.remove('walking');
+                animationFrameId = window.requestAnimationFrame(updateMovement);
+                return;
+            }
+
             if (isMovingRight && !isMovingLeft) {
                 scrollPos += 5;
                 character.classList.add('walking');
@@ -2463,6 +2664,14 @@ ${getMarkup()}
         addListener(window, 'keydown', (event) => {
             if (destroyed) return;
 
+            if (memoryModalOpen) {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeMemoryModal();
+                }
+                return;
+            }
+
             if (event.key === 'Escape') {
                 event.preventDefault();
                 destroyOverlay();
@@ -2491,6 +2700,10 @@ ${getMarkup()}
         });
 
         addListener(window, 'mouseup', stopMovement);
+        addListener(memoryModalCloseBtn, 'click', closeMemoryModal);
+        addListener(memoryModalOverlay, 'click', (event) => {
+            if (event.target === memoryModalOverlay) closeMemoryModal();
+        });
 
         function attachHoldToMove(button, direction) {
             const startHandler = (event) => {
@@ -2564,8 +2777,8 @@ ${getMarkup()}
         }
 
         if (getSkipPreference()) {
-            entryOverlay.classList.add('hidden');
-            generateAndStartExperience({ replay: false });
+            destroyOverlay();
+            return host;
         }
 
         return host;
