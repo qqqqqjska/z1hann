@@ -8,6 +8,7 @@ let memorySelectMode = false;
 let selectedMemoryIds = new Set();
 let memoryRefinePanelVisible = false;
 let pendingRefineMemoryIds = [];
+let pendingRefinePreviewPayload = null;
 
 // --- 朋友圈功能 ---
 
@@ -7795,7 +7796,7 @@ window.extractSpecificNamesFromUserText = function(text) {
     return normalizeExactNames(names);
 };
 
-async function callRefineMemoryBatchModel(contact, selectedMemories, targetChars = 300) {
+async function callRefineMemoryBatchModel(contact, selectedMemories) {
     const list = Array.isArray(selectedMemories) ? selectedMemories.filter(Boolean) : [];
     if (list.length === 0) return { refined_summary: '' };
 
@@ -7827,17 +7828,7 @@ async function callRefineMemoryBatchModel(contact, selectedMemories, targetChars
 
     const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const safeTarget = clampInt(targetChars, 300, 80, 3000);
-    const minChars = Math.max(60, Math.floor(safeTarget * 0.82));
-    const maxChars = Math.max(minChars + 24, Math.ceil(safeTarget * 1.2));
-    const tokenBudget = Math.max(700, Math.min(4000, Math.round(maxChars * 2.6)));
-    const range = getChannelNaturalSummaryLengthRange(normalizedMessages.length, 'chat', 'manual', {
-        count: normalizedMessages.length,
-        target: safeTarget,
-        min: minChars,
-        max: maxChars,
-        maxTokens: tokenBudget
-    });
+    const range = getChannelNaturalSummaryLengthRange(normalizedMessages.length, 'chat', 'manual');
     const runtimeContext = {
         channel: 'chat',
         mode: 'manual',
@@ -7849,7 +7840,7 @@ async function callRefineMemoryBatchModel(contact, selectedMemories, targetChars
         userLabel,
         contactLabel,
         persona: String(contact && contact.persona ? contact.persona : '傲娇、温柔').trim(),
-        detailModeHint: `当前是记忆精炼总结，需要保留多条记忆中的关键事实与时间顺序，尽量接近${safeTarget}字。`,
+        detailModeHint: '当前是记忆精炼总结，需要保留多条记忆中的关键事实与时间顺序。',
         range
     };
 
@@ -7870,8 +7861,7 @@ async function callRefineMemoryBatchModel(contact, selectedMemories, targetChars
             userContent,
             temperature: 0.45,
             presencePenalty: 0.2,
-            frequencyPenalty: 0.15,
-            maxTokens: range.maxTokens
+            frequencyPenalty: 0.15
         });
     } catch (error) {
         console.warn('callRefineMemoryBatchModel first pass failed', error);
@@ -7880,7 +7870,7 @@ async function callRefineMemoryBatchModel(contact, selectedMemories, targetChars
 
     let summary = normalizeNaturalSummaryOutput(firstRaw, runtimeContext).trim();
     if (!summary) return null;
-    const minAcceptableChars = Math.max(60, Math.floor(range.min * 0.85));
+    const minAcceptableChars = Math.max(60, Math.floor(range.min * 0.55));
     if (countSummaryChars(summary) < minAcceptableChars) {
         try {
             const retryRaw = await requestNaturalSummaryText(settings, {
@@ -7890,8 +7880,7 @@ async function callRefineMemoryBatchModel(contact, selectedMemories, targetChars
                 userContent: buildNaturalSummaryUserContent(chatContext, runtimeContext, summary),
                 temperature: 0.5,
                 presencePenalty: 0.25,
-                frequencyPenalty: 0.1,
-                maxTokens: Math.max(range.maxTokens, Math.round(maxChars * 3))
+                frequencyPenalty: 0.1
             });
             const retrySummary = normalizeNaturalSummaryOutput(retryRaw, runtimeContext).trim();
             if (retrySummary && countSummaryChars(retrySummary) >= minAcceptableChars) {
@@ -7901,11 +7890,11 @@ async function callRefineMemoryBatchModel(contact, selectedMemories, targetChars
             console.warn('callRefineMemoryBatchModel retry failed', error);
         }
     }
-    summary = enforceSummaryLengthRange(summary, range, runtimeContext).trim();
+    summary = normalizeNaturalSummaryOutput(summary, runtimeContext).trim();
     return { refined_summary: summary };
 }
 
-window.refineSelectedMemories = async function(contactId, selectedIds, options = {}) {
+window.refineSelectedMemories = async function(contactId, selectedIds) {
     const cid = Number(contactId);
     if (!Number.isFinite(cid)) return null;
     const uniqueIds = Array.from(new Set((Array.isArray(selectedIds) ? selectedIds : []).map(id => Number(id)).filter(id => Number.isFinite(id))));
@@ -7913,7 +7902,6 @@ window.refineSelectedMemories = async function(contactId, selectedIds, options =
         showNotification('请先选择要精炼的记忆', 1800);
         return null;
     }
-    const targetChars = clampInt(options && options.targetChars, 300, 80, 3000);
 
     const selectedMemories = getContactMemories(cid)
         .filter(memory => uniqueIds.includes(Number(memory.id)))
@@ -7928,7 +7916,7 @@ window.refineSelectedMemories = async function(contactId, selectedIds, options =
 
     let result = null;
     try {
-        result = await callRefineMemoryBatchModel(contact, selectedMemories, targetChars);
+        result = await callRefineMemoryBatchModel(contact, selectedMemories);
     } catch (error) {
         console.warn('refineSelectedMemories model call failed', error);
     }
@@ -7938,14 +7926,27 @@ window.refineSelectedMemories = async function(contactId, selectedIds, options =
         refinedSummary = result.refined_summary.trim();
     }
     if (!refinedSummary) {
-        refinedSummary = selectedMemories.map(memory => String(memory.content || '').trim()).filter(Boolean).slice(0, 2).join('；');
-        const fallbackMax = Math.max(90, Math.ceil(targetChars * 1.1));
-        if (refinedSummary.length > fallbackMax) refinedSummary = `${refinedSummary.slice(0, fallbackMax)}...`;
+        refinedSummary = selectedMemories.map(memory => String(memory.content || '').trim()).filter(Boolean).join('\n');
     }
     if (!refinedSummary) {
         showNotification('精炼失败，请稍后重试', 1800);
         return null;
     }
+
+    return {
+        contactId: cid,
+        selectedIds: uniqueIds,
+        refinedSummary,
+        keyFacts: [],
+        replacedCount: 0
+    };
+};
+
+function applyRefineResultToMemory(payload = {}, shouldReplaceOriginal = false) {
+    const cid = Number(payload.contactId);
+    const uniqueIds = Array.from(new Set((Array.isArray(payload.selectedIds) ? payload.selectedIds : []).map(id => Number(id)).filter(id => Number.isFinite(id))));
+    const refinedSummary = String(payload.refinedSummary || '').trim();
+    if (!Number.isFinite(cid) || uniqueIds.length === 0 || !refinedSummary) return null;
 
     const createdResult = createOrMergeApprovedMemory({
         contactId: cid,
@@ -7956,27 +7957,22 @@ window.refineSelectedMemories = async function(contactId, selectedIds, options =
         refinedFrom: uniqueIds,
         refinedMeta: {
             selectedMemoryIds: uniqueIds,
-            sourceMemoryCount: uniqueIds.length,
-            targetChars: targetChars
+            sourceMemoryCount: uniqueIds.length
         }
     });
 
     let replacedCount = 0;
-    const shouldConfirmReplace = options && options.promptReplace !== false;
-    if (shouldConfirmReplace) {
-        const ask = confirm(`精炼已完成，是否用这条精炼记忆替换掉已选择的 ${uniqueIds.length} 条原记忆？\n\n选择“确定”会删除原记忆，仅保留精炼结果。`);
-        if (ask) {
-            const keepMemoryId = createdResult && createdResult.memory ? Number(createdResult.memory.id) : NaN;
-            const removeSet = new Set(uniqueIds.filter(id => Number(id) !== keepMemoryId));
-            if (removeSet.size > 0) {
-                const before = window.iphoneSimState.memories.length;
-                window.iphoneSimState.memories = window.iphoneSimState.memories.filter(memory => {
-                    const sameContact = String(memory && memory.contactId) === String(cid);
-                    if (!sameContact) return true;
-                    return !removeSet.has(Number(memory.id));
-                });
-                replacedCount = Math.max(0, before - window.iphoneSimState.memories.length);
-            }
+    if (shouldReplaceOriginal) {
+        const keepMemoryId = createdResult && createdResult.memory ? Number(createdResult.memory.id) : NaN;
+        const removeSet = new Set(uniqueIds.filter(id => Number(id) !== keepMemoryId));
+        if (removeSet.size > 0) {
+            const before = window.iphoneSimState.memories.length;
+            window.iphoneSimState.memories = window.iphoneSimState.memories.filter(memory => {
+                const sameContact = String(memory && memory.contactId) === String(cid);
+                if (!sameContact) return true;
+                return !removeSet.has(Number(memory.id));
+            });
+            replacedCount = Math.max(0, before - window.iphoneSimState.memories.length);
         }
     }
 
@@ -7985,17 +7981,42 @@ window.refineSelectedMemories = async function(contactId, selectedIds, options =
     markMemoryVectorIndexDirty(cid);
     resetMemorySelection();
     renderMemoryList();
+
     if (replacedCount > 0) {
         showNotification(`精炼归档完成：已替换 ${replacedCount} 条原记忆`, 2400, 'success');
     } else {
         showNotification('精炼归档完成：总览 1 条', 2200, 'success');
     }
+
     return {
-        refinedSummary,
-        keyFacts: [],
-        replacedCount: replacedCount
+        createdResult,
+        replacedCount
     };
-};
+}
+
+function openMemoryRefinePreviewModal(payload = {}) {
+    const modal = document.getElementById('memory-refine-preview-modal');
+    const contentEl = document.getElementById('memory-refine-preview-content');
+    if (!modal || !contentEl) return false;
+    const refinedSummary = String(payload && payload.refinedSummary ? payload.refinedSummary : '').trim();
+    if (!refinedSummary) return false;
+    pendingRefinePreviewPayload = {
+        contactId: Number(payload.contactId),
+        selectedIds: Array.isArray(payload.selectedIds) ? payload.selectedIds.slice(0) : [],
+        refinedSummary
+    };
+    contentEl.textContent = refinedSummary;
+    modal.classList.remove('hidden');
+    return true;
+}
+
+function closeMemoryRefinePreviewModal() {
+    const modal = document.getElementById('memory-refine-preview-modal');
+    const contentEl = document.getElementById('memory-refine-preview-content');
+    if (contentEl) contentEl.textContent = '';
+    if (modal) modal.classList.add('hidden');
+    pendingRefinePreviewPayload = null;
+}
 
 function openRefineConfirmModal(explicitIds = null) {
     const modal = document.getElementById('memory-refine-confirm-modal');
@@ -8023,13 +8044,6 @@ function openRefineConfirmModal(explicitIds = null) {
     pendingRefineMemoryIds = ids;
     const countEl = document.getElementById('memory-refine-selected-count-modal');
     if (countEl) countEl.textContent = String(ids.length);
-    const targetInput = document.getElementById('memory-refine-target-chars');
-    if (targetInput) {
-        const remembered = clampInt(targetInput.value, 300, 80, 3000);
-        targetInput.value = String(remembered);
-        try { targetInput.focus(); } catch (error) {}
-        try { targetInput.select(); } catch (error) {}
-    }
     modal.classList.remove('hidden');
     return true;
 }
@@ -10822,7 +10836,10 @@ function setupAppsListeners() {
     const cancelMemoryRefineConfirmBtn = document.getElementById('cancel-memory-refine-confirm');
     const confirmMemoryRefineBtn = document.getElementById('confirm-memory-refine-btn');
     const memoryRefineSelectedCountModal = document.getElementById('memory-refine-selected-count-modal');
-    const memoryRefineTargetCharsInput = document.getElementById('memory-refine-target-chars');
+    const memoryRefinePreviewModal = document.getElementById('memory-refine-preview-modal');
+    const closeMemoryRefinePreviewBtn = document.getElementById('close-memory-refine-preview');
+    const keepMemoryRefinePreviewBtn = document.getElementById('keep-memory-refine-preview-btn');
+    const replaceMemoryRefinePreviewBtn = document.getElementById('replace-memory-refine-preview-btn');
     const memoryCustomPromptsEnabledInput = document.getElementById('modal-memory-custom-prompts-enabled');
     const memoryCustomPromptsPanel = document.getElementById('modal-memory-custom-prompts-panel');
     const manualStateTagInput = document.querySelector('#manual-memory-tags input[value="state"]');
@@ -10837,6 +10854,7 @@ function setupAppsListeners() {
         setMemoryRefinePanelVisible(false);
         pendingRefineMemoryIds = [];
         if (memoryRefineConfirmModal) memoryRefineConfirmModal.classList.add('hidden');
+        closeMemoryRefinePreviewModal();
     });
     if (closeEditMemoryBtn) closeEditMemoryBtn.addEventListener('click', () => {
         editMemoryModal.classList.add('hidden');
@@ -10967,13 +10985,6 @@ function setupAppsListeners() {
             if (memoryRefineConfirmModal) memoryRefineConfirmModal.classList.add('hidden');
         });
     }
-    if (memoryRefineTargetCharsInput) {
-        memoryRefineTargetCharsInput.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            if (confirmMemoryRefineBtn) confirmMemoryRefineBtn.click();
-        });
-    }
     if (confirmMemoryRefineBtn) {
         confirmMemoryRefineBtn.addEventListener('click', async () => {
             const contactId = window.iphoneSimState.currentChatContactId;
@@ -10981,13 +10992,11 @@ function setupAppsListeners() {
             const selectedIds = pendingRefineMemoryIds.length > 0
                 ? pendingRefineMemoryIds.slice(0)
                 : Array.from(selectedMemoryIds);
-            const targetChars = memoryRefineTargetCharsInput
-                ? clampInt(memoryRefineTargetCharsInput.value, 300, 80, 3000)
-                : 300;
-            if (memoryRefineTargetCharsInput) memoryRefineTargetCharsInput.value = String(targetChars);
             if (memoryRefineConfirmModal) memoryRefineConfirmModal.classList.add('hidden');
             pendingRefineMemoryIds = [];
-            await window.refineSelectedMemories(contactId, selectedIds, { targetChars });
+            const refineResult = await window.refineSelectedMemories(contactId, selectedIds);
+            if (!refineResult || !refineResult.refinedSummary) return;
+            openMemoryRefinePreviewModal(refineResult);
         });
     }
     if (memoryRefineConfirmModal) {
@@ -10995,6 +11004,34 @@ function setupAppsListeners() {
             if (event.target === memoryRefineConfirmModal) {
                 pendingRefineMemoryIds = [];
                 memoryRefineConfirmModal.classList.add('hidden');
+            }
+        });
+    }
+    if (closeMemoryRefinePreviewBtn) {
+        closeMemoryRefinePreviewBtn.addEventListener('click', () => {
+            closeMemoryRefinePreviewModal();
+        });
+    }
+    if (keepMemoryRefinePreviewBtn) {
+        keepMemoryRefinePreviewBtn.addEventListener('click', () => {
+            if (pendingRefinePreviewPayload) {
+                applyRefineResultToMemory(pendingRefinePreviewPayload, false);
+            }
+            closeMemoryRefinePreviewModal();
+        });
+    }
+    if (replaceMemoryRefinePreviewBtn) {
+        replaceMemoryRefinePreviewBtn.addEventListener('click', () => {
+            if (pendingRefinePreviewPayload) {
+                applyRefineResultToMemory(pendingRefinePreviewPayload, true);
+            }
+            closeMemoryRefinePreviewModal();
+        });
+    }
+    if (memoryRefinePreviewModal) {
+        memoryRefinePreviewModal.addEventListener('click', (event) => {
+            if (event.target === memoryRefinePreviewModal) {
+                closeMemoryRefinePreviewModal();
             }
         });
     }

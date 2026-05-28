@@ -494,9 +494,31 @@
                             <div class="toggle-switch"></div>
                         </label>
                     </div>
+
+                    <div class="input-wrapper">
+                        <select id="novelai-provider-select">
+                            <option value="novelai">NovelAI</option>
+                            <option value="custom">Custom API</option>
+                        </select>
+                    </div>
                     
                     <div class="input-wrapper">
                         <input type="password" id="novelai-api-key" placeholder="NovelAI Key">
+                    </div>
+
+                    <div id="novelai-custom-api-fields" style="display:none;">
+                        <div class="input-wrapper">
+                            <input type="text" id="novelai-custom-api-url" placeholder="Custom API Base URL (e.g. https://api.example.com/v1)">
+                        </div>
+                        <div class="input-wrapper">
+                            <input type="password" id="novelai-custom-api-key" placeholder="Custom API Key">
+                        </div>
+                        <div class="option-header" style="margin-top: 10px;">
+                            <span class="option-label" style="font-size: 14px;">Custom Models</span>
+                            <div class="option-action">
+                                <button class="btn-text" id="novelai-custom-fetch-models">Fetch</button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="option-header" style="margin-top: 10px;">
@@ -539,6 +561,10 @@
                     <div class="slider-container">
                         <div class="slider-header"><span>Scale</span><span id="novelai-scale-val">5</span></div>
                         <input type="range" id="novelai-scale" min="1" max="20" step="0.5" value="5">
+                    </div>
+                    <div class="slider-container">
+                        <div class="slider-header"><span>Reference Strength</span><span id="novelai-reference-strength-val">0.78</span></div>
+                        <input type="range" id="novelai-reference-strength" min="0" max="1" step="0.01" value="0.78">
                     </div>
                     <div class="input-wrapper">
                         <input type="number" id="novelai-seed" placeholder="Seed (-1)">
@@ -1223,6 +1249,20 @@
 <option value="">-- 不使用预设 --</option>
                                         </select>
                                         <div style="font-size: 12px; color: var(--mag-sec-text); margin-top: 8px; line-height: 1.6;">当在聊天中生成该角色的图片时，将使用此预设的提示词。</div>
+                                    </div>
+
+                                    <div class="mag-field" style="margin-top: 14px;">
+                                        <label class="mag-label">Reference Image <span class="separator">/</span> <span class="mag-zh">参考图</span></label>
+                                        <input type="file" id="chat-setting-novelai-reference-image" accept="image/*" class="file-input-hidden" multiple>
+                                        <div style="display:flex; align-items:center; gap:12px;">
+                                            <label for="chat-setting-novelai-reference-image" class="mag-upload-preview is-clickable" style="width:78px; height:78px; border-radius:14px; flex-shrink:0; overflow:hidden; background: linear-gradient(135deg, rgba(0,0,0,0.05), rgba(0,0,0,0.12));">
+                                                <img id="chat-setting-novelai-reference-preview" src="" alt="Reference Image" style="width:100%; height:100%; object-fit:cover; display:none;">
+                                                <span id="chat-setting-novelai-reference-placeholder" style="font-size:11px; color: var(--mag-sec-text); text-align:center; line-height:1.4; padding:8px;">上传参考图</span>
+                                            </label>
+                                            <span id="chat-setting-novelai-reference-count" style="font-size:12px; color: var(--mag-sec-text); min-width:88px;">未选择</span>
+                                            <button type="button" id="chat-setting-novelai-reference-clear" class="mag-btn" style="padding:8px 12px; min-width: auto;">清除</button>
+                                        </div>
+                                        <div style="font-size: 12px; color: var(--mag-sec-text); margin-top: 8px; line-height: 1.6;">生图时会附带参考图用于锁定人物脸和身材，最多建议 4 张。</div>
                                     </div>
                                 </div>
                             </div>
@@ -5026,28 +5066,55 @@
                     margin-bottom: 14px;
                 }
 
-                #memory-app .memory-refine-length-group {
-                    margin-bottom: 12px;
-                }
-
-                #memory-app .memory-refine-length-group input {
-                    width: 100%;
-                }
-
-                #memory-app .memory-refine-length-hint {
-                    margin-top: 6px;
-                    font-size: 12px;
-                    color: #666;
-                    line-height: 1.4;
-                }
-
                 #memory-app .memory-refine-confirm-actions {
                     display: flex;
                     gap: 8px;
+                    align-items: stretch;
                 }
 
-                #memory-app .memory-refine-confirm-actions button {
+                #memory-app .memory-refine-confirm-actions .ios-btn-block {
                     flex: 1;
+                    margin-top: 0;
+                    height: 52px;
+                    min-height: 52px;
+                    padding: 0 12px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    line-height: 1.2;
+                }
+
+                #memory-app .memory-refine-preview-card {
+                    margin: 10px 0 14px;
+                    padding: 12px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 10px;
+                    background: #f9fafb;
+                    color: #1f2937;
+                    font-size: 13px;
+                    line-height: 1.6;
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                    max-height: 44vh;
+                    overflow-y: auto;
+                }
+
+                #memory-app .memory-refine-preview-actions {
+                    display: flex;
+                    gap: 8px;
+                    align-items: stretch;
+                }
+
+                #memory-app .memory-refine-preview-actions .ios-btn-block {
+                    flex: 1;
+                    margin-top: 0;
+                    height: 52px;
+                    min-height: 52px;
+                    padding: 0 12px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    line-height: 1.2;
                 }
 
                 #memory-app .memory-tags-input {
@@ -5459,16 +5526,30 @@
                     <div class="modal-body">
                         <div class="memory-refine-confirm-summary">
                             已选择 <span id="memory-refine-selected-count-modal">0</span> 条记忆。
-                            将生成 1 条精炼总览并归档。
-                        </div>
-                        <div class="setting-group memory-refine-length-group">
-                            <label for="memory-refine-target-chars">希望精炼结果字数</label>
-                            <input type="number" id="memory-refine-target-chars" min="80" max="3000" step="10" value="300">
-                            <div class="memory-refine-length-hint">将按“总结”同款提示词生成，目标字数允许小范围浮动。</div>
+                            将生成 1 条精炼总览并归档，完成后会先展示预览供你确认。
                         </div>
                         <div class="memory-refine-confirm-actions">
-                            <button id="cancel-memory-refine-confirm">取消</button>
+                            <button id="cancel-memory-refine-confirm" class="ios-btn-block secondary">取消</button>
                             <button id="confirm-memory-refine-btn" class="ios-btn-block">确认精炼归档</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="memory-refine-preview-modal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>精炼结果预览</h3>
+                        <button class="close-btn" id="close-memory-refine-preview">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="memory-refine-confirm-summary">
+                            精炼已完成，请先确认内容，再决定是否替换原记忆。
+                        </div>
+                        <div id="memory-refine-preview-content" class="memory-refine-preview-card"></div>
+                        <div class="memory-refine-preview-actions">
+                            <button id="keep-memory-refine-preview-btn" class="ios-btn-block secondary">保留精炼，不替换原记忆</button>
+                            <button id="replace-memory-refine-preview-btn" class="ios-btn-block">替换原记忆</button>
                         </div>
                     </div>
                 </div>

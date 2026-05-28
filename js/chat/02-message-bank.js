@@ -800,10 +800,10 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
         && typeof text === 'string'
         && text.trim().startsWith('data:image');
     if (shouldOffloadInlineMedia && typeof window.offloadInlineChatMediaMessage === 'function') {
-        Promise.resolve().then(() => window.offloadInlineChatMediaMessage(contactId, msg.id, {
+        window.offloadInlineChatMediaMessage(contactId, msg.id, {
             type: type === 'sticker' ? 'image/webp' : 'image/jpeg',
             name: normalizedMeta.fileName || ''
-        })).catch((error) => {
+        }).catch((error) => {
             console.warn('聊天图片即时转存失败', error);
         });
     }

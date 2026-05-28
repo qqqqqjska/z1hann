@@ -8309,6 +8309,11 @@ function setupChatListeners() {
             }
         });
     }
+    const novelaiReferenceImageInput = document.getElementById('chat-setting-novelai-reference-image');
+    const novelaiReferencePreview = document.getElementById('chat-setting-novelai-reference-preview');
+    const novelaiReferencePlaceholder = document.getElementById('chat-setting-novelai-reference-placeholder');
+    const novelaiReferenceCount = document.getElementById('chat-setting-novelai-reference-count');
+    const novelaiReferenceClearBtn = document.getElementById('chat-setting-novelai-reference-clear');
 
     const thoughtStyleSelect = document.getElementById('chat-setting-thought-style');
     const thoughtPetPanel = document.getElementById('chat-setting-thought-pet-panel');
@@ -8382,6 +8387,54 @@ function setupChatListeners() {
             window.setChatSettingsFloatingSaveState(false);
         }
     };
+    if (novelaiReferenceImageInput) {
+        novelaiReferenceImageInput.addEventListener('change', (e) => {
+            const files = e.target.files ? Array.from(e.target.files) : [];
+            const file = files[0] || null;
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                if (novelaiReferencePreview) {
+                    novelaiReferencePreview.src = event.target.result;
+                    novelaiReferencePreview.style.display = 'block';
+                }
+                if (novelaiReferencePlaceholder) {
+                    novelaiReferencePlaceholder.style.display = 'none';
+                }
+                if (novelaiReferenceClearBtn) {
+                    novelaiReferenceClearBtn.dataset.cleared = '0';
+                    novelaiReferenceClearBtn.style.display = 'inline-flex';
+                }
+                if (novelaiReferenceCount) {
+                    novelaiReferenceCount.textContent = files.length > 4
+                        ? `已选择 ${files.length} 张（将使用前4张）`
+                        : (files.length > 0 ? `已选择 ${files.length} 张` : '未选择');
+                }
+                markChatSettingsDirty();
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+    if (novelaiReferenceClearBtn) {
+        novelaiReferenceClearBtn.addEventListener('click', () => {
+            if (novelaiReferenceImageInput) {
+                novelaiReferenceImageInput.value = '';
+            }
+            if (novelaiReferencePreview) {
+                novelaiReferencePreview.src = '';
+                novelaiReferencePreview.style.display = 'none';
+            }
+            if (novelaiReferencePlaceholder) {
+                novelaiReferencePlaceholder.style.display = 'block';
+            }
+            if (novelaiReferenceCount) {
+                novelaiReferenceCount.textContent = '未选择';
+            }
+            novelaiReferenceClearBtn.dataset.cleared = '1';
+            novelaiReferenceClearBtn.style.display = 'none';
+            markChatSettingsDirty();
+        });
+    }
     if (bilingualTranslationEnabledInput) {
         bilingualTranslationEnabledInput.addEventListener('change', () => {
             if (typeof window.syncBilingualTranslationSettingsVisibility === 'function') {

@@ -7003,15 +7003,25 @@ ${hostModeExtra}
 
         try {
             // ── Step 4: Get API key & base model settings ──────────────────
+            let imageProvider = 'novelai';
             let apiKey = '';
             let imageModel = 'nai-diffusion-3';
             let negativePrompt = 'nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
 
             if (window.iphoneSimState) {
-                if (window.iphoneSimState.novelaiSettings && window.iphoneSimState.novelaiSettings.key) {
-                    apiKey = window.iphoneSimState.novelaiSettings.key;
-                    if (window.iphoneSimState.novelaiSettings.model) imageModel = window.iphoneSimState.novelaiSettings.model;
-                    if (window.iphoneSimState.novelaiSettings.negativePrompt) negativePrompt = window.iphoneSimState.novelaiSettings.negativePrompt;
+                const novelaiSettings = window.iphoneSimState.novelaiSettings || {};
+                imageProvider = novelaiSettings.provider === 'custom' ? 'custom' : 'novelai';
+                const providerKey = imageProvider === 'custom'
+                    ? (novelaiSettings.customApiKey || novelaiSettings.key)
+                    : novelaiSettings.key;
+                const providerModel = imageProvider === 'custom'
+                    ? (novelaiSettings.customModel || novelaiSettings.model)
+                    : novelaiSettings.model;
+
+                if (providerKey) {
+                    apiKey = providerKey;
+                    if (providerModel) imageModel = providerModel;
+                    if (novelaiSettings.negativePrompt) negativePrompt = novelaiSettings.negativePrompt;
                 }
                 if (!apiKey && window.iphoneSimState.aiSettings && window.iphoneSimState.aiSettings.novelai_key)
                     apiKey = window.iphoneSimState.aiSettings.novelai_key;
@@ -7022,7 +7032,9 @@ ${hostModeExtra}
             }
 
             if (!apiKey) {
-                alert('未找到有效的 AI Key。请在"设置"或"NovelAI设置"中配置 Key。');
+                alert(imageProvider === 'custom'
+                    ? '未找到有效的 Custom API Key，请在设置中配置。'
+                    : '未找到有效的 NovelAI Key，请在设置中配置。');
                 return;
             }
 
@@ -7082,6 +7094,7 @@ ${hostModeExtra}
             // ── Step 8: Generate image ─────────────────────────────────────
             if (window.generateNovelAiImageApi) {
                 const resultBase64 = await window.generateNovelAiImageApi({
+                    provider: imageProvider,
                     key: apiKey,
                     prompt: prompt,
                     negativePrompt: negativePrompt,
@@ -7089,7 +7102,15 @@ ${hostModeExtra}
                     height: post.image_ratio === '4:5' ? 1216 : 1024,
                     model: imageModel,
                     steps: 28,
-                    scale: 5
+                    scale: 5,
+                    referenceImage: contact ? ((Array.isArray(contact.novelaiReferenceImages) && contact.novelaiReferenceImages[0]) || contact.novelaiReferenceImage || '') : '',
+                    referenceImages: contact ? ((Array.isArray(contact.novelaiReferenceImages) ? contact.novelaiReferenceImages : []).filter(Boolean)) : [],
+                    referenceStrength: window.iphoneSimState && window.iphoneSimState.novelaiSettings
+                        ? window.iphoneSimState.novelaiSettings.referenceStrength
+                        : undefined,
+                    referenceInfoExtracted: window.iphoneSimState && window.iphoneSimState.novelaiSettings
+                        ? window.iphoneSimState.novelaiSettings.referenceInfoExtracted
+                        : undefined
                 });
 
                 post.image = await compressImage(resultBase64, 0.7, 800);
@@ -7393,9 +7414,16 @@ ${hostModeExtra}
                 return;
             }
 
-            const novelaiSettings = window.iphoneSimState.novelaiSettings;
-            if (!novelaiSettings || !novelaiSettings.key) {
-                alert('请先配置 NovelAI 设置');
+            const novelaiSettings = window.iphoneSimState.novelaiSettings || {};
+            const imageProvider = novelaiSettings.provider === 'custom' ? 'custom' : 'novelai';
+            const imageApiKey = imageProvider === 'custom'
+                ? (novelaiSettings.customApiKey || novelaiSettings.key)
+                : novelaiSettings.key;
+            const providerModel = imageProvider === 'custom'
+                ? (novelaiSettings.customModel || novelaiSettings.model)
+                : novelaiSettings.model;
+            if (!imageApiKey) {
+                alert(imageProvider === 'custom' ? '请先配置 Custom API 设置' : '请先配置 NovelAI 设置');
                 return;
             }
 
@@ -7404,7 +7432,7 @@ ${hostModeExtra}
             // --- Logic Copied from generateForumPosts ---
             let basePrompt = '';
             let negativePrompt = novelaiSettings.negativePrompt || 'nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
-            let model = novelaiSettings.model || 'nai-diffusion-3';
+            let model = providerModel || 'nai-diffusion-3';
 
             // Check for preset
             if (profile.imagePresetName) {
@@ -7468,7 +7496,8 @@ ${hostModeExtra}
             console.log('[Forum] Refreshing Image for post:', post.id, 'Prompt:', prompt);
 
             const base64Image = await window.generateNovelAiImageApi({
-                key: novelaiSettings.key,
+                provider: imageProvider,
+                key: imageApiKey,
                 model: model,
                 prompt: prompt,
                 negativePrompt: negativePrompt,
@@ -7476,7 +7505,11 @@ ${hostModeExtra}
                 scale: 5,
                 width: width,
                 height: height,
-                seed: -1
+                seed: -1,
+                referenceImage: contact ? ((Array.isArray(contact.novelaiReferenceImages) && contact.novelaiReferenceImages[0]) || contact.novelaiReferenceImage || '') : '',
+                referenceImages: contact ? ((Array.isArray(contact.novelaiReferenceImages) ? contact.novelaiReferenceImages : []).filter(Boolean)) : [],
+                referenceStrength: novelaiSettings.referenceStrength,
+                referenceInfoExtracted: novelaiSettings.referenceInfoExtracted
             });
 
             // Update Post
@@ -9374,6 +9407,13 @@ ${charList}
             if (Array.isArray(newPosts)) {
                 const novelaiSettings = window.iphoneSimState.novelaiSettings;
                 const contactProfiles = forumState.settings.contactProfiles || {};
+                const imageProvider = novelaiSettings && novelaiSettings.provider === 'custom' ? 'custom' : 'novelai';
+                const imageApiKey = imageProvider === 'custom'
+                    ? (novelaiSettings && (novelaiSettings.customApiKey || novelaiSettings.key))
+                    : (novelaiSettings && novelaiSettings.key);
+                const defaultImageModel = imageProvider === 'custom'
+                    ? (novelaiSettings && (novelaiSettings.customModel || novelaiSettings.model))
+                    : (novelaiSettings && novelaiSettings.model);
 
                 for (let index = 0; index < newPosts.length; index++) {
                     const post = newPosts[index];
@@ -9392,11 +9432,11 @@ ${charList}
 
                             // Try to generate AI Image if enabled
                             const profile = contactProfiles[post.userId];
-                            if (profile && profile.autoImage && post.post_type === 'image' && window.generateNovelAiImageApi && novelaiSettings && novelaiSettings.key) {
+                            if (profile && profile.autoImage && post.post_type === 'image' && window.generateNovelAiImageApi && imageApiKey) {
                                 try {
                                     let basePrompt = '';
                                     let negativePrompt = novelaiSettings.negativePrompt || 'nsfw, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
-                                    let model = novelaiSettings.model || 'nai-diffusion-3';
+                                    let model = defaultImageModel || 'nai-diffusion-3';
 
                                     // Check for preset
                                     if (profile.imagePresetName) {
@@ -9485,7 +9525,8 @@ ${charList}
                                     else if (post.image_ratio === '4:5') { width = 832; height = 1024; }
 
                                     const base64Image = await window.generateNovelAiImageApi({
-                                        key: novelaiSettings.key,
+                                        provider: imageProvider,
+                                        key: imageApiKey,
                                         model: model,
                                         prompt: prompt,
                                         negativePrompt: negativePrompt,
@@ -9493,7 +9534,11 @@ ${charList}
                                         scale: 5,
                                         width: width,
                                         height: height,
-                                        seed: -1
+                                        seed: -1,
+                                        referenceImage: personaContact ? ((Array.isArray(personaContact.novelaiReferenceImages) && personaContact.novelaiReferenceImages[0]) || personaContact.novelaiReferenceImage || '') : '',
+                                        referenceImages: personaContact ? ((Array.isArray(personaContact.novelaiReferenceImages) ? personaContact.novelaiReferenceImages : []).filter(Boolean)) : [],
+                                        referenceStrength: novelaiSettings.referenceStrength,
+                                        referenceInfoExtracted: novelaiSettings.referenceInfoExtracted
                                     });
                                     post.image = base64Image;
                                 } catch (err) {

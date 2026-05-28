@@ -1,4 +1,4 @@
-function createDefaultMemorySettingsV2() {
+﻿function createDefaultMemorySettingsV2() {
     return {
         extractMode: 'hybrid',
         injectQuota: {
@@ -516,12 +516,23 @@ const state = {
     novelaiSettings: {
         url: 'https://api.novelai.net',
         key: '',
+        provider: 'novelai',
+        customApiUrl: '',
+        customApiKey: '',
+        customModel: '',
+        customFetchPath: '/models',
+        customGeneratePath: '/images/generations',
+        customEditPath: '/images/edits',
         model: 'nai-diffusion-3',
         size: '832x1216',
+        width: 832,
+        height: 1216,
         steps: 28,
         cfg: 5,
         sampler: 'k_euler_ancestral',
         seed: -1,
+        referenceStrength: 0.78,
+        referenceInfoExtracted: 0.92,
         ucPreset: 0,
         addQualityTags: true,
         smea: false,
@@ -636,7 +647,7 @@ const state = {
 
 window.iphoneSimState = state;
 
-const GROUP_CHAT_CONTACT_GROUP = '群聊';
+const GROUP_CHAT_CONTACT_GROUP = '缇よ亰';
 const GROUP_CHAT_MEMORY_MODES = new Set(['group_only', 'bidirectional']);
 const GROUP_CHAT_STATUS = new Set(['active', 'left', 'dissolved']);
 
@@ -666,7 +677,7 @@ function ensureGroupChatMeta(contact) {
         ? contact.groupMeta
         : {};
 
-    const fallbackName = String(meta.name || contact.remark || contact.nickname || contact.name || '未命名群聊').trim() || '未命名群聊';
+    const fallbackName = String(meta.name || contact.remark || contact.nickname || contact.name || '群聊').trim() || '群聊';
     const fallbackAvatar = String(meta.avatar || contact.avatar || '').trim();
     const rawMemberIds = Array.isArray(meta.memberIds) ? meta.memberIds : [];
     const memberIds = [];
@@ -874,7 +885,10 @@ let chatHistoryRootProxy = null;
 let chatHistoryPersistenceSuspended = false;
 let chatHistoryPersistenceQueue = Promise.resolve();
 let chatHistoryPersistenceDrainScheduled = false;
+let chatHistoryPersistenceDrainTimer = null;
+const CHAT_HISTORY_PERSIST_DEBOUNCE_MS = 180;
 const pendingChatHistoryPersistence = new Map();
+const chatMediaOffloadInFlightByContact = new Map();
 
 function getChatHistoryStore() {
     if (typeof localforage === 'undefined' || typeof localforage.createInstance !== 'function') {
@@ -938,18 +952,28 @@ function normalizeChatHistoryMap(value) {
     return normalized;
 }
 
+function hasChatMediaOffloadInFlightForContact(contactId) {
+    const safeContactId = String(contactId || '').trim();
+    if (!safeContactId) return false;
+    return Number(chatMediaOffloadInFlightByContact.get(safeContactId) || 0) > 0;
+}
+
+function scheduleChatHistoryPersistenceDrain() {
+    if (chatHistoryPersistenceDrainScheduled) return;
+    chatHistoryPersistenceDrainScheduled = true;
+    chatHistoryPersistenceDrainTimer = setTimeout(() => {
+        chatHistoryPersistenceDrainTimer = null;
+        drainPendingChatHistoryPersistence().catch(err => {
+            console.error('聊天记录持久化失败', err);
+        });
+    }, CHAT_HISTORY_PERSIST_DEBOUNCE_MS);
+}
+
 function persistChatHistorySnapshot(contactId, mode = 'save') {
     const normalizedContactId = String(contactId || '').trim();
     if (!normalizedContactId) return chatHistoryPersistenceQueue.catch(() => {});
     pendingChatHistoryPersistence.set(normalizedContactId, mode === 'remove' ? 'remove' : 'save');
-    if (!chatHistoryPersistenceDrainScheduled) {
-        chatHistoryPersistenceDrainScheduled = true;
-        Promise.resolve().then(() => {
-            drainPendingChatHistoryPersistence().catch(err => {
-                console.error('聊天记录持久化失败', err);
-            });
-        });
-    }
+    scheduleChatHistoryPersistenceDrain();
     return chatHistoryPersistenceQueue.catch(() => {});
 }
 
@@ -966,7 +990,9 @@ function wrapChatHistoryValue(contactId, value) {
                 return (...args) => {
                     const normalizedArgs = args.map(arg => cloneChatHistoryValue(arg));
                     const result = Array.prototype[prop].apply(target, normalizedArgs);
-                    persistChatHistorySnapshot(contactId, 'save');
+                    if (!chatHistoryPersistenceSuspended) {
+                        persistChatHistorySnapshot(contactId, 'save');
+                    }
                     return result;
                 };
             }
@@ -978,12 +1004,16 @@ function wrapChatHistoryValue(contactId, value) {
         },
         set(target, prop, nextValue) {
             target[prop] = cloneChatHistoryValue(nextValue);
-            persistChatHistorySnapshot(contactId, 'save');
+            if (!chatHistoryPersistenceSuspended) {
+                persistChatHistorySnapshot(contactId, 'save');
+            }
             return true;
         },
         deleteProperty(target, prop) {
             const deleted = Reflect.deleteProperty(target, prop);
-            persistChatHistorySnapshot(contactId, 'save');
+            if (!chatHistoryPersistenceSuspended) {
+                persistChatHistorySnapshot(contactId, 'save');
+            }
             return deleted;
         }
     });
@@ -1077,6 +1107,10 @@ async function drainPendingChatHistoryPersistence() {
         return chatHistoryPersistenceQueue.catch(() => {});
     }
 
+    if (chatHistoryPersistenceDrainTimer) {
+        clearTimeout(chatHistoryPersistenceDrainTimer);
+        chatHistoryPersistenceDrainTimer = null;
+    }
     chatHistoryPersistenceDrainScheduled = false;
     if (pendingChatHistoryPersistence.size === 0) {
         return chatHistoryPersistenceQueue.catch(() => {});
@@ -1097,8 +1131,15 @@ async function drainPendingChatHistoryPersistence() {
                     await store.removeItem(buildChatHistoryStorageKey(contactId));
                     continue;
                 }
+                if (hasChatMediaOffloadInFlightForContact(contactId)) {
+                    pendingChatHistoryPersistence.set(contactId, 'save');
+                    continue;
+                }
                 const snapshot = normalizeChatHistoryMessages(rawChatHistoryState[contactId]);
                 await store.setItem(buildChatHistoryStorageKey(contactId), snapshot);
+            }
+            if (pendingChatHistoryPersistence.size > 0) {
+                scheduleChatHistoryPersistenceDrain();
             }
         });
 
@@ -1126,7 +1167,7 @@ async function flushChatPersistence() {
         await drainPendingChatHistoryPersistence();
     }
     await chatHistoryPersistenceQueue.catch((err) => {
-        console.error('聊天记录 flush 失败', err);
+        console.error('鑱婂ぉ璁板綍 flush 澶辫触', err);
     });
 }
 
@@ -1177,12 +1218,12 @@ function setupChatPersistenceLifecycleGuards() {
 
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
-            flushChatPersistence().catch(err => console.error('聊天记录隐藏态 flush 失败', err));
+            flushChatPersistence().catch(err => console.error('鑱婂ぉ璁板綍闅愯棌鎬?flush 澶辫触', err));
         }
     });
 
     window.addEventListener('pagehide', () => {
-        flushChatPersistence().catch(err => console.error('聊天记录 pagehide flush 失败', err));
+        flushChatPersistence().catch(err => console.error('鑱婂ぉ璁板綍 pagehide flush 澶辫触', err));
     });
 }
 
@@ -1214,8 +1255,8 @@ function normalizeMomentImagesForFingerprint(images) {
 
 function cleanMomentImageDescription(text) {
     return String(text || '')
-        .replace(/^\[图片描述\]\s*[:：]?\s*/i, '')
-        .replace(/^图片描述\s*[:：]\s*/i, '')
+        .replace(/^\[(?:图片描述|image description)\]\s*[:：]?\s*/i, '')
+        .replace(/^(?:图片描述|image description)\s*[:：]?\s*/i, '')
         .trim();
 }
 
@@ -1289,7 +1330,7 @@ function parseMomentPayload(payload) {
     const raw = String(payload || '').trim();
     if (!raw) return { content: '', images: [] };
 
-    const descRegex = /\[图片描述\s*[:：]\s*([^[\]]+?)\]/g;
+    const descRegex = /\[(?:图片描述|image description)\s*[:：]?\s*([^[\]]+?)\]/gi;
     let remainingText = raw;
     let match;
     while ((match = descRegex.exec(raw)) !== null) {
@@ -1403,7 +1444,7 @@ const knownApps = {
     'worldbook-app': { name: 'Worldbook', icon: 'fas fa-globe', color: '#007AFF' },
     'settings-app': { name: 'Settings', icon: 'fas fa-cog', color: '#8E8E93' },
     'theme-app': { name: 'Theme', icon: 'fas fa-paint-brush', color: '#5856D6' },
-    'calendar-app': { name: '鏃ュ巻', icon: 'fas fa-calendar-alt', color: '#FF3B30' },
+    'calendar-app': { name: 'Calendar', icon: 'fas fa-calendar-alt', color: '#FF3B30' },
     'shopping-app': { name: 'Shop', icon: 'fas fa-shopping-bag', color: '#FF9500' },
     'forum-app': { name: 'Forum', icon: 'fas fa-comments', color: '#30B0C7' },
     'album-app': { name: 'Album', icon: 'fas fa-images', color: '#5AC8FA' },
@@ -1412,7 +1453,7 @@ const knownApps = {
     'icity-app': { name: 'iCity', icon: 'fas fa-city', color: '#000000' },
     'lookus-app': { name: 'LookUS', icon: 'fas fa-eye', color: '#FF2D55' },
     'music-app': { name: 'Music', icon: 'fas fa-music', color: '#FF2D55' },
-    'studio-app': { name: '工作室', icon: 'fas fa-pen-ruler', color: '#8B5CF6' }
+    'studio-app': { name: 'Studio', icon: 'fas fa-pen-ruler', color: '#8B5CF6' }
 };
 
 function compressImage(file, maxWidth = 1024, quality = 0.7) {
@@ -1473,7 +1514,7 @@ async function buildInlineChatImagePayload(file, maxWidth = 1024, quality = 0.7)
     try {
         return await compressImage(file, maxWidth, quality);
     } catch (compressionError) {
-        console.warn('聊天图片压缩失败，回退原图 data URL', compressionError);
+        console.warn('鑱婂ぉ鍥剧墖鍘嬬缉澶辫触锛屽洖閫€鍘熷浘 data URL', compressionError);
         return readFileAsDataUrl(file);
     }
 }
@@ -1673,7 +1714,7 @@ function refreshRenderedChatMessageMedia(contactId, msgId, mediaRef) {
         imageNode.dataset.chatMediaHydrated = '1';
         imageNode.src = resolvedSrc;
     }).catch((error) => {
-        console.warn('刷新聊天图片引用失败', error);
+        console.warn('鍒锋柊鑱婂ぉ鍥剧墖寮曠敤澶辫触', error);
     });
 
     return true;
@@ -1697,6 +1738,7 @@ async function offloadInlineChatMediaMessage(contactId, msgId, metadata = {}) {
     if (!currentContent || !currentContent.startsWith('data:image')) return currentContent;
 
     chatMediaOffloadInFlight.add(lockKey);
+    chatMediaOffloadInFlightByContact.set(safeContactId, Number(chatMediaOffloadInFlightByContact.get(safeContactId) || 0) + 1);
     try {
         const nextContent = await persistInlineChatImagePayload(currentContent, metadata);
         if (nextContent && nextContent !== currentContent) {
@@ -1706,6 +1748,12 @@ async function offloadInlineChatMediaMessage(contactId, msgId, metadata = {}) {
         return nextContent;
     } finally {
         chatMediaOffloadInFlight.delete(lockKey);
+        const nextCount = Number(chatMediaOffloadInFlightByContact.get(safeContactId) || 1) - 1;
+        if (nextCount > 0) {
+            chatMediaOffloadInFlightByContact.set(safeContactId, nextCount);
+        } else {
+            chatMediaOffloadInFlightByContact.delete(safeContactId);
+        }
     }
 }
 
@@ -1727,7 +1775,7 @@ async function migrateLegacyChatImageMessages() {
                 });
                 changed = true;
             } catch (error) {
-                console.warn('迁移历史聊天图片失败', error);
+                console.warn('杩佺Щ鍘嗗彶鑱婂ぉ鍥剧墖澶辫触', error);
             }
         }
     }
@@ -1740,7 +1788,7 @@ function revokeCachedChatMediaUrls() {
         try {
             URL.revokeObjectURL(objectUrl);
         } catch (error) {
-            console.warn('释放聊天图片缓存失败', error);
+            console.warn('閲婃斁鑱婂ぉ鍥剧墖缂撳瓨澶辫触', error);
         }
     });
     chatMediaObjectUrlCache.clear();
@@ -2069,7 +2117,7 @@ function setupIOSFullScreen() {
     let lastTouchEnd = 0;
     document.addEventListener('touchend', function(event) {
         const now = (new Date()).getTime();
-        if (now - lastTouchEnd <= 300) {
+        if (now - lastTouchEnd <= 300 && event.cancelable) {
             event.preventDefault();
         }
         lastTouchEnd = now;
@@ -2176,12 +2224,23 @@ async function loadConfig() {
             if (!state.novelaiSettings) state.novelaiSettings = { 
                 url: 'https://api.novelai.net', 
                 key: '', 
+                provider: 'novelai',
+                customApiUrl: '',
+                customApiKey: '',
+                customModel: '',
+                customFetchPath: '/models',
+                customGeneratePath: '/images/generations',
+                customEditPath: '/images/edits',
                 model: 'nai-diffusion-3', 
                 size: '832x1216',
+                width: 832,
+                height: 1216,
                 steps: 28,
                 cfg: 5,
                 sampler: 'k_euler_ancestral',
                 seed: -1,
+                referenceStrength: 0.78,
+                referenceInfoExtracted: 0.92,
                 ucPreset: 0,
                 addQualityTags: true,
                 smea: false,
@@ -2190,6 +2249,34 @@ async function loadConfig() {
                 negativePrompt: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
                 corsProxy: 'corsproxy.io'
             };
+            state.novelaiSettings = Object.assign({
+                url: 'https://api.novelai.net',
+                key: '',
+                provider: 'novelai',
+                customApiUrl: '',
+                customApiKey: '',
+                customModel: '',
+                customFetchPath: '/models',
+                customGeneratePath: '/images/generations',
+                customEditPath: '/images/edits',
+                model: 'nai-diffusion-3',
+                size: '832x1216',
+                width: 832,
+                height: 1216,
+                steps: 28,
+                cfg: 5,
+                sampler: 'k_euler_ancestral',
+                seed: -1,
+                referenceStrength: 0.78,
+                referenceInfoExtracted: 0.92,
+                ucPreset: 0,
+                addQualityTags: true,
+                smea: false,
+                smeaDyn: false,
+                defaultPrompt: '((full body shot:1.6)), (solo character:1.5), dynamic pose, 1boy, ((manly))',
+                negativePrompt: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
+                corsProxy: 'corsproxy.io'
+            }, state.novelaiSettings || {});
             if (!state.amapSettings) state.amapSettings = { jsKey: '', webKey: '', key: '', securityCode: '' };
             if (typeof state.amapSettings.jsKey !== 'string') state.amapSettings.jsKey = '';
             if (typeof state.amapSettings.webKey !== 'string') state.amapSettings.webKey = '';
@@ -2673,3 +2760,4 @@ async function init() {
         }
     });
 }
+
