@@ -782,6 +782,21 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
     }
 
     window.iphoneSimState.chatHistory[contactId].push(msg);
+
+    if (isUser && type === 'text' && typeof window.maybePrefetchWebLinkContext === 'function') {
+        Promise.resolve()
+            .then(() => window.maybePrefetchWebLinkContext({
+                contactId,
+                text: String(text || ''),
+                messageId: msg.id,
+                messageTime: msg.time,
+                channel: deliveryChannel
+            }))
+            .catch((error) => {
+                console.warn('[WebLinkContext] prefetch trigger failed', error);
+            });
+    }
+
     if (typeof window.updateContactStatusFromChatActivity === 'function') {
         try {
             window.updateContactStatusFromChatActivity(contactId, {

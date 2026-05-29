@@ -140,6 +140,10 @@ function handleRegenerateReply() {
 
 const CHAT_FOOD_ASSIST_TTL_MS = 10 * 60 * 1000;
 const CHAT_ROUTE_ASSIST_TTL_MS = 10 * 60 * 1000;
+const CHAT_WEB_LINK_CONTEXT_TTL_MS = 10 * 60 * 1000;
+const CHAT_WEB_LINK_CONTEXT_WAIT_TIMEOUT_MS = 1800;
+const CHAT_WEB_LINK_CONTEXT_MAX_URLS_PER_MESSAGE = 2;
+const CHAT_WEB_LINK_CONTEXT_FAILURE_NOTICE_TTL_MS = 20 * 1000;
 const CHAT_NAVIGATION_MODE_META = {
     driving: { key: 'driving', label: '驾车' },
     transit: { key: 'transit', label: '公交地铁' },
@@ -3347,6 +3351,397 @@ function clearChatRouteAssistState(contactId) {
     delete store[contactId];
 }
 
+function ensureChatWebLinkContextStore() {
+    if (!window.__chatWebLinkContextStore || typeof window.__chatWebLinkContextStore !== 'object') {
+        window.__chatWebLinkContextStore = {
+            entries: {},
+            failureNotices: {}
+        };
+    }
+    if (!window.__chatWebLinkContextStore.entries || typeof window.__chatWebLinkContextStore.entries !== 'object') {
+        window.__chatWebLinkContextStore.entries = {};
+    }
+    if (!window.__chatWebLinkContextStore.failureNotices || typeof window.__chatWebLinkContextStore.failureNotices !== 'object') {
+        window.__chatWebLinkContextStore.failureNotices = {};
+    }
+    return window.__chatWebLinkContextStore;
+}
+
+function cleanupChatWebLinkFailureNoticeStore() {
+    const store = ensureChatWebLinkContextStore();
+    const now = Date.now();
+    Object.keys(store.failureNotices).forEach((key) => {
+        if ((now - Number(store.failureNotices[key] || 0)) > CHAT_WEB_LINK_CONTEXT_FAILURE_NOTICE_TTL_MS * 3) {
+            delete store.failureNotices[key];
+        }
+    });
+}
+
+function getChatWebLinkContextEntry(contactId) {
+    if (!contactId) return null;
+    const store = ensureChatWebLinkContextStore();
+    const entry = store.entries[contactId];
+    if (!entry) return null;
+    if (!entry.promise && (Date.now() - Number(entry.updatedAt || 0)) > CHAT_WEB_LINK_CONTEXT_TTL_MS) {
+        delete store.entries[contactId];
+        return null;
+    }
+    return entry;
+}
+
+function setChatWebLinkContextEntry(contactId, patch = {}) {
+    if (!contactId) return null;
+    const store = ensureChatWebLinkContextStore();
+    const prev = store.entries[contactId] || {};
+    const next = {
+        ...prev,
+        ...patch,
+        updatedAt: Date.now()
+    };
+    store.entries[contactId] = next;
+    return next;
+}
+
+function extractUrlsFromChatText(text, maxUrls = CHAT_WEB_LINK_CONTEXT_MAX_URLS_PER_MESSAGE) {
+    const source = String(text || '');
+    if (!source) return [];
+    const limit = Number.isFinite(Number(maxUrls)) ? Math.max(1, Number(maxUrls)) : CHAT_WEB_LINK_CONTEXT_MAX_URLS_PER_MESSAGE;
+    const urlRegex = /\b((?:https?:\/\/|www\.)[^\s<>"'`，。！？、（）()【】\[\]{}]+)/ig;
+    const results = [];
+    const seen = new Set();
+    let match = null;
+
+    while ((match = urlRegex.exec(source)) && results.length < limit) {
+        let candidate = String(match[1] || '').trim();
+        if (!candidate) continue;
+        candidate = candidate.replace(/[)\]}>】）》"'“”‘’.,!?;:，。！？；：、]+$/g, '');
+        if (!candidate) continue;
+        if (/^www\./i.test(candidate)) {
+            candidate = `https://${candidate}`;
+        }
+
+        let normalized = '';
+        try {
+            const urlObj = new URL(candidate);
+            if (!/^https?:$/i.test(urlObj.protocol)) {
+                continue;
+            }
+            urlObj.hash = '';
+            normalized = urlObj.toString();
+        } catch (error) {
+            continue;
+        }
+
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        results.push(normalized);
+    }
+
+    return results;
+}
+
+function resolveChatWebLinkContextApiBaseUrl() {
+    let apiBaseUrl = '';
+    if (window.offlinePushSync && typeof window.offlinePushSync.getState === 'function') {
+        const syncState = window.offlinePushSync.getState();
+        apiBaseUrl = String(syncState && syncState.apiBaseUrl || '').trim();
+        if (apiBaseUrl) return apiBaseUrl.replace(/\/$/, '');
+    }
+
+    if (window.iphoneSimState && window.iphoneSimState.offlinePushSync) {
+        apiBaseUrl = String(window.iphoneSimState.offlinePushSync.apiBaseUrl || '').trim();
+        if (apiBaseUrl) return apiBaseUrl.replace(/\/$/, '');
+    }
+
+    try {
+        const raw = localStorage.getItem('offlinePushSyncSettings');
+        const parsed = raw ? JSON.parse(raw) : null;
+        apiBaseUrl = String(parsed && parsed.apiBaseUrl || '').trim();
+        if (apiBaseUrl) return apiBaseUrl.replace(/\/$/, '');
+    } catch (error) {}
+
+    return '';
+}
+
+function isLikelyDirectAiCompletionEndpoint(url) {
+    const value = String(url || '').trim().toLowerCase();
+    if (!value) return false;
+    return /\/chat\/completions\/?$/.test(value) || /\/v\d+\/chat\/completions\/?$/.test(value);
+}
+
+function getChatWebLinkContextUserId() {
+    if (window.offlinePushSync && typeof window.offlinePushSync.getState === 'function') {
+        const syncState = window.offlinePushSync.getState();
+        const userId = String(syncState && syncState.userId || '').trim();
+        if (userId) return userId;
+    }
+    if (window.iphoneSimState && window.iphoneSimState.offlinePushSync) {
+        const userId = String(window.iphoneSimState.offlinePushSync.userId || '').trim();
+        if (userId) return userId;
+    }
+    return 'default-user';
+}
+
+function sanitizeWebLinkContextText(value, maxLength = 900) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, Math.max(1, maxLength - 1))}…`;
+}
+
+function formatWebLinkContextPayload(successResults = []) {
+    const lines = [
+        '【网页链接缓存】',
+        '以下是用户最近发送网页链接的内容摘要。仅在相关追问时引用，不要编造网页中没有的信息。'
+    ];
+
+    successResults.slice(0, CHAT_WEB_LINK_CONTEXT_MAX_URLS_PER_MESSAGE).forEach((item, index) => {
+        const linkUrl = sanitizeWebLinkContextText(item && (item.finalUrl || item.url || ''), 400);
+        const title = sanitizeWebLinkContextText(item && item.title, 160);
+        const summary = sanitizeWebLinkContextText(item && item.summary, 420);
+        lines.push(`- 链接${index + 1}：${linkUrl || '未知链接'}`);
+        if (title) {
+            lines.push(`  标题：${title}`);
+        }
+        if (summary) {
+            lines.push(`  摘要：${summary}`);
+        }
+    });
+
+    return lines.join('\n');
+}
+
+function upsertHiddenWebLinkContextMessage(contactId, contextText, options = {}) {
+    if (!contactId || !window.iphoneSimState || !window.iphoneSimState.chatHistory) return null;
+    const text = String(contextText || '').trim();
+    if (!window.iphoneSimState.chatHistory[contactId]) {
+        window.iphoneSimState.chatHistory[contactId] = [];
+    }
+
+    const history = window.iphoneSimState.chatHistory[contactId];
+    const nextHistory = history.filter(msg => !(msg && msg.type === 'web_link_context_hidden'));
+    window.iphoneSimState.chatHistory[contactId] = nextHistory;
+
+    if (!text) {
+        if (typeof saveConfig === 'function') saveConfig();
+        return null;
+    }
+
+    const hiddenMsg = {
+        id: Date.now() + Math.random().toString(36).substr(2, 9),
+        time: Date.now(),
+        role: 'system',
+        type: 'web_link_context_hidden',
+        hiddenFromUi: true,
+        includeInAiContext: true,
+        content: text,
+        metaType: 'web_link_context',
+        meta: {
+            source: 'webpage_context',
+            signature: String(options.signature || ''),
+            urls: Array.isArray(options.urls) ? options.urls.map(item => String(item || '').trim()).filter(Boolean) : []
+        }
+    };
+
+    window.iphoneSimState.chatHistory[contactId].push(hiddenMsg);
+    if (typeof saveConfig === 'function') saveConfig();
+    return hiddenMsg;
+}
+
+function formatWebLinkContextErrorSummary(errorResults = []) {
+    if (!Array.isArray(errorResults) || !errorResults.length) {
+        return '读取网页内容失败，请稍后重试，或把关键段落直接发给我。';
+    }
+    const first = errorResults[0] || {};
+    const detail = String(first.errorMessage || first.errorCode || '未知错误').trim() || '未知错误';
+    if (errorResults.length === 1) {
+        return `读取链接失败：${detail}。你可以重试，或直接粘贴网页关键段落。`;
+    }
+    return `有 ${errorResults.length} 个链接读取失败（例如：${detail}）。你可以重试，或直接粘贴网页关键段落。`;
+}
+
+function buildWebLinkContextFailureMessageFromError(error) {
+    const rawMessage = String(error && error.message || '').trim();
+    if (!rawMessage) {
+        return '读取链接失败：未知错误。你可以重试，或直接粘贴网页关键段落。';
+    }
+
+    if (/failed to fetch|networkerror|load failed/i.test(rawMessage)) {
+        return '读取链接失败：无法连接到离线后端（可能是地址错误、服务未启动，或被 CORS 拦截）。你可以先检查“离线消息”里的后端地址。';
+    }
+
+    if (/cors/i.test(rawMessage)) {
+        return '读取链接失败：后端跨域配置异常（CORS）。请确认后端允许当前页面来源访问。';
+    }
+
+    return `读取链接失败：${rawMessage}。你可以重试，或直接粘贴网页关键段落。`;
+}
+
+function maybeSendWebLinkContextFailureNotice(contactId, noticeText, signature = '') {
+    if (!contactId || !noticeText) return null;
+    const store = ensureChatWebLinkContextStore();
+    cleanupChatWebLinkFailureNoticeStore();
+
+    const key = `${String(contactId)}::${String(signature || '')}::${String(noticeText)}`;
+    const now = Date.now();
+    if ((now - Number(store.failureNotices[key] || 0)) < CHAT_WEB_LINK_CONTEXT_FAILURE_NOTICE_TTL_MS) {
+        return null;
+    }
+    store.failureNotices[key] = now;
+
+    if (typeof sendMessage === 'function') {
+        return sendMessage(`[系统消息]: ${noticeText}`, false, 'text', null, contactId, { showNotification: false });
+    }
+    return null;
+}
+
+async function requestWebLinkContextFromBackend(apiBaseUrl, payload) {
+    const response = await fetch(`${apiBaseUrl}/api/webpage-context`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`HTTP ${response.status}${text ? `: ${text}` : ''}`);
+    }
+
+    return response.json().catch(() => ({}));
+}
+
+window.maybePrefetchWebLinkContext = async function(options = {}) {
+    const contactId = String(options && options.contactId || (window.iphoneSimState && window.iphoneSimState.currentChatContactId) || '').trim();
+    if (!contactId) {
+        return { ok: false, skipped: 'missing_contact_id' };
+    }
+
+    const text = String(options && options.text || '').trim();
+    const urls = extractUrlsFromChatText(text, CHAT_WEB_LINK_CONTEXT_MAX_URLS_PER_MESSAGE);
+    if (!urls.length) {
+        return { ok: false, skipped: 'no_url_detected' };
+    }
+
+    const signature = urls.join('||');
+    const cachedEntry = getChatWebLinkContextEntry(contactId);
+    if (cachedEntry && cachedEntry.signature === signature) {
+        if (cachedEntry.promise) {
+            return cachedEntry.promise;
+        }
+        if (cachedEntry.lastResult) {
+            return cachedEntry.lastResult;
+        }
+    }
+
+    const apiBaseUrl = resolveChatWebLinkContextApiBaseUrl();
+    if (!apiBaseUrl) {
+        upsertHiddenWebLinkContextMessage(contactId, '', { signature });
+        maybeSendWebLinkContextFailureNotice(contactId, '未配置离线后端地址，暂时无法读取链接内容。你可以先粘贴网页关键段落。', signature);
+        return { ok: false, skipped: 'missing_api_base_url' };
+    }
+    if (isLikelyDirectAiCompletionEndpoint(apiBaseUrl)) {
+        upsertHiddenWebLinkContextMessage(contactId, '', { signature });
+        maybeSendWebLinkContextFailureNotice(
+            contactId,
+            '离线消息后端地址配置错误：当前像是模型的 /chat/completions 地址。请改成你自己的离线后端根地址（例如 Railway 服务域名）。',
+            signature
+        );
+        return { ok: false, skipped: 'invalid_backend_base_url' };
+    }
+
+    const payload = {
+        userId: getChatWebLinkContextUserId(),
+        contactId,
+        urls
+    };
+
+    let settledResult = { ok: false, results: [] };
+    const fetchPromise = (async () => {
+        try {
+            const data = await requestWebLinkContextFromBackend(apiBaseUrl, payload);
+            const results = Array.isArray(data && data.results) ? data.results : [];
+            const successResults = results.filter(item => item && item.status === 'ok' && (item.title || item.summary));
+            const errorResults = results.filter(item => !item || item.status !== 'ok');
+
+            if (successResults.length > 0) {
+                const contextPayload = formatWebLinkContextPayload(successResults);
+                upsertHiddenWebLinkContextMessage(contactId, contextPayload, {
+                    signature,
+                    urls: successResults.map(item => item.finalUrl || item.url || '').filter(Boolean)
+                });
+            } else {
+                upsertHiddenWebLinkContextMessage(contactId, '', { signature });
+            }
+
+            if (errorResults.length > 0) {
+                maybeSendWebLinkContextFailureNotice(contactId, formatWebLinkContextErrorSummary(errorResults), signature);
+            } else if (!successResults.length) {
+                maybeSendWebLinkContextFailureNotice(contactId, '链接读取失败，未提取到可用网页内容。你可以重试，或直接粘贴网页关键段落。', signature);
+            }
+
+            settledResult = {
+                ok: successResults.length > 0,
+                results,
+                successCount: successResults.length,
+                errorCount: errorResults.length
+            };
+            return settledResult;
+        } catch (error) {
+            upsertHiddenWebLinkContextMessage(contactId, '', { signature });
+            maybeSendWebLinkContextFailureNotice(
+                contactId,
+                buildWebLinkContextFailureMessageFromError(error),
+                signature
+            );
+            settledResult = {
+                ok: false,
+                error: error && error.message ? String(error.message) : 'unknown_error',
+                results: []
+            };
+            return settledResult;
+        } finally {
+            setChatWebLinkContextEntry(contactId, {
+                signature,
+                promise: null,
+                completedAt: Date.now(),
+                lastResult: settledResult
+            });
+        }
+    })();
+
+    setChatWebLinkContextEntry(contactId, {
+        signature,
+        promise: fetchPromise,
+        startedAt: Date.now()
+    });
+
+    return fetchPromise;
+};
+
+window.waitForWebLinkContextPrefetch = async function(contactId, timeoutMs = CHAT_WEB_LINK_CONTEXT_WAIT_TIMEOUT_MS) {
+    const id = String(contactId || '').trim();
+    if (!id) return false;
+    const entry = getChatWebLinkContextEntry(id);
+    if (!entry || !entry.promise) return false;
+
+    const safeTimeoutMs = Number.isFinite(Number(timeoutMs))
+        ? Math.max(150, Math.min(5000, Number(timeoutMs)))
+        : CHAT_WEB_LINK_CONTEXT_WAIT_TIMEOUT_MS;
+
+    try {
+        await Promise.race([
+            entry.promise,
+            new Promise(resolve => setTimeout(resolve, safeTimeoutMs))
+        ]);
+    } catch (error) {
+        console.warn('[WebLinkContext] wait failed', error);
+    }
+
+    return true;
+}
+
 function normalizeChatNavigationMode(text) {
     const raw = String(text || '').trim();
     if (/(公交|地铁|巴士|公车|公共交通|metro|bus|subway)/i.test(raw)) {
@@ -3858,6 +4253,14 @@ async function triggerCurrentChatAiReply(chatInput = null, options = {}) {
     const triggerSource = options && typeof options === 'object' && options.triggerSource
         ? String(options.triggerSource)
         : 'manual';
+    const currentContactId = window.iphoneSimState && window.iphoneSimState.currentChatContactId;
+    if (currentContactId && typeof window.waitForWebLinkContextPrefetch === 'function') {
+        try {
+            await window.waitForWebLinkContextPrefetch(currentContactId, CHAT_WEB_LINK_CONTEXT_WAIT_TIMEOUT_MS);
+        } catch (error) {
+            console.warn('[WebLinkContext] wait before AI reply failed', error);
+        }
+    }
     const handledByRouteAssist = await tryRunChatNavigationAssistReply(chatInput);
     if (handledByRouteAssist) {
         return true;

@@ -7861,11 +7861,17 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
     } catch (error) {
         console.error('AI生成失败:', error);
-        const errorMessage = `AI生成失败: ${error.message}，请检查配置和API状态`;
+        const rawError = String(error && error.message ? error.message : '').trim();
+        let errorMessage = `AI生成失败: ${rawError || '未知错误'}，请检查配置和API状态`;
+        if (/failed to fetch/i.test(rawError)) {
+            errorMessage = 'AI请求失败：网络不可达或被 CORS 拦截。请检查 API 地址是否支持浏览器跨域，或改为走你自己的后端代理。';
+        } else if (/api error:\s*413/i.test(rawError) || /\b413\b/.test(rawError)) {
+            errorMessage = 'AI请求过大（413）。请减少图片数量、缩短上下文，或降低单条附加内容长度后重试。';
+        }
         if (typeof window.showChatToast === 'function') {
             window.showChatToast(errorMessage, 3500);
         } else {
-            alert(`AI生成失败: ${error.message}\n请检查配置和API状态`);
+            alert(`${errorMessage}`);
         }
         return false;
     } finally {
