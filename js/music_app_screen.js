@@ -986,7 +986,8 @@
         friendHomeRequesting: false,
         friendHomeGenerating: false,
         friendHomeApiLoadingMap: Object.create(null),
-        friendHomeWorksQueueContext: null
+        friendHomeWorksQueueContext: null,
+        friendHomePersonaFitCache: Object.create(null)
     };
     const MUSIC_V2_PLAYLIST_LONGPRESS_MS = 480;
 
@@ -1011,6 +1012,7 @@
     const MUSIC_V2_FRIEND_HOME_API_MAX_PLAYLISTS = 3;
     const MUSIC_V2_FRIEND_HOME_API_MAX_PLAYLIST_SONGS = 6;
     const MUSIC_V2_FRIEND_HOME_API_MAX_LIKED_SONGS = 12;
+    const MUSIC_V2_FRIEND_HOME_API_PERSONA_VALIDATE_LIMIT = 18;
     const MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER = 'cover';
     const MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL = 'original';
 
@@ -4523,8 +4525,180 @@
         return normalized.slice(0, Math.max(1, Math.floor(Number(maxCount) || 1)));
     }
 
+    function musicV2NormalizeOptionalKeywordList(list, fallbackList, maxCount) {
+        const arr = Array.isArray(list) ? list : [];
+        const fallback = Array.isArray(fallbackList) ? fallbackList : [];
+        const normalized = [];
+        const seen = new Set();
+        const push = (value) => {
+            const text = String(value || '').trim();
+            if (!text || seen.has(text)) return;
+            seen.add(text);
+            normalized.push(text);
+        };
+        arr.forEach(push);
+        if (!normalized.length) fallback.forEach(push);
+        const limit = Math.max(0, Math.floor(Number(maxCount) || 0));
+        if (limit <= 0) return [];
+        return normalized.slice(0, limit);
+    }
+
+    function musicV2EscapeRegExp(text) {
+        return String(text == null ? '' : text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function musicV2InferPersonaAvoidKeywords(contact, personaContext, worldbookContext) {
+        const text = [
+            String(contact && contact.signature || ''),
+            String(contact && contact.persona || ''),
+            String(contact && contact.desc || ''),
+            String(contact && contact.style || ''),
+            String(personaContext || ''),
+            String(worldbookContext || '')
+        ].join('\n');
+        if (!text.trim()) return [];
+        const genreWords = [
+            '重金属', '金属', '朋克', '硬核', '摇滚', '死亡金属',
+            '说唱', 'rap', '电子', 'DJ', '电音', 'trap',
+            '古典', '交响', '戏曲', '民谣', '乡村',
+            '儿歌', '二次元', '动漫', '韩流', 'kpop', '日语歌', '英文歌'
+        ];
+        const out = [];
+        const push = (word) => {
+            const value = String(word || '').trim();
+            if (!value) return;
+            if (out.includes(value)) return;
+            out.push(value);
+        };
+        for (let i = 0; i < genreWords.length; i++) {
+            const word = genreWords[i];
+            const escaped = musicV2EscapeRegExp(word);
+            const rejectPattern = new RegExp(`(?:不听|不会听|讨厌|拒绝|排斥|不喜欢|不碰|禁听|别给我推)(?:[^\\n]{0,10})${escaped}`, 'i');
+            if (rejectPattern.test(text)) push(word);
+        }
+        return out.slice(0, 12);
+    }
+
+    function musicV2GetFriendHomePersonaPolicy(contact, blueprint, personaContext, worldbookContext) {
+        const apiAvoid = musicV2NormalizeOptionalKeywordList(
+            blueprint && blueprint.avoidKeywords,
+            [],
+            16
+        );
+        const inferredAvoid = musicV2InferPersonaAvoidKeywords(contact, personaContext, worldbookContext);
+        const avoidKeywords = musicV2NormalizeOptionalKeywordList(
+            apiAvoid.concat(inferredAvoid),
+            [],
+            20
+        );
+        return {
+            avoidKeywords: avoidKeywords,
+            personaContext: String(personaContext || ''),
+            worldbookContext: String(worldbookContext || '')
+        };
+    }
+
+    function musicV2IsSongBlockedByAvoidKeywords(candidate, avoidKeywords) {
+        const list = musicV2NormalizeOptionalKeywordList(avoidKeywords, [], 40);
+        if (!list.length) return false;
+        const haystack = (
+            String(candidate && candidate.title || '') + ' ' +
+            String(candidate && candidate.artist || '')
+        ).toLowerCase();
+        if (!haystack.trim()) return false;
+        for (let i = 0; i < list.length; i++) {
+            const kw = String(list[i] || '').trim().toLowerCase();
+            if (!kw) continue;
+            if (haystack.includes(kw)) return true;
+        }
+        return false;
+    }
+
+    async function musicV2ValidateSongByPersona(contact, candidate, policy, context) {
+        const cid = String(contact && contact.id || '').trim();
+        const sid = String(candidate && candidate.id || '').trim();
+        if (!cid || !sid) return true;
+        if (musicV2IsSongBlockedByAvoidKeywords(candidate, policy && policy.avoidKeywords)) {
+            return false;
+        }
+        const settings = musicV2GetFriendHomeAiSettings();
+        if (!settings) return true;
+        const fetchUrl = musicV2BuildChatCompletionsUrl(settings.url);
+        if (!fetchUrl) return true;
+
+        const cacheMap = musicV2Runtime.friendHomePersonaFitCache && typeof musicV2Runtime.friendHomePersonaFitCache === 'object'
+            ? musicV2Runtime.friendHomePersonaFitCache
+            : (musicV2Runtime.friendHomePersonaFitCache = Object.create(null));
+        const cacheKey = `${cid}::${sid}`;
+        if (cacheKey && Object.prototype.hasOwnProperty.call(cacheMap, cacheKey)) {
+            return !!cacheMap[cacheKey];
+        }
+
+        try {
+            const personaContext = String(policy && policy.personaContext || musicV2BuildFriendHomePersonaContext(contact) || '').trim();
+            const worldbookContext = String(policy && policy.worldbookContext || musicV2BuildFriendHomeWorldbookContext(contact) || '').trim();
+            const avoidKeywords = musicV2NormalizeOptionalKeywordList(policy && policy.avoidKeywords, [], 20);
+            const payload = {
+                model: settings.model,
+                temperature: 0,
+                messages: [
+                    {
+                        role: 'system',
+                        content: '你是音乐品味审核器。只输出一个 JSON 对象，不要解释，不要 markdown。字段: fit(boolean), reason(string)。如果歌曲与人设冲突，fit 必须是 false。'
+                    },
+                    {
+                        role: 'user',
+                        content: JSON.stringify({
+                            scene: 'music_personal_home_song_filter',
+                            contactName: musicV2GetContactDisplayName(contact),
+                            contactPersona: personaContext || '无',
+                            linkedWorldbook: worldbookContext || '无',
+                            avoidKeywords: avoidKeywords,
+                            song: {
+                                id: sid,
+                                title: String(candidate && candidate.title || ''),
+                                artist: String(candidate && candidate.artist || '')
+                            },
+                            strictRule: '若歌曲明显违背人设（包括风格、价值观、禁忌），必须判定 fit=false。'
+                        })
+                    }
+                ]
+            };
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${settings.key}`
+                },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error('HTTP_' + response.status);
+            const data = await response.json();
+            const content = String(
+                (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content)
+                || ''
+            );
+            const parsed = musicV2ExtractFirstJsonObject(content);
+            if (!parsed || typeof parsed !== 'object' || typeof parsed.fit === 'undefined') {
+                cacheMap[cacheKey] = true;
+                return true;
+            }
+            const fit = String(parsed.fit).toLowerCase() === 'true' || parsed.fit === true || parsed.fit === 1;
+            cacheMap[cacheKey] = fit;
+            return fit;
+        } catch (error) {
+            if (context && typeof context === 'object') {
+                context.validateErrors = Number(context.validateErrors || 0) + 1;
+            }
+            return true;
+        }
+    }
+
     function musicV2BuildFriendHomeApiFallbackBlueprint(contact, seed) {
         const name = musicV2GetContactDisplayName(contact);
+        const personaContext = musicV2BuildFriendHomePersonaContext(contact);
+        const worldbookContext = musicV2BuildFriendHomeWorldbookContext(contact);
+        const inferredAvoid = musicV2InferPersonaAvoidKeywords(contact, personaContext, worldbookContext);
         return {
             following: 90 + (seed % 260),
             followers: 3000 + (seed % 30000),
@@ -4532,6 +4706,7 @@
             signature: musicV2ExtractFriendHomeSignature(contact),
             dynamic: [`${name} 正在练习下一首翻唱。`, '欢迎点歌催更。'],
             likedKeywords: [`${name} 热门`, '华语流行', '经典老歌', '翻唱'],
+            avoidKeywords: inferredAvoid,
             playlists: [
                 { title: '深夜循环', keywords: ['深夜', '抒情', '华语'] },
                 { title: '私藏收藏', keywords: ['经典', '热歌', '情歌'] }
@@ -4553,7 +4728,7 @@
             messages: [
                 {
                     role: 'system',
-                    content: '你是音乐社交资料生成器。只输出一个JSON对象，不要markdown，不要解释。字段: following, followers, likes, signature, dynamic(字符串数组), likedKeywords(字符串数组), playlists(数组，元素含title和keywords字符串数组)。内容需中文、自然、简洁。你必须严格遵守 contactPersona（联系人人设）与 linkedWorldbook（关联世界书）；若这两者有内容，生成结果不得冲突。'
+                    content: '你是音乐社交资料生成器。只输出一个JSON对象，不要markdown，不要解释。字段: following, followers, likes, signature, dynamic(字符串数组), likedKeywords(字符串数组), avoidKeywords(字符串数组，可为空), playlists(数组，元素含title和keywords字符串数组)。内容需中文、自然、简洁。你必须严格遵守 contactPersona（联系人人设）与 linkedWorldbook（关联世界书）；若这两者有内容，生成结果不得冲突。禁止把该人设明显不会听的歌曲类型放入 likedKeywords 或 playlists 关键词。'
                 },
                 {
                     role: 'user',
@@ -4565,7 +4740,9 @@
                         linkedWorldbook: worldbookContext || '无',
                         consistencyRules: [
                             '主页信息、动态、歌单主题必须与联系人人设一致',
-                            '若给定了世界书内容，优先沿用其中设定，不得冲突'
+                            '若给定了世界书内容，优先沿用其中设定，不得冲突',
+                            '必须给出 avoidKeywords，列出该人设不会听或应规避的风格/题材关键词',
+                            '严禁生成与人设冲突的歌单关键词'
                         ],
                         requirements: {
                             following: '50-3000整数',
@@ -4573,6 +4750,7 @@
                             likes: '5000-5000000整数',
                             dynamic: '2-4条',
                             likedKeywords: '3-6个关键词',
+                            avoidKeywords: '0-8个关键词',
                             playlists: '2-3个歌单，每个歌单2-4个关键词'
                         }
                     })
@@ -4603,6 +4781,7 @@
                 signature: String(parsed.signature || fallback.signature || '').trim().slice(0, 88) || fallback.signature,
                 dynamic: musicV2NormalizeKeywordList(parsed.dynamic, fallback.dynamic, MUSIC_V2_FRIEND_HOME_API_MAX_DYNAMIC),
                 likedKeywords: musicV2NormalizeKeywordList(parsed.likedKeywords, fallback.likedKeywords, 8),
+                avoidKeywords: musicV2NormalizeOptionalKeywordList(parsed.avoidKeywords, fallback.avoidKeywords, 12),
                 playlists: (Array.isArray(parsed.playlists) ? parsed.playlists : fallback.playlists).map((item, index) => {
                     const title = String(item && item.title || fallback.playlists[index % fallback.playlists.length].title || `歌单${index + 1}`).trim().slice(0, 24) || `歌单${index + 1}`;
                     const fallbackKeywords = fallback.playlists[index % fallback.playlists.length].keywords || fallback.likedKeywords;
@@ -4616,10 +4795,18 @@
         }
     }
 
-    async function musicV2CollectSongIdsByKeywords(keywords, maxCount, sharedUsedSet) {
+    async function musicV2CollectSongIdsByKeywords(keywords, maxCount, sharedUsedSet, options) {
+        const opts = options && typeof options === 'object' ? options : {};
         const limit = Math.max(1, Math.floor(Number(maxCount) || 1));
         const out = [];
         const used = sharedUsedSet instanceof Set ? sharedUsedSet : new Set();
+        const personaPolicy = opts.personaPolicy && typeof opts.personaPolicy === 'object'
+            ? opts.personaPolicy
+            : null;
+        const contact = opts.contact || null;
+        const validateContext = opts.validateContext && typeof opts.validateContext === 'object'
+            ? opts.validateContext
+            : null;
         const list = musicV2NormalizeKeywordList(keywords, ['华语流行'], 12);
         for (let i = 0; i < list.length && out.length < limit; i++) {
             const kw = list[i];
@@ -4633,6 +4820,16 @@
             for (let j = 0; j < results.length && out.length < limit; j++) {
                 const candidate = results[j];
                 if (!candidate || !candidate.id) continue;
+                if (musicV2IsSongBlockedByAvoidKeywords(candidate, personaPolicy && personaPolicy.avoidKeywords)) continue;
+                if (contact && personaPolicy) {
+                    const usedBudget = Number(validateContext && validateContext.used || 0);
+                    const withinBudget = usedBudget < MUSIC_V2_FRIEND_HOME_API_PERSONA_VALIDATE_LIMIT;
+                    if (withinBudget) {
+                        if (validateContext) validateContext.used = usedBudget + 1;
+                        const fit = await musicV2ValidateSongByPersona(contact, candidate, personaPolicy, validateContext);
+                        if (!fit) continue;
+                    }
+                }
                 const saved = musicV2UpsertSong({
                     id: String(candidate.id),
                     title: String(candidate.title || '未命名歌曲'),
@@ -4671,11 +4868,19 @@
         try {
             const seed = musicV2BuildFriendHomeSeed(contact);
             const blueprint = await musicV2FetchFriendHomeApiBlueprint(contact, seed);
+            const personaContext = musicV2BuildFriendHomePersonaContext(contact);
+            const worldbookContext = musicV2BuildFriendHomeWorldbookContext(contact);
+            const personaPolicy = musicV2GetFriendHomePersonaPolicy(contact, blueprint, personaContext, worldbookContext);
+            const validateContext = {
+                used: 0,
+                validateErrors: 0
+            };
             const usedSongIds = new Set();
             const likedSongIds = await musicV2CollectSongIdsByKeywords(
                 blueprint.likedKeywords,
                 MUSIC_V2_FRIEND_HOME_API_MAX_LIKED_SONGS,
-                usedSongIds
+                usedSongIds,
+                { contact, personaPolicy, validateContext }
             );
             const customPlaylists = [];
             const playlistBlueprints = Array.isArray(blueprint.playlists) ? blueprint.playlists : [];
@@ -4684,7 +4889,8 @@
                 const songs = await musicV2CollectSongIdsByKeywords(
                     item.keywords,
                     MUSIC_V2_FRIEND_HOME_API_MAX_PLAYLIST_SONGS,
-                    usedSongIds
+                    usedSongIds,
+                    { contact, personaPolicy, validateContext }
                 );
                 if (!songs.length) continue;
                 customPlaylists.push({
@@ -4696,8 +4902,30 @@
                 });
             }
             if (!customPlaylists.length) {
-                const fallbackPlaylists = musicV2BuildFriendHomePlaylists(music, seed);
-                fallbackPlaylists.forEach(item => customPlaylists.push(item));
+                const seedSongs = likedSongIds.slice();
+                if (seedSongs.length) {
+                    const splitSize = Math.max(2, Math.ceil(seedSongs.length / 2));
+                    const poolA = seedSongs.slice(0, splitSize);
+                    const poolB = seedSongs.slice(splitSize);
+                    if (poolA.length) {
+                        customPlaylists.push({
+                            id: musicV2MakeId('fh_pl'),
+                            title: '私藏收藏',
+                            songs: poolA,
+                            createdAt: now,
+                            updatedAt: now
+                        });
+                    }
+                    if (poolB.length) {
+                        customPlaylists.push({
+                            id: musicV2MakeId('fh_pl'),
+                            title: '最近偏爱',
+                            songs: poolB,
+                            createdAt: now,
+                            updatedAt: now
+                        });
+                    }
+                }
             }
 
             storedProfile.following = musicV2ClampProfileMetric(blueprint.following, 50, 3000, storedProfile.following || (90 + (seed % 260)));
@@ -4705,10 +4933,12 @@
             storedProfile.likes = musicV2ClampProfileMetric(blueprint.likes, 5000, 5000000, storedProfile.likes || (10000 + (seed % 90000)));
             storedProfile.signature = String(blueprint.signature || storedProfile.signature || musicV2ExtractFriendHomeSignature(contact)).slice(0, 88);
             storedProfile.dynamic = musicV2NormalizeKeywordList(blueprint.dynamic, storedProfile.dynamic || [`${musicV2GetContactDisplayName(contact)} 正在练习下一首翻唱。`], MUSIC_V2_FRIEND_HOME_API_MAX_DYNAMIC);
-            storedProfile.likesSongIds = likedSongIds.length
-                ? likedSongIds
-                : musicV2UniqueValidSongIds(storedProfile.likesSongIds, new Set((music.songs || []).map(item => String(item && item.id || ''))));
+            storedProfile.likesSongIds = musicV2UniqueValidSongIds(
+                likedSongIds,
+                new Set((music.songs || []).map(item => String(item && item.id || '')))
+            );
             storedProfile.customPlaylists = customPlaylists;
+            storedProfile.personaAvoidKeywords = musicV2NormalizeOptionalKeywordList(personaPolicy.avoidKeywords, [], 20);
             storedProfile.apiGeneratedAt = now;
             storedProfile.apiSource = 'remote';
             storedProfile.updatedAt = now;
@@ -4722,7 +4952,10 @@
             console.info('[music-v2] friend-home profile hydrated by api', {
                 contactId: cid,
                 likesSongCount: Array.isArray(storedProfile.likesSongIds) ? storedProfile.likesSongIds.length : 0,
-                customPlaylistCount: Array.isArray(storedProfile.customPlaylists) ? storedProfile.customPlaylists.length : 0
+                customPlaylistCount: Array.isArray(storedProfile.customPlaylists) ? storedProfile.customPlaylists.length : 0,
+                personaFilterValidated: Number(validateContext.used || 0),
+                personaFilterApiErrors: Number(validateContext.validateErrors || 0),
+                personaAvoidKeywordCount: Array.isArray(storedProfile.personaAvoidKeywords) ? storedProfile.personaAvoidKeywords.length : 0
             });
             return storedProfile;
         } finally {
@@ -4808,6 +5041,7 @@
                 signature: String(profile.signature || musicV2ExtractFriendHomeSignature(contact)),
                 likesSongIds: likesSongIds,
                 customPlaylists: customPlaylists,
+                personaAvoidKeywords: musicV2NormalizeOptionalKeywordList(profile.personaAvoidKeywords, [], 20),
                 dynamic: Array.isArray(profile.dynamic) && profile.dynamic.length
                     ? profile.dynamic.map(item => String(item || '').trim()).filter(Boolean).slice(0, 24)
                     : [`${name} 正在练习下一首翻唱。`, '欢迎点歌催更。'],
@@ -4840,6 +5074,7 @@
                 signature: musicV2ExtractFriendHomeSignature(contact),
                 likesSongIds: likesSongIds,
                 customPlaylists: musicV2BuildFriendHomePlaylists(music, seed),
+                personaAvoidKeywords: [],
                 dynamic: [`${musicV2GetContactDisplayName(contact)} 正在练习下一首翻唱。`, '欢迎点歌催更。'],
                 works: [],
                 apiGeneratedAt: 0,
@@ -5033,7 +5268,7 @@
         if (followers) followers.textContent = musicV2FormatFriendHomeMetric(profile.followers);
         if (likes) likes.textContent = musicV2FormatFriendHomeMetric(profile.likes);
         if (bio) bio.textContent = String(profile.signature || '');
-        if (scene) scene.textContent = '音乐软件个人主页';
+        if (scene) scene.textContent = '';
         musicV2RenderFriendHomeTabs();
         musicV2RenderFriendHomeMainList();
     }
@@ -7917,8 +8152,8 @@
             .music-v2-fh-header {
                 position: sticky;
                 top: 0;
-                height: 84px;
-                padding: 24px 16px 0;
+                height: 100px;
+                padding: 40px 16px 0;
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
@@ -8518,7 +8753,7 @@
                                 '<div class="music-v2-fh-profile-info">' +
                                     '<div id="music-v2-fh-name" class="music-v2-fh-name">联系人</div>' +
                                     '<div id="music-v2-fh-uid" class="music-v2-fh-uid">ID: 00000000</div>' +
-                                    '<div id="music-v2-fh-scene" class="music-v2-fh-scene">音乐软件个人主页</div>' +
+                                    '<div id="music-v2-fh-scene" class="music-v2-fh-scene"></div>' +
                                 '</div>' +
                             '</div>' +
                             '<div class="music-v2-fh-stats">' +
