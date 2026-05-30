@@ -2473,6 +2473,7 @@ function formatLastMsgPreview(lastMsg, contact = null) {
     else if (lastMsg.type === 'savings_invite') preview = '[共同存钱邀请]';
     else if (lastMsg.type === 'savings_withdraw_request') preview = '[共同存钱转出申请]';
     else if (lastMsg.type === 'savings_progress') preview = '[共同存钱进度]';
+    else if (lastMsg.type === 'music_song_share') preview = '[歌曲分享]';
     else if (lastMsg.type === 'forum_post_share') preview = '[论坛帖子分享]';
     else if (lastMsg.type === 'voice_call_text') preview = '[通话]';
     else if (lastMsg.type === 'text' || lastMsg.type === 'html') {

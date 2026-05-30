@@ -973,7 +973,20 @@
             returnSongId: '',
             returnPlaylistId: ''
         },
-        transientSongs: Object.create(null)
+        transientSongs: Object.create(null),
+        friendHomeContactId: '',
+        friendHomeData: null,
+        friendHomeActiveTab: 'works',
+        friendHomeOpenPlaylistId: '',
+        friendHomePlaylistPageData: null,
+        friendHomeActiveWorkId: '',
+        friendHomePlaying: false,
+        friendHomeAudio: null,
+        friendHomeRequestMode: 'cover',
+        friendHomeRequesting: false,
+        friendHomeGenerating: false,
+        friendHomeApiLoadingMap: Object.create(null),
+        friendHomeWorksQueueContext: null
     };
     const MUSIC_V2_PLAYLIST_LONGPRESS_MS = 480;
 
@@ -991,6 +1004,15 @@
         liked: '喜欢的歌曲',
         all: '全部歌曲'
     };
+    const MUSIC_V2_FRIEND_HOME_SCENE = 'music_personal_home';
+    const MUSIC_V2_FRIEND_HOME_TABS = ['works', 'dynamic', 'likes'];
+    const MUSIC_V2_FRIEND_HOME_API_REFRESH_MS = 1000 * 60 * 60 * 12;
+    const MUSIC_V2_FRIEND_HOME_API_MAX_DYNAMIC = 6;
+    const MUSIC_V2_FRIEND_HOME_API_MAX_PLAYLISTS = 3;
+    const MUSIC_V2_FRIEND_HOME_API_MAX_PLAYLIST_SONGS = 6;
+    const MUSIC_V2_FRIEND_HOME_API_MAX_LIKED_SONGS = 12;
+    const MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER = 'cover';
+    const MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL = 'original';
 
     function musicV2NormalizePlaybackMode(rawMode) {
         const mode = String(rawMode || '').trim().toLowerCase();
@@ -1569,6 +1591,7 @@
                 : (music.playlists[0] ? music.playlists[0].id : null);
         }
         musicV2EnsureGamificationModel(music);
+        musicV2EnsureFriendHomeProfiles(music);
 
         const contacts = Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
             ? window.iphoneSimState.contacts
@@ -1642,6 +1665,7 @@
         const music = musicV2EnsureModel();
         musicV2EnsureSystemPlaylists(music);
         musicV2EnsureGamificationModel(music);
+        musicV2EnsureFriendHomeProfiles(music);
         musicV2SyncLegacyPlaylist(music);
         if (typeof saveConfig === 'function') saveConfig();
     }
@@ -2471,6 +2495,27 @@
         return musicV2TryApiCandidates(candidates, { errorCode: 'playlist_detail_invalid' });
     }
 
+    async function musicV2FetchNeteaseSongDetail(songId) {
+        const sid = String(songId || '').trim();
+        if (!sid) throw new Error('invalid_song_id');
+        const candidates = musicV2BuildApiBaseOrder().map((base) => ({
+            base: base,
+            url: musicV2BuildApiUrl(base, '/song/detail', { ids: sid, _t: Date.now() }),
+            transform: (data) => {
+                const song = Array.isArray(data && data.songs) && data.songs.length ? data.songs[0] : null;
+                if (!song) return null;
+                return {
+                    title: String(song.name || '未命名歌曲'),
+                    artist: musicV2PickArtist(song),
+                    cover: String((song.al && song.al.picUrl) || (song.album && song.album.picUrl) || '')
+                };
+            },
+            validate: (result) => Boolean(result && (result.title || result.artist || result.cover)),
+            invalidCode: 'song_detail_invalid'
+        }));
+        return musicV2TryApiCandidates(candidates, { errorCode: 'song_detail_invalid' });
+    }
+
     async function musicV2FetchNeteasePlaylistSongsAllFromBase(base, playlistId) {
         const pid = String(playlistId || '');
         const allSongs = [];
@@ -2721,6 +2766,68 @@
         });
 
         return result.sort((a, b) => a.time - b.time);
+    }
+
+    function musicV2BuildLyricsDataFromText(lyricsText, durationSec) {
+        const rawText = String(lyricsText || '').trim();
+        if (!rawText) return [];
+        const parsedLrc = musicV2ParseLyricText(rawText);
+        if (parsedLrc.length) return parsedLrc;
+        const lines = rawText
+            .split(/\r?\n/)
+            .map(line => String(line || '').trim())
+            .filter(Boolean)
+            .slice(0, 320);
+        if (!lines.length) return [];
+
+        const dur = Number(durationSec);
+        const hasDuration = Number.isFinite(dur) && dur > 0;
+        const step = hasDuration
+            ? Math.max(1.4, Math.min(8, dur / Math.max(1, lines.length + 1)))
+            : 3.2;
+        const result = [];
+        let cursor = 0;
+        for (let i = 0; i < lines.length; i++) {
+            result.push({
+                time: Number(cursor.toFixed(2)),
+                text: lines[i]
+            });
+            cursor += step;
+        }
+        return result;
+    }
+
+    function musicV2NormalizeLyricsData(rawLines, fallbackLyricsText, durationSec) {
+        const lines = Array.isArray(rawLines) ? rawLines : [];
+        const out = [];
+        for (let i = 0; i < lines.length; i++) {
+            const item = lines[i];
+            const text = String(item && item.text || '').trim();
+            if (!text) continue;
+            const timeRaw = Number(item && item.time);
+            out.push({
+                time: Number.isFinite(timeRaw) && timeRaw >= 0 ? timeRaw : NaN,
+                text: text
+            });
+        }
+        if (!out.length) {
+            return musicV2BuildLyricsDataFromText(fallbackLyricsText, durationSec);
+        }
+        let hasValidTime = false;
+        out.forEach((item) => {
+            if (Number.isFinite(item.time)) hasValidTime = true;
+        });
+        if (!hasValidTime) {
+            const stepBase = Math.max(1.4, Math.min(8, (Number(durationSec) > 0 ? Number(durationSec) : out.length * 3.2) / Math.max(1, out.length + 1)));
+            let cursor = 0;
+            out.forEach((item) => {
+                item.time = Number(cursor.toFixed(2));
+                cursor += stepBase;
+            });
+        }
+        return out
+            .map(item => ({ time: Math.max(0, Number(item.time) || 0), text: item.text }))
+            .sort((a, b) => a.time - b.time);
     }
 
     function musicV2IsInstrumentalLyric(lines) {
@@ -3039,7 +3146,7 @@
         }
 
         const knownSource = String(currentSong.lyricsSource || '');
-        if (knownSource === 'api-163' || knownSource === 'none') {
+        if (knownSource === 'api-163' || knownSource === 'none' || knownSource.indexOf('friend-home') === 0) {
             musicV2Runtime.lyricsLoading = false;
             musicV2Runtime.lyricsError = '';
             musicV2PaintLyrics(currentSong);
@@ -3089,6 +3196,18 @@
         const song = musicV2GetCurrentSong();
         if (!song || !Array.isArray(song.lyricsData) || song.lyricsData.length === 0) return;
         if (musicV2IsInstrumentalLyric(song.lyricsData)) return;
+        const source = String(song.lyricsSource || '').toLowerCase();
+        if (source === 'friend-home-original') {
+            if (musicV2Runtime.activeLyricIndex !== -1) {
+                musicV2Runtime.activeLyricIndex = -1;
+                const groups = musicV2CollectLyricPanels(root);
+                groups.forEach((group) => {
+                    const activeNodes = group.listEl.querySelectorAll('.music-v2-lyric-line.active');
+                    activeNodes.forEach((node) => node.classList.remove('active'));
+                });
+            }
+            return;
+        }
 
         const lines = song.lyricsData;
         let low = 0;
@@ -3521,6 +3640,16 @@
         let didRestartFromBeginning = false;
 
         const run = async function (forceResolve) {
+            if (
+                song.src &&
+                typeof window.isChatMediaReference === 'function' &&
+                window.isChatMediaReference(song.src) &&
+                typeof window.resolveChatMediaSrc === 'function'
+            ) {
+                const resolvedMediaSrc = await window.resolveChatMediaSrc(song.src);
+                if (resolvedMediaSrc) song.src = resolvedMediaSrc;
+                else throw new Error('media_resolve_failed');
+            }
             if (!song.src || forceResolve) await musicV2ResolveSongSource(song.id, !!forceResolve);
             if (!song.src) throw new Error('no_src');
             if (audio.src !== song.src) {
@@ -3968,25 +4097,6 @@
         return { ok: false, message: '暂不支持该一起听指令' };
     };
 
-    window.musicV2SearchAndPlayByKeyword = async function (keyword, options) {
-        const opts = options && typeof options === 'object' ? options : {};
-        const inviteSong = await musicV2BuildInviteSongFromKeyword(keyword, {
-            persistToLibrary: opts.persistToLibrary !== false
-        });
-        const songId = String(inviteSong && inviteSong.songId ? inviteSong.songId : '');
-        if (!songId) {
-            throw new Error('music_song_not_found');
-        }
-        await musicV2PlaySong(songId, '');
-        const song = musicV2GetSong(songId);
-        return {
-            songId,
-            title: String((song && song.title) || inviteSong.songTitle || ''),
-            artist: String((song && song.artist) || inviteSong.songArtist || ''),
-            cover: String((song && song.cover) || inviteSong.songCover || '')
-        };
-    };
-
     function musicV2GetPlaylistCover(playlist) {
         if (playlist && playlist.cover) return playlist.cover;
         if (playlist && playlist.songs && playlist.songs.length > 0) {
@@ -4090,6 +4200,1570 @@
         }
     }
 
+    function musicV2FormatFriendHomeMetric(value) {
+        const safe = Math.max(0, Math.floor(Number(value) || 0));
+        if (safe >= 100000000) return (safe / 100000000).toFixed(1).replace(/\.0$/, '') + '亿';
+        if (safe >= 10000) return (safe / 10000).toFixed(1).replace(/\.0$/, '') + '万';
+        if (safe >= 1000) return (safe / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+        return String(safe);
+    }
+
+    function musicV2FormatFriendHomeDate(ms) {
+        const time = Number(ms);
+        if (!Number.isFinite(time) || time <= 0) return '--';
+        const date = new Date(time);
+        return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    function musicV2BuildFriendHomeSeed(contact) {
+        const source = `${String(contact && contact.id || '')}|${musicV2GetContactDisplayName(contact)}`;
+        let seed = 0;
+        for (let i = 0; i < source.length; i++) {
+            seed = (seed * 31 + source.charCodeAt(i)) >>> 0;
+        }
+        return seed || 1;
+    }
+
+    function musicV2ExtractFriendHomeSignature(contact) {
+        const candidates = [contact && contact.signature, contact && contact.persona, contact && contact.style, contact && contact.desc];
+        for (let i = 0; i < candidates.length; i++) {
+            const text = String(candidates[i] || '').trim();
+            if (text) return text.slice(0, 88);
+        }
+        return '欢迎来听歌，也欢迎随时点歌催更。';
+    }
+
+    function musicV2SanitizePromptText(value, maxLength) {
+        const text = String(value || '')
+            .replace(/\r/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+        const limit = Math.max(0, Math.floor(Number(maxLength) || 0));
+        if (!limit) return text;
+        return text.slice(0, limit);
+    }
+
+    function musicV2BuildFriendHomePersonaContext(contact) {
+        const parts = [];
+        const persona = musicV2SanitizePromptText(contact && contact.persona, 1600);
+        const style = musicV2SanitizePromptText(contact && contact.style, 600);
+        const signature = musicV2SanitizePromptText(contact && contact.signature, 260);
+        const desc = musicV2SanitizePromptText(contact && contact.desc, 600);
+        if (persona) parts.push('人设：' + persona);
+        if (style) parts.push('说话风格：' + style);
+        if (signature) parts.push('个性签名：' + signature);
+        if (desc) parts.push('补充设定：' + desc);
+        return parts.join('\n');
+    }
+
+    function musicV2BuildFriendHomeWorldbookContext(contact) {
+        const state = window.iphoneSimState || {};
+        const historyMap = state.chatHistory && typeof state.chatHistory === 'object' ? state.chatHistory : {};
+        const history = contact && Array.isArray(historyMap[contact.id]) ? historyMap[contact.id] : [];
+
+        if (typeof window.buildWechatWorldbookPrompt === 'function') {
+            try {
+                const promptText = String(window.buildWechatWorldbookPrompt(contact || {}, history) || '').trim();
+                if (promptText) {
+                    return musicV2SanitizePromptText(
+                        promptText.replace(/^世界书信息\s*[:：]\s*/i, ''),
+                        3200
+                    );
+                }
+            } catch (error) {}
+        }
+
+        const worldbook = Array.isArray(state.worldbook) ? state.worldbook : [];
+        if (!worldbook.length) return '';
+        let activeEntries = worldbook.filter(entry => entry && entry.enabled);
+
+        if (contact && Array.isArray(contact.linkedWbCategories)) {
+            if (contact.linkedWbCategories.length > 0) {
+                const categorySet = new Set(contact.linkedWbCategories.map(item => String(item || '')));
+                activeEntries = activeEntries.filter(entry => categorySet.has(String(entry && entry.categoryId || '')));
+            } else {
+                activeEntries = [];
+            }
+        }
+        if (!activeEntries.length) return '';
+
+        const historyText = history
+            .map(item => String(item && item.content || ''))
+            .filter(Boolean)
+            .join('\n');
+
+        const matched = [];
+        activeEntries.forEach((entry) => {
+            if (!entry || typeof entry !== 'object') return;
+            const content = musicV2SanitizePromptText(entry.content, 1200);
+            if (!content) return;
+            const keys = Array.isArray(entry.keys)
+                ? entry.keys.map(key => String(key || '').trim()).filter(Boolean)
+                : [];
+            if (!keys.length) {
+                matched.push(content);
+                return;
+            }
+            if (historyText && keys.some(key => historyText.includes(key))) {
+                matched.push(content);
+            }
+        });
+
+        const picked = matched.length
+            ? matched
+            : activeEntries
+                .map(entry => musicV2SanitizePromptText(entry && entry.content, 1200))
+                .filter(Boolean);
+        return musicV2SanitizePromptText(picked.slice(0, 8).join('\n'), 3200);
+    }
+
+    function musicV2ResolveFriendHomeUserPersonaContext(contact) {
+        const state = window.iphoneSimState || {};
+        const personas = Array.isArray(state.userPersonas) ? state.userPersonas : [];
+        const userProfile = state.userProfile && typeof state.userProfile === 'object' ? state.userProfile : {};
+        let persona = null;
+        if (contact && contact.userPersonaId) {
+            persona = personas.find(item => String(item && item.id || '') === String(contact.userPersonaId || '')) || null;
+        }
+        if (!persona && state.currentUserPersonaId) {
+            persona = personas.find(item => String(item && item.id || '') === String(state.currentUserPersonaId || '')) || null;
+        }
+        const displayName = musicV2SanitizePromptText((persona && persona.name) || userProfile.name || '用户', 48) || '用户';
+        const promptText = musicV2SanitizePromptText(
+            (contact && contact.userPersonaPromptOverride) || (persona && persona.aiPrompt) || '',
+            1800
+        );
+        return {
+            name: displayName,
+            prompt: promptText
+        };
+    }
+
+    function musicV2BuildFriendHomeMemoryContext(contact) {
+        if (!contact || !contact.id) return '';
+        const state = window.iphoneSimState || {};
+        const historyMap = state.chatHistory && typeof state.chatHistory === 'object' ? state.chatHistory : {};
+        const history = Array.isArray(historyMap[contact.id]) ? historyMap[contact.id] : [];
+        if (typeof window.buildMemoryContextByPolicy === 'function') {
+            try {
+                const contextText = String(window.buildMemoryContextByPolicy(contact, history, 'music-original') || '').trim();
+                if (contextText) return musicV2SanitizePromptText(contextText, 3200);
+            } catch (error) {}
+        }
+        const memories = Array.isArray(state.memories)
+            ? state.memories
+                .filter(item => item && String(item.contactId || '') === String(contact.id || ''))
+                .sort((a, b) => Number(b.time || 0) - Number(a.time || 0))
+            : [];
+        if (!memories.length) return '';
+        const lines = memories.slice(0, 10).map((memory) => {
+            const content = musicV2SanitizePromptText(memory && memory.content, 180);
+            return content ? ('- ' + content) : '';
+        }).filter(Boolean);
+        return musicV2SanitizePromptText(lines.join('\n'), 1800);
+    }
+
+    function musicV2BuildOriginalLyricsPrompt(contact, themeText) {
+        const contactName = musicV2GetContactDisplayName(contact);
+        const userPersona = musicV2ResolveFriendHomeUserPersonaContext(contact);
+        const contactPersona = musicV2BuildFriendHomePersonaContext(contact);
+        const memoryContext = musicV2BuildFriendHomeMemoryContext(contact);
+        const worldbookContext = musicV2BuildFriendHomeWorldbookContext(contact);
+        const theme = musicV2SanitizePromptText(themeText, 140);
+        const lines = [
+            `为联系人「${contactName}」写一首中文原创歌曲歌词。`,
+            '要求：',
+            '1. 歌词自然，像真人写作，不要模板腔。',
+            '2. 包含 [Verse] 与 [Chorus]，总长度控制在 10-28 行。',
+            '3. 情绪连贯，副歌要有记忆点，适合流行演唱。',
+            '4. 禁止输出解释，只输出歌词正文与结构标签。',
+            `主题参考：${theme || '不限，可结合人物关系自由发挥'}`
+        ];
+        if (contactPersona) {
+            lines.push('\n【联系人人设】');
+            lines.push(contactPersona);
+        }
+        if (userPersona && userPersona.name) {
+            lines.push('\n【用户人设】');
+            lines.push(`用户名：${userPersona.name}`);
+            if (userPersona.prompt) lines.push(`用户设定：${userPersona.prompt}`);
+        }
+        if (memoryContext) {
+            lines.push('\n【联系人记忆】');
+            lines.push(memoryContext);
+        }
+        if (worldbookContext) {
+            lines.push('\n【关联世界书】');
+            lines.push(worldbookContext);
+        }
+        lines.push('\n请让歌词与以上设定保持一致，避免冲突。');
+        return musicV2SanitizePromptText(lines.join('\n'), 1900);
+    }
+
+    function musicV2BuildOriginalMusicPrompt(contact, themeText) {
+        const contactName = musicV2GetContactDisplayName(contact);
+        const theme = musicV2SanitizePromptText(themeText, 120);
+        const styleHint = musicV2SanitizePromptText(contact && contact.style, 120);
+        const personaHint = musicV2SanitizePromptText(contact && contact.persona, 120);
+        const parts = [
+            'Mandarin Pop Ballad',
+            'emotional',
+            'clear lead vocal',
+            '95 BPM',
+            'warm modern arrangement'
+        ];
+        if (theme) parts.push(`theme: ${theme}`);
+        if (styleHint) parts.push(`speaking style: ${styleHint}`);
+        if (personaHint) parts.push(`persona vibe: ${personaHint}`);
+        parts.push(`character voice reference: ${contactName}`);
+        return musicV2SanitizePromptText(parts.join(', '), 420);
+    }
+
+    function musicV2BuildLyricSnippetFromText(lyricsText) {
+        const lines = String(lyricsText || '')
+            .split(/\n+/)
+            .map(line => String(line || '').trim())
+            .filter(Boolean)
+            .filter(line => !/^\[[^\]]+\]$/.test(line))
+            .slice(0, 4);
+        if (!lines.length) return '';
+        return lines.join(' / ');
+    }
+
+    function musicV2BuildFriendHomePlaylists(music, seed) {
+        const songs = Array.isArray(music && music.songs) ? music.songs : [];
+        if (!songs.length) return [];
+        const ids = songs.map(item => String(item && item.id || '')).filter(Boolean);
+        if (!ids.length) return [];
+        const list = [];
+        const titles = ['深夜循环', '私藏收藏'];
+        for (let i = 0; i < titles.length; i++) {
+            const pick = [];
+            const start = (seed + i * 7) % ids.length;
+            for (let j = 0; j < ids.length && pick.length < 5; j++) {
+                const sid = ids[(start + j) % ids.length];
+                if (!pick.includes(sid)) pick.push(sid);
+            }
+            if (!pick.length) continue;
+            list.push({
+                id: musicV2MakeId('fh_pl'),
+                title: titles[i],
+                songs: pick,
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            });
+        }
+        return list;
+    }
+
+    function musicV2GetFriendHomeAiSettings() {
+        const state = window.iphoneSimState || {};
+        const s1 = state.aiSettings && typeof state.aiSettings === 'object' ? state.aiSettings : {};
+        const s2 = state.aiSettings2 && typeof state.aiSettings2 === 'object' ? state.aiSettings2 : {};
+        const selected = s1.url ? s1 : (s2.url ? s2 : s1);
+        const url = String(selected.url || '').trim();
+        const key = String(selected.key || '').replace(/[^\x00-\x7F]/g, '').trim();
+        const model = String(selected.model || '').trim();
+        const temperatureRaw = Number(selected.temperature);
+        const temperature = Number.isFinite(temperatureRaw) ? Math.max(0, Math.min(1.2, temperatureRaw)) : 0.6;
+        if (!url || !key || !model) return null;
+        return { url, key, model, temperature };
+    }
+
+    function musicV2BuildChatCompletionsUrl(rawUrl) {
+        const base = String(rawUrl || '').trim();
+        if (!base) return '';
+        if (/\/chat\/completions\/?$/i.test(base)) return base.replace(/\/+$/, '');
+        return base.endsWith('/') ? (base + 'chat/completions') : (base + '/chat/completions');
+    }
+
+    function musicV2ExtractFirstJsonObject(text) {
+        const raw = String(text || '').trim();
+        if (!raw) return null;
+        const stripFence = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        const candidates = [raw, stripFence];
+        for (let i = 0; i < candidates.length; i++) {
+            const candidate = candidates[i];
+            if (!candidate) continue;
+            try {
+                const parsed = JSON.parse(candidate);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+            } catch (error) {}
+            const start = candidate.indexOf('{');
+            const end = candidate.lastIndexOf('}');
+            if (start !== -1 && end !== -1 && end > start) {
+                try {
+                    const parsed = JSON.parse(candidate.slice(start, end + 1));
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+                } catch (error) {}
+            }
+        }
+        return null;
+    }
+
+    function musicV2ClampProfileMetric(value, min, max, fallback) {
+        const parsed = Math.floor(Number(value));
+        if (!Number.isFinite(parsed)) return fallback;
+        return Math.max(min, Math.min(max, parsed));
+    }
+
+    function musicV2NormalizeKeywordList(list, fallbackList, maxCount) {
+        const arr = Array.isArray(list) ? list : [];
+        const fallback = Array.isArray(fallbackList) ? fallbackList : [];
+        const normalized = [];
+        const seen = new Set();
+        const push = (value) => {
+            const text = String(value || '').trim();
+            if (!text || seen.has(text)) return;
+            seen.add(text);
+            normalized.push(text);
+        };
+        arr.forEach(push);
+        if (!normalized.length) fallback.forEach(push);
+        return normalized.slice(0, Math.max(1, Math.floor(Number(maxCount) || 1)));
+    }
+
+    function musicV2BuildFriendHomeApiFallbackBlueprint(contact, seed) {
+        const name = musicV2GetContactDisplayName(contact);
+        return {
+            following: 90 + (seed % 260),
+            followers: 3000 + (seed % 30000),
+            likes: 10000 + (seed % 90000),
+            signature: musicV2ExtractFriendHomeSignature(contact),
+            dynamic: [`${name} 正在练习下一首翻唱。`, '欢迎点歌催更。'],
+            likedKeywords: [`${name} 热门`, '华语流行', '经典老歌', '翻唱'],
+            playlists: [
+                { title: '深夜循环', keywords: ['深夜', '抒情', '华语'] },
+                { title: '私藏收藏', keywords: ['经典', '热歌', '情歌'] }
+            ]
+        };
+    }
+
+    async function musicV2FetchFriendHomeApiBlueprint(contact, seed) {
+        const fallback = musicV2BuildFriendHomeApiFallbackBlueprint(contact, seed);
+        const settings = musicV2GetFriendHomeAiSettings();
+        if (!settings) return fallback;
+        const fetchUrl = musicV2BuildChatCompletionsUrl(settings.url);
+        if (!fetchUrl) return fallback;
+        const personaContext = musicV2BuildFriendHomePersonaContext(contact);
+        const worldbookContext = musicV2BuildFriendHomeWorldbookContext(contact);
+        const payload = {
+            model: settings.model,
+            temperature: settings.temperature,
+            messages: [
+                {
+                    role: 'system',
+                    content: '你是音乐社交资料生成器。只输出一个JSON对象，不要markdown，不要解释。字段: following, followers, likes, signature, dynamic(字符串数组), likedKeywords(字符串数组), playlists(数组，元素含title和keywords字符串数组)。内容需中文、自然、简洁。你必须严格遵守 contactPersona（联系人人设）与 linkedWorldbook（关联世界书）；若这两者有内容，生成结果不得冲突。'
+                },
+                {
+                    role: 'user',
+                    content: JSON.stringify({
+                        scene: 'music_personal_home',
+                        contactName: musicV2GetContactDisplayName(contact),
+                        contactHint: String((contact && (contact.signature || contact.persona || contact.desc || '')) || '').slice(0, 120),
+                        contactPersona: personaContext || '无',
+                        linkedWorldbook: worldbookContext || '无',
+                        consistencyRules: [
+                            '主页信息、动态、歌单主题必须与联系人人设一致',
+                            '若给定了世界书内容，优先沿用其中设定，不得冲突'
+                        ],
+                        requirements: {
+                            following: '50-3000整数',
+                            followers: '1000-800000整数',
+                            likes: '5000-5000000整数',
+                            dynamic: '2-4条',
+                            likedKeywords: '3-6个关键词',
+                            playlists: '2-3个歌单，每个歌单2-4个关键词'
+                        }
+                    })
+                }
+            ]
+        };
+        try {
+            const response = await fetch(fetchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${settings.key}`
+                },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error('HTTP_' + response.status);
+            const data = await response.json();
+            const content = String(
+                (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content)
+                || ''
+            );
+            const parsed = musicV2ExtractFirstJsonObject(content);
+            if (!parsed) return fallback;
+            return {
+                following: musicV2ClampProfileMetric(parsed.following, 50, 3000, fallback.following),
+                followers: musicV2ClampProfileMetric(parsed.followers, 1000, 800000, fallback.followers),
+                likes: musicV2ClampProfileMetric(parsed.likes, 5000, 5000000, fallback.likes),
+                signature: String(parsed.signature || fallback.signature || '').trim().slice(0, 88) || fallback.signature,
+                dynamic: musicV2NormalizeKeywordList(parsed.dynamic, fallback.dynamic, MUSIC_V2_FRIEND_HOME_API_MAX_DYNAMIC),
+                likedKeywords: musicV2NormalizeKeywordList(parsed.likedKeywords, fallback.likedKeywords, 8),
+                playlists: (Array.isArray(parsed.playlists) ? parsed.playlists : fallback.playlists).map((item, index) => {
+                    const title = String(item && item.title || fallback.playlists[index % fallback.playlists.length].title || `歌单${index + 1}`).trim().slice(0, 24) || `歌单${index + 1}`;
+                    const fallbackKeywords = fallback.playlists[index % fallback.playlists.length].keywords || fallback.likedKeywords;
+                    const keywords = musicV2NormalizeKeywordList(item && item.keywords, fallbackKeywords, 6);
+                    return { title, keywords };
+                }).slice(0, MUSIC_V2_FRIEND_HOME_API_MAX_PLAYLISTS)
+            };
+        } catch (error) {
+            console.warn('[music-v2] friend-home api blueprint failed', error);
+            return fallback;
+        }
+    }
+
+    async function musicV2CollectSongIdsByKeywords(keywords, maxCount, sharedUsedSet) {
+        const limit = Math.max(1, Math.floor(Number(maxCount) || 1));
+        const out = [];
+        const used = sharedUsedSet instanceof Set ? sharedUsedSet : new Set();
+        const list = musicV2NormalizeKeywordList(keywords, ['华语流行'], 12);
+        for (let i = 0; i < list.length && out.length < limit; i++) {
+            const kw = list[i];
+            let results = [];
+            try {
+                results = await musicV2SearchWithFallback(kw);
+            } catch (error) {
+                results = [];
+            }
+            if (!Array.isArray(results) || !results.length) continue;
+            for (let j = 0; j < results.length && out.length < limit; j++) {
+                const candidate = results[j];
+                if (!candidate || !candidate.id) continue;
+                const saved = musicV2UpsertSong({
+                    id: String(candidate.id),
+                    title: String(candidate.title || '未命名歌曲'),
+                    artist: String(candidate.artist || '未知歌手'),
+                    cover: String(candidate.cover || ''),
+                    src: '',
+                    provider: 'friend-home-api'
+                });
+                const sid = String(saved && saved.id || candidate.id);
+                if (!sid || used.has(sid)) continue;
+                used.add(sid);
+                out.push(sid);
+            }
+        }
+        return out;
+    }
+
+    async function musicV2HydrateFriendHomeProfileFromApi(contactId, options) {
+        const cid = String(contactId || '').trim();
+        if (!cid) return null;
+        const opts = options && typeof options === 'object' ? options : {};
+        const music = musicV2EnsureModel();
+        musicV2EnsureFriendHomeProfiles(music);
+        const storedProfile = music.friendHomeProfiles[cid];
+        const contact = musicV2GetContactById(cid);
+        if (!storedProfile || !contact) return storedProfile || null;
+
+        const now = Date.now();
+        const lastGeneratedAt = Number(storedProfile.apiGeneratedAt || 0);
+        if (!opts.force && lastGeneratedAt > 0 && (now - lastGeneratedAt) < MUSIC_V2_FRIEND_HOME_API_REFRESH_MS) {
+            return storedProfile;
+        }
+        if (musicV2Runtime.friendHomeApiLoadingMap[cid]) return storedProfile;
+        musicV2Runtime.friendHomeApiLoadingMap[cid] = true;
+
+        try {
+            const seed = musicV2BuildFriendHomeSeed(contact);
+            const blueprint = await musicV2FetchFriendHomeApiBlueprint(contact, seed);
+            const usedSongIds = new Set();
+            const likedSongIds = await musicV2CollectSongIdsByKeywords(
+                blueprint.likedKeywords,
+                MUSIC_V2_FRIEND_HOME_API_MAX_LIKED_SONGS,
+                usedSongIds
+            );
+            const customPlaylists = [];
+            const playlistBlueprints = Array.isArray(blueprint.playlists) ? blueprint.playlists : [];
+            for (let i = 0; i < playlistBlueprints.length && customPlaylists.length < MUSIC_V2_FRIEND_HOME_API_MAX_PLAYLISTS; i++) {
+                const item = playlistBlueprints[i] || {};
+                const songs = await musicV2CollectSongIdsByKeywords(
+                    item.keywords,
+                    MUSIC_V2_FRIEND_HOME_API_MAX_PLAYLIST_SONGS,
+                    usedSongIds
+                );
+                if (!songs.length) continue;
+                customPlaylists.push({
+                    id: String(item.id || musicV2MakeId('fh_pl')),
+                    title: String(item.title || `歌单${i + 1}`).trim().slice(0, 24) || `歌单${i + 1}`,
+                    songs: songs,
+                    createdAt: Number(item.createdAt || now),
+                    updatedAt: now
+                });
+            }
+            if (!customPlaylists.length) {
+                const fallbackPlaylists = musicV2BuildFriendHomePlaylists(music, seed);
+                fallbackPlaylists.forEach(item => customPlaylists.push(item));
+            }
+
+            storedProfile.following = musicV2ClampProfileMetric(blueprint.following, 50, 3000, storedProfile.following || (90 + (seed % 260)));
+            storedProfile.followers = musicV2ClampProfileMetric(blueprint.followers, 1000, 800000, storedProfile.followers || (3000 + (seed % 30000)));
+            storedProfile.likes = musicV2ClampProfileMetric(blueprint.likes, 5000, 5000000, storedProfile.likes || (10000 + (seed % 90000)));
+            storedProfile.signature = String(blueprint.signature || storedProfile.signature || musicV2ExtractFriendHomeSignature(contact)).slice(0, 88);
+            storedProfile.dynamic = musicV2NormalizeKeywordList(blueprint.dynamic, storedProfile.dynamic || [`${musicV2GetContactDisplayName(contact)} 正在练习下一首翻唱。`], MUSIC_V2_FRIEND_HOME_API_MAX_DYNAMIC);
+            storedProfile.likesSongIds = likedSongIds.length
+                ? likedSongIds
+                : musicV2UniqueValidSongIds(storedProfile.likesSongIds, new Set((music.songs || []).map(item => String(item && item.id || ''))));
+            storedProfile.customPlaylists = customPlaylists;
+            storedProfile.apiGeneratedAt = now;
+            storedProfile.apiSource = 'remote';
+            storedProfile.updatedAt = now;
+            music.friendHomeProfiles[cid] = storedProfile;
+            musicV2Persist();
+
+            if (String(musicV2Runtime.friendHomeContactId || '') === cid) {
+                musicV2Runtime.friendHomeData = storedProfile;
+                musicV2RenderFriendHomeProfile(storedProfile);
+            }
+            console.info('[music-v2] friend-home profile hydrated by api', {
+                contactId: cid,
+                likesSongCount: Array.isArray(storedProfile.likesSongIds) ? storedProfile.likesSongIds.length : 0,
+                customPlaylistCount: Array.isArray(storedProfile.customPlaylists) ? storedProfile.customPlaylists.length : 0
+            });
+            return storedProfile;
+        } finally {
+            delete musicV2Runtime.friendHomeApiLoadingMap[cid];
+        }
+    }
+
+    function musicV2NormalizeFriendHomeWork(work, fallbackArtist) {
+        const src = work && typeof work === 'object' ? work : {};
+        const playCount = Math.max(0, Math.floor(Number(src.playCount || src.plays || 0) || 0));
+        const durationSecRaw = Number(src.durationSec || src.audioDurationSec || src.duration || 0);
+        const durationSec = Number.isFinite(durationSecRaw) && durationSecRaw > 0 ? durationSecRaw : 0;
+        const fullLyrics = String(src.lyrics || src.fullLyrics || '').trim();
+        const lyricsData = musicV2NormalizeLyricsData(src.lyricsData, fullLyrics, durationSec);
+        const lyricSnippet = String(src.lyricSnippet || '').trim() || musicV2BuildLyricSnippetFromText(fullLyrics);
+        return {
+            id: String(src.id || musicV2MakeId('fh_work')),
+            title: String(src.title || src.songTitle || '未命名作品'),
+            artist: String(src.artist || src.author || fallbackArtist || '联系人'),
+            cover: String(src.cover || src.songCover || MUSIC_V2_DEFAULT_COVER),
+            audio: String(src.audio || src.src || ''),
+            mode: String(src.mode || 'cover'),
+            playCount: playCount,
+            grade: String(src.grade || (playCount > 5000 ? 'SS' : 'S')),
+            createdAt: Number(src.createdAt || Date.now()) || Date.now(),
+            sourceSongId: String(src.sourceSongId || ''),
+            sourceAudioUrl: String(src.sourceAudioUrl || ''),
+            songId: String(src.songId || src.musicSongId || ''),
+            durationSec: durationSec,
+            lyrics: fullLyrics,
+            lyricsData: lyricsData,
+            lyricSnippet: lyricSnippet
+        };
+    }
+
+    function musicV2EnsureFriendHomeProfiles(music) {
+        if (!music || typeof music !== 'object') return;
+        if (!music.friendHomeProfiles || typeof music.friendHomeProfiles !== 'object' || Array.isArray(music.friendHomeProfiles)) {
+            music.friendHomeProfiles = {};
+        }
+        const contacts = Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts) ? window.iphoneSimState.contacts : [];
+        const validContactMap = {};
+        contacts.forEach((contact) => {
+            const cid = String(contact && contact.id || '').trim();
+            if (cid) validContactMap[cid] = contact;
+        });
+        Object.keys(music.friendHomeProfiles).forEach((cid) => {
+            if (!validContactMap[cid]) {
+                delete music.friendHomeProfiles[cid];
+                return;
+            }
+            const contact = validContactMap[cid];
+            const profile = music.friendHomeProfiles[cid] || {};
+            const seed = musicV2BuildFriendHomeSeed(contact);
+            const likes = Array.isArray(music.playlists)
+                ? (music.playlists.find(pl => String(pl && pl.id) === MUSIC_V2_SYSTEM_PLAYLIST_ID_LIKED) || null)
+                : null;
+            const validSongIds = new Set((music.songs || []).map(item => String(item && item.id || '')));
+            const likesSongIds = musicV2UniqueValidSongIds(Array.isArray(profile.likesSongIds) ? profile.likesSongIds : (likes && likes.songs ? likes.songs : []), validSongIds);
+            const customPlaylists = Array.isArray(profile.customPlaylists) && profile.customPlaylists.length
+                ? profile.customPlaylists.map((item) => {
+                    const songs = musicV2UniqueValidSongIds(item && item.songs, validSongIds);
+                    if (!songs.length) return null;
+                    return {
+                        id: String(item.id || musicV2MakeId('fh_pl')),
+                        title: String(item.title || '自建歌单'),
+                        songs: songs,
+                        createdAt: Number(item.createdAt || Date.now()),
+                        updatedAt: Number(item.updatedAt || Date.now())
+                    };
+                }).filter(Boolean)
+                : musicV2BuildFriendHomePlaylists(music, seed);
+            const name = musicV2GetContactDisplayName(contact);
+            const works = Array.isArray(profile.works)
+                ? profile.works.map(item => musicV2NormalizeFriendHomeWork(item, name)).slice(0, 36)
+                : [];
+            music.friendHomeProfiles[cid] = {
+                contactId: cid,
+                scene: MUSIC_V2_FRIEND_HOME_SCENE,
+                following: Math.max(0, Math.floor(Number(profile.following || (90 + (seed % 260))) || 0)),
+                followers: Math.max(0, Math.floor(Number(profile.followers || (3000 + (seed % 30000))) || 0)),
+                likes: Math.max(0, Math.floor(Number(profile.likes || (10000 + (seed % 90000))) || 0)),
+                signature: String(profile.signature || musicV2ExtractFriendHomeSignature(contact)),
+                likesSongIds: likesSongIds,
+                customPlaylists: customPlaylists,
+                dynamic: Array.isArray(profile.dynamic) && profile.dynamic.length
+                    ? profile.dynamic.map(item => String(item || '').trim()).filter(Boolean).slice(0, 24)
+                    : [`${name} 正在练习下一首翻唱。`, '欢迎点歌催更。'],
+                works: works,
+                apiGeneratedAt: Number(profile.apiGeneratedAt || 0) || 0,
+                apiSource: String(profile.apiSource || ''),
+                createdAt: Number(profile.createdAt || Date.now()),
+                updatedAt: Number(profile.updatedAt || Date.now())
+            };
+        });
+    }
+
+    function musicV2GetFriendHomeProfile(contactId) {
+        const cid = String(contactId || '').trim();
+        if (!cid) return null;
+        const contact = musicV2GetContactById(cid);
+        if (!contact) return null;
+        const music = musicV2EnsureModel();
+        musicV2EnsureFriendHomeProfiles(music);
+        if (!music.friendHomeProfiles[cid]) {
+            const seed = musicV2BuildFriendHomeSeed(contact);
+            const likes = musicV2GetPlaylist(MUSIC_V2_SYSTEM_PLAYLIST_ID_LIKED);
+            const likesSongIds = likes && Array.isArray(likes.songs) ? likes.songs.slice(0, 24) : [];
+            music.friendHomeProfiles[cid] = {
+                contactId: cid,
+                scene: MUSIC_V2_FRIEND_HOME_SCENE,
+                following: 90 + (seed % 260),
+                followers: 3000 + (seed % 30000),
+                likes: 10000 + (seed % 90000),
+                signature: musicV2ExtractFriendHomeSignature(contact),
+                likesSongIds: likesSongIds,
+                customPlaylists: musicV2BuildFriendHomePlaylists(music, seed),
+                dynamic: [`${musicV2GetContactDisplayName(contact)} 正在练习下一首翻唱。`, '欢迎点歌催更。'],
+                works: [],
+                apiGeneratedAt: 0,
+                apiSource: '',
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            };
+            musicV2Persist();
+        }
+        return music.friendHomeProfiles[cid];
+    }
+
+    function musicV2PersistFriendHomeProfile(profileArg) {
+        const profile = profileArg && typeof profileArg === 'object'
+            ? profileArg
+            : musicV2Runtime.friendHomeData;
+        if (!profile) return;
+        profile.updatedAt = Date.now();
+        musicV2Persist();
+    }
+
+    function musicV2ResolveSongListByIds(songIds) {
+        const arr = Array.isArray(songIds) ? songIds : [];
+        const out = [];
+        arr.forEach((sid) => {
+            const song = musicV2GetSong(sid);
+            if (!song) return;
+            out.push(song);
+        });
+        return out;
+    }
+
+    function musicV2BuildFriendHomePlaylistBuckets(profile) {
+        const buckets = [];
+        if (!profile || typeof profile !== 'object') return buckets;
+
+        const likedSongIds = musicV2UniqueValidSongIds(profile.likesSongIds, null);
+        buckets.push({
+            id: 'fh_pl_liked_' + String(profile.contactId || ''),
+            title: '喜欢的歌曲',
+            songIds: likedSongIds,
+            playbackPlaylistId: MUSIC_V2_SYSTEM_PLAYLIST_ID_LIKED
+        });
+
+        const customPlaylists = Array.isArray(profile.customPlaylists) ? profile.customPlaylists : [];
+        customPlaylists.forEach((playlist, index) => {
+            const title = String(playlist && playlist.title || ('自建歌单 ' + (index + 1))).trim();
+            const songIds = musicV2UniqueValidSongIds(playlist && playlist.songs, null);
+            buckets.push({
+                id: String(playlist && playlist.id || musicV2MakeId('fh_pl')),
+                title: title || ('自建歌单 ' + (index + 1)),
+                songIds: songIds,
+                playbackPlaylistId: MUSIC_V2_SYSTEM_PLAYLIST_ID_ALL
+            });
+        });
+
+        return buckets;
+    }
+
+    function musicV2OpenFriendHomePlaylistPage(bucketId) {
+        const bid = String(bucketId || '').trim();
+        const profile = musicV2Runtime.friendHomeData;
+        if (!bid || !profile) return;
+        const bucket = musicV2BuildFriendHomePlaylistBuckets(profile).find(item => String(item && item.id || '') === bid);
+        if (!bucket) {
+            musicV2Toast('歌单不存在');
+            return;
+        }
+        const songs = musicV2ResolveSongListByIds(bucket.songIds);
+        musicV2Runtime.friendHomePlaylistPageData = {
+            id: bid,
+            title: String(bucket.title || '歌单'),
+            songIds: Array.isArray(bucket.songIds) ? bucket.songIds.slice() : [],
+            cover: String((songs[0] && songs[0].cover) || MUSIC_V2_DEFAULT_COVER),
+            playbackPlaylistId: String(bucket.playbackPlaylistId || MUSIC_V2_SYSTEM_PLAYLIST_ID_ALL)
+        };
+        console.info('[music-v2] open friend-home playlist page', {
+            bucketId: bid,
+            title: musicV2Runtime.friendHomePlaylistPageData.title,
+            songCount: musicV2Runtime.friendHomePlaylistPageData.songIds.length
+        });
+        musicV2ExitPlaylistSelectionMode();
+        musicV2RenderPlaylistPage();
+        window.musicV2OpenPage('page-playlist');
+    }
+
+    function musicV2StopFriendHomeAudio() {
+        if (musicV2Runtime.friendHomeAudio && typeof musicV2Runtime.friendHomeAudio.pause === 'function') {
+            try { musicV2Runtime.friendHomeAudio.pause(); } catch (error) {}
+        }
+        musicV2Runtime.friendHomeAudio = null;
+    }
+
+    function musicV2ResetFriendHomePlayState() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        musicV2StopFriendHomeAudio();
+        musicV2Runtime.friendHomePlaying = false;
+        const record = root.querySelector('#music-v2-fh-record');
+        const icon = root.querySelector('#music-v2-fh-play-icon');
+        if (record) record.classList.remove('playing');
+        if (icon) {
+            icon.classList.remove('ri-pause-fill');
+            icon.classList.add('ri-play-fill');
+        }
+    }
+
+    function musicV2RenderFriendHomeTabs() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const tabNodes = root.querySelectorAll('.music-v2-fh-tab');
+        tabNodes.forEach((tabNode) => {
+            const tab = String(tabNode.getAttribute('data-tab') || '').toLowerCase();
+            if (tab === musicV2Runtime.friendHomeActiveTab) tabNode.classList.add('active');
+            else tabNode.classList.remove('active');
+        });
+    }
+
+    function musicV2RenderFriendHomeMainList() {
+        const root = musicV2Runtime.root;
+        const profile = musicV2Runtime.friendHomeData;
+        if (!root || !profile) return;
+        const list = root.querySelector('#music-v2-fh-main-list');
+        if (!list) return;
+        const tab = String(musicV2Runtime.friendHomeActiveTab || 'works');
+
+        if (tab === 'dynamic') {
+            const rows = Array.isArray(profile.dynamic) ? profile.dynamic : [];
+            list.innerHTML = rows.length
+                ? rows.map(item => '<div class="music-v2-fh-dynamic-item">' + musicV2EscapeHtml(item) + '</div>').join('')
+                : '<div class="music-v2-fh-empty">TA 还没有发布动态</div>';
+            return;
+        }
+
+        if (tab === 'likes') {
+            const playlistBuckets = musicV2BuildFriendHomePlaylistBuckets(profile);
+            const playlistRows = playlistBuckets.map((bucket) => {
+                const bid = String(bucket && bucket.id || '');
+                const songs = musicV2ResolveSongListByIds(bucket.songIds);
+                const cover = songs[0] && songs[0].cover ? songs[0].cover : MUSIC_V2_DEFAULT_COVER;
+                return (
+                    '<div class="music-v2-fh-playlist-group">' +
+                        '<button class="music-v2-fh-playlist-card clickable" data-musicv2-action="open-friend-home-playlist" data-playlist-id="' + musicV2EscapeHtml(bid) + '">' +
+                            '<img class="music-v2-fh-playlist-cover" src="' + musicV2EscapeHtml(cover) + '">' +
+                            '<span class="music-v2-fh-playlist-main">' +
+                                '<strong>' + musicV2EscapeHtml(bucket.title || '歌单') + '</strong>' +
+                                '<small>' + musicV2EscapeHtml(String(songs.length)) + ' 首歌曲</small>' +
+                            '</span>' +
+                            '<i class="ri-arrow-right-s-line"></i>' +
+                        '</button>' +
+                    '</div>'
+                );
+            }).join('');
+            list.innerHTML = playlistRows || '<div class="music-v2-fh-empty">暂无可展示歌单</div>';
+            return;
+        }
+
+        const works = Array.isArray(profile.works) ? profile.works : [];
+        list.innerHTML = works.length
+            ? works.map((work) => (
+                '<button class="music-v2-fh-work-item clickable" data-musicv2-action="open-friend-home-work" data-work-id="' + musicV2EscapeHtml(work.id) + '">' +
+                    '<div class="music-v2-fh-work-cover"><img src="' + musicV2EscapeHtml(work.cover || MUSIC_V2_DEFAULT_COVER) + '"></div>' +
+                    '<div class="music-v2-fh-work-info">' +
+                        '<div class="music-v2-fh-work-title">' + musicV2EscapeHtml(work.title || 'Untitled') + '</div>' +
+                        '<div class="music-v2-fh-work-meta">' +
+                            '<span>' + musicV2EscapeHtml(musicV2FormatFriendHomeDate(work.createdAt)) + '</span><span>·</span><span><i class="ri-play-fill"></i> ' + musicV2EscapeHtml(musicV2FormatFriendHomeMetric(work.playCount || 0)) + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="music-v2-fh-grade">' + musicV2EscapeHtml(work.grade || 'S') + '</div>' +
+                '</button>'
+            )).join('')
+            : '<div class="music-v2-fh-empty">还没有作品，点击右上角「催更」试试</div>';
+    }
+
+    function musicV2RenderFriendHomeProfile(profile) {
+        const root = musicV2Runtime.root;
+        if (!root || !profile) return;
+        const contact = musicV2GetContactById(profile.contactId);
+        const name = root.querySelector('#music-v2-fh-name');
+        const uid = root.querySelector('#music-v2-fh-uid');
+        const avatar = root.querySelector('#music-v2-fh-avatar');
+        const following = root.querySelector('#music-v2-fh-following');
+        const followers = root.querySelector('#music-v2-fh-followers');
+        const likes = root.querySelector('#music-v2-fh-likes');
+        const bio = root.querySelector('#music-v2-fh-bio');
+        const scene = root.querySelector('#music-v2-fh-scene');
+        if (name) name.textContent = musicV2GetContactDisplayName(contact);
+        if (uid) uid.textContent = String(contact && contact.wechatId || ('ID: ' + String(profile.contactId || '').replace(/\D+/g, '').slice(-8)));
+        if (avatar) avatar.src = String(contact && contact.avatar || MUSIC_V2_DEFAULT_COVER);
+        if (following) following.textContent = musicV2FormatFriendHomeMetric(profile.following);
+        if (followers) followers.textContent = musicV2FormatFriendHomeMetric(profile.followers);
+        if (likes) likes.textContent = musicV2FormatFriendHomeMetric(profile.likes);
+        if (bio) bio.textContent = String(profile.signature || '');
+        if (scene) scene.textContent = '音乐软件个人主页';
+        musicV2RenderFriendHomeTabs();
+        musicV2RenderFriendHomeMainList();
+    }
+
+    function musicV2OpenFriendMusicHome(contactId) {
+        const cid = String(contactId || '').trim();
+        if (!cid) return;
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const mask = root.querySelector('#music-v2-friend-home-mask');
+        if (!mask) return;
+        const profile = musicV2GetFriendHomeProfile(cid);
+        if (!profile) {
+            musicV2Toast('联系人不可用');
+            return;
+        }
+        musicV2Runtime.friendHomeContactId = cid;
+        musicV2Runtime.friendHomeData = profile;
+        musicV2Runtime.friendHomeActiveWorkId = '';
+        musicV2Runtime.friendHomeActiveTab = 'works';
+        musicV2Runtime.friendHomeOpenPlaylistId = '';
+        musicV2Runtime.friendHomePlaylistPageData = null;
+        console.info('[music-v2] open friend home', {
+            contactId: cid,
+            worksCount: Array.isArray(profile.works) ? profile.works.length : 0
+        });
+        musicV2RenderFriendHomeProfile(profile);
+        musicV2ResetFriendHomePlayState();
+        const main = root.querySelector('#music-v2-friend-page-main');
+        const detail = root.querySelector('#music-v2-friend-page-detail');
+        if (main) {
+            main.classList.remove('music-v2-fh-page-left');
+            main.classList.add('music-v2-fh-page-active');
+        }
+        if (detail) {
+            detail.classList.remove('music-v2-fh-page-active');
+            detail.classList.add('music-v2-fh-page-right');
+        }
+        mask.classList.add('active');
+        const lastGeneratedAt = Number(profile.apiGeneratedAt || 0);
+        const shouldHydrateByApi = !lastGeneratedAt || (Date.now() - lastGeneratedAt) > MUSIC_V2_FRIEND_HOME_API_REFRESH_MS;
+        if (shouldHydrateByApi) {
+            musicV2Toast('正在通过 API 生成主页资料...');
+        }
+        musicV2HydrateFriendHomeProfileFromApi(cid).catch((error) => {
+            console.warn('[music-v2] hydrate friend home profile failed', error);
+        });
+    }
+
+    function musicV2CloseFriendMusicHome() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        if (musicV2Runtime.friendHomeGenerating) {
+            musicV2Toast('正在生成作品，请稍候');
+            return;
+        }
+        const mask = root.querySelector('#music-v2-friend-home-mask');
+        const requestMask = root.querySelector('#music-v2-fh-request-mask') || document.getElementById('music-v2-fh-request-mask');
+        const generateMask = root.querySelector('#music-v2-fh-generate-mask') || document.getElementById('music-v2-fh-generate-mask');
+        if (mask) mask.classList.remove('active');
+        if (requestMask) requestMask.classList.remove('active');
+        if (generateMask) generateMask.classList.remove('active');
+        musicV2Runtime.friendHomeContactId = '';
+        musicV2Runtime.friendHomeData = null;
+        musicV2Runtime.friendHomeActiveWorkId = '';
+        musicV2Runtime.friendHomeActiveTab = 'works';
+        musicV2Runtime.friendHomeOpenPlaylistId = '';
+        musicV2Runtime.friendHomePlaylistPageData = null;
+        musicV2Runtime.friendHomeRequesting = false;
+        musicV2Runtime.friendHomeGenerating = false;
+    }
+
+    function musicV2SetFriendHomeTab(tab) {
+        const normalized = String(tab || '').toLowerCase();
+        musicV2Runtime.friendHomeActiveTab = MUSIC_V2_FRIEND_HOME_TABS.includes(normalized) ? normalized : 'works';
+        if (musicV2Runtime.friendHomeActiveTab !== 'likes') {
+            musicV2Runtime.friendHomeOpenPlaylistId = '';
+        }
+        musicV2RenderFriendHomeTabs();
+        musicV2RenderFriendHomeMainList();
+    }
+
+    function musicV2GetActiveFriendHomeWork() {
+        const profile = musicV2Runtime.friendHomeData;
+        if (!profile || !Array.isArray(profile.works) || !profile.works.length) return null;
+        const workId = String(musicV2Runtime.friendHomeActiveWorkId || '');
+        if (!workId) return profile.works[0];
+        return profile.works.find(item => String(item && item.id) === workId) || profile.works[0];
+    }
+
+    function musicV2BuildFriendHomeWorkSongId(profile, work) {
+        const pid = String(profile && profile.contactId || '').trim();
+        const wid = String(work && work.id || '').trim();
+        if (!pid || !wid) return '';
+        return 'fhw_song_' + pid + '_' + wid;
+    }
+
+    function musicV2EnsureFriendHomeWorkSong(profile, work) {
+        if (!profile || !work) return null;
+        const sid = String(work.songId || musicV2BuildFriendHomeWorkSongId(profile, work) || '').trim();
+        if (!sid) return null;
+        work.songId = sid;
+        const workMode = String(work.mode || '').trim().toLowerCase();
+        const lyricsSourceTag = workMode === 'original'
+            ? 'friend-home-original'
+            : 'friend-home-cover';
+        const fallbackLyrics = (
+            String(work.lyrics || '').trim()
+            || String(work.lyricSnippet || '')
+                .split(/\s*\/\s*/)
+                .map(line => String(line || '').trim())
+                .filter(Boolean)
+                .join('\n')
+        );
+        let normalizedLyricsData = musicV2NormalizeLyricsData(work.lyricsData, fallbackLyrics, Number(work.durationSec) || 0);
+        if (!normalizedLyricsData.length) {
+            const sourceSid = String(work.sourceSongId || '').trim();
+            const sourceSong = sourceSid ? musicV2GetSong(sourceSid) : null;
+            if (sourceSong && Array.isArray(sourceSong.lyricsData) && sourceSong.lyricsData.length) {
+                normalizedLyricsData = sourceSong.lyricsData
+                    .map((item) => ({
+                        time: Number(item && item.time) || 0,
+                        text: String(item && item.text || '').trim()
+                    }))
+                    .filter((item) => !!item.text);
+            }
+        }
+        work.lyricsData = normalizedLyricsData;
+        const song = musicV2UpsertSong({
+            id: sid,
+            title: String(work.title || '未命名作品'),
+            artist: String(work.artist || musicV2GetContactDisplayName(musicV2GetContactById(profile.contactId))),
+            cover: String(work.cover || MUSIC_V2_DEFAULT_COVER),
+            src: String(work.audio || ''),
+            provider: 'friend-home-work',
+            lyricsData: normalizedLyricsData,
+            lyricsFile: 'friend-home:' + String(work.id || sid),
+            lyricsSource: lyricsSourceTag,
+            lyricsUpdatedAt: Date.now()
+        });
+        return song;
+    }
+
+    function musicV2BuildFriendHomeWorksQueueContext(contactId, songIds) {
+        const cid = String(contactId || '').trim();
+        const ids = musicV2UniqueValidSongIds(songIds, null).filter((sid) => !!musicV2GetSong(sid));
+        if (!cid || !ids.length) {
+            musicV2Runtime.friendHomeWorksQueueContext = null;
+            return null;
+        }
+        const context = {
+            contactId: cid,
+            playlistId: 'fhw_queue_' + cid,
+            songIds: ids,
+            signature: 'fhw:' + cid + ':' + ids.join('|')
+        };
+        musicV2Runtime.friendHomeWorksQueueContext = context;
+        return context;
+    }
+
+    function musicV2RenderFriendHomeWorkDetail(work) {
+        const root = musicV2Runtime.root;
+        if (!root || !work) return;
+        const title = root.querySelector('#music-v2-fh-detail-title');
+        const author = root.querySelector('#music-v2-fh-detail-author');
+        const lyric = root.querySelector('#music-v2-fh-detail-lyric');
+        const recordImg = root.querySelector('#music-v2-fh-record-img');
+        if (title) title.textContent = String(work.title || 'Untitled');
+        if (author) author.textContent = String(work.artist || '联系人');
+        if (lyric) lyric.textContent = String(work.lyricSnippet || '轻触播放，听听这段翻唱。');
+        if (recordImg) recordImg.src = String(work.cover || MUSIC_V2_DEFAULT_COVER);
+    }
+
+    async function musicV2OpenFriendHomeWork(workId) {
+        const root = musicV2Runtime.root;
+        const profile = musicV2Runtime.friendHomeData;
+        if (!root || !profile || !Array.isArray(profile.works) || !profile.works.length) return;
+        const selected = profile.works.find(item => String(item && item.id) === String(workId || '')) || profile.works[0];
+        if (!selected) return;
+        const workSongs = [];
+        const works = Array.isArray(profile.works) ? profile.works : [];
+        for (let i = 0; i < works.length; i++) {
+            const song = musicV2EnsureFriendHomeWorkSong(profile, works[i]);
+            if (song && song.id) workSongs.push(String(song.id));
+        }
+        const selectedSong = musicV2EnsureFriendHomeWorkSong(profile, selected);
+        if (!selectedSong || !String(selectedSong.src || '').trim()) {
+            musicV2Toast('该作品还没有可播放音频');
+            return;
+        }
+        musicV2Runtime.friendHomeActiveWorkId = String(selected.id || '');
+        musicV2BuildFriendHomeWorksQueueContext(profile.contactId, workSongs);
+        musicV2PersistFriendHomeProfile(profile);
+
+        await musicV2PlaySong(selectedSong.id, '');
+        const mask = root.querySelector('#music-v2-friend-home-mask');
+        const requestMask = root.querySelector('#music-v2-fh-request-mask') || document.getElementById('music-v2-fh-request-mask');
+        const generateMask = root.querySelector('#music-v2-fh-generate-mask') || document.getElementById('music-v2-fh-generate-mask');
+        if (mask) mask.classList.remove('active');
+        if (requestMask) requestMask.classList.remove('active');
+        if (generateMask) generateMask.classList.remove('active');
+        window.musicV2ToggleSongView('solo');
+        musicV2Runtime.lyricsMode = 'lyrics';
+        musicV2ApplyLyricsMode();
+        const songForLyrics = musicV2GetSong(selectedSong.id) || selectedSong;
+        musicV2RenderLyrics(songForLyrics).catch(() => {});
+        const audio = document.getElementById('bg-music');
+        musicV2SyncLyrics(audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+    }
+
+    function musicV2CloseFriendHomeDetail() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const main = root.querySelector('#music-v2-friend-page-main');
+        const detail = root.querySelector('#music-v2-friend-page-detail');
+        if (detail) {
+            detail.classList.remove('music-v2-fh-page-active');
+            detail.classList.add('music-v2-fh-page-right');
+        }
+        if (main) {
+            main.classList.remove('music-v2-fh-page-left');
+            main.classList.add('music-v2-fh-page-active');
+        }
+    }
+
+    async function musicV2ToggleFriendHomePlay() {
+        const root = musicV2Runtime.root;
+        const work = musicV2GetActiveFriendHomeWork();
+        if (!root || !work) return;
+        const record = root.querySelector('#music-v2-fh-record');
+        const icon = root.querySelector('#music-v2-fh-play-icon');
+        if (!record || !icon) return;
+
+        if (musicV2Runtime.friendHomePlaying) {
+            musicV2StopFriendHomeAudio();
+            musicV2Runtime.friendHomePlaying = false;
+            record.classList.remove('playing');
+            icon.classList.remove('ri-pause-fill');
+            icon.classList.add('ri-play-fill');
+            return;
+        }
+
+        let src = String(work.audio || '').trim();
+        if (!src) {
+            musicV2Toast('该作品还没有可播放音频');
+            return;
+        }
+        if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(src) && typeof window.resolveChatMediaSrc === 'function') {
+            src = await window.resolveChatMediaSrc(src);
+        }
+        if (!src) {
+            musicV2Toast('音频资源不可用');
+            return;
+        }
+
+        const audio = new Audio(src);
+        audio.addEventListener('ended', () => {
+            musicV2Runtime.friendHomePlaying = false;
+            record.classList.remove('playing');
+            icon.classList.remove('ri-pause-fill');
+            icon.classList.add('ri-play-fill');
+            musicV2StopFriendHomeAudio();
+        });
+        try {
+            await audio.play();
+            musicV2StopFriendHomeAudio();
+            musicV2Runtime.friendHomeAudio = audio;
+            musicV2Runtime.friendHomePlaying = true;
+            record.classList.add('playing');
+            icon.classList.remove('ri-play-fill');
+            icon.classList.add('ri-pause-fill');
+            work.playCount = Math.max(0, Math.floor(Number(work.playCount || 0))) + 1;
+            musicV2PersistFriendHomeProfile();
+        } catch (error) {
+            musicV2Toast('播放失败，请稍后重试');
+        }
+    }
+
+    function musicV2NormalizeFriendHomeRequestMode(rawMode) {
+        const mode = String(rawMode || '').trim().toLowerCase();
+        if (mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL) return MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL;
+        return MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER;
+    }
+
+    function musicV2GetFriendHomeRequestModeMeta(mode) {
+        const normalized = musicV2NormalizeFriendHomeRequestMode(mode);
+        if (normalized === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL) {
+            return {
+                mode: normalized,
+                inputLabel: '主题或关键词（可选）',
+                inputPlaceholder: '例如：夏夜、错过、海边日落',
+                submitText: '生成原创作品',
+                loadingTitle: '原创生成中',
+                loadingStatus: '正在生成原创作品，请稍候...'
+            };
+        }
+        return {
+            mode: MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER,
+            inputLabel: '歌名或链接（留空则默认当前播放）',
+            inputPlaceholder: '例如：红 / 网易云链接',
+            submitText: '生成翻唱作品',
+            loadingTitle: '翻唱生成中',
+            loadingStatus: '正在生成翻唱作品，请稍候...'
+        };
+    }
+
+    function musicV2RenderFriendHomeRequestModeUi() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        const mode = musicV2NormalizeFriendHomeRequestMode(musicV2Runtime.friendHomeRequestMode);
+        const meta = musicV2GetFriendHomeRequestModeMeta(mode);
+        const coverBtn = root.querySelector('#music-v2-fh-request-mode-cover') || document.getElementById('music-v2-fh-request-mode-cover');
+        const originalBtn = root.querySelector('#music-v2-fh-request-mode-original') || document.getElementById('music-v2-fh-request-mode-original');
+        const inputLabel = root.querySelector('#music-v2-fh-request-input-label') || document.getElementById('music-v2-fh-request-input-label');
+        const input = root.querySelector('#music-v2-fh-request-input') || document.getElementById('music-v2-fh-request-input');
+        const submit = root.querySelector('#music-v2-fh-request-submit') || document.getElementById('music-v2-fh-request-submit');
+        if (coverBtn) {
+            coverBtn.classList.toggle('active', mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER);
+            coverBtn.setAttribute('aria-pressed', mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER ? 'true' : 'false');
+        }
+        if (originalBtn) {
+            originalBtn.classList.toggle('active', mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL);
+            originalBtn.setAttribute('aria-pressed', mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL ? 'true' : 'false');
+        }
+        if (inputLabel) inputLabel.textContent = meta.inputLabel;
+        if (input && !musicV2Runtime.friendHomeGenerating) input.placeholder = meta.inputPlaceholder;
+        if (submit && !musicV2Runtime.friendHomeGenerating) submit.textContent = meta.submitText;
+    }
+
+    function musicV2SetFriendHomeRequestMode(mode) {
+        musicV2Runtime.friendHomeRequestMode = musicV2NormalizeFriendHomeRequestMode(mode);
+        musicV2RenderFriendHomeRequestModeUi();
+    }
+
+    function musicV2OpenFriendHomeRequestPanel() {
+        const root = musicV2Runtime.root;
+        if (!root) {
+            console.warn('[music-v2] open request panel failed: root missing');
+            return;
+        }
+        if (!musicV2Runtime.friendHomeContactId && musicV2Runtime.friendHomeData && musicV2Runtime.friendHomeData.contactId) {
+            musicV2Runtime.friendHomeContactId = String(musicV2Runtime.friendHomeData.contactId || '').trim();
+        }
+        if (!musicV2Runtime.friendHomeContactId) {
+            console.warn('[music-v2] open request panel failed: contactId missing');
+            musicV2Toast('请先进入联系人主页');
+            return;
+        }
+        let mask = root.querySelector('#music-v2-fh-request-mask') || document.getElementById('music-v2-fh-request-mask');
+        if (!mask) {
+            musicV2EnsureFeatureNodes(root);
+            mask = root.querySelector('#music-v2-fh-request-mask') || document.getElementById('music-v2-fh-request-mask');
+        }
+        const input = root.querySelector('#music-v2-fh-request-input') || document.getElementById('music-v2-fh-request-input');
+        const submit = root.querySelector('#music-v2-fh-request-submit') || document.getElementById('music-v2-fh-request-submit');
+        musicV2Runtime.friendHomeRequesting = false;
+        musicV2SetFriendHomeRequestMode(MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER);
+        musicV2SetFriendHomeGenerateLoading(false);
+        if (input) input.value = '';
+        if (submit) submit.disabled = false;
+        musicV2RenderFriendHomeRequestModeUi();
+        if (mask) {
+            mask.classList.add('active');
+            console.info('[music-v2] request panel opened', {
+                contactId: String(musicV2Runtime.friendHomeContactId || ''),
+                hasInput: !!input,
+                hasSubmit: !!submit
+            });
+        } else {
+            console.warn('[music-v2] open request panel failed: request mask missing');
+            musicV2Toast('催更面板未加载，请重试');
+        }
+    }
+
+    function musicV2CloseFriendHomeRequestPanel() {
+        const root = musicV2Runtime.root;
+        if (!root) return;
+        if (musicV2Runtime.friendHomeGenerating) {
+            musicV2Toast('正在生成作品，请稍候');
+            return;
+        }
+        const mask = root.querySelector('#music-v2-fh-request-mask') || document.getElementById('music-v2-fh-request-mask');
+        if (mask) mask.classList.remove('active');
+        musicV2Runtime.friendHomeRequesting = false;
+    }
+
+    function musicV2SetFriendHomeGenerateLoading(loading, statusText) {
+        const root = musicV2Runtime.root;
+        const isLoading = !!loading;
+        const status = String(statusText || '').trim();
+        musicV2Runtime.friendHomeGenerating = isLoading;
+        if (!root) return;
+        const mask = root.querySelector('#music-v2-fh-generate-mask') || document.getElementById('music-v2-fh-generate-mask');
+        const titleNode = root.querySelector('#music-v2-fh-generate-title') || document.getElementById('music-v2-fh-generate-title');
+        const statusNode = root.querySelector('#music-v2-fh-generate-status') || document.getElementById('music-v2-fh-generate-status');
+        const input = root.querySelector('#music-v2-fh-request-input') || document.getElementById('music-v2-fh-request-input');
+        const submit = root.querySelector('#music-v2-fh-request-submit') || document.getElementById('music-v2-fh-request-submit');
+        const coverBtn = root.querySelector('#music-v2-fh-request-mode-cover') || document.getElementById('music-v2-fh-request-mode-cover');
+        const originalBtn = root.querySelector('#music-v2-fh-request-mode-original') || document.getElementById('music-v2-fh-request-mode-original');
+        const modeMeta = musicV2GetFriendHomeRequestModeMeta(musicV2Runtime.friendHomeRequestMode);
+        if (input) input.disabled = isLoading;
+        if (coverBtn) coverBtn.disabled = isLoading;
+        if (originalBtn) originalBtn.disabled = isLoading;
+        if (submit) {
+            submit.disabled = isLoading;
+            submit.textContent = isLoading ? '生成中...' : modeMeta.submitText;
+        }
+        if (titleNode) titleNode.textContent = modeMeta.loadingTitle;
+        if (statusNode) {
+            statusNode.textContent = status || modeMeta.loadingStatus;
+        }
+        if (mask) {
+            if (isLoading) mask.classList.add('active');
+            else mask.classList.remove('active');
+        }
+    }
+
+    async function musicV2ResolveFriendHomeRequestSong(input) {
+        const query = String(input || '').trim();
+        const currentSong = musicV2GetCurrentSong();
+        if (!query && currentSong) {
+            await musicV2ResolveSongSource(currentSong.id, false).catch(() => null);
+            return {
+                songId: String(currentSong.id || ''),
+                title: String(currentSong.title || '未命名歌曲'),
+                artist: String(currentSong.artist || '未知歌手'),
+                cover: String(currentSong.cover || MUSIC_V2_DEFAULT_COVER),
+                audioUrl: String(currentSong.src || ''),
+                lyricSnippet: ''
+            };
+        }
+
+        const idMatch = query.match(/(?:id=|song\/)(\d{5,})/i);
+        if (idMatch && idMatch[1]) {
+            const sid = String(idMatch[1]);
+            const detail = await musicV2FetchNeteaseSongDetail(sid).catch(() => null);
+            const mapped = musicV2UpsertSong({
+                id: sid,
+                title: String(detail && detail.title || '未命名歌曲'),
+                artist: String(detail && detail.artist || '未知歌手'),
+                cover: String(detail && detail.cover || ''),
+                src: ''
+            });
+            await musicV2ResolveSongSource(sid, false).catch(() => null);
+            const latest = musicV2GetSong(sid) || mapped;
+            return {
+                songId: sid,
+                title: String(latest && latest.title || '未命名歌曲'),
+                artist: String(latest && latest.artist || '未知歌手'),
+                cover: String(latest && latest.cover || MUSIC_V2_DEFAULT_COVER),
+                audioUrl: String(latest && latest.src || ''),
+                lyricSnippet: ''
+            };
+        }
+
+        const inviteSong = await musicV2BuildInviteSongFromKeyword(query, { persistToLibrary: true });
+        const sid = String(inviteSong && inviteSong.songId || '');
+        if (!sid) throw new Error('song_not_found');
+        await musicV2ResolveSongSource(sid, false).catch(() => null);
+        const song = musicV2GetSong(sid);
+        if (!song) throw new Error('song_not_found');
+        return {
+            songId: sid,
+            title: String(song.title || inviteSong.songTitle || '未命名歌曲'),
+            artist: String(song.artist || inviteSong.songArtist || '未知歌手'),
+            cover: String(song.cover || inviteSong.songCover || MUSIC_V2_DEFAULT_COVER),
+            audioUrl: String(song.src || ''),
+            lyricSnippet: ''
+        };
+    }
+
+    async function musicV2BuildFriendHomeWorkLyricsBundle(songInfo) {
+        const sid = String(songInfo && songInfo.songId || '').trim();
+        const textLines = [];
+        let lyricsData = [];
+        if (sid) {
+            try {
+                const lyric = await musicV2FetchLyrics(sid);
+                const items = Array.isArray(lyric && lyric.lines) ? lyric.lines : [];
+                lyricsData = items
+                    .map((item) => {
+                        const text = String(item && item.text || '').trim();
+                        const time = Number(item && item.time);
+                        if (!text) return null;
+                        return {
+                            time: Number.isFinite(time) && time >= 0 ? time : 0,
+                            text: text
+                        };
+                    })
+                    .filter(Boolean);
+                lyricsData
+                    .map(item => String(item && item.text || '').trim())
+                    .filter(Boolean)
+                    .forEach((line) => textLines.push(line));
+            } catch (error) {}
+        }
+        if (!textLines.length) {
+            textLines.push(`给你唱《${String(songInfo && songInfo.title || '这首歌')}》`);
+            textLines.push('你点歌我来唱');
+        }
+        const lyricsText = textLines.join('\n');
+        if (!lyricsData.length) {
+            lyricsData = musicV2BuildLyricsDataFromText(lyricsText, 0);
+        }
+        return {
+            lyrics: lyricsText,
+            lyricsData: lyricsData,
+            lyricSnippet: musicV2BuildLyricSnippetFromText(lyricsText)
+        };
+    }
+
+    function musicV2BuildOriginalFallbackLyrics(contact, themeText) {
+        const contactName = musicV2GetContactDisplayName(contact);
+        const theme = musicV2SanitizePromptText(themeText, 80);
+        const subject = theme || '想你的夜晚';
+        return [
+            '[Verse]',
+            `${contactName}把故事写进了风里`,
+            `你在${subject}里慢慢靠近`,
+            '心跳像未寄出的信',
+            '[Chorus]',
+            '让我把爱唱成你的名字',
+            '每一句都落在你眼睛',
+            '如果今晚月色正好',
+            '就把这一首送给你'
+        ].join('\n');
+    }
+
+    async function musicV2GenerateOriginalLyrics(contact, themeText) {
+        const genLyrics = window.musicV2GenerateMinimaxLyrics || window.generateMinimaxLyrics;
+        const prompt = musicV2BuildOriginalLyricsPrompt(contact, themeText);
+        if (typeof genLyrics !== 'function') {
+            return {
+                lyrics: musicV2BuildOriginalFallbackLyrics(contact, themeText),
+                songTitle: '',
+                styleTags: ''
+            };
+        }
+        const result = await genLyrics({
+            mode: 'write_full_song',
+            prompt: prompt
+        }, { suppressAlert: true });
+        const lyrics = musicV2SanitizePromptText(result && result.lyrics, 3500) || musicV2BuildOriginalFallbackLyrics(contact, themeText);
+        return {
+            lyrics: lyrics,
+            songTitle: musicV2SanitizePromptText(result && result.songTitle, 48),
+            styleTags: musicV2SanitizePromptText(result && result.styleTags, 120)
+        };
+    }
+
+    async function musicV2PersistFriendHomeAudioValue(audioValue, workId) {
+        const raw = String(audioValue || '').trim();
+        if (!raw) return '';
+        if (!/^data:audio\//i.test(raw)) return raw;
+        if (typeof window.saveChatMediaBlob !== 'function') return raw;
+        try {
+            const blob = await fetch(raw).then(resp => resp.blob());
+            const mediaRef = await window.saveChatMediaBlob(blob, {
+                type: blob.type || 'audio/mpeg',
+                name: `${workId || 'friend-home'}.mp3`
+            });
+            return String(mediaRef || '').trim() || raw;
+        } catch (error) {
+            return raw;
+        }
+    }
+
+    async function musicV2SubmitFriendHomeRequest() {
+        const root = musicV2Runtime.root;
+        const profile = musicV2Runtime.friendHomeData;
+        if (!root || !profile) return;
+        if (musicV2Runtime.friendHomeRequesting) return;
+        const input = root.querySelector('#music-v2-fh-request-input') || document.getElementById('music-v2-fh-request-input');
+        const submit = root.querySelector('#music-v2-fh-request-submit') || document.getElementById('music-v2-fh-request-submit');
+        const query = String(input && input.value || '').trim();
+        const mode = musicV2NormalizeFriendHomeRequestMode(musicV2Runtime.friendHomeRequestMode);
+        const genCover = window.musicV2GenerateMinimaxMusicCover || window.generateMinimaxMusicCover;
+        const genTts = window.musicV2GenerateMinimaxTTS || window.generateMinimaxTTS;
+        const genOriginal = window.musicV2GenerateMinimaxOriginalMusic || window.generateMinimaxOriginalMusic;
+        if (mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER && (typeof genCover !== 'function' || typeof genTts !== 'function')) {
+            musicV2Toast('生成接口未就绪');
+            return;
+        }
+        if (mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL && typeof genOriginal !== 'function') {
+            musicV2Toast('原创作曲接口未就绪');
+            return;
+        }
+
+        musicV2Runtime.friendHomeRequesting = true;
+        musicV2SetFriendHomeGenerateLoading(true, mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL ? '正在准备原创创作...' : '正在解析歌曲信息...');
+        musicV2Toast('正在催更生成...');
+        try {
+            const contact = musicV2GetContactById(profile.contactId);
+            const workId = musicV2MakeId('fh_work');
+            let newWork = null;
+
+            if (mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_COVER) {
+                musicV2SetFriendHomeGenerateLoading(true, '正在解析歌曲信息...');
+                const songInfo = await musicV2ResolveFriendHomeRequestSong(query);
+                if (!songInfo || !songInfo.audioUrl) throw new Error('song_audio_missing');
+                musicV2SetFriendHomeGenerateLoading(true, '正在准备歌词片段...');
+                const lyricBundle = await musicV2BuildFriendHomeWorkLyricsBundle(songInfo);
+                const lyrics = String(lyricBundle && lyricBundle.lyrics || '').trim();
+                musicV2SetFriendHomeGenerateLoading(true, '正在生成翻唱音频...');
+                const coverAudio = await genCover({
+                    coverAudioUrl: songInfo.audioUrl,
+                    coverPrompt: `Keep original melody and rhythm of "${songInfo.title}" by ${songInfo.artist}, natural expressive vocal cover.`,
+                    musicOptions: { model: 'music-cover-free', output_format: 'hex' }
+                }, { suppressAlert: true });
+                let finalAudio = String(coverAudio || '').trim();
+                if (!finalAudio) {
+                    musicV2SetFriendHomeGenerateLoading(true, '翻唱接口无结果，切换语音兜底...');
+                    const ttsLyrics = lyrics
+                        .split(/\n+/)
+                        .map(line => String(line || '').trim())
+                        .filter(Boolean)
+                        .slice(0, 8)
+                        .join('，');
+                    finalAudio = String(await genTts(ttsLyrics || lyrics.replace(/\n+/g, '，'), String(contact && contact.ttsVoiceId || ''), { suppressAlert: true }) || '').trim();
+                }
+                if (!finalAudio) throw new Error('audio_generate_failed');
+                musicV2SetFriendHomeGenerateLoading(true, '正在保存作品...');
+                const persistedAudio = await musicV2PersistFriendHomeAudioValue(finalAudio, workId);
+                newWork = musicV2NormalizeFriendHomeWork({
+                    id: workId,
+                    title: `翻唱《${songInfo.title}》`,
+                    artist: musicV2GetContactDisplayName(contact),
+                    cover: songInfo.cover || MUSIC_V2_DEFAULT_COVER,
+                    audio: persistedAudio,
+                    mode: 'cover',
+                    playCount: 100 + Math.floor(Math.random() * 800),
+                    createdAt: Date.now(),
+                    sourceSongId: songInfo.songId,
+                    sourceAudioUrl: songInfo.audioUrl,
+                    lyrics: lyrics,
+                    lyricsData: Array.isArray(lyricBundle && lyricBundle.lyricsData) ? lyricBundle.lyricsData : [],
+                    lyricSnippet: String(lyricBundle && lyricBundle.lyricSnippet || lyrics.replace(/\n/g, ' / '))
+                }, musicV2GetContactDisplayName(contact));
+            } else {
+                const themeText = musicV2SanitizePromptText(query, 120);
+                musicV2SetFriendHomeGenerateLoading(true, '正在注入人设与记忆上下文...');
+                const lyricResult = await musicV2GenerateOriginalLyrics(contact, themeText);
+                const lyrics = musicV2SanitizePromptText(lyricResult && lyricResult.lyrics, 3500);
+                const composePrompt = musicV2BuildOriginalMusicPrompt(contact, themeText || (lyricResult && lyricResult.styleTags) || '');
+                musicV2SetFriendHomeGenerateLoading(true, '正在原创作曲并生成音频...');
+                const originalAudio = await genOriginal({
+                    prompt: composePrompt,
+                    lyrics: lyrics,
+                    musicOptions: {
+                        model: 'music-2.6-free',
+                        output_format: 'hex',
+                        voice_id: String(contact && contact.ttsVoiceId || ''),
+                        contact_voice_id: String(contact && contact.ttsVoiceId || '')
+                    },
+                    isInstrumental: false
+                }, { suppressAlert: true });
+                const finalAudio = String(originalAudio || '').trim();
+                if (!finalAudio) throw new Error('audio_generate_failed');
+                musicV2SetFriendHomeGenerateLoading(true, '正在保存作品...');
+                const persistedAudio = await musicV2PersistFriendHomeAudioValue(finalAudio, workId);
+                const fallbackTitle = themeText ? `原创《${themeText.slice(0, 12)}》` : '原创作品';
+                const apiTitle = musicV2SanitizePromptText(lyricResult && lyricResult.songTitle, 24);
+                const workTitle = apiTitle || fallbackTitle;
+                const lyricSnippet = musicV2BuildLyricSnippetFromText(lyrics);
+                newWork = musicV2NormalizeFriendHomeWork({
+                    id: workId,
+                    title: workTitle,
+                    artist: musicV2GetContactDisplayName(contact),
+                    cover: String((contact && contact.avatar) || MUSIC_V2_DEFAULT_COVER),
+                    audio: persistedAudio,
+                    mode: 'original',
+                    playCount: 60 + Math.floor(Math.random() * 600),
+                    createdAt: Date.now(),
+                    sourceSongId: '',
+                    sourceAudioUrl: '',
+                    lyrics: lyrics,
+                    lyricsData: musicV2BuildLyricsDataFromText(lyrics, 0),
+                    lyricSnippet: lyricSnippet
+                }, musicV2GetContactDisplayName(contact));
+            }
+
+            const contactId = String(profile.contactId || '').trim();
+            const music = musicV2EnsureModel();
+            musicV2EnsureFriendHomeProfiles(music);
+            let storedProfile = contactId ? music.friendHomeProfiles[contactId] : null;
+            if (!storedProfile) {
+                storedProfile = profile;
+                if (contactId) music.friendHomeProfiles[contactId] = storedProfile;
+            }
+            if (!Array.isArray(storedProfile.works)) storedProfile.works = [];
+            storedProfile.works.unshift(newWork);
+            const seenWorkIds = new Set();
+            storedProfile.works = storedProfile.works.filter((item) => {
+                const wid = String(item && item.id || '').trim();
+                if (!wid || seenWorkIds.has(wid)) return false;
+                seenWorkIds.add(wid);
+                return true;
+            }).slice(0, 36);
+            storedProfile.likes = Math.max(0, Math.floor(Number(storedProfile.likes || 0))) + 1;
+            storedProfile.updatedAt = Date.now();
+            console.info('[music-v2] friend home work generated', {
+                contactId: contactId,
+                workId: String(newWork.id || ''),
+                worksCount: storedProfile.works.length
+            });
+            musicV2PersistFriendHomeProfile(storedProfile);
+            const isSameContactActive = String(musicV2Runtime.friendHomeContactId || '') === contactId;
+            if (isSameContactActive) {
+                musicV2Runtime.friendHomeData = storedProfile;
+                musicV2SetFriendHomeTab('works');
+                musicV2RenderFriendHomeMainList();
+                const requestMask = root.querySelector('#music-v2-fh-request-mask') || document.getElementById('music-v2-fh-request-mask');
+                if (requestMask) requestMask.classList.remove('active');
+                await musicV2OpenFriendHomeWork(newWork.id);
+            }
+            musicV2Toast('催更完成，已加入作品');
+        } catch (error) {
+            console.error('[music-v2] friend home request failed', error);
+            if (mode === MUSIC_V2_FRIEND_HOME_REQUEST_MODE_ORIGINAL) {
+                musicV2Toast('原创生成失败，请稍后再试');
+            } else {
+                musicV2Toast('催更失败，请换个歌名或链接试试');
+            }
+        } finally {
+            musicV2SetFriendHomeGenerateLoading(false);
+            musicV2Runtime.friendHomeRequesting = false;
+            if (submit) submit.disabled = false;
+        }
+    }
+
     function musicV2RenderFriends() {
         const root = musicV2Runtime.root;
         if (!root) return;
@@ -4157,7 +5831,7 @@
                 actionIcon = 'ri-time-line';
             }
             return (
-                '<div class="friend-row clickable" data-musicv2-action="invite-contact" data-contact-id="' + musicV2EscapeHtml(cid) + '">' +
+                '<div class="friend-row clickable" data-musicv2-action="open-friend-music-home" data-contact-id="' + musicV2EscapeHtml(cid) + '">' +
                     '<img class="fr-avatar" src="' + musicV2EscapeHtml(contact.avatar || MUSIC_V2_DEFAULT_COVER) + '">' +
                     '<div class="fr-info">' +
                         '<div class="music-v2-friend-head">' +
@@ -4166,7 +5840,9 @@
                         '</div>' +
                         '<p>' + musicV2EscapeHtml(statusText) + '</p>' +
                     '</div>' +
-                    '<div class="fr-action"><i class="' + actionIcon + '"></i></div>' +
+                    '<button class="fr-action music-v2-friend-invite-btn clickable" data-musicv2-action="invite-contact" data-contact-id="' + musicV2EscapeHtml(cid) + '" aria-label="邀请一起听">' +
+                        '<i class="' + actionIcon + '"></i>' +
+                    '</button>' +
                 '</div>'
             );
         });
@@ -4458,8 +6134,40 @@
         const root = musicV2Runtime.root;
         if (!root) return;
         const content = root.querySelector('#music-v2-playlist-page-content');
+        if (!content) return;
+
+        const friendPlaylistPage = musicV2Runtime.friendHomePlaylistPageData && typeof musicV2Runtime.friendHomePlaylistPageData === 'object'
+            ? musicV2Runtime.friendHomePlaylistPageData
+            : null;
+        if (friendPlaylistPage) {
+            const songIds = Array.isArray(friendPlaylistPage.songIds) ? friendPlaylistPage.songIds : [];
+            const songs = songIds.map(id => musicV2GetSong(id)).filter(Boolean);
+            const playbackPlaylistId = String(friendPlaylistPage.playbackPlaylistId || MUSIC_V2_SYSTEM_PLAYLIST_ID_ALL);
+            const listHtml = songs.map((song, idx) => {
+                const sid = String(song.id || '');
+                return (
+                    '<div class="list-item clickable music-v2-playlist-song-item" data-musicv2-action="play-friend-home-song" data-song-id="' + musicV2EscapeHtml(sid) + '" data-playlist-id="' + musicV2EscapeHtml(playbackPlaylistId) + '">' +
+                        '<div class="li-num">' + (idx + 1) + '</div>' +
+                        '<div class="li-info"><h4>' + musicV2EscapeHtml(song.title) + '</h4><p>' + musicV2EscapeHtml(song.artist) + '</p></div>' +
+                        '<button class="music-v2-action-btn music-v2-playlist-item-action" data-musicv2-action="play-friend-home-song" data-song-id="' + musicV2EscapeHtml(sid) + '" data-playlist-id="' + musicV2EscapeHtml(playbackPlaylistId) + '">播放</button>' +
+                    '</div>'
+                );
+            }).join('');
+            content.innerHTML =
+                '<div class="pl-hero">' +
+                    '<img class="music-v2-playlist-cover" src="' + musicV2EscapeHtml(friendPlaylistPage.cover || MUSIC_V2_DEFAULT_COVER) + '">' +
+                    '<h2>' + musicV2EscapeHtml(friendPlaylistPage.title || '歌单') + '</h2>' +
+                    '<p>Playlist • ' + songs.length + ' tracks</p>' +
+                    '<div class="pl-actions">' +
+                        '<div class="pl-btn clickable" data-musicv2-action="play-friend-home-playlist-first"><i class="ri-play-fill" style="font-size:20px;"></i> Play</div>' +
+                    '</div>' +
+                '</div>' +
+                (songs.length ? listHtml : '<div class="music-v2-empty-note">歌单暂无歌曲</div>');
+            return;
+        }
+
         const playlist = musicV2GetPlaylist(musicV2Runtime.activePlaylistId);
-        if (!content || !playlist) return;
+        if (!playlist) return;
 
         const songs = (playlist.songs || []).map(id => musicV2GetSong(id)).filter(Boolean);
         const validSongIdSet = new Set(songs.map(song => String(song.id)));
@@ -4512,6 +6220,24 @@
 
     function musicV2GetQueuePlaylistContext() {
         const music = musicV2EnsureModel();
+        const override = musicV2Runtime.friendHomeWorksQueueContext && typeof musicV2Runtime.friendHomeWorksQueueContext === 'object'
+            ? musicV2Runtime.friendHomeWorksQueueContext
+            : null;
+        if (override && Array.isArray(override.songIds) && override.songIds.length) {
+            const currentSongId = String(music.currentSongId || '');
+            const hasCurrentSong = currentSongId && override.songIds.includes(currentSongId);
+            if (hasCurrentSong) {
+                const validSongIds = musicV2UniqueValidSongIds(override.songIds, null).filter((sid) => !!musicV2GetSong(sid));
+                if (validSongIds.length) {
+                    return {
+                        playlist: null,
+                        playlistId: String(override.playlistId || ''),
+                        songIds: validSongIds,
+                        signature: String(override.signature || ('fhw:' + validSongIds.join('|')))
+                    };
+                }
+            }
+        }
         let playlist = null;
         if (musicV2Runtime.activePlaylistId) {
             playlist = musicV2GetPlaylist(musicV2Runtime.activePlaylistId);
@@ -5090,7 +6816,13 @@
     function musicV2HandleClick(event) {
         const root = musicV2Runtime.root;
         if (!root) return;
-        const target = event.target;
+        const rawTarget = event ? event.target : null;
+        const target = rawTarget && typeof rawTarget.closest === 'function'
+            ? rawTarget
+            : (rawTarget && rawTarget.parentElement && typeof rawTarget.parentElement.closest === 'function'
+                ? rawTarget.parentElement
+                : null);
+        if (!target) return;
         const actionNode = target.closest('[data-musicv2-action]');
         const action = actionNode ? actionNode.getAttribute('data-musicv2-action') : '';
         if (action === 'play-song' && musicV2Runtime.playlistSelectionMode) {
@@ -5302,6 +7034,72 @@
             window.musicV2ToggleSongView('together');
             return;
         }
+        if (action === 'open-friend-music-home') {
+            const contactId = actionNode.getAttribute('data-contact-id');
+            if (!contactId) return;
+            musicV2OpenFriendMusicHome(contactId);
+            return;
+        }
+        if (action === 'close-friend-home') {
+            musicV2CloseFriendMusicHome();
+            return;
+        }
+        if (action === 'switch-friend-home-tab') {
+            const tab = actionNode.getAttribute('data-tab');
+            musicV2SetFriendHomeTab(tab);
+            return;
+        }
+        if (action === 'play-friend-home-song') {
+            const songId = actionNode.getAttribute('data-song-id');
+            const playlistId = actionNode.getAttribute('data-playlist-id') || MUSIC_V2_SYSTEM_PLAYLIST_ID_ALL;
+            if (!songId) return;
+            musicV2PlaySong(songId, playlistId).catch(() => {});
+            return;
+        }
+        if (action === 'open-friend-home-playlist') {
+            const playlistId = actionNode.getAttribute('data-playlist-id');
+            if (!playlistId) return;
+            musicV2OpenFriendHomePlaylistPage(playlistId);
+            return;
+        }
+        if (action === 'open-friend-home-work') {
+            const workId = actionNode.getAttribute('data-work-id');
+            musicV2OpenFriendHomeWork(workId).catch(() => {
+                musicV2Toast('打开作品失败，请稍后重试');
+            });
+            return;
+        }
+        if (action === 'close-friend-home-detail') {
+            musicV2CloseFriendHomeDetail();
+            return;
+        }
+        if (action === 'toggle-friend-home-play') {
+            musicV2ToggleFriendHomePlay().catch(() => {
+                musicV2Toast('播放失败，请稍后重试');
+            });
+            return;
+        }
+        if (action === 'open-friend-home-request') {
+            console.info('[music-v2] open-friend-home-request clicked', {
+                contactId: String(musicV2Runtime.friendHomeContactId || ''),
+                hasProfile: !!musicV2Runtime.friendHomeData
+            });
+            musicV2OpenFriendHomeRequestPanel();
+            return;
+        }
+        if (action === 'close-friend-home-request') {
+            musicV2CloseFriendHomeRequestPanel();
+            return;
+        }
+        if (action === 'set-friend-home-request-mode') {
+            const mode = actionNode.getAttribute('data-mode');
+            musicV2SetFriendHomeRequestMode(mode);
+            return;
+        }
+        if (action === 'submit-friend-home-request') {
+            musicV2SubmitFriendHomeRequest();
+            return;
+        }
         if (action === 'invite-contact') {
             const contactId = actionNode.getAttribute('data-contact-id');
             if (!contactId) return;
@@ -5494,6 +7292,7 @@
                 return;
             }
             musicV2ExitPlaylistSelectionMode();
+            musicV2Runtime.friendHomePlaylistPageData = null;
             musicV2Runtime.activePlaylistId = String(playlistId);
             const music = musicV2EnsureModel();
             music.activePlaylistId = musicV2Runtime.activePlaylistId;
@@ -5505,6 +7304,7 @@
         }
         if (action === 'close-page-playlist') {
             musicV2ExitPlaylistSelectionMode();
+            musicV2Runtime.friendHomePlaylistPageData = null;
             window.musicV2ClosePage('page-playlist');
             return;
         }
@@ -5542,6 +7342,28 @@
                 return;
             }
             musicV2PlaySong(playlist.songs[0], playlist.id);
+            const active = musicV2GetActiveTogetherSession();
+            window.musicV2ToggleSongView(active ? 'together' : 'solo');
+            return;
+        }
+        if (action === 'play-friend-home-playlist-first') {
+            const friendPlaylistPage = musicV2Runtime.friendHomePlaylistPageData && typeof musicV2Runtime.friendHomePlaylistPageData === 'object'
+                ? musicV2Runtime.friendHomePlaylistPageData
+                : null;
+            const songIds = friendPlaylistPage && Array.isArray(friendPlaylistPage.songIds)
+                ? friendPlaylistPage.songIds
+                : [];
+            if (!songIds.length) {
+                musicV2Toast('歌单暂无歌曲');
+                return;
+            }
+            const firstSongId = String(songIds[0] || '');
+            if (!firstSongId) {
+                musicV2Toast('歌曲不可用');
+                return;
+            }
+            const playbackPlaylistId = String(friendPlaylistPage.playbackPlaylistId || MUSIC_V2_SYSTEM_PLAYLIST_ID_ALL);
+            musicV2PlaySong(firstSongId, playbackPlaylistId);
             const active = musicV2GetActiveTogetherSession();
             window.musicV2ToggleSongView(active ? 'together' : 'solo');
             return;
@@ -6056,6 +7878,384 @@
             .music-v2-cover-row img { width: 52px; height: 52px; border-radius: 12px; object-fit: cover; background: #f0f0f0; }
             #music-v2-friends-list { display: flex; flex-direction: column; gap: 10px; }
             #music-v2-friends-active { margin-bottom: 10px; }
+            .music-v2-friend-invite-btn {
+                border: none;
+                padding: 0;
+                outline: none;
+                cursor: pointer;
+            }
+            .music-v2-friend-home-mask {
+                position: absolute;
+                inset: 0;
+                z-index: 335;
+                display: none;
+                background: #fff;
+            }
+            #page-playlist {
+                z-index: 340;
+            }
+            .music-v2-friend-home-mask.active { display: block; }
+            .music-v2-friend-home-shell {
+                position: relative;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #fff;
+                color: #1d1d1f;
+            }
+            .music-v2-fh-page {
+                position: absolute;
+                inset: 0;
+                overflow-x: hidden;
+                overflow-y: auto;
+                transition: transform .35s cubic-bezier(0.36,0.66,0.04,1), opacity .35s ease;
+                background: #fff;
+            }
+            .music-v2-fh-page-right { transform: translateX(100%); }
+            .music-v2-fh-page-active { transform: translateX(0); }
+            .music-v2-fh-page-left { transform: translateX(-30%); opacity: .8; }
+            .music-v2-fh-header {
+                position: sticky;
+                top: 0;
+                height: 84px;
+                padding: 24px 16px 0;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                background: rgba(255,255,255,.72);
+                backdrop-filter: blur(18px);
+                -webkit-backdrop-filter: blur(18px);
+                border-bottom: .5px solid rgba(0,0,0,.06);
+                z-index: 20;
+            }
+            .music-v2-fh-header-title { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+            .music-v2-fh-icon-btn {
+                width: 32px;
+                height: 32px;
+                border: none;
+                background: transparent;
+                color: #1d1d1f;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 20px;
+                padding: 0;
+            }
+            .music-v2-fh-urge-btn {
+                min-width: 56px;
+                height: 30px;
+                border: none;
+                border-radius: 999px;
+                background: #111;
+                color: #fff;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            .music-v2-fh-profile { padding: 18px 20px; }
+            .music-v2-fh-profile-top { display: flex; align-items: center; gap: 16px; }
+            .music-v2-fh-avatar-wrap { width: 76px; height: 76px; flex-shrink: 0; position: relative; }
+            .music-v2-fh-avatar {
+                width: 76px;
+                height: 76px;
+                border-radius: 50%;
+                object-fit: cover;
+                border: 2px solid rgba(0,0,0,.06);
+                background: #e5e5ea;
+            }
+            .music-v2-fh-profile-info { min-width: 0; flex: 1; }
+            .music-v2-fh-name { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+            .music-v2-fh-uid { font-size: 13px; color: #86868b; margin-bottom: 4px; }
+            .music-v2-fh-scene { font-size: 11px; color: #6f6f74; letter-spacing: .4px; }
+            .music-v2-fh-stats { display: flex; gap: 24px; margin-top: 14px; }
+            .music-v2-fh-stat-item { display: flex; flex-direction: column; }
+            .music-v2-fh-stat-num { font-size: 18px; font-weight: 700; }
+            .music-v2-fh-stat-label { font-size: 12px; color: #86868b; }
+            .music-v2-fh-bio { margin-top: 14px; font-size: 14px; color: #707075; line-height: 1.6; }
+            .music-v2-fh-tabs {
+                position: sticky;
+                top: 84px;
+                z-index: 15;
+                display: flex;
+                gap: 24px;
+                padding: 0 20px;
+                background: rgba(255,255,255,.72);
+                backdrop-filter: blur(18px);
+                -webkit-backdrop-filter: blur(18px);
+                border-bottom: .5px solid rgba(0,0,0,.06);
+            }
+            .music-v2-fh-tab {
+                border: none;
+                background: transparent;
+                color: #86868b;
+                font-size: 15px;
+                font-weight: 600;
+                padding: 12px 0;
+                position: relative;
+            }
+            .music-v2-fh-tab.active { color: #1d1d1f; }
+            .music-v2-fh-tab.active::after {
+                content: '';
+                position: absolute;
+                left: 50%;
+                bottom: 0;
+                transform: translateX(-50%);
+                width: 20px;
+                height: 3px;
+                border-radius: 3px;
+                background: #1d1d1f;
+            }
+            .music-v2-fh-main-list {
+                padding: 16px 20px 30px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+            .music-v2-fh-list-title { font-size: 13px; font-weight: 700; color: #6d6d72; margin-top: 4px; }
+            .music-v2-fh-playlist-group { display: flex; flex-direction: column; gap: 8px; }
+            .music-v2-fh-playlist-card {
+                width: 100%;
+                border: none;
+                border-radius: 14px;
+                background: #f1f1f4;
+                padding: 10px 12px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                text-align: left;
+                color: inherit;
+            }
+            .music-v2-fh-playlist-cover {
+                width: 48px;
+                height: 48px;
+                border-radius: 10px;
+                object-fit: cover;
+                background: #e5e5ea;
+                flex-shrink: 0;
+            }
+            .music-v2-fh-playlist-main {
+                min-width: 0;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .music-v2-fh-playlist-main strong {
+                font-size: 15px;
+                font-weight: 700;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .music-v2-fh-playlist-main small {
+                color: #7b7b81;
+                font-size: 12px;
+            }
+            .music-v2-fh-playlist-card i { color: #7b7b81; font-size: 20px; }
+            .music-v2-fh-playlist-songs {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                padding: 0 2px 4px;
+            }
+            .music-v2-fh-empty {
+                border-radius: 12px;
+                background: #f5f5f7;
+                color: #86868b;
+                font-size: 13px;
+                text-align: center;
+                padding: 20px 12px;
+            }
+            .music-v2-fh-work-item,
+            .music-v2-fh-song-row {
+                width: 100%;
+                border: none;
+                background: #f5f5f7;
+                border-radius: 14px;
+                padding: 10px 12px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: inherit;
+                text-align: left;
+            }
+            .music-v2-fh-song-row i { margin-left: auto; color: #7e7e83; font-size: 20px; }
+            .music-v2-fh-song-row img,
+            .music-v2-fh-work-cover img {
+                width: 52px;
+                height: 52px;
+                border-radius: 10px;
+                object-fit: cover;
+                flex-shrink: 0;
+                background: #e5e5ea;
+            }
+            .music-v2-fh-song-row span {
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .music-v2-fh-song-row strong {
+                font-size: 14px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .music-v2-fh-song-row small {
+                font-size: 12px;
+                color: #86868b;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .music-v2-fh-work-info { min-width: 0; flex: 1; }
+            .music-v2-fh-work-title {
+                font-size: 15px;
+                font-weight: 600;
+                margin-bottom: 4px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .music-v2-fh-work-meta { font-size: 12px; color: #86868b; display: flex; gap: 8px; align-items: center; }
+            .music-v2-fh-grade { font-weight: 800; font-style: italic; color: #1d1d1f; }
+            .music-v2-fh-dynamic-item {
+                border-radius: 12px;
+                background: #f5f5f7;
+                color: #444;
+                font-size: 14px;
+                line-height: 1.6;
+                padding: 12px;
+            }
+            .music-v2-fh-player-cover-wrap {
+                padding: 40px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+            .music-v2-fh-player-cover {
+                width: 236px;
+                height: 236px;
+                border-radius: 50%;
+                border: 8px solid rgba(0,0,0,.05);
+                background: #f5f5f7;
+                box-shadow: 0 20px 40px rgba(0,0,0,.05);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                animation: music-v2-fh-spin 10s linear infinite;
+                animation-play-state: paused;
+            }
+            .music-v2-fh-player-cover img { width: 68%; height: 68%; border-radius: 50%; object-fit: cover; }
+            .music-v2-fh-player-cover.playing { animation-play-state: running; }
+            @keyframes music-v2-fh-spin { 100% { transform: rotate(360deg); } }
+            .music-v2-fh-player-info { text-align: center; padding: 0 20px; }
+            .music-v2-fh-player-title { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+            .music-v2-fh-player-author { font-size: 16px; color: #86868b; margin-bottom: 20px; }
+            .music-v2-fh-lyric {
+                margin: 0 22px;
+                border-radius: 14px;
+                background: #f5f5f7;
+                color: #666;
+                font-size: 14px;
+                line-height: 1.7;
+                text-align: center;
+                padding: 12px 14px;
+            }
+            .music-v2-fh-controls {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 28px;
+                margin-top: 30px;
+                padding-bottom: 40px;
+            }
+            .music-v2-fh-secondary-btn {
+                border: none;
+                background: transparent;
+                color: #1d1d1f;
+                font-size: 24px;
+                padding: 0;
+            }
+            .music-v2-fh-play-btn {
+                width: 64px;
+                height: 64px;
+                border-radius: 50%;
+                border: none;
+                background: #1d1d1f;
+                color: #fff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 32px;
+                padding: 0;
+            }
+            .music-v2-fh-request-card {
+                width: min(92%, 360px);
+                max-width: 360px;
+                max-height: none;
+                padding: 14px;
+            }
+            .music-v2-fh-request-modes {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 10px;
+            }
+            .music-v2-fh-request-mode-btn {
+                flex: 1;
+                border: 1px solid #d8d8de;
+                background: #f7f7fa;
+                border-radius: 12px;
+                min-height: 36px;
+                font-size: 13px;
+                font-weight: 700;
+                color: #666;
+            }
+            .music-v2-fh-request-mode-btn.active {
+                border-color: #111;
+                background: #111;
+                color: #fff;
+            }
+            .music-v2-fh-request-mode-btn:disabled {
+                opacity: 0.55;
+            }
+            #music-v2-fh-request-mask {
+                z-index: 360;
+            }
+            #music-v2-fh-generate-mask {
+                z-index: 370;
+            }
+            .music-v2-fh-generate-card {
+                width: min(88%, 320px);
+                max-width: 320px;
+                border-radius: 18px;
+                padding: 20px 16px;
+                text-align: center;
+                background: #ffffff;
+            }
+            .music-v2-fh-generate-spinner {
+                width: 44px;
+                height: 44px;
+                margin: 0 auto 12px;
+                border-radius: 50%;
+                border: 3px solid rgba(0,0,0,0.12);
+                border-top-color: #111;
+                animation: music-v2-fh-generate-spin .9s linear infinite;
+            }
+            .music-v2-fh-generate-title {
+                font-size: 16px;
+                font-weight: 700;
+                color: #111;
+                margin-bottom: 8px;
+            }
+            .music-v2-fh-generate-status {
+                color: #6b6b72;
+                font-size: 13px;
+                line-height: 1.6;
+            }
+            @keyframes music-v2-fh-generate-spin {
+                to { transform: rotate(360deg); }
+            }
             .sv-slider { cursor: pointer; touch-action: none; }
             .sv-art-container,
             .sv-vinyl-container {
@@ -6299,6 +8499,94 @@
                 '<div class="sec-title" style="font-size:28px; font-weight:800;">Friends</div>' +
                 '<div id="music-v2-friends-active"></div>' +
                 '<div id="music-v2-friends-list"></div>';
+        }
+        if (!root.querySelector('#music-v2-friend-home-mask')) {
+            const friendHomeMask = document.createElement('div');
+            friendHomeMask.id = 'music-v2-friend-home-mask';
+            friendHomeMask.className = 'music-v2-friend-home-mask';
+            friendHomeMask.innerHTML =
+                '<div class="music-v2-friend-home-shell">' +
+                    '<div id="music-v2-friend-page-main" class="music-v2-fh-page music-v2-fh-page-active">' +
+                        '<div class="music-v2-fh-header">' +
+                            '<button class="music-v2-fh-icon-btn clickable" data-musicv2-action="close-friend-home"><i class="ri-arrow-left-s-line"></i></button>' +
+                            '<div class="music-v2-fh-header-title">PERSONAL</div>' +
+                            '<button class="music-v2-fh-urge-btn clickable" data-musicv2-action="open-friend-home-request">催更</button>' +
+                        '</div>' +
+                        '<div class="music-v2-fh-profile">' +
+                            '<div class="music-v2-fh-profile-top">' +
+                                '<div class="music-v2-fh-avatar-wrap"><img id="music-v2-fh-avatar" class="music-v2-fh-avatar" src="' + musicV2EscapeHtml(MUSIC_V2_DEFAULT_COVER) + '"></div>' +
+                                '<div class="music-v2-fh-profile-info">' +
+                                    '<div id="music-v2-fh-name" class="music-v2-fh-name">联系人</div>' +
+                                    '<div id="music-v2-fh-uid" class="music-v2-fh-uid">ID: 00000000</div>' +
+                                    '<div id="music-v2-fh-scene" class="music-v2-fh-scene">音乐软件个人主页</div>' +
+                                '</div>' +
+                            '</div>' +
+                            '<div class="music-v2-fh-stats">' +
+                                '<div class="music-v2-fh-stat-item"><span id="music-v2-fh-following" class="music-v2-fh-stat-num">0</span><span class="music-v2-fh-stat-label">Following</span></div>' +
+                                '<div class="music-v2-fh-stat-item"><span id="music-v2-fh-followers" class="music-v2-fh-stat-num">0</span><span class="music-v2-fh-stat-label">Followers</span></div>' +
+                                '<div class="music-v2-fh-stat-item"><span id="music-v2-fh-likes" class="music-v2-fh-stat-num">0</span><span class="music-v2-fh-stat-label">Likes</span></div>' +
+                            '</div>' +
+                            '<div id="music-v2-fh-bio" class="music-v2-fh-bio">欢迎来听歌。</div>' +
+                        '</div>' +
+                        '<div class="music-v2-fh-tabs">' +
+                            '<button class="music-v2-fh-tab active clickable" data-musicv2-action="switch-friend-home-tab" data-tab="works">Works</button>' +
+                            '<button class="music-v2-fh-tab clickable" data-musicv2-action="switch-friend-home-tab" data-tab="dynamic">Dynamic</button>' +
+                            '<button class="music-v2-fh-tab clickable" data-musicv2-action="switch-friend-home-tab" data-tab="likes">Likes</button>' +
+                        '</div>' +
+                        '<div id="music-v2-fh-main-list" class="music-v2-fh-main-list"></div>' +
+                    '</div>' +
+                    '<div id="music-v2-friend-page-detail" class="music-v2-fh-page music-v2-fh-page-right">' +
+                        '<div class="music-v2-fh-header">' +
+                            '<button class="music-v2-fh-icon-btn clickable" data-musicv2-action="close-friend-home-detail"><i class="ri-arrow-left-s-line"></i></button>' +
+                            '<div class="music-v2-fh-header-title">PLAYING</div>' +
+                            '<div class="music-v2-fh-icon-btn"><i class="ri-share-forward-line"></i></div>' +
+                        '</div>' +
+                        '<div class="music-v2-fh-player-cover-wrap">' +
+                            '<div id="music-v2-fh-record" class="music-v2-fh-player-cover">' +
+                                '<img id="music-v2-fh-record-img" src="' + musicV2EscapeHtml(MUSIC_V2_DEFAULT_COVER) + '">' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="music-v2-fh-player-info">' +
+                            '<div id="music-v2-fh-detail-title" class="music-v2-fh-player-title">Song Name</div>' +
+                            '<div id="music-v2-fh-detail-author" class="music-v2-fh-player-author">Author</div>' +
+                        '</div>' +
+                        '<div id="music-v2-fh-detail-lyric" class="music-v2-fh-lyric">轻触播放，听听这段翻唱。</div>' +
+                        '<div class="music-v2-fh-controls">' +
+                            '<button class="music-v2-fh-secondary-btn clickable"><i class="ri-heart-line"></i></button>' +
+                            '<button class="music-v2-fh-play-btn clickable" data-musicv2-action="toggle-friend-home-play"><i id="music-v2-fh-play-icon" class="ri-play-fill"></i></button>' +
+                            '<button class="music-v2-fh-secondary-btn clickable"><i class="ri-chat-1-line"></i></button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            body.appendChild(friendHomeMask);
+        }
+        if (!root.querySelector('#music-v2-fh-request-mask')) {
+            const requestMask = document.createElement('div');
+            requestMask.id = 'music-v2-fh-request-mask';
+            requestMask.className = 'music-v2-modal-mask music-v2-summary-mask';
+            requestMask.innerHTML =
+                '<div class="music-v2-modal-card music-v2-fh-request-card">' +
+                    '<div class="music-v2-modal-head"><span>催更创作</span><button class="music-v2-modal-btn" data-musicv2-action="close-friend-home-request">关闭</button></div>' +
+                    '<div class="music-v2-fh-request-modes">' +
+                        '<button id="music-v2-fh-request-mode-cover" class="music-v2-fh-request-mode-btn active" data-musicv2-action="set-friend-home-request-mode" data-mode="cover">翻唱</button>' +
+                        '<button id="music-v2-fh-request-mode-original" class="music-v2-fh-request-mode-btn" data-musicv2-action="set-friend-home-request-mode" data-mode="original">原创</button>' +
+                    '</div>' +
+                    '<div class="music-v2-create-row"><label id="music-v2-fh-request-input-label">歌名或链接（留空则默认当前播放）</label><input id="music-v2-fh-request-input" type="text" placeholder="例如：红 / 网易云链接"></div>' +
+                    '<button id="music-v2-fh-request-submit" class="music-v2-action-btn" data-musicv2-action="submit-friend-home-request" style="width:100%;">生成翻唱作品</button>' +
+                '</div>';
+            body.appendChild(requestMask);
+        }
+        if (!root.querySelector('#music-v2-fh-generate-mask') && !document.getElementById('music-v2-fh-generate-mask')) {
+            const generateMask = document.createElement('div');
+            generateMask.id = 'music-v2-fh-generate-mask';
+            generateMask.className = 'music-v2-modal-mask music-v2-summary-mask';
+            generateMask.innerHTML =
+                '<div class="music-v2-modal-card music-v2-fh-generate-card">' +
+                    '<div class="music-v2-fh-generate-spinner"></div>' +
+                    '<div id="music-v2-fh-generate-title" class="music-v2-fh-generate-title">翻唱生成中</div>' +
+                    '<div id="music-v2-fh-generate-status" class="music-v2-fh-generate-status">正在生成翻唱作品，请稍候...</div>' +
+                '</div>';
+            body.appendChild(generateMask);
         }
 
         const libraryView = root.querySelector('#view-library');
@@ -6560,6 +8848,37 @@
             });
         }
 
+        const friendHomeMask = root.querySelector('#music-v2-friend-home-mask');
+        if (friendHomeMask && !friendHomeMask.dataset.musicV2Bound) {
+            friendHomeMask.dataset.musicV2Bound = '1';
+            friendHomeMask.addEventListener('click', (e) => {
+                if (e.target === friendHomeMask) {
+                    musicV2CloseFriendMusicHome();
+                }
+            });
+        }
+
+        const friendHomeUrgeButtons = root.querySelectorAll('.music-v2-fh-urge-btn');
+        friendHomeUrgeButtons.forEach((btn) => {
+            if (!btn || btn.dataset.musicV2Bound) return;
+            btn.dataset.musicV2Bound = '1';
+            btn.addEventListener('click', (e) => {
+                if (e && e.cancelable) e.preventDefault();
+                if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+                musicV2OpenFriendHomeRequestPanel();
+            });
+        });
+
+        const friendHomeRequestMask = root.querySelector('#music-v2-fh-request-mask') || document.getElementById('music-v2-fh-request-mask');
+        if (friendHomeRequestMask && !friendHomeRequestMask.dataset.musicV2Bound) {
+            friendHomeRequestMask.dataset.musicV2Bound = '1';
+            friendHomeRequestMask.addEventListener('click', (e) => {
+                if (e.target === friendHomeRequestMask) {
+                    musicV2CloseFriendHomeRequestPanel();
+                }
+            });
+        }
+
         const backButtonUrl = root.querySelector('#music-v2-back-button-url');
         if (backButtonUrl && !backButtonUrl.dataset.musicV2Bound) {
             backButtonUrl.dataset.musicV2Bound = '1';
@@ -6568,6 +8887,17 @@
                 if (e.cancelable) e.preventDefault();
                 const submitBtn = root.querySelector('[data-musicv2-action="apply-back-button-url"]');
                 if (submitBtn) submitBtn.click();
+            });
+        }
+
+        const friendHomeRequestInput = root.querySelector('#music-v2-fh-request-input') || document.getElementById('music-v2-fh-request-input');
+        if (friendHomeRequestInput && !friendHomeRequestInput.dataset.musicV2Bound) {
+            friendHomeRequestInput.dataset.musicV2Bound = '1';
+            friendHomeRequestInput.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                if (e.cancelable) e.preventDefault();
+                const submitBtn = root.querySelector('#music-v2-fh-request-submit') || document.getElementById('music-v2-fh-request-submit');
+                if (submitBtn && !submitBtn.disabled) submitBtn.click();
             });
         }
 

@@ -4613,20 +4613,89 @@ function setupMinimaxListeners() {
     }
 }
 
-async function generateMinimaxTTS(text, voiceId) {
+function createVoiceDebugTraceId(prefix = 'voice') {
+    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function summarizeVoiceAudioValue(audioValue) {
+    const raw = String(audioValue || '').trim();
+    if (!raw) return { kind: 'empty', length: 0 };
+    if (raw.startsWith('data:audio/')) {
+        return { kind: 'data_url', length: raw.length, preview: raw.slice(0, 42) + '...' };
+    }
+    if (/^https?:\/\//i.test(raw)) {
+        return { kind: 'http_url', length: raw.length, preview: raw.slice(0, 120) };
+    }
+    return { kind: 'raw', length: raw.length, preview: raw.slice(0, 42) + '...' };
+}
+
+function voiceDebugLog(traceId, stage, detail) {
+    if (detail === undefined) {
+        console.log(`[VoiceDebug][${traceId}] ${stage}`);
+        return;
+    }
+    console.log(`[VoiceDebug][${traceId}] ${stage}`, detail);
+}
+
+function voiceDebugError(traceId, stage, error) {
+    console.error(`[VoiceDebug][${traceId}] ${stage}`, error);
+}
+
+async function generateMinimaxTTS(text, voiceId, options = {}) {
     const settings = window.iphoneSimState.minimaxSettings;
+    const requestOptions = options && typeof options === 'object' ? options : {};
+    const requestModel = String(requestOptions.model || settings.model || 'speech-01-turbo').trim() || 'speech-01-turbo';
+    const suppressAlert = !!requestOptions.suppressAlert;
+    const debugTraceId = String(requestOptions.debugTraceId || createVoiceDebugTraceId('tts')).trim();
+    const requestBody = {
+        model: requestModel,
+        text: text,
+        stream: false,
+        voice_setting: {
+            voice_id: voiceId || 'male-qn-qingse',
+            speed: 1.0,
+            vol: 1.0,
+            pitch: 0
+        }
+    };
+
+    if (requestOptions.voice_setting && typeof requestOptions.voice_setting === 'object' && !Array.isArray(requestOptions.voice_setting)) {
+        requestBody.voice_setting = {
+            ...requestBody.voice_setting,
+            ...requestOptions.voice_setting
+        };
+    }
+    if (requestOptions.audio_setting && typeof requestOptions.audio_setting === 'object' && !Array.isArray(requestOptions.audio_setting)) {
+        requestBody.audio_setting = { ...requestOptions.audio_setting };
+    }
+    if (requestOptions.voice_modify && typeof requestOptions.voice_modify === 'object' && !Array.isArray(requestOptions.voice_modify)) {
+        requestBody.voice_modify = { ...requestOptions.voice_modify };
+    }
+    if (requestOptions.pronunciation_dict && typeof requestOptions.pronunciation_dict === 'object' && !Array.isArray(requestOptions.pronunciation_dict)) {
+        requestBody.pronunciation_dict = { ...requestOptions.pronunciation_dict };
+    }
+    if (typeof requestOptions.language_boost === 'string' && requestOptions.language_boost.trim()) {
+        requestBody.language_boost = requestOptions.language_boost.trim();
+    }
     
-    console.log('Generating Minimax TTS...', {
+    voiceDebugLog(debugTraceId, 'TTS:prepare', {
         url: settings.url,
         hasKey: !!settings.key,
         groupId: settings.groupId,
-        model: settings.model,
-        text: text,
-        voiceId: voiceId
+        model: requestModel,
+        textLength: String(text || '').length,
+        voiceId: voiceId,
+        options: {
+            hasVoiceModify: !!requestBody.voice_modify,
+            hasAudioSetting: !!requestBody.audio_setting,
+            suppressAlert
+        }
     });
 
     if (!settings.key) {
-        alert('Minimax API Key 未配置');
+        if (!suppressAlert) {
+            alert('Minimax API Key 未配置');
+        }
         return null;
     }
     
@@ -4639,7 +4708,7 @@ async function generateMinimaxTTS(text, voiceId) {
     }
 
     try {
-        console.log('Requesting Minimax TTS URL:', url);
+        voiceDebugLog(debugTraceId, 'TTS:request:start', { url });
 
         const response = await fetch(url, {
             method: 'POST',
@@ -4647,32 +4716,32 @@ async function generateMinimaxTTS(text, voiceId) {
                 'Authorization': `Bearer ${settings.key}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                model: settings.model || 'speech-01-turbo',
-                text: text,
-                stream: false,
-                voice_setting: {
-                    voice_id: voiceId || 'male-qn-qingse',
-                    speed: 1.0,
-                    vol: 1.0,
-                    pitch: 0
-                }
-            })
+            body: JSON.stringify(requestBody)
         });
 
+        voiceDebugLog(debugTraceId, 'TTS:request:response', { status: response.status, ok: response.ok });
         if (!response.ok) {
             const errText = await response.text();
-            console.error(`Minimax API HTTP Error: ${response.status}`, errText);
-            alert(`语音生成失败 (HTTP ${response.status}): ${errText}`);
+            voiceDebugError(debugTraceId, `TTS:http_error:${response.status}`, errText);
+            if (!suppressAlert) {
+                alert(`语音生成失败 (HTTP ${response.status}): ${errText}`);
+            }
             return null;
         }
 
         const data = await response.json();
-        console.log('Minimax API Response:', data);
+        voiceDebugLog(debugTraceId, 'TTS:response:json', {
+            hasDataAudio: !!(data && data.data && data.data.audio),
+            hasBase64: !!(data && data.base64),
+            hasAudio: !!(data && data.audio),
+            baseResp: data && data.base_resp ? data.base_resp : null
+        });
 
         if (data.base_resp && data.base_resp.status_code !== 0) {
-            console.error('Minimax API returned error:', data.base_resp);
-            alert(`语音生成API错误: ${data.base_resp.status_msg} (Code: ${data.base_resp.status_code})`);
+            voiceDebugError(debugTraceId, 'TTS:api_error', data.base_resp);
+            if (!suppressAlert) {
+                alert(`语音生成API错误: ${data.base_resp.status_msg} (Code: ${data.base_resp.status_code})`);
+            }
             return null;
         }
         
@@ -4688,25 +4757,679 @@ async function generateMinimaxTTS(text, voiceId) {
             const blob = new Blob([bytes], { type: 'audio/mp3' });
             return new Promise((resolve) => {
                 const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
+                reader.onloadend = () => {
+                    voiceDebugLog(debugTraceId, 'TTS:result:data_url_from_hex', summarizeVoiceAudioValue(reader.result));
+                    resolve(reader.result);
+                };
                 reader.readAsDataURL(blob);
             });
         } else if (data.base64) {
-            return `data:audio/mp3;base64,${data.base64}`;
+            const result = `data:audio/mp3;base64,${data.base64}`;
+            voiceDebugLog(debugTraceId, 'TTS:result:data_url_from_base64', summarizeVoiceAudioValue(result));
+            return result;
         } else if (data.audio) {
-             return `data:audio/mp3;base64,${data.audio}`;
+            const result = `data:audio/mp3;base64,${data.audio}`;
+            voiceDebugLog(debugTraceId, 'TTS:result:data_url_from_audio_field', summarizeVoiceAudioValue(result));
+            return result;
         } else {
-            console.error('Minimax response format unknown:', JSON.stringify(data));
-            alert('语音生成失败：未知的响应格式，请检查控制台日志');
+            voiceDebugError(debugTraceId, 'TTS:response:unknown_format', JSON.stringify(data));
+            if (!suppressAlert) {
+                alert('语音生成失败：未知的响应格式，请检查控制台日志');
+            }
             return null;
         }
 
     } catch (error) {
-        console.error('Minimax TTS generation failed:', error);
-        alert(`语音生成异常: ${error.message}`);
+        voiceDebugError(debugTraceId, 'TTS:exception', error);
+        if (!suppressAlert) {
+            alert(`语音生成异常: ${error.message}`);
+        }
         return null;
     }
 }
+
+function normalizeMinimaxAudioPayloadToDataUrl(rawAudio, preferMime = 'audio/mp3') {
+    const source = String(rawAudio || '').trim();
+    if (!source) return null;
+    if (source.startsWith('data:audio/')) return source;
+    if (source.startsWith('http://') || source.startsWith('https://')) return source;
+    if (/^[0-9a-f]+$/i.test(source) && source.length % 2 === 0) {
+        const match = source.match(/.{1,2}/g);
+        if (!match) return null;
+        const bytes = new Uint8Array(match.map(byte => parseInt(byte, 16)));
+        const blob = new Blob([bytes], { type: preferMime });
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+        });
+    }
+    if (/^[A-Za-z0-9+/=]+$/.test(source)) {
+        return `data:${preferMime};base64,${source}`;
+    }
+    return null;
+}
+
+function extractMinimaxMusicAudioCandidate(payload) {
+    if (!payload || typeof payload !== 'object') return '';
+    const probes = [
+        payload.audio,
+        payload.audio_hex,
+        payload.audio_base64,
+        payload.audio_url,
+        payload.music_url,
+        payload.url,
+        payload.file_url,
+        payload.output,
+        payload.output_audio
+    ];
+    for (const item of probes) {
+        const candidate = String(item || '').trim();
+        if (candidate) return candidate;
+    }
+    return '';
+}
+
+function buildMinimaxMusicGenerationUrl() {
+    const settings = window.iphoneSimState.minimaxSettings || {};
+    let base = String(settings.url || '').trim();
+    if (!base) {
+        base = 'https://api.minimax.chat/v1/t2a_v2';
+    }
+    if (base.indexOf('/v1/music_generation') >= 0) {
+        return base;
+    }
+    if (base.indexOf('/v1/t2a_v2') >= 0) {
+        base = base.replace('/v1/t2a_v2', '/v1/music_generation');
+    } else if (base.indexOf('/v1/') >= 0) {
+        base = base.replace(/\/v1\/[^/?#]+/, '/v1/music_generation');
+    } else {
+        base = base.replace(/\/+$/, '') + '/v1/music_generation';
+    }
+    return base;
+}
+
+function buildMinimaxLyricsGenerationUrl() {
+    const settings = window.iphoneSimState.minimaxSettings || {};
+    let base = String(settings.url || '').trim();
+    if (!base) {
+        base = 'https://api.minimax.io/v1/lyrics_generation';
+    }
+    if (base.indexOf('/v1/lyrics_generation') >= 0) {
+        return base;
+    }
+    if (base.indexOf('/v1/t2a_v2') >= 0) {
+        base = base.replace('/v1/t2a_v2', '/v1/lyrics_generation');
+    } else if (base.indexOf('/v1/music_generation') >= 0) {
+        base = base.replace('/v1/music_generation', '/v1/lyrics_generation');
+    } else if (base.indexOf('/v1/') >= 0) {
+        base = base.replace(/\/v1\/[^/?#]+/, '/v1/lyrics_generation');
+    } else {
+        base = base.replace(/\/+$/, '') + '/v1/lyrics_generation';
+    }
+    return base;
+}
+
+function extractMinimaxLyricsCandidate(payload) {
+    if (!payload || typeof payload !== 'object') return '';
+    const probes = [
+        payload.lyrics,
+        payload.song_lyrics,
+        payload.output_lyrics,
+        payload.content,
+        payload.text
+    ];
+    for (const item of probes) {
+        if (typeof item === 'string' && item.trim()) return item.trim();
+        if (Array.isArray(item) && item.length) {
+            const joined = item.map(line => String(line || '').trim()).filter(Boolean).join('\n');
+            if (joined) return joined;
+        }
+    }
+    return '';
+}
+
+function normalizeMinimaxLyricsText(rawLyrics, maxLength = 3500) {
+    const text = String(rawLyrics || '').replace(/\r/g, '\n').trim();
+    if (!text) return '';
+    const limit = Math.max(1, Math.floor(Number(maxLength) || 3500));
+    return text.slice(0, limit);
+}
+
+async function generateMinimaxLyrics(msgData = {}, options = {}) {
+    const settings = window.iphoneSimState.minimaxSettings || {};
+    const suppressAlert = !!(options && options.suppressAlert);
+    const debugTraceId = String(options && options.debugTraceId || createVoiceDebugTraceId('lyrics')).trim();
+    const key = String(settings.key || '').trim();
+    const mode = String(msgData.mode || 'write_full_song').trim() || 'write_full_song';
+    const prompt = String(msgData.prompt || '').trim();
+    const inputLyrics = String(msgData.lyrics || '').trim();
+
+    voiceDebugLog(debugTraceId, 'LYRICS:prepare', {
+        hasKey: !!key,
+        mode,
+        promptLength: prompt.length,
+        inputLyricsLength: inputLyrics.length
+    });
+
+    if (!key) {
+        if (!suppressAlert) alert('Minimax API Key 未配置');
+        return null;
+    }
+
+    let url = buildMinimaxLyricsGenerationUrl();
+    if (settings.groupId) {
+        const separator = url.includes('?') ? '&' : '?';
+        url = `${url}${separator}GroupId=${settings.groupId}`;
+    }
+
+    const payload = {
+        mode: mode === 'edit' ? 'edit' : 'write_full_song',
+        prompt: prompt
+    };
+    if (payload.mode === 'edit' && inputLyrics) payload.lyrics = inputLyrics;
+
+    try {
+        voiceDebugLog(debugTraceId, 'LYRICS:request:start', { url, payloadSummary: { mode: payload.mode, promptLength: String(payload.prompt || '').length, hasLyrics: !!payload.lyrics } });
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        voiceDebugLog(debugTraceId, 'LYRICS:request:response', { status: response.status, ok: response.ok });
+        if (!response.ok) {
+            const errText = await response.text();
+            voiceDebugError(debugTraceId, `LYRICS:http_error:${response.status}`, errText);
+            if (!suppressAlert) {
+                alert(`歌词生成失败 (HTTP ${response.status}): ${errText}`);
+            }
+            return null;
+        }
+
+        const data = await response.json();
+        const baseResp = data && data.base_resp ? data.base_resp : null;
+        if (baseResp && Number(baseResp.status_code) !== 0) {
+            voiceDebugError(debugTraceId, 'LYRICS:api_error', baseResp);
+            if (!suppressAlert) {
+                alert(`歌词生成API错误: ${baseResp.status_msg || 'unknown'} (Code: ${baseResp.status_code})`);
+            }
+            return null;
+        }
+
+        const lyrics = normalizeMinimaxLyricsText(
+            extractMinimaxLyricsCandidate(data) || extractMinimaxLyricsCandidate(data && data.data ? data.data : null),
+            3500
+        );
+        const songTitle = String((data && data.song_title) || (data && data.data && data.data.song_title) || '').trim();
+        const styleTags = String((data && data.style_tags) || (data && data.data && data.data.style_tags) || '').trim();
+        voiceDebugLog(debugTraceId, 'LYRICS:result', {
+            lyricsLength: lyrics.length,
+            songTitleLength: songTitle.length,
+            styleTagsLength: styleTags.length
+        });
+        if (!lyrics) return null;
+        return {
+            lyrics,
+            songTitle,
+            styleTags,
+            raw: data
+        };
+    } catch (error) {
+        voiceDebugError(debugTraceId, 'LYRICS:exception', error);
+        if (!suppressAlert) {
+            alert(`歌词生成异常: ${error.message}`);
+        }
+        return null;
+    }
+}
+
+function extractSongIdFromMusicLink(url) {
+    const raw = String(url || '').trim();
+    if (!raw) return { provider: '', id: '' };
+    const lower = raw.toLowerCase();
+    if (lower.includes('music.163.com')) {
+        let id = '';
+        let matched = raw.match(/[?&]id=(\d+)/i);
+        if (matched) id = String(matched[1] || '');
+        if (!id) {
+            matched = raw.match(/song\/(\d+)/i);
+            if (matched) id = String(matched[1] || '');
+        }
+        if (id) return { provider: 'netease', id };
+    }
+    if (/(y\.qq\.com|qqmusic|c\.y\.qq\.com)/i.test(lower)) {
+        let id = '';
+        let matched = raw.match(/[?&]songmid=([A-Za-z0-9]+)/i);
+        if (matched) id = String(matched[1] || '');
+        if (!id) {
+            matched = raw.match(/song\/([A-Za-z0-9]+)\.html/i);
+            if (matched) id = String(matched[1] || '');
+        }
+        if (id) return { provider: 'qqmusic', id };
+    }
+    return { provider: '', id: '' };
+}
+
+async function resolveMusicLinkToAudioUrl(rawUrl) {
+    const source = String(rawUrl || '').trim();
+    if (!source) return '';
+    if (/\.(mp3|wav|flac|m4a|aac|ogg|opus)(?:\?|#|$)/i.test(source)) {
+        return source;
+    }
+
+    if (typeof window.musicV2ResolveSharedSongLink === 'function') {
+        try {
+            const resolved = await window.musicV2ResolveSharedSongLink(source);
+            const resolvedAudio = String(resolved && resolved.audioUrl || '').trim();
+            if (resolvedAudio) return resolvedAudio;
+        } catch (error) {}
+    }
+
+    const parsed = extractSongIdFromMusicLink(source);
+    if (!parsed.provider || !parsed.id) return '';
+
+    const candidates = [];
+    if (parsed.provider === 'netease') {
+        candidates.push(`https://ncm.nekogan.com/song/url/v1?id=${encodeURIComponent(parsed.id)}&level=standard`);
+        candidates.push(`https://music.163.com/song/media/outer/url?id=${encodeURIComponent(parsed.id)}.mp3`);
+    } else if (parsed.provider === 'qqmusic') {
+        candidates.push(`https://api.ygking.top/qqmusic/song?songmid=${encodeURIComponent(parsed.id)}`);
+        candidates.push(`https://api.ygking.top/qqmusic/url?songmid=${encodeURIComponent(parsed.id)}`);
+    }
+
+    for (const endpoint of candidates) {
+        try {
+            const resp = await fetch(endpoint, { method: 'GET' });
+            if (!resp.ok) continue;
+            const contentType = String(resp.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('audio/')) {
+                return endpoint;
+            }
+            const text = await resp.text();
+            if (!text) continue;
+            let data = null;
+            try {
+                data = JSON.parse(text);
+            } catch (error) {}
+            if (data && typeof data === 'object') {
+                const probes = [
+                    data.url,
+                    data.data && data.data.url,
+                    Array.isArray(data.data) && data.data[0] ? data.data[0].url : '',
+                    data.song && data.song.url,
+                    data.result && data.result.url,
+                    data.play_url,
+                    data.playUrl
+                ];
+                for (const probe of probes) {
+                    const candidate = String(probe || '').trim();
+                    if (/^https?:\/\//i.test(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+            const matched = text.match(/https?:\/\/[^\s"'\\]+?\.(?:mp3|m4a|aac|wav|flac|ogg|opus)(?:\?[^\s"'\\]*)?/i);
+            if (matched) {
+                return String(matched[0] || '').trim();
+            }
+        } catch (error) {}
+    }
+
+    return '';
+}
+
+async function generateMinimaxMusicCover(msgData = {}, options = {}) {
+    const settings = window.iphoneSimState.minimaxSettings || {};
+    const suppressAlert = !!(options && options.suppressAlert);
+    const debugTraceId = String(options && options.debugTraceId || createVoiceDebugTraceId('cover')).trim();
+    const key = String(settings.key || '').trim();
+    voiceDebugLog(debugTraceId, 'COVER:prepare', {
+        hasKey: !!key,
+        model: String(msgData && msgData.musicOptions && msgData.musicOptions.model || 'music-cover-free'),
+        hasCoverAudioUrl: !!String(msgData.coverAudioUrl || '').trim(),
+        hasCoverAudioBase64: !!String(msgData.coverAudioBase64 || '').trim(),
+        hasCoverFeatureId: !!String(msgData.coverFeatureId || '').trim()
+    });
+    if (!key) {
+        if (!suppressAlert) alert('Minimax API Key 未配置');
+        return null;
+    }
+
+    const originalAudioUrl = String(msgData.coverAudioUrl || '').trim();
+    const audioUrl = originalAudioUrl ? (await resolveMusicLinkToAudioUrl(originalAudioUrl) || originalAudioUrl) : '';
+    const audioBase64 = String(msgData.coverAudioBase64 || '').trim();
+    const featureId = String(msgData.coverFeatureId || '').trim();
+    voiceDebugLog(debugTraceId, 'COVER:input:resolved', {
+        originalAudioUrl,
+        resolvedAudioUrl: audioUrl,
+        hasAudioBase64: !!audioBase64,
+        hasFeatureId: !!featureId
+    });
+    if (!audioUrl && !audioBase64 && !featureId) {
+        voiceDebugLog(debugTraceId, 'COVER:skip:no_audio_reference');
+        return null;
+    }
+
+    let url = buildMinimaxMusicGenerationUrl();
+    if (settings.groupId) {
+        const separator = url.includes('?') ? '&' : '?';
+        url = `${url}${separator}GroupId=${settings.groupId}`;
+    }
+
+    const musicOptions = (msgData.musicOptions && typeof msgData.musicOptions === 'object' && !Array.isArray(msgData.musicOptions))
+        ? msgData.musicOptions
+        : {};
+    const payload = {
+        model: String(musicOptions.model || 'music-cover-free'),
+        generation_mode: 'cover',
+        output_format: String(musicOptions.output_format || 'hex'),
+        prompt: String(msgData.coverPrompt || msgData.melodyHint || 'Keep original melody and rhythm, natural expressive vocal cover')
+    };
+    if (audioUrl) payload.audio_url = audioUrl;
+    if (audioBase64) payload.audio_base64 = audioBase64;
+    if (featureId) payload.refer_voice = featureId;
+
+    try {
+        voiceDebugLog(debugTraceId, 'COVER:request:start', { url, payloadSummary: { model: payload.model, output_format: payload.output_format, generation_mode: payload.generation_mode, hasAudioUrl: !!payload.audio_url, hasAudioBase64: !!payload.audio_base64, hasReferVoice: !!payload.refer_voice } });
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        voiceDebugLog(debugTraceId, 'COVER:request:response', { status: response.status, ok: response.ok });
+        if (!response.ok) {
+            const errText = await response.text();
+            voiceDebugError(debugTraceId, `COVER:http_error:${response.status}`, errText);
+            if (!suppressAlert) {
+                alert(`唱歌生成失败 (HTTP ${response.status}): ${errText}`);
+            }
+            return null;
+        }
+
+        const data = await response.json();
+        voiceDebugLog(debugTraceId, 'COVER:response:json', {
+            hasTopAudioCandidate: !!extractMinimaxMusicAudioCandidate(data),
+            hasNestedAudioCandidate: !!extractMinimaxMusicAudioCandidate(data && data.data ? data.data : null),
+            taskId: String((data && (data.task_id || data.taskId)) || (data && data.data && (data.data.task_id || data.data.taskId)) || '').trim()
+        });
+        const immediateCandidate = extractMinimaxMusicAudioCandidate(data)
+            || extractMinimaxMusicAudioCandidate(data && data.data ? data.data : null);
+        if (immediateCandidate) {
+            const normalized = await normalizeMinimaxAudioPayloadToDataUrl(immediateCandidate, 'audio/mp3');
+            voiceDebugLog(debugTraceId, 'COVER:result:immediate', summarizeVoiceAudioValue(normalized));
+            return normalized;
+        }
+
+        const taskId = String((data && (data.task_id || data.taskId)) || (data && data.data && (data.data.task_id || data.data.taskId)) || '').trim();
+        if (taskId) {
+            const pollUrl = `${buildMinimaxMusicGenerationUrl().replace(/\?.*$/, '')}/${encodeURIComponent(taskId)}${settings.groupId ? `?GroupId=${encodeURIComponent(settings.groupId)}` : ''}`;
+            voiceDebugLog(debugTraceId, 'COVER:poll:start', { pollUrl, maxAttempts: 12 });
+            for (let attempt = 0; attempt < 12; attempt++) {
+                await new Promise(r => setTimeout(r, 1500));
+                const pollResp = await fetch(pollUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${key}`
+                    }
+                });
+                voiceDebugLog(debugTraceId, 'COVER:poll:response', { attempt: attempt + 1, status: pollResp.status, ok: pollResp.ok });
+                if (!pollResp.ok) continue;
+                const pollData = await pollResp.json();
+                const candidate = extractMinimaxMusicAudioCandidate(pollData)
+                    || extractMinimaxMusicAudioCandidate(pollData && pollData.data ? pollData.data : null);
+                if (candidate) {
+                    const normalized = await normalizeMinimaxAudioPayloadToDataUrl(candidate, 'audio/mp3');
+                    voiceDebugLog(debugTraceId, 'COVER:result:polled', summarizeVoiceAudioValue(normalized));
+                    return normalized;
+                }
+                const statusText = String((pollData && (pollData.status || pollData.state))
+                    || (pollData && pollData.data && (pollData.data.status || pollData.data.state))
+                    || '').toLowerCase();
+                voiceDebugLog(debugTraceId, 'COVER:poll:status', { attempt: attempt + 1, statusText });
+                if (statusText && (statusText.includes('failed') || statusText.includes('error') || statusText.includes('cancel'))) {
+                    break;
+                }
+            }
+        }
+
+        voiceDebugLog(debugTraceId, 'COVER:result:none');
+        if (!suppressAlert) {
+            alert('唱歌生成失败：未获取到可播放音频');
+        }
+        return null;
+    } catch (error) {
+        voiceDebugError(debugTraceId, 'COVER:exception', error);
+        if (!suppressAlert) {
+            alert(`唱歌生成异常: ${error.message}`);
+        }
+        return null;
+    }
+}
+
+async function generateMinimaxOriginalMusic(msgData = {}, options = {}) {
+    const settings = window.iphoneSimState.minimaxSettings || {};
+    const suppressAlert = !!(options && options.suppressAlert);
+    const debugTraceId = String(options && options.debugTraceId || createVoiceDebugTraceId('orig')).trim();
+    const key = String(settings.key || '').trim();
+    const musicOptions = (msgData.musicOptions && typeof msgData.musicOptions === 'object' && !Array.isArray(msgData.musicOptions))
+        ? msgData.musicOptions
+        : {};
+    const prompt = String(msgData.prompt || msgData.composePrompt || '').trim();
+    const lyrics = normalizeMinimaxLyricsText(msgData.lyrics, 3500);
+    const isInstrumental = !!msgData.isInstrumental;
+    const preferredVoiceId = String(
+        musicOptions.voice_id
+        || msgData.voice_id
+        || musicOptions.contact_voice_id
+        || msgData.contact_voice_id
+        || msgData.contactVoiceId
+        || ''
+    ).trim();
+
+    voiceDebugLog(debugTraceId, 'ORIG:prepare', {
+        hasKey: !!key,
+        model: String(musicOptions.model || msgData.model || 'music-2.6-free'),
+        promptLength: prompt.length,
+        lyricsLength: lyrics.length,
+        isInstrumental,
+        hasPreferredVoiceId: !!preferredVoiceId
+    });
+
+    if (!key) {
+        if (!suppressAlert) alert('Minimax API Key 未配置');
+        return null;
+    }
+
+    let url = buildMinimaxMusicGenerationUrl();
+    if (settings.groupId) {
+        const separator = url.includes('?') ? '&' : '?';
+        url = `${url}${separator}GroupId=${settings.groupId}`;
+    }
+
+    const payload = {
+        model: String(musicOptions.model || msgData.model || 'music-2.6-free'),
+        output_format: String(musicOptions.output_format || 'hex'),
+        prompt: prompt || 'Pop ballad, emotional, 95 BPM, modern arrangement, clear vocals',
+        is_instrumental: isInstrumental
+    };
+    if (musicOptions.audio_setting && typeof musicOptions.audio_setting === 'object' && !Array.isArray(musicOptions.audio_setting)) {
+        payload.audio_setting = { ...musicOptions.audio_setting };
+    }
+    if (isInstrumental) {
+        payload.lyrics = '';
+    } else if (lyrics) {
+        payload.lyrics = lyrics;
+    } else {
+        payload.lyrics = '';
+        payload.lyrics_optimizer = true;
+    }
+    const requestAttempts = [];
+    if (preferredVoiceId) {
+        requestAttempts.push({
+            name: 'with_voice_id',
+            payload: Object.assign({}, payload, { voice_id: preferredVoiceId })
+        });
+    }
+    requestAttempts.push({
+        name: 'base',
+        payload: payload
+    });
+
+    try {
+        for (let reqIdx = 0; reqIdx < requestAttempts.length; reqIdx++) {
+            const request = requestAttempts[reqIdx];
+            const isLastAttempt = reqIdx === requestAttempts.length - 1;
+            voiceDebugLog(debugTraceId, 'ORIG:request:start', {
+                attempt: request.name,
+                url,
+                payloadSummary: {
+                    model: request.payload.model,
+                    output_format: request.payload.output_format,
+                    promptLength: String(request.payload.prompt || '').length,
+                    lyricsLength: String(request.payload.lyrics || '').length,
+                    lyrics_optimizer: !!request.payload.lyrics_optimizer,
+                    is_instrumental: !!request.payload.is_instrumental,
+                    hasVoiceId: !!String(request.payload.voice_id || '').trim()
+                }
+            });
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(request.payload)
+            });
+            voiceDebugLog(debugTraceId, 'ORIG:request:response', {
+                attempt: request.name,
+                status: response.status,
+                ok: response.ok
+            });
+            if (!response.ok) {
+                const errText = await response.text();
+                voiceDebugError(debugTraceId, `ORIG:http_error:${response.status}:${request.name}`, errText);
+                if (!isLastAttempt) {
+                    voiceDebugLog(debugTraceId, 'ORIG:request:fallback_next_attempt', {
+                        fromAttempt: request.name
+                    });
+                    continue;
+                }
+                if (!suppressAlert) {
+                    alert(`原创生成失败 (HTTP ${response.status}): ${errText}`);
+                }
+                return null;
+            }
+
+            const data = await response.json();
+            const baseResp = data && data.base_resp ? data.base_resp : null;
+            if (baseResp && Number(baseResp.status_code) !== 0) {
+                voiceDebugError(debugTraceId, 'ORIG:api_error', {
+                    attempt: request.name,
+                    baseResp
+                });
+                if (!isLastAttempt) {
+                    voiceDebugLog(debugTraceId, 'ORIG:api_error:fallback_next_attempt', {
+                        fromAttempt: request.name
+                    });
+                    continue;
+                }
+                if (!suppressAlert) {
+                    alert(`原创生成API错误: ${baseResp.status_msg || 'unknown'} (Code: ${baseResp.status_code})`);
+                }
+                return null;
+            }
+
+            voiceDebugLog(debugTraceId, 'ORIG:response:json', {
+                attempt: request.name,
+                hasTopAudioCandidate: !!extractMinimaxMusicAudioCandidate(data),
+                hasNestedAudioCandidate: !!extractMinimaxMusicAudioCandidate(data && data.data ? data.data : null),
+                taskId: String((data && (data.task_id || data.taskId)) || (data && data.data && (data.data.task_id || data.data.taskId)) || '').trim()
+            });
+            const immediateCandidate = extractMinimaxMusicAudioCandidate(data)
+                || extractMinimaxMusicAudioCandidate(data && data.data ? data.data : null);
+            if (immediateCandidate) {
+                const normalized = await normalizeMinimaxAudioPayloadToDataUrl(immediateCandidate, 'audio/mp3');
+                voiceDebugLog(debugTraceId, 'ORIG:result:immediate', summarizeVoiceAudioValue(normalized));
+                return normalized;
+            }
+
+            const taskId = String((data && (data.task_id || data.taskId)) || (data && data.data && (data.data.task_id || data.data.taskId)) || '').trim();
+            if (taskId) {
+                const pollUrl = `${buildMinimaxMusicGenerationUrl().replace(/\?.*$/, '')}/${encodeURIComponent(taskId)}${settings.groupId ? `?GroupId=${encodeURIComponent(settings.groupId)}` : ''}`;
+                voiceDebugLog(debugTraceId, 'ORIG:poll:start', {
+                    attempt: request.name,
+                    pollUrl,
+                    maxAttempts: 12
+                });
+                for (let attempt = 0; attempt < 12; attempt++) {
+                    await new Promise(r => setTimeout(r, 1500));
+                    const pollResp = await fetch(pollUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${key}`
+                        }
+                    });
+                    voiceDebugLog(debugTraceId, 'ORIG:poll:response', {
+                        attempt: attempt + 1,
+                        requestAttempt: request.name,
+                        status: pollResp.status,
+                        ok: pollResp.ok
+                    });
+                    if (!pollResp.ok) continue;
+                    const pollData = await pollResp.json();
+                    const candidate = extractMinimaxMusicAudioCandidate(pollData)
+                        || extractMinimaxMusicAudioCandidate(pollData && pollData.data ? pollData.data : null);
+                    if (candidate) {
+                        const normalized = await normalizeMinimaxAudioPayloadToDataUrl(candidate, 'audio/mp3');
+                        voiceDebugLog(debugTraceId, 'ORIG:result:polled', summarizeVoiceAudioValue(normalized));
+                        return normalized;
+                    }
+                    const statusText = String((pollData && (pollData.status || pollData.state))
+                        || (pollData && pollData.data && (pollData.data.status || pollData.data.state))
+                        || '').toLowerCase();
+                    voiceDebugLog(debugTraceId, 'ORIG:poll:status', {
+                        attempt: attempt + 1,
+                        requestAttempt: request.name,
+                        statusText
+                    });
+                    if (statusText && (statusText.includes('failed') || statusText.includes('error') || statusText.includes('cancel'))) {
+                        break;
+                    }
+                }
+            }
+
+            if (!isLastAttempt) {
+                voiceDebugLog(debugTraceId, 'ORIG:result:none_try_next_attempt', {
+                    fromAttempt: request.name
+                });
+                continue;
+            }
+        }
+
+        voiceDebugLog(debugTraceId, 'ORIG:result:none');
+        if (!suppressAlert) {
+            alert('原创生成失败：未获取到可播放音频');
+        }
+        return null;
+    } catch (error) {
+        voiceDebugError(debugTraceId, 'ORIG:exception', error);
+        if (!suppressAlert) {
+            alert(`原创生成异常: ${error.message}`);
+        }
+        return null;
+    }
+}
+
+window.musicV2GenerateMinimaxTTS = generateMinimaxTTS;
+window.musicV2GenerateMinimaxMusicCover = generateMinimaxMusicCover;
+window.musicV2GenerateMinimaxLyrics = generateMinimaxLyrics;
+window.musicV2GenerateMinimaxOriginalMusic = generateMinimaxOriginalMusic;
 
 async function handleFetchWhisperModels() {
     const url = window.iphoneSimState.whisperSettings.url;
@@ -7516,6 +8239,14 @@ async function processVoiceCallAudio(audioBlob) {
 
 window.playVoiceMsg = async function(msgId, textElId, event) {
     if (event) event.stopPropagation();
+    const debugTraceId = createVoiceDebugTraceId(`play_${msgId}`);
+    voiceDebugLog(debugTraceId, 'PLAY:click', {
+        msgId,
+        textElId,
+        contactId: String(window.iphoneSimState.currentChatContactId || ''),
+        hasCurrentVoiceAudio: !!currentVoiceAudio,
+        currentVoiceMsgId: currentVoiceMsgId
+    });
 
     const btn = event.currentTarget;
     const icon = btn.querySelector('i');
@@ -7529,10 +8260,12 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
     };
 
     if (currentVoiceMsgId === msgId && currentVoiceAudio && !currentVoiceAudio.paused) {
+        voiceDebugLog(debugTraceId, 'PLAY:skip:already_playing');
         return;
     }
 
     if (icon && icon.classList.contains('fa-spinner')) {
+        voiceDebugLog(debugTraceId, 'PLAY:skip:icon_loading');
         return;
     }
 
@@ -7556,7 +8289,7 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
     }
 
     if (!targetMsg) {
-        console.error('Message not found:', msgId);
+        voiceDebugError(debugTraceId, 'PLAY:error:message_not_found', { msgId });
         return;
     }
 
@@ -7564,13 +8297,25 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
     try {
         msgData = typeof targetMsg.content === 'string' ? JSON.parse(targetMsg.content) : targetMsg.content;
     } catch (e) {
-        console.error('Parse error', e);
+        voiceDebugError(debugTraceId, 'PLAY:error:parse_message_content', e);
         return;
     }
+    voiceDebugLog(debugTraceId, 'PLAY:message:parsed', {
+        type: String(targetMsg.type || ''),
+        mode: String(msgData && msgData.mode || ''),
+        isReal: !!(msgData && msgData.isReal),
+        hasAudio: !!(msgData && msgData.audio),
+        audioSummary: summarizeVoiceAudioValue(msgData && msgData.audio),
+        textLength: String(msgData && (msgData.text || msgData.ttsText) || '').length
+    });
 
     if (!msgData.audio && !msgData.isReal) {
         const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
         if (!contact || !contact.ttsEnabled) {
+            voiceDebugLog(debugTraceId, 'PLAY:blocked:tts_disabled_or_contact_missing', {
+                hasContact: !!contact,
+                ttsEnabled: !!(contact && contact.ttsEnabled)
+            });
             alert('无法播放：未启用TTS或联系人不存在');
             return;
         }
@@ -7580,18 +8325,73 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
         }
 
         try {
-            const audioData = await generateMinimaxTTS(msgData.text, contact.ttsVoiceId);
+            const ttsSourceText = String(msgData.ttsText || msgData.text || '').trim();
+            const singOptions = (msgData.ttsOptions && typeof msgData.ttsOptions === 'object' && !Array.isArray(msgData.ttsOptions))
+                ? msgData.ttsOptions
+                : {};
+            const shouldUseSingMode = String(msgData.mode || '').toLowerCase() === 'sing';
+            const shouldUseSingCoverMode = String(msgData.mode || '').toLowerCase() === 'sing_cover';
+            const shouldUseSingStyleMode = shouldUseSingMode || shouldUseSingCoverMode;
+            voiceDebugLog(debugTraceId, 'PLAY:generate:start', {
+                shouldUseSingMode,
+                shouldUseSingCoverMode,
+                shouldUseSingStyleMode,
+                hasTtsText: !!ttsSourceText,
+                singOptionsKeys: Object.keys(singOptions || {})
+            });
+            let audioData = null;
+            if (shouldUseSingCoverMode) {
+                voiceDebugLog(debugTraceId, 'PLAY:generate:cover:attempt');
+                audioData = await generateMinimaxMusicCover(msgData, { suppressAlert: true, debugTraceId });
+                voiceDebugLog(debugTraceId, 'PLAY:generate:cover:result', summarizeVoiceAudioValue(audioData));
+            }
+            if (!audioData) {
+                const plainSingTtsOptions = shouldUseSingCoverMode
+                    ? {
+                        suppressAlert: true,
+                        debugTraceId,
+                        model: singOptions.model,
+                        voice_setting: (singOptions.voice_setting && typeof singOptions.voice_setting === 'object')
+                            ? { ...singOptions.voice_setting }
+                            : undefined,
+                        audio_setting: (singOptions.audio_setting && typeof singOptions.audio_setting === 'object')
+                            ? { ...singOptions.audio_setting }
+                            : undefined
+                    }
+                    : null;
+                voiceDebugLog(debugTraceId, 'PLAY:generate:tts:attempt', {
+                    textLength: String(shouldUseSingStyleMode ? (ttsSourceText || String(msgData.text || '').trim()) : String(msgData.text || '').trim()).length,
+                    usePlainSingOptions: !!shouldUseSingCoverMode
+                });
+                audioData = await generateMinimaxTTS(
+                    shouldUseSingStyleMode ? (ttsSourceText || String(msgData.text || '').trim()) : String(msgData.text || '').trim(),
+                    contact.ttsVoiceId,
+                    shouldUseSingStyleMode
+                        ? (shouldUseSingCoverMode ? plainSingTtsOptions : { ...singOptions, suppressAlert: true, debugTraceId })
+                        : { suppressAlert: true, debugTraceId }
+                );
+                voiceDebugLog(debugTraceId, 'PLAY:generate:tts:result', summarizeVoiceAudioValue(audioData));
+            }
+            if (!audioData && shouldUseSingStyleMode) {
+                voiceDebugLog(debugTraceId, 'PLAY:generate:tts:fallback_attempt', {
+                    textLength: String(msgData.text || ttsSourceText || '').trim().length
+                });
+                audioData = await generateMinimaxTTS(String(msgData.text || ttsSourceText || '').trim(), contact.ttsVoiceId, { suppressAlert: true, debugTraceId });
+                voiceDebugLog(debugTraceId, 'PLAY:generate:tts:fallback_result', summarizeVoiceAudioValue(audioData));
+            }
             if (audioData) {
                 msgData.audio = audioData;
                 targetMsg.content = JSON.stringify(msgData);
                 saveConfig();
+                voiceDebugLog(debugTraceId, 'PLAY:generate:success_saved', summarizeVoiceAudioValue(audioData));
             } else {
+                voiceDebugLog(debugTraceId, 'PLAY:generate:failed');
                 alert('语音生成失败，请检查API配置');
                 if (icon) icon.className = getIdleIconClass();
                 return;
             }
         } catch (e) {
-            console.error('TTS generation error:', e);
+            voiceDebugError(debugTraceId, 'PLAY:error:tts_generation', e);
             alert('语音生成出错');
             if (icon) icon.className = getIdleIconClass();
             return;
@@ -7600,8 +8400,15 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
 
     if (msgData.audio) {
         // 验证音频数据格式
-        if (!msgData.audio.startsWith('data:audio/')) {
-            console.error('Invalid audio data format');
+        const isDataAudio = typeof msgData.audio === 'string' && msgData.audio.startsWith('data:audio/');
+        const isHttpAudio = typeof msgData.audio === 'string' && /^https?:\/\//i.test(msgData.audio);
+        voiceDebugLog(debugTraceId, 'PLAY:audio:validate', {
+            isDataAudio,
+            isHttpAudio,
+            summary: summarizeVoiceAudioValue(msgData.audio)
+        });
+        if (!isDataAudio && !isHttpAudio) {
+            voiceDebugError(debugTraceId, 'PLAY:error:invalid_audio_data', summarizeVoiceAudioValue(msgData.audio));
             if (icon) icon.className = getIdleIconClass();
             alert('音频格式错误，请重新录制');
             return;
@@ -7618,6 +8425,7 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
             }
             
             audio.onended = () => {
+                voiceDebugLog(debugTraceId, 'PLAY:audio:onended', { msgId });
                 if (icon) {
                     icon.className = getIdleIconClass();
                 }
@@ -7629,7 +8437,11 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
             };
             
             audio.onerror = (e) => {
-                console.error('Audio play error', e, 'Audio src length:', msgData.audio ? msgData.audio.length : 0);
+                voiceDebugError(debugTraceId, 'PLAY:audio:onerror', {
+                    error: e,
+                    srcLength: msgData.audio ? msgData.audio.length : 0,
+                    srcSummary: summarizeVoiceAudioValue(msgData.audio)
+                });
                 if (icon) icon.className = getIdleIconClass();
                 
                 // 更友好的错误提示
@@ -7651,13 +8463,33 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
                     currentVoiceIcon = null;
                 }
             };
+
+            audio.onloadedmetadata = () => {
+                voiceDebugLog(debugTraceId, 'PLAY:audio:onloadedmetadata', {
+                    duration: Number.isFinite(audio.duration) ? audio.duration : null,
+                    readyState: audio.readyState
+                });
+            };
+            audio.oncanplay = () => {
+                voiceDebugLog(debugTraceId, 'PLAY:audio:oncanplay', {
+                    readyState: audio.readyState,
+                    networkState: audio.networkState
+                });
+            };
+            audio.onplaying = () => {
+                voiceDebugLog(debugTraceId, 'PLAY:audio:onplaying', {
+                    currentTime: audio.currentTime,
+                    paused: audio.paused
+                });
+            };
             
             // 设置音频源并播放
             audio.src = msgData.audio;
             audio.load(); // 预加载
+            voiceDebugLog(debugTraceId, 'PLAY:audio:load_called');
             
             audio.play().catch(err => {
-                console.error('Play error:', err);
+                voiceDebugError(debugTraceId, 'PLAY:audio:play_rejected', err);
                 if (icon) icon.className = getIdleIconClass();
                 
                 // 更详细的错误信息
@@ -7683,11 +8515,12 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
                 }
             });
         } catch (err) {
-            console.error('Audio creation error:', err);
+            voiceDebugError(debugTraceId, 'PLAY:error:audio_creation', err);
             if (icon) icon.className = getIdleIconClass();
             alert('音频初始化失败');
         }
     } else {
+        voiceDebugLog(debugTraceId, 'PLAY:audio:empty_after_generation');
         if (icon) icon.className = getIdleIconClass();
         alert('该消息没有音频数据。');
     }

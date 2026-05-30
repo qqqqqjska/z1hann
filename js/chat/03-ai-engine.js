@@ -40,6 +40,599 @@ const CHAT_IMAGE_PORTRAIT_KEYWORDS = [
     'portrait', 'selfie', 'face', 'facial', 'person', 'people', 'human', 'character', 'model', 'boy', 'girl', 'man', 'woman', 'upper body', 'full body'
 ];
 const CHAT_IMAGE_NO_PERSON_NEGATIVE_TOKENS = ['no people', 'no person', 'no human', 'no humans', 'no character'];
+const CHAT_SING_VOICE_COOLDOWN_MS = 20 * 60 * 1000;
+const CHAT_SING_VOICE_DURATION_MIN = 4;
+const CHAT_SING_VOICE_DURATION_MAX = 12;
+const CHAT_SING_VOICE_DURATION_DEFAULT = 8;
+const CHAT_SING_VOICE_PROACTIVE_PROBABILITY = 0.35;
+
+function getChatSingVoiceRuntime() {
+    if (!window.__chatSingVoiceRuntime || typeof window.__chatSingVoiceRuntime !== 'object') {
+        window.__chatSingVoiceRuntime = { lastByContact: {} };
+    }
+    if (!window.__chatSingVoiceRuntime.lastByContact || typeof window.__chatSingVoiceRuntime.lastByContact !== 'object') {
+        window.__chatSingVoiceRuntime.lastByContact = {};
+    }
+    return window.__chatSingVoiceRuntime;
+}
+
+function getChatSingVoiceLastAt(contactId) {
+    const cid = String(contactId || '').trim();
+    if (!cid) return 0;
+    const runtime = getChatSingVoiceRuntime();
+    const value = Number(runtime.lastByContact[cid] || 0);
+    return Number.isFinite(value) ? value : 0;
+}
+
+function markChatSingVoiceUsed(contactId, atMs = Date.now()) {
+    const cid = String(contactId || '').trim();
+    if (!cid) return;
+    const runtime = getChatSingVoiceRuntime();
+    runtime.lastByContact[cid] = Number(atMs) || Date.now();
+}
+
+function clampChatSingDuration(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return CHAT_SING_VOICE_DURATION_DEFAULT;
+    const rounded = Math.round(num);
+    return Math.max(CHAT_SING_VOICE_DURATION_MIN, Math.min(CHAT_SING_VOICE_DURATION_MAX, rounded));
+}
+
+function extractLatestUserTextForSing(history, maxCount = 3) {
+    const lines = [];
+    const safeHistory = Array.isArray(history) ? history : [];
+    for (let i = safeHistory.length - 1; i >= 0 && lines.length < maxCount; i--) {
+        const msg = safeHistory[i];
+        if (!msg || msg.role !== 'user') continue;
+        const msgType = String(msg.type || 'text').toLowerCase();
+        if (msgType === 'voice') {
+            try {
+                const voiceData = typeof msg.content === 'string' ? JSON.parse(msg.content) : (msg.content || {});
+                const voiceText = String(voiceData && voiceData.text || '').trim();
+                if (voiceText) lines.push(voiceText);
+            } catch (error) {}
+            continue;
+        }
+        const text = String(msg.content || '').trim();
+        if (text) lines.push(text);
+    }
+    return lines.join('\n').trim();
+}
+
+function hasExplicitSingIntent(text) {
+    const source = String(text || '').trim();
+    if (!source) return false;
+    return /(唱|哼|来一段|来首|唱两句|唱几句|哼两句|哼几句|唱一下|哼一下|sing|hum|humming)/i.test(source);
+}
+
+function isSeriousTopicForSing(text) {
+    const source = String(text || '').trim();
+    if (!source) return false;
+    return /(转账|付款|支付|红包|亲属卡|验证码|账号|密码|医院|报警|法律|合同|工作汇报|面试|考试|作业|截止|催款|还钱|退款|紧急|urgent|asap)/i.test(source);
+}
+
+function shouldAllowSingVoiceAction(contactId, history) {
+    const recentUserText = extractLatestUserTextForSing(history, 3);
+    if (isSeriousTopicForSing(recentUserText)) {
+        return { allow: false, explicitRequest: false, reason: 'serious_context', recentUserText };
+    }
+    const explicitRequest = hasExplicitSingIntent(recentUserText);
+    if (explicitRequest) {
+        return { allow: true, explicitRequest: true, reason: 'explicit_request', recentUserText };
+    }
+    const lastAt = getChatSingVoiceLastAt(contactId);
+    if (lastAt > 0 && (Date.now() - lastAt) < CHAT_SING_VOICE_COOLDOWN_MS) {
+        return { allow: false, explicitRequest: false, reason: 'cooldown', recentUserText };
+    }
+    const hit = Math.random() < CHAT_SING_VOICE_PROACTIVE_PROBABILITY;
+    return { allow: hit, explicitRequest: false, reason: hit ? 'proactive_allowed' : 'proactive_skip', recentUserText };
+}
+
+function normalizeSingVoiceLyrics(rawLyrics) {
+    const source = String(rawLyrics || '').replace(/\r\n/g, '\n').trim();
+    if (!source) return '';
+    const lines = source
+        .split('\n')
+        .map(item => String(item || '').trim())
+        .filter(Boolean)
+        .slice(0, 4);
+    const safeLines = (lines.length > 0 ? lines : [source])
+        .map(item => item.replace(/\((?:laughs|chuckle|coughs|clear-throat|groans|breath|pant|inhale|exhale|gasps|sniffs|sighs|snorts|burps|lip-smacking|humming|hissing|emm|sneezes)\)/ig, '').trim())
+        .filter(Boolean)
+        .slice(0, 4);
+    return safeLines.join('\n').trim();
+}
+
+function normalizeSingMelodyHint(rawHint) {
+    const source = String(rawHint || '').replace(/\r\n/g, ' ').replace(/\n+/g, ' ').trim();
+    if (!source) return '';
+    return source.replace(/[<>]/g, '').replace(/\s+/g, ' ').slice(0, 60).trim();
+}
+
+function hasOriginalMelodyIntent(text) {
+    const source = String(text || '').trim();
+    if (!source) return false;
+    return /(按原曲|原曲|原唱|同款旋律|这首歌|按这个旋律|跟着这个旋律|翻唱|cover|remix|同旋律|像这首歌)/i.test(source);
+}
+
+function buildSingCoverMissingReferenceText() {
+    return '你把歌曲链接或可访问的音频URL发我，我就能按原旋律唱这几句。';
+}
+
+function extractFirstUrlFromText(text) {
+    const source = String(text || '');
+    if (!source) return '';
+    const match = source.match(/https?:\/\/[^\s)）"'>]+/i);
+    return match ? String(match[0] || '').trim() : '';
+}
+
+function isLikelyAudioReferenceUrl(url) {
+    const raw = String(url || '').trim();
+    if (!raw) return false;
+    if (!/^https?:\/\//i.test(raw)) return false;
+    const lowered = raw.toLowerCase();
+    if (/\.(mp3|wav|flac|m4a|aac|ogg|opus)(?:\?|#|$)/i.test(lowered)) return true;
+    if (/(music\.163\.com|y\.music\.163\.com|163cn\.tv|y\.qq\.com|qqmusic|spotify|apple\.com\/.*music|soundcloud|bilibili|youtube|youtu\.be|douyin|xiaohongshu|filecdn|minimax\.chat|qijieya\.cn|meting)/i.test(lowered)) return true;
+    return false;
+}
+
+function extractCoverAudioUrlFromText(text) {
+    const url = extractFirstUrlFromText(text);
+    if (!url) return '';
+    return isLikelyAudioReferenceUrl(url) ? url : '';
+}
+
+function getChatMusicShareRuntime() {
+    if (!window.__chatMusicShareRuntime || typeof window.__chatMusicShareRuntime !== 'object') {
+        window.__chatMusicShareRuntime = {
+            sharedResolveCache: {}
+        };
+    }
+    if (!window.__chatMusicShareRuntime.sharedResolveCache || typeof window.__chatMusicShareRuntime.sharedResolveCache !== 'object') {
+        window.__chatMusicShareRuntime.sharedResolveCache = {};
+    }
+    return window.__chatMusicShareRuntime;
+}
+
+function buildChatMusicShareCacheKey(contactId, text) {
+    const cid = String(contactId || '').trim();
+    const source = String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!cid || !source) return '';
+    return `${cid}::${source.slice(0, 520)}`;
+}
+
+function isLikelySharedMusicText(text) {
+    const source = String(text || '').trim();
+    if (!source) return false;
+    if (/https?:\/\/[^\s]+/i.test(source) && /(music\.163\.com|163cn\.tv|y\.qq\.com|qqmusic|kugou|kuwo|spotify|apple\.com\/.*music|soundcloud|youtube|youtu\.be|bilibili)/i.test(source)) return true;
+    if (/(分享.*单曲|分享.*音乐|网易云音乐|qq音乐|这首歌|这首|原曲|cover|翻唱|听这首)/i.test(source)) return true;
+    return false;
+}
+
+function parseMusicSongShareContent(rawContent) {
+    if (!rawContent) return null;
+    let payload = rawContent;
+    if (typeof payload === 'string') {
+        const trimmed = payload.trim();
+        if (!trimmed) return null;
+        try {
+            payload = JSON.parse(trimmed);
+        } catch (error) {
+            return null;
+        }
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    const songId = String(payload.songId || payload.id || '').trim();
+    const title = String(payload.title || payload.songTitle || '').trim();
+    const artist = String(payload.artist || payload.songArtist || '').trim();
+    const audioUrl = String(payload.audioUrl || payload.src || '').trim();
+    const sourceUrl = String(payload.sourceUrl || payload.shareUrl || payload.originalUrl || '').trim();
+    const cover = String(payload.cover || payload.songCover || '').trim();
+    const provider = String(payload.provider || '').trim();
+    const lyricSnippet = String(payload.lyricSnippet || '').trim();
+    if (!songId && !title && !artist && !audioUrl && !sourceUrl) return null;
+    return {
+        ok: !!(audioUrl || sourceUrl || songId),
+        songId,
+        title,
+        artist,
+        audioUrl,
+        sourceUrl,
+        cover,
+        provider,
+        lyricSnippet,
+        debugReason: 'structured_song_share'
+    };
+}
+
+async function resolveStructuredMusicSharePayload(rawContent) {
+    const parsed = parseMusicSongShareContent(rawContent);
+    if (!parsed) return null;
+    if (parsed.audioUrl) return parsed;
+    if (typeof window.musicV2ResolveSharedSongLink === 'function') {
+        const resolverSeed = parsed.sourceUrl || parsed.songId || [parsed.title, parsed.artist].filter(Boolean).join(' ');
+        if (resolverSeed) {
+            try {
+                const resolved = await window.musicV2ResolveSharedSongLink(resolverSeed, { disableCache: false });
+                if (resolved && typeof resolved === 'object') {
+                    return {
+                        ...parsed,
+                        ...resolved,
+                        songId: String(resolved.songId || parsed.songId || '').trim(),
+                        title: String(resolved.title || parsed.title || '').trim(),
+                        artist: String(resolved.artist || parsed.artist || '').trim(),
+                        audioUrl: String(resolved.audioUrl || parsed.audioUrl || '').trim(),
+                        sourceUrl: String(resolved.sourceUrl || parsed.sourceUrl || '').trim(),
+                        cover: String(resolved.cover || parsed.cover || '').trim(),
+                        lyricSnippet: String(resolved.lyricSnippet || parsed.lyricSnippet || '').trim(),
+                        debugReason: 'structured_song_share_resolved'
+                    };
+                }
+            } catch (error) {}
+        }
+    }
+    return parsed;
+}
+
+function collectRecentMusicShareCandidates(history, maxCount = 8) {
+    const candidates = [];
+    const safeHistory = Array.isArray(history) ? history : [];
+    for (let i = safeHistory.length - 1; i >= 0 && candidates.length < maxCount; i--) {
+        const msg = safeHistory[i];
+        if (!msg || msg.role !== 'user') continue;
+        const msgType = String(msg.type || 'text').toLowerCase();
+        if (msgType === 'music_song_share') {
+            candidates.push({
+                text: String(msg.content || ''),
+                messageId: String(msg.id || ''),
+                time: Number(msg.time || 0),
+                isStructuredShare: true
+            });
+            continue;
+        }
+        let text = '';
+        if (msgType === 'voice') {
+            try {
+                const voiceData = typeof msg.content === 'string' ? JSON.parse(msg.content) : (msg.content || {});
+                text = String(voiceData && voiceData.text || '').trim();
+            } catch (error) {
+                text = '';
+            }
+        } else {
+            text = String(msg.content || '').trim();
+        }
+        if (!text) continue;
+        if (!isLikelySharedMusicText(text)) continue;
+        candidates.push({
+            text,
+            messageId: String(msg.id || ''),
+            time: Number(msg.time || 0)
+        });
+    }
+    return candidates;
+}
+
+async function resolveRecentMusicShareContext(contactId, history, options = {}) {
+    if (typeof window.musicV2ResolveSharedSongLink !== 'function') return null;
+    const candidates = collectRecentMusicShareCandidates(history, 8);
+    if (!candidates.length) return null;
+    const runtime = getChatMusicShareRuntime();
+    const cache = runtime.sharedResolveCache;
+    const forceRefresh = !!(options && options.forceRefresh);
+
+    for (const candidate of candidates) {
+        if (candidate && candidate.isStructuredShare) {
+            const structured = await resolveStructuredMusicSharePayload(candidate.text);
+            if (structured) {
+                structured._sourceText = candidate.text;
+                structured._messageId = candidate.messageId;
+                return structured;
+            }
+            continue;
+        }
+        const key = buildChatMusicShareCacheKey(contactId, candidate.text);
+        if (!forceRefresh && key && cache[key] && typeof cache[key] === 'object') {
+            const cached = cache[key];
+            if (Number(cached.expireAt || 0) > Date.now()) {
+                const value = cached.value && typeof cached.value === 'object' ? { ...cached.value } : null;
+                if (value) {
+                    value._sourceText = candidate.text;
+                    value._messageId = candidate.messageId;
+                    return value;
+                }
+            }
+        }
+        try {
+            const resolved = await window.musicV2ResolveSharedSongLink(candidate.text, { disableCache: false });
+            if (resolved && typeof resolved === 'object') {
+                const normalized = { ...resolved };
+                normalized._sourceText = candidate.text;
+                normalized._messageId = candidate.messageId;
+                if (key) {
+                    cache[key] = {
+                        value: { ...normalized },
+                        expireAt: Date.now() + ((resolved.ok ? 25 : 4) * 60 * 1000)
+                    };
+                }
+                if (resolved.ok || resolved.songId || resolved.title || resolved.audioUrl) {
+                    return normalized;
+                }
+            }
+        } catch (error) {}
+    }
+    return null;
+}
+
+function buildMusicShareContextPromptLine(resolved) {
+    if (!resolved || typeof resolved !== 'object') return '';
+    const title = String(resolved.title || '').trim() || '未知歌曲';
+    const artist = String(resolved.artist || '').trim() || '未知歌手';
+    const songId = String(resolved.songId || '').trim();
+    const audioUrl = String(resolved.audioUrl || '').trim();
+    const lyric = String(resolved.lyricSnippet || '').trim();
+    const sourceUrl = String(resolved.sourceUrl || '').trim();
+    const lines = [];
+    lines.push('\n【用户最近分享的歌曲】');
+    lines.push(`- 歌曲：${title} - ${artist}${songId ? ` (id=${songId})` : ''}`);
+    if (lyric) {
+        lines.push(`- 参考歌词片段：${lyric}`);
+    }
+    if (audioUrl) {
+        lines.push(`- 可用音频URL：${audioUrl}`);
+    }
+    if (sourceUrl) {
+        lines.push(`- 原始分享链接：${sourceUrl}`);
+    }
+    lines.push('- 若用户让你“唱这首/按原曲唱几句”，请先正常回应并引导对方去音乐个人主页点「催更」生成翻唱。');
+    return lines.join('\n');
+}
+
+function buildSingVoiceTtsText(displayLyrics, melodyHint = '') {
+    const lines = String(displayLyrics || '').split('\n').map(item => item.trim()).filter(Boolean);
+    if (lines.length === 0) return '';
+    const normalizedLines = lines
+        .map(line => line.replace(/[。！？!?]/g, '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .slice(0, 4);
+    if (normalizedLines.length === 0) return '';
+    const melodicBody = normalizedLines
+        .map(line => `${line}～`)
+        .join(' <#0.26#> ');
+    const intro = melodyHint
+        ? '(humming) 嗯～ <#0.18#> 嗯～'
+        : '(humming)';
+    return `${intro} <#0.15#> ${melodicBody} <#0.2#> (humming)`;
+}
+
+function buildPlainSingVoiceTtsText(displayLyrics) {
+    const lines = String(displayLyrics || '')
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map(item => String(item || '').replace(/[()<>]/g, '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .slice(0, 4);
+    return lines.join('，');
+}
+
+function selectSingTtsModel(defaultModel) {
+    const model = String(defaultModel || '').trim();
+    if (/^speech-2\.8-(?:hd|turbo)$/i.test(model)) return model;
+    return 'speech-2.8-turbo';
+}
+
+function parseSingVoicePayload(rawPayload) {
+    let payload = rawPayload;
+    if (typeof payload === 'string') {
+        const trimmed = payload.trim();
+        if (trimmed && ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']')))) {
+            try {
+                payload = JSON.parse(trimmed);
+            } catch (error) {}
+        }
+    }
+
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const duration = payload.duration != null
+            ? payload.duration
+            : (payload.seconds != null ? payload.seconds : payload.time);
+        const melodyHintRaw = payload.melodyHint != null
+            ? payload.melodyHint
+            : (payload.melody_hint != null ? payload.melody_hint : payload.tune_hint);
+        const coverAudioUrlRaw = payload.coverAudioUrl != null
+            ? payload.coverAudioUrl
+            : (payload.audio_url != null
+                ? payload.audio_url
+                : (payload.audioUrl != null
+                    ? payload.audioUrl
+                    : (payload.referenceAudioUrl != null ? payload.referenceAudioUrl : payload.reference_audio_url)));
+        const coverPromptRaw = payload.coverPrompt != null
+            ? payload.coverPrompt
+            : (payload.cover_prompt != null ? payload.cover_prompt : payload.style_prompt);
+        const lyricsRaw = payload.lyrics != null
+            ? payload.lyrics
+            : (payload.text != null ? payload.text : payload.content);
+        return {
+            duration: clampChatSingDuration(duration),
+            lyrics: normalizeSingVoiceLyrics(lyricsRaw),
+            melodyHint: normalizeSingMelodyHint(melodyHintRaw),
+            coverAudioUrl: String(coverAudioUrlRaw || '').trim(),
+            coverPrompt: normalizeSingMelodyHint(coverPromptRaw)
+        };
+    }
+
+    const text = String(rawPayload || '').trim();
+    if (!text) {
+        return { duration: CHAT_SING_VOICE_DURATION_DEFAULT, lyrics: '', melodyHint: '' };
+    }
+    let duration = CHAT_SING_VOICE_DURATION_DEFAULT;
+    let lyrics = text;
+    let melodyHint = '';
+    let coverAudioUrl = '';
+    let matched = text.match(/^(\d{1,3})\s*\|\s*([\s\S]+)$/);
+    if (!matched) {
+        matched = text.match(/^(\d{1,3})\s+([\s\S]+)$/);
+    }
+    if (matched) {
+        duration = clampChatSingDuration(matched[1]);
+        const body = String(matched[2] || '');
+        const bodyParts = body.split('|').map(item => String(item || '').trim()).filter(Boolean);
+        if (bodyParts.length >= 1 && (/^https?:\/\//i.test(bodyParts[0]) || isLikelyAudioReferenceUrl(bodyParts[0]))) {
+            coverAudioUrl = bodyParts[0];
+            if (bodyParts.length >= 4) {
+                melodyHint = normalizeSingMelodyHint(bodyParts[1]);
+                lyrics = bodyParts.slice(2).join('\n');
+            } else if (bodyParts.length >= 2) {
+                lyrics = bodyParts.slice(1).join('\n');
+            } else {
+                lyrics = '';
+            }
+        } else if (bodyParts.length >= 3) {
+            melodyHint = normalizeSingMelodyHint(bodyParts[0]);
+            lyrics = bodyParts.slice(1).join('\n');
+        } else {
+            lyrics = body;
+        }
+    }
+    return {
+        duration,
+        lyrics: normalizeSingVoiceLyrics(lyrics),
+        melodyHint,
+        coverAudioUrl
+    };
+}
+
+function buildSingVoiceMessageData(rawPayload, defaultModel, context = {}) {
+    const parsed = parseSingVoicePayload(rawPayload);
+    const lyrics = parsed.lyrics || '啦啦啦～';
+    const duration = clampChatSingDuration(parsed.duration);
+    const model = selectSingTtsModel(defaultModel);
+    const melodyHint = normalizeSingMelodyHint(parsed.melodyHint || '');
+    const contextCoverAudioUrl = String(context && context.coverAudioUrl || '').trim();
+    const parsedCoverAudioUrl = String(parsed.coverAudioUrl || '').trim();
+    const coverAudioUrl = parsedCoverAudioUrl || contextCoverAudioUrl;
+    const shouldUseCoverMode = !!coverAudioUrl;
+    if (!shouldUseCoverMode) {
+        return null;
+    }
+    const coverPrompt = normalizeSingMelodyHint(parsed.coverPrompt || melodyHint || 'Keep original melody and rhythm, natural expressive vocal cover');
+    const ttsText = buildPlainSingVoiceTtsText(lyrics) || lyrics;
+
+    return {
+        duration,
+        text: lyrics,
+        isReal: false,
+        audio: null,
+        mode: shouldUseCoverMode ? 'sing_cover' : 'sing',
+        ttsText,
+        ...(melodyHint ? { melodyHint } : {}),
+        ...(shouldUseCoverMode ? {
+            coverAudioUrl,
+            coverPrompt,
+            musicOptions: {
+                model: 'music-cover-free',
+                output_format: 'hex'
+            }
+        } : {}),
+        ttsOptions: {
+            voice_setting: {
+                speed: 0.92,
+                pitch: 1
+            },
+            model,
+            audio_setting: {
+                sample_rate: 32000,
+                bitrate: 128000,
+                format: 'mp3',
+                channel: 1
+            }
+        }
+    };
+}
+
+function normalizeOutgoingVoiceMessageData(rawContent, fallbackDuration = 3) {
+    let parsedVoiceData = null;
+
+    if (rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent)) {
+        parsedVoiceData = { ...rawContent };
+    } else if (typeof rawContent === 'string') {
+        const trimmed = rawContent.trim();
+        if (trimmed && trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    parsedVoiceData = parsed;
+                }
+            } catch (error) {}
+        }
+    }
+
+    if (parsedVoiceData) {
+        const rawDuration = Number(parsedVoiceData.duration);
+        const duration = Number.isFinite(rawDuration) && rawDuration > 0
+            ? Math.round(rawDuration)
+            : fallbackDuration;
+        let text = String(parsedVoiceData.text != null ? parsedVoiceData.text : '').trim();
+        if (!text && typeof rawContent === 'string') {
+            const legacyMatch = rawContent.match(/(\d+)\s+([\s\S]*)/);
+            if (legacyMatch) {
+                text = String(legacyMatch[2] || '').trim();
+            }
+        }
+
+        const normalized = {
+            duration,
+            text,
+            isReal: !!parsedVoiceData.isReal,
+            audio: typeof parsedVoiceData.audio === 'string' ? parsedVoiceData.audio : null
+        };
+
+        const mode = String(parsedVoiceData.mode || '').trim();
+        if (mode) {
+            normalized.mode = mode;
+        }
+        if (typeof parsedVoiceData.ttsText === 'string' && parsedVoiceData.ttsText.trim()) {
+            normalized.ttsText = parsedVoiceData.ttsText.trim();
+        }
+        if (typeof parsedVoiceData.melodyHint === 'string' && parsedVoiceData.melodyHint.trim()) {
+            normalized.melodyHint = parsedVoiceData.melodyHint.trim();
+        }
+        if (typeof parsedVoiceData.coverAudioUrl === 'string' && parsedVoiceData.coverAudioUrl.trim()) {
+            normalized.coverAudioUrl = parsedVoiceData.coverAudioUrl.trim();
+        }
+        if (typeof parsedVoiceData.coverAudioBase64 === 'string' && parsedVoiceData.coverAudioBase64.trim()) {
+            normalized.coverAudioBase64 = parsedVoiceData.coverAudioBase64.trim();
+        }
+        if (typeof parsedVoiceData.coverFeatureId === 'string' && parsedVoiceData.coverFeatureId.trim()) {
+            normalized.coverFeatureId = parsedVoiceData.coverFeatureId.trim();
+        }
+        if (typeof parsedVoiceData.coverPrompt === 'string' && parsedVoiceData.coverPrompt.trim()) {
+            normalized.coverPrompt = parsedVoiceData.coverPrompt.trim();
+        }
+        if (parsedVoiceData.musicOptions && typeof parsedVoiceData.musicOptions === 'object' && !Array.isArray(parsedVoiceData.musicOptions)) {
+            normalized.musicOptions = { ...parsedVoiceData.musicOptions };
+        }
+        if (parsedVoiceData.ttsOptions && typeof parsedVoiceData.ttsOptions === 'object' && !Array.isArray(parsedVoiceData.ttsOptions)) {
+            normalized.ttsOptions = { ...parsedVoiceData.ttsOptions };
+        }
+        return normalized;
+    }
+
+    let duration = fallbackDuration;
+    let text = String(rawContent || '').trim();
+    if (typeof rawContent === 'string') {
+        const legacyMatch = rawContent.match(/(\d+)\s+([\s\S]*)/);
+        if (legacyMatch) {
+            duration = parseInt(legacyMatch[1], 10);
+            text = String(legacyMatch[2] || '').trim();
+        }
+    }
+    return {
+        duration: Number.isFinite(duration) && duration > 0 ? duration : fallbackDuration,
+        text,
+        isReal: false,
+        audio: null
+    };
+}
 
 function includesAnyKeyword(text, keywords) {
     const target = String(text || '').toLowerCase();
@@ -576,6 +1169,108 @@ function parseForumPostSharePayload(rawPayload) {
     } catch (e) {
         return null;
     }
+}
+
+function parseMusicSongSharePayload(rawPayload) {
+    try {
+        let payloadSource = rawPayload;
+        if (typeof payloadSource === 'string') {
+            const trimmed = payloadSource.trim();
+            if (!trimmed) return null;
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                payloadSource = trimmed;
+            } else {
+                try {
+                    payloadSource = decodeURIComponent(trimmed);
+                } catch (decodeErr) {
+                    payloadSource = trimmed;
+                }
+            }
+        }
+        const parsed = typeof payloadSource === 'string' ? JSON.parse(payloadSource) : payloadSource;
+        if (!parsed || typeof parsed !== 'object') return null;
+        return parsed;
+    } catch (e) {
+        return null;
+    }
+}
+
+function closeMusicSongShareDetail() {
+    const modal = document.getElementById('music-song-share-detail-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+if (!window.closeMusicSongShareDetail) {
+    window.closeMusicSongShareDetail = closeMusicSongShareDetail;
+}
+
+function openMusicSongShareDetail(payload) {
+    const data = parseMusicSongSharePayload(payload);
+    if (!data) {
+        if (typeof window.showChatToast === 'function') window.showChatToast('歌曲分享卡片已损坏');
+        return;
+    }
+
+    let modal = document.getElementById('music-song-share-detail-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'music-song-share-detail-modal';
+        modal.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:10065',
+            'background:rgba(0,0,0,0.46)',
+            'display:none',
+            'align-items:center',
+            'justify-content:center',
+            'padding:16px'
+        ].join(';');
+        modal.innerHTML = `
+            <div style="width:min(92vw,360px);background:#fff;border-radius:18px;box-shadow:0 14px 34px rgba(0,0,0,0.22);overflow:hidden;">
+                <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;">
+                    <strong style="font-size:16px;color:#111;">歌曲分享详情</strong>
+                    <button onclick="window.closeMusicSongShareDetail && window.closeMusicSongShareDetail()" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">×</button>
+                </div>
+                <div id="music-song-share-detail-body" style="padding:14px 16px 16px;font-size:13px;color:#333;line-height:1.6;"></div>
+            </div>
+        `;
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeMusicSongShareDetail();
+        });
+        document.body.appendChild(modal);
+    }
+
+    const body = modal.querySelector('#music-song-share-detail-body');
+    if (body) {
+        const title = escapeChatMessageHtml(data.title || data.songTitle || '未知歌曲');
+        const artist = escapeChatMessageHtml(data.artist || data.songArtist || '未知歌手');
+        const songId = escapeChatMessageHtml(String(data.songId || data.id || '-'));
+        const cover = escapeChatMessageHtml(data.cover || data.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music');
+        const sourceUrl = escapeChatMessageHtml(String(data.sourceUrl || data.shareUrl || data.originalUrl || ''));
+        const provider = escapeChatMessageHtml(String(data.provider || '-'));
+        const sharedAt = Number(data.sharedAt || data.createdAt || 0);
+        const sharedAtText = sharedAt ? new Date(sharedAt).toLocaleString() : '-';
+        const lyricSnippet = escapeChatMessageHtml(String(data.lyricSnippet || '').trim());
+        body.innerHTML = `
+            <div style="display:flex;gap:10px;margin-bottom:12px;">
+                <img src="${cover}" style="width:52px;height:52px;border-radius:10px;object-fit:cover;background:#f0f0f0;">
+                <div style="min-width:0;flex:1;">
+                    <div style="font-size:15px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${title}</div>
+                    <div style="font-size:13px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${artist}</div>
+                </div>
+            </div>
+            <div><strong style="color:#555;">歌曲ID：</strong>${songId}</div>
+            <div><strong style="color:#555;">来源：</strong>${provider}</div>
+            <div><strong style="color:#555;">分享时间：</strong>${sharedAtText}</div>
+            ${sourceUrl ? `<div style="word-break:break-all;"><strong style="color:#555;">分享链接：</strong>${sourceUrl}</div>` : ''}
+            ${lyricSnippet ? `<div style="margin-top:6px;"><strong style="color:#555;">歌词片段：</strong>${lyricSnippet}</div>` : ''}
+        `;
+    }
+    modal.style.display = 'flex';
+}
+
+if (!window.openMusicSongShareDetail) {
+    window.openMusicSongShareDetail = openMusicSongShareDetail;
 }
 
 function openForumAppFromShareCard(postId) {
@@ -1154,7 +1849,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         }
     }
 
-    const noBubbleTypes = new Set(['image', 'sticker', 'virtual_image', 'description', 'transfer', 'red_packet', 'group_poll', 'group_relay', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite', 'forum_post_share']);
+    const noBubbleTypes = new Set(['image', 'sticker', 'virtual_image', 'description', 'transfer', 'red_packet', 'group_poll', 'group_relay', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite', 'music_song_share', 'forum_post_share']);
     const currentMessageUsesBubbleTail = !noBubbleTypes.has(type);
 
     if (!shouldShowTimeDivider && currentMessageUsesBubbleTail && lastMsg && lastMsg.classList.contains('chat-message')) {
@@ -1610,7 +2305,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
 
     let extraClass = '';
     const isHtmlTextMessage = type === 'text' && isHtmlPayloadForParser(text);
-    const cardTypes = ['transfer', 'red_packet', 'group_poll', 'group_relay', 'private_chat_invite', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite', 'forum_post_share'];
+    const cardTypes = ['transfer', 'red_packet', 'group_poll', 'group_relay', 'private_chat_invite', 'family_card', 'food_invite', 'route_invite', 'gift_card', 'shopping_gift', 'delivery_share', 'order_progress', 'order_share', 'pay_request', 'product_share', 'icity_card', 'minesweeper_invite', 'pdd_cash_share', 'pdd_bargain_share', 'savings_invite', 'savings_withdraw_request', 'savings_withdraw_result', 'savings_progress', 'music_listen_invite', 'music_song_share', 'forum_post_share'];
     if (cardTypes.includes(type)) {
         extraClass += ' no-bubble';
     }
@@ -1771,6 +2466,35 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     </div>
                     <div class="music-listen-invite-play">
                         <i class="fas fa-play"></i>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else if (type === 'music_song_share') {
+        extraClass += ' music-listen-invite-msg music-song-share-msg';
+        const shareData = parseMusicSongSharePayload(text) || {};
+        const safePayload = encodeURIComponent(JSON.stringify(shareData || {})).replace(/'/g, "\\'");
+        const songTitle = escapeChatMessageHtml(shareData.title || shareData.songTitle || '未知歌曲');
+        const songArtist = escapeChatMessageHtml(shareData.artist || shareData.songArtist || '未知歌手');
+        const songCover = escapeChatMessageHtml(shareData.cover || shareData.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music');
+        const providerRaw = String(shareData.provider || '').trim();
+        const providerLabel = providerRaw
+            ? (providerRaw.toLowerCase().includes('netease') ? '网易云' : providerRaw)
+            : 'Music';
+        contentHtml = `
+            <div class="music-listen-invite-card" onclick="window.openMusicSongShareDetail && window.openMusicSongShareDetail('${safePayload}')">
+                <div class="music-listen-invite-content">
+                    <img class="music-listen-invite-cover" src="${songCover}">
+                    <div class="music-listen-invite-meta">
+                        <div class="music-listen-invite-title">${songTitle}</div>
+                        <div class="music-listen-invite-artist">${songArtist}</div>
+                        <div class="music-listen-invite-platform">
+                            <i class="ri-share-forward-line"></i>
+                            <span>${escapeChatMessageHtml(providerLabel)} · 歌曲分享</span>
+                        </div>
+                    </div>
+                    <div class="music-listen-invite-play">
+                        <i class="ri-music-2-fill"></i>
                     </div>
                 </div>
             </div>
@@ -3372,6 +4096,7 @@ function handleQuote(msgData) {
     else if (msgData.type === 'family_card') previewText = '[亲属卡]';
     else if (msgData.type === 'pay_request') previewText = '[代付请求]';
     else if (msgData.type === 'music_listen_invite') previewText = '[一起听邀请]';
+    else if (msgData.type === 'music_song_share') previewText = '[歌曲分享]';
     else if (msgData.type === 'forum_post_share') previewText = '[论坛帖子分享]';
     
     document.getElementById('reply-text').textContent = previewText;
@@ -4696,6 +5421,7 @@ function buildReplyToPayloadFromMessage(targetMsg, contact, fallbackName = '') {
         if (targetMsg.type === 'sticker') previewContent = '[表情包]';
         else if (targetMsg.type === 'image' || targetMsg.type === 'virtual_image') previewContent = '[图片]';
         else if (targetMsg.type === 'voice') previewContent = '[语音]';
+        else if (targetMsg.type === 'music_song_share') previewContent = '[歌曲分享]';
     }
 
     return {
@@ -5549,7 +6275,6 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 speakerContactId: String(speakerValue || '').trim()
             };
         };
-
         for (const item of parsedItems) {
         const normalizedType = normalizeAiSchemaType(item && item.type);
         const speakerContactId = String(item && (item.speakerContactId || item.speaker_contact_id || item.speaker) || '').trim();
@@ -5594,8 +6319,12 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     }
                     continue;
                 }
-                const cmd = item && item.content ? item.content.command : item.command;
+                const rawCmd = item && item.content ? item.content.command : item.command;
+                const cmd = String(rawCmd || '').trim().toUpperCase();
                 const pl = item && item.content ? item.content.payload : item.payload;
+                if (cmd === 'SING_VOICE') {
+                    continue;
+                }
                 let actionStr = cmd ? `ACTION: ${cmd}` : '';
                 let payloadText = '';
                 if (pl !== undefined && pl !== null) {
@@ -5788,7 +6517,9 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             });
 
             const cleanLines = [];
-            for (const line of sanitized.cleanText.split('\n')) {
+            const rawLines = sanitized.cleanText.split('\n');
+            for (let lineIndex = 0; lineIndex < rawLines.length; lineIndex++) {
+                const line = rawLines[lineIndex];
                 const actionMatch = line.trim().match(actionRegex);
                 if (actionMatch) {
                     if (isGroupChat) {
@@ -5800,7 +6531,11 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                             groupActions.push(parsedGroupAction);
                         }
                     } else {
-                        actions.push('ACTION: ' + actionMatch[1].trim());
+                        let actionBody = actionMatch[1].trim();
+                        if (/^SING_VOICE\b/i.test(actionBody)) {
+                            continue;
+                        }
+                        actions.push('ACTION: ' + actionBody);
                     }
                 } else {
                     cleanLines.push(line);
@@ -7210,16 +7945,8 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     typeToSave = 'sticker';
                     descriptionToSave = stickerAsset.desc || msg.content;
                 } else if (msg.type === '语音' || msg.type === 'voice') {
-                    let duration = 3;
-                    let text = msg.content;
-                    if (typeof msg.content === 'string') {
-                        const parts = msg.content.match(/(\d+)\s+(.*)/);
-                        if (parts) {
-                            duration = parseInt(parts[1], 10);
-                            text = parts[2];
-                        }
-                    }
-                    contentToSave = JSON.stringify({ duration, text, isReal: false });
+                    const voiceData = normalizeOutgoingVoiceMessageData(msg.content, 3);
+                    contentToSave = JSON.stringify(voiceData);
                     typeToSave = 'voice';
                 } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
                     const rawImageContent = typeof msg.content === 'string' ? msg.content.trim() : '';
@@ -7291,6 +8018,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         else if (msg.type === 'savings_withdraw_request') notifContent = '[共同存钱转出申请]';
                         else if (msg.type === 'savings_progress') notifContent = '[共同存钱进度]';
                         else if (msg.type === 'music_listen_invite') notifContent = '[一起听邀请]';
+                        else if (msg.type === 'music_song_share') notifContent = '[歌曲分享]';
                         else if (msg.type === 'forum_post_share') notifContent = '[论坛帖子分享]';
                         else if (msg.type === 'virtual_image') notifContent = '[图片]';
                         else if (msg.type === 'sticker') notifContent = '[表情包]';
@@ -7317,22 +8045,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         console.warn(`Sticker not found: ${msg.content}`);
                     }
                 } else if (msg.type === '语音' || msg.type === 'voice') {
-                    let duration = 3;
-                    let text = msg.content;
-                    
-                    if (typeof msg.content === 'string') {
-                        const parts = msg.content.match(/(\d+)\s+(.*)/);
-                        if (parts) {
-                            duration = parseInt(parts[1]);
-                            text = parts[2];
-                        }
-                    }
-                    
-                    const voiceData = {
-                        duration: duration,
-                        text: text,
-                        isReal: false
-                    };
+                    const voiceData = normalizeOutgoingVoiceMessageData(msg.content, 3);
                     sendMessage(JSON.stringify(voiceData), false, 'voice', null, contactId, { channel: deliveryChannel });
                 } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
                     let sent = false;
@@ -7551,22 +8264,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     contentToSave = stickerAsset.url;
                     typeToSave = 'sticker';
                 } else if (msg.type === '语音' || msg.type === 'voice') {
-                    let duration = 3;
-                    let text = msg.content;
-                    
-                    if (typeof msg.content === 'string') {
-                        const parts = msg.content.match(/(\d+)\s+(.*)/);
-                        if (parts) {
-                            duration = parseInt(parts[1]);
-                            text = parts[2];
-                        }
-                    }
-
-                    const voiceData = {
-                        duration: duration,
-                        text: text,
-                        isReal: false
-                    };
+                    const voiceData = normalizeOutgoingVoiceMessageData(msg.content, 3);
                     contentToSave = JSON.stringify(voiceData);
                     typeToSave = 'voice';
                 } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
@@ -9600,6 +10298,14 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         }
     }
 
+    let sharedMusicContext = '';
+    try {
+        const sharedMusic = await resolveRecentMusicShareContext(contact.id, history);
+        sharedMusicContext = buildMusicShareContextPromptLine(sharedMusic);
+    } catch (error) {
+        sharedMusicContext = '';
+    }
+
     const conditionalCapabilityPrompt = buildWechatConditionalCapabilityPrompt({
         minesweeperContext,
         witchGameContext,
@@ -9627,6 +10333,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     appendAiPromptPart(systemPromptParts, 'systemBase', '日历', calendarContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', '高德', amapContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', '行程', itineraryContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', '音乐分享', sharedMusicContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', extraSystemPromptLabel || '附加场景', extraSystemPrompt);
     appendAiPromptPart(systemPromptParts, 'systemBase', '真实照片候选', realPhotoDescriptionContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', '条件能力', conditionalCapabilityPrompt);
@@ -9804,6 +10511,23 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
                 return {
                     role: h.role,
                     content: joinContextTextParts(structuredPrefix, `[语音: ${voiceText}]`)
+                };
+            } else if (h.type === 'music_song_share') {
+                const shareData = parseMusicSongShareContent(content) || parseMusicSongSharePayload(content) || {};
+                const songTitle = String(shareData.title || shareData.songTitle || '未知歌曲').trim() || '未知歌曲';
+                const songArtist = String(shareData.artist || shareData.songArtist || '未知歌手').trim() || '未知歌手';
+                const songId = String(shareData.songId || shareData.id || '').trim();
+                const audioUrl = String(shareData.audioUrl || shareData.src || '').trim();
+                const sourceUrl = String(shareData.sourceUrl || shareData.shareUrl || '').trim();
+                const lyricSnippet = String(shareData.lyricSnippet || '').trim();
+                const segmentParts = [`[用户分享歌曲: ${songTitle} - ${songArtist}`];
+                if (songId) segmentParts.push(`songId=${songId}`);
+                if (audioUrl) segmentParts.push(`音频URL=${audioUrl.slice(0, 260)}`);
+                if (sourceUrl) segmentParts.push(`分享链接=${sourceUrl.slice(0, 260)}`);
+                if (lyricSnippet) segmentParts.push(`歌词片段=${lyricSnippet.slice(0, 120)}`);
+                return {
+                    role: h.role,
+                    content: joinContextTextParts(structuredPrefix, segmentParts.join('，') + ']')
                 };
             } else if (h.type === 'voice_call_text') {
                 let callText = '通话内容';
