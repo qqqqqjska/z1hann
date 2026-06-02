@@ -8795,10 +8795,25 @@ function collectAiPromptContentStats(content) {
     return stats;
 }
 
-function appendAiPromptPart(parts, group, label, content) {
+function appendAiPromptPart(parts, group, partId, label, content) {
     const normalizedContent = trimWechatPromptSection(content);
     if (!normalizedContent) return;
-    parts.push({ group, label, content: normalizedContent });
+    parts.push({
+        group,
+        id: String(partId || label || '').trim(),
+        label,
+        key: `${String(group || 'systemBase').trim() || 'systemBase'}::${String(partId || label || '').trim()}`,
+        content: normalizedContent
+    });
+}
+
+function getChatPromptPartDisabledMap(contact, options = {}) {
+    const source = options && options.promptPartDisabledMap && typeof options.promptPartDisabledMap === 'object'
+        ? options.promptPartDisabledMap
+        : contact && contact.promptPartDisabledMap && typeof contact.promptPartDisabledMap === 'object'
+            ? contact.promptPartDisabledMap
+            : {};
+    return source;
 }
 
 function buildWechatStickerPrompt(contact) {
@@ -8873,6 +8888,266 @@ function buildWechatWorldbookPrompt(contact, history) {
     return `世界书信息：\n${matchedContents.join('\n')}`;
 }
 
+const AI_PROMPT_FIXED_SYSTEM_LABELS = new Set([
+    '输出协议',
+    '活人感',
+    '基础能力',
+    '回复指令'
+]);
+
+function isAiPromptFixedSystemPart(part) {
+    if (!part || typeof part !== 'object') return false;
+    return String(part.group || '') === 'systemBase'
+        && AI_PROMPT_FIXED_SYSTEM_LABELS.has(String(part.label || '').trim());
+}
+
+function formatAiPromptPreviewContent(content, maxLength = 4000) {
+    const limit = Math.max(200, Number(maxLength) || 4000);
+    let text = '';
+    if (typeof content === 'string') {
+        text = content;
+    } else if (Array.isArray(content)) {
+        const lines = content.map((part) => {
+            if (!part) return '';
+            if (part.type === 'text') {
+                return String(part.text || '').trim();
+            }
+            if (part.type === 'image_url') {
+                const url = String(part.image_url && part.image_url.url || '').trim();
+                return url ? `[image_url] ${url}` : '[image_url]';
+            }
+            if (typeof part === 'object') {
+                try {
+                    return `[${String(part.type || 'part')}] ${JSON.stringify(part)}`;
+                } catch (error) {
+                    return `[${String(part.type || 'part')}]`;
+                }
+            }
+            return String(part || '').trim();
+        }).filter(Boolean);
+        text = lines.join('\n');
+    } else if (content && typeof content === 'object') {
+        try {
+            text = JSON.stringify(content, null, 2);
+        } catch (error) {
+            text = String(content || '');
+        }
+    } else {
+        text = String(content || '');
+    }
+    const normalized = text.replace(/\r\n/g, '\n').trim();
+    if (normalized.length <= limit) return normalized;
+    return `${normalized.slice(0, Math.max(0, limit - 3))}...`;
+}
+
+function buildAiPromptReadableMessagePreview(message, index) {
+    const role = String(message && message.role || 'unknown').trim() || 'unknown';
+    const content = formatAiPromptPreviewContent(message && message.content, 6000);
+    const stats = collectAiPromptContentStats(message && message.content);
+    const lines = [];
+    lines.push(`#${index + 1} [${role}]`);
+    lines.push(`tokens: ${Number(stats.textTokens || 0)}`);
+    if (role === 'system' && Array.isArray(message && message.content)) {
+        const imageCount = Number(stats.imageCount || 0);
+        const screenShareCount = Number(stats.screenShareCount || 0);
+        if (imageCount > 0 || screenShareCount > 0) {
+            const visualBits = [];
+            if (imageCount > 0) visualBits.push(`${imageCount} 张图片`);
+            if (screenShareCount > 0) visualBits.push(`${screenShareCount} 次共享屏幕`);
+            lines.push(`visual: ${visualBits.join(' / ')}`);
+        }
+    }
+    lines.push(content || '（空）');
+    return {
+        role,
+        tokens: Number(stats.textTokens || 0),
+        text: lines.join('\n')
+    };
+}
+
+function buildAiPromptReadablePartPreview(part) {
+    const label = String(part && part.label || '未命名').trim() || '未命名';
+    const group = String(part && part.group || 'systemBase').trim() || 'systemBase';
+    const fixed = isAiPromptFixedSystemPart(part);
+    const enabled = part && part.enabled !== false;
+    const stats = collectAiPromptContentStats(part && part.content);
+    const header = `${label} [${group}] (${fixed ? '固定' : '动态'} / ${enabled ? '发送' : '关闭'} / ${Number(stats.textTokens || 0)} tokens)`;
+    const body = formatAiPromptPreviewContent(part && part.content, 7000) || '（空）';
+    return {
+        label,
+        group,
+        fixed,
+        enabled,
+        tokens: Number(stats.textTokens || 0),
+        text: `${header}\n${body}`
+    };
+}
+
+function buildAiPromptReadableRequestText(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return '';
+    const lines = [];
+    lines.push(`【请求模型】${String(snapshot.model || 'unknown')}`);
+    lines.push(`【温度】${Number(snapshot.temperature || 0).toFixed(2)}`);
+    lines.push(`【文本 token 估算】${Number(snapshot.totalTextTokens || 0)}`);
+    lines.push('');
+    lines.push(`【固定系统提示词】(${Number(snapshot.sections && snapshot.sections.systemFixed && snapshot.sections.systemFixed.tokens || 0)} tokens)`);
+    const fixedParts = Array.isArray(snapshot.systemPromptParts)
+        ? snapshot.systemPromptParts.filter(part => part && part.fixed && part.enabled !== false)
+        : [];
+    if (fixedParts.length > 0) {
+        fixedParts.forEach((part) => {
+            lines.push(buildAiPromptReadablePartPreview(part).text);
+            lines.push('');
+        });
+    } else {
+        lines.push('（无）');
+        lines.push('');
+    }
+    lines.push(`【动态系统提示词】(${Number(snapshot.sections && snapshot.sections.systemDynamic && snapshot.sections.systemDynamic.tokens || 0)} tokens)`);
+    const dynamicParts = Array.isArray(snapshot.systemPromptParts)
+        ? snapshot.systemPromptParts.filter(part => part && !part.fixed && part.enabled !== false)
+        : [];
+    if (dynamicParts.length > 0) {
+        dynamicParts.forEach((part) => {
+            lines.push(buildAiPromptReadablePartPreview(part).text);
+            lines.push('');
+        });
+    } else {
+        lines.push('（无）');
+        lines.push('');
+    }
+    lines.push(`【实际请求消息】(${Array.isArray(snapshot.messagesPreview) ? snapshot.messagesPreview.length : 0} 条)`);
+    if (Array.isArray(snapshot.messagesPreview) && snapshot.messagesPreview.length > 0) {
+        snapshot.messagesPreview.forEach((messagePreview) => {
+            lines.push(messagePreview.text);
+            lines.push('');
+        });
+    } else {
+        lines.push('（无）');
+    }
+    return lines.join('\n').trim();
+}
+
+async function buildAiPromptPreviewSnapshot(contactId, options = {}) {
+    const instruction = Object.prototype.hasOwnProperty.call(options, 'instruction')
+        ? options.instruction
+        : null;
+    const messages = await window.buildAiPromptMessages(contactId, instruction, options);
+    const systemPromptParts = Array.isArray(messages && messages._systemPromptParts)
+        ? messages._systemPromptParts
+        : [];
+    const sections = {
+        systemBase: { label: '系统基础', tokens: 0, messageCount: 0 },
+        systemFixed: { label: '系统固定项', tokens: 0, messageCount: 0 },
+        systemDynamic: { label: '系统动态项', tokens: 0, messageCount: 0 },
+        memory: { label: '记忆', tokens: 0, messageCount: 0 },
+        worldbook: { label: '世界书', tokens: 0, messageCount: 0 },
+        context: { label: '聊天上下文', tokens: 0, messageCount: 0 },
+        extra: { label: '场景附加', tokens: 0, messageCount: 0 }
+    };
+    const visualInputs = {
+        imageCount: 0,
+        screenShareCount: 0,
+        screenShareImageCount: 0,
+        summary: '未检测到'
+    };
+    const systemPromptPartsPreview = [];
+    const messagesPreview = [];
+    const previewMessages = Array.isArray(messages) ? messages : [];
+    const cleanedMessageCount = previewMessages.length;
+
+    systemPromptParts.forEach((part) => {
+        const bucket = sections[part && part.group] || sections.systemBase;
+        const stats = collectAiPromptContentStats(part && part.content);
+        const fixed = isAiPromptFixedSystemPart(part);
+        const enabled = part && part.enabled !== false;
+        const preview = buildAiPromptReadablePartPreview(part);
+        if (enabled) {
+            bucket.tokens += stats.textTokens;
+            bucket.messageCount += 1;
+            if (fixed) {
+                sections.systemFixed.tokens += stats.textTokens;
+                sections.systemFixed.messageCount += 1;
+            } else if (String(part && part.group || '') === 'systemBase') {
+                sections.systemDynamic.tokens += stats.textTokens;
+                sections.systemDynamic.messageCount += 1;
+            }
+        }
+        systemPromptPartsPreview.push({
+            ...part,
+            fixed,
+            enabled,
+            tokens: stats.textTokens,
+            previewText: preview.text
+        });
+    });
+
+    previewMessages.slice(0).forEach((message, index) => {
+        const isPrimarySystemPrompt = index === 0 && message && message.role === 'system';
+        const bucket = message && message.role === 'system'
+            ? sections.extra
+            : sections.context;
+        const stats = collectAiPromptContentStats(message && message.content);
+        if (!isPrimarySystemPrompt) {
+            bucket.tokens += stats.textTokens;
+            bucket.messageCount += 1;
+        }
+        visualInputs.imageCount += stats.imageCount;
+        visualInputs.screenShareCount += stats.screenShareCount;
+        visualInputs.screenShareImageCount += stats.screenShareImageCount;
+        const messagePreview = buildAiPromptReadableMessagePreview(message, index);
+        messagesPreview.push({
+            index,
+            role: String(message && message.role || 'unknown').trim() || 'unknown',
+            tokens: stats.textTokens,
+            text: messagePreview.text,
+            previewText: messagePreview.text
+        });
+    });
+
+    const visualParts = [];
+    if (visualInputs.imageCount > 0) {
+        visualParts.push(`${visualInputs.imageCount} 张图片`);
+    }
+    if (visualInputs.screenShareCount > 0) {
+        visualParts.push(`${visualInputs.screenShareCount} 次共享屏幕`);
+    }
+    visualInputs.summary = visualParts.length > 0 ? visualParts.join(' / ') : '未检测到';
+
+    const preferredAiSettings = getPreferredChatAiSettings();
+    const requestTemperature = Number.isFinite(Number(preferredAiSettings && preferredAiSettings.temperature))
+        ? Number(preferredAiSettings.temperature)
+        : 0.7;
+    const requestBody = {
+        model: String(preferredAiSettings && preferredAiSettings.model || '').trim(),
+        messages: previewMessages,
+        temperature: requestTemperature
+    };
+    const requestJson = JSON.stringify(requestBody, null, 2);
+    const readableText = buildAiPromptReadableRequestText({
+        model: requestBody.model,
+        temperature: requestTemperature,
+        totalTextTokens: sections.systemBase.tokens + sections.memory.tokens + sections.worldbook.tokens + sections.context.tokens + sections.extra.tokens,
+        sections,
+        systemPromptParts: systemPromptPartsPreview,
+        messagesPreview
+    });
+
+    return {
+        status: 'ok',
+        model: requestBody.model,
+        temperature: requestTemperature,
+        totalTextTokens: sections.systemBase.tokens + sections.memory.tokens + sections.worldbook.tokens + sections.context.tokens + sections.extra.tokens,
+        sections,
+        systemPromptParts: systemPromptPartsPreview,
+        messagesPreview,
+        visualInputs,
+        messageCount: cleanedMessageCount,
+        requestJson,
+        requestText: readableText
+    };
+}
+
 window.estimateAiTextTokens = estimateAiTextTokens;
 window.buildWechatStickerPrompt = buildWechatStickerPrompt;
 window.buildWechatWorldbookPrompt = buildWechatWorldbookPrompt;
@@ -8880,68 +9155,18 @@ window.buildWechatWorldbookPrompt = buildWechatWorldbookPrompt;
 window.buildAiPromptTokenPreview = async function(contactId, options = {}) {
     const emptySections = {
         systemBase: { label: '系统基础', tokens: 0, messageCount: 0 },
+        systemFixed: { label: '系统固定项', tokens: 0, messageCount: 0 },
+        systemDynamic: { label: '系统动态项', tokens: 0, messageCount: 0 },
         memory: { label: '记忆', tokens: 0, messageCount: 0 },
         worldbook: { label: '世界书', tokens: 0, messageCount: 0 },
         context: { label: '聊天上下文', tokens: 0, messageCount: 0 },
         extra: { label: '场景附加', tokens: 0, messageCount: 0 }
     };
-
     try {
-        const instruction = Object.prototype.hasOwnProperty.call(options, 'instruction')
-            ? options.instruction
-            : null;
-        const messages = await window.buildAiPromptMessages(contactId, instruction, options);
-        const systemPromptParts = Array.isArray(messages && messages._systemPromptParts)
-            ? messages._systemPromptParts
-            : [];
-        const sections = {
-            systemBase: { ...emptySections.systemBase },
-            memory: { ...emptySections.memory },
-            worldbook: { ...emptySections.worldbook },
-            context: { ...emptySections.context },
-            extra: { ...emptySections.extra }
-        };
-        const visualInputs = {
-            imageCount: 0,
-            screenShareCount: 0,
-            screenShareImageCount: 0,
-            summary: '未检测到'
-        };
-
-        systemPromptParts.forEach(part => {
-            const bucket = sections[part && part.group] || sections.systemBase;
-            const stats = collectAiPromptContentStats(part && part.content);
-            bucket.tokens += stats.textTokens;
-            bucket.messageCount += 1;
-        });
-
-        (Array.isArray(messages) ? messages : []).slice(1).forEach(message => {
-            const bucket = message && message.role === 'system'
-                ? sections.extra
-                : sections.context;
-            const stats = collectAiPromptContentStats(message && message.content);
-            bucket.tokens += stats.textTokens;
-            bucket.messageCount += 1;
-            visualInputs.imageCount += stats.imageCount;
-            visualInputs.screenShareCount += stats.screenShareCount;
-            visualInputs.screenShareImageCount += stats.screenShareImageCount;
-        });
-
-        const visualParts = [];
-        if (visualInputs.imageCount > 0) {
-            visualParts.push(`${visualInputs.imageCount} 张图片`);
-        }
-        if (visualInputs.screenShareCount > 0) {
-            visualParts.push(`${visualInputs.screenShareCount} 次共享屏幕`);
-        }
-        visualInputs.summary = visualParts.length > 0 ? visualParts.join(' / ') : '未检测到';
-
+        const snapshot = await buildAiPromptPreviewSnapshot(contactId, options);
         return {
-            status: 'ok',
-            totalTextTokens: sections.systemBase.tokens + sections.memory.tokens + sections.worldbook.tokens + sections.context.tokens + sections.extra.tokens,
-            sections,
-            visualInputs,
-            messageCount: Array.isArray(messages) ? messages.length : 0
+            ...snapshot,
+            status: 'ok'
         };
     } catch (error) {
         return {
@@ -8949,6 +9174,8 @@ window.buildAiPromptTokenPreview = async function(contactId, options = {}) {
             totalTextTokens: 0,
             sections: {
                 systemBase: { ...emptySections.systemBase },
+                systemFixed: { label: '系统固定项', tokens: 0, messageCount: 0 },
+                systemDynamic: { label: '系统动态项', tokens: 0, messageCount: 0 },
                 memory: { ...emptySections.memory },
                 worldbook: { ...emptySections.worldbook },
                 context: { ...emptySections.context },
@@ -8961,6 +9188,36 @@ window.buildAiPromptTokenPreview = async function(contactId, options = {}) {
                 summary: '无法估算'
             },
             messageCount: 0,
+            error: error && error.message ? error.message : String(error)
+        };
+    }
+};
+
+window.buildAiPromptRequestPreview = async function(contactId, options = {}) {
+    try {
+        return await buildAiPromptPreviewSnapshot(contactId, options);
+    } catch (error) {
+        return {
+            status: 'error',
+            totalTextTokens: 0,
+            sections: {
+                systemBase: { label: '系统基础', tokens: 0, messageCount: 0 },
+                systemFixed: { label: '系统固定项', tokens: 0, messageCount: 0 },
+                systemDynamic: { label: '系统动态项', tokens: 0, messageCount: 0 },
+                memory: { label: '记忆', tokens: 0, messageCount: 0 },
+                worldbook: { label: '世界书', tokens: 0, messageCount: 0 },
+                context: { label: '聊天上下文', tokens: 0, messageCount: 0 },
+                extra: { label: '场景附加', tokens: 0, messageCount: 0 }
+            },
+            visualInputs: {
+                imageCount: 0,
+                screenShareCount: 0,
+                screenShareImageCount: 0,
+                summary: '无法估算'
+            },
+            messageCount: 0,
+            requestJson: '',
+            requestText: '',
             error: error && error.message ? error.message : String(error)
         };
     }
@@ -10314,34 +10571,44 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         musicTogetherContext
     });
     const systemPromptParts = [];
-    appendAiPromptPart(systemPromptParts, 'systemBase', '角色设定', buildWechatRolePrompt(contact, userPromptInfo));
-    appendAiPromptPart(systemPromptParts, 'systemBase', '输出协议', buildWechatProtocolPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', '活人感', buildWechatHumanFeelPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', '基础能力', buildWechatBaseCapabilityPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', '小火人', typeof window.buildFireBuddyContactSystemPrompt === 'function' ? window.buildFireBuddyContactSystemPrompt(contactId) : '');
-    appendAiPromptPart(systemPromptParts, 'systemBase', '拉黑状态', buildWechatBlockedStatusPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', '状态', importantStateContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '朋友圈', momentContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'iCity', icityContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'LookUs', lookusContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '真实设备使用', userDeviceUsageContext);
-    appendAiPromptPart(systemPromptParts, 'memory', '记忆', memoryContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '线下见面', meetingContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'iCity书籍', icityBookContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '时间', timeContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '休息作息', restWindowNarrativeContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '日历', calendarContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '高德', amapContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '行程', itineraryContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '音乐分享', sharedMusicContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', extraSystemPromptLabel || '附加场景', extraSystemPrompt);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '真实照片候选', realPhotoDescriptionContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '条件能力', conditionalCapabilityPrompt);
-    appendAiPromptPart(systemPromptParts, 'systemBase', '回复指令', '请回复对方的消息。');
-    appendAiPromptPart(systemPromptParts, 'systemBase', '表情包', buildWechatStickerPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'worldbook', '世界书', buildWechatWorldbookPrompt(contact, history));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'role_setting', '角色设定', buildWechatRolePrompt(contact, userPromptInfo));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'protocol', '输出协议', buildWechatProtocolPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'human_feel', '活人感', buildWechatHumanFeelPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'base_capability', '基础能力', buildWechatBaseCapabilityPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'fire_buddy', '小火人', typeof window.buildFireBuddyContactSystemPrompt === 'function' ? window.buildFireBuddyContactSystemPrompt(contactId) : '');
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'blocked_status', '拉黑状态', buildWechatBlockedStatusPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'important_state', '状态', importantStateContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'moment_context', '朋友圈', momentContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'icity_context', 'iCity', icityContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'lookus_context', 'LookUs', lookusContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'device_usage', '真实设备使用', userDeviceUsageContext);
+    appendAiPromptPart(systemPromptParts, 'memory', 'memory', '记忆', memoryContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'meeting_context', '线下见面', meetingContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'icity_books', 'iCity书籍', icityBookContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'time_context', '时间', timeContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'rest_window', '休息作息', restWindowNarrativeContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'calendar_context', '日历', calendarContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'amap_context', '高德', amapContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'itinerary_context', '行程', itineraryContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'music_share', '音乐分享', sharedMusicContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'extra_scene', extraSystemPromptLabel || '附加场景', extraSystemPrompt);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'real_photo_candidates', '真实照片候选', realPhotoDescriptionContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'conditional_capability', '条件能力', conditionalCapabilityPrompt);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'reply_instruction', '回复指令', '请回复对方的消息。');
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'sticker_pack', '表情包', buildWechatStickerPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'worldbook', 'worldbook', '世界书', buildWechatWorldbookPrompt(contact, history));
 
-    const systemPrompt = joinWechatPromptSections(systemPromptParts.map(part => part.content));
+    const promptPartDisabledMap = getChatPromptPartDisabledMap(contact, options);
+    systemPromptParts.forEach((part) => {
+        const partKey = String(part && part.key || '').trim();
+        part.enabled = !promptPartDisabledMap[partKey];
+    });
+
+    const systemPrompt = joinWechatPromptSections(
+        systemPromptParts
+            .filter(part => part && part.enabled !== false)
+            .map(part => part.content)
+    );
 
     let limit = contact.contextLimit && contact.contextLimit > 0 ? contact.contextLimit : 50;
     let contextMessages = history
@@ -10407,9 +10674,11 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
 
     const latestUserImageSelectionMetaMap = buildLatestUserImageSelectionMetaMap(history);
 
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...contextMessages.map(h => {
+    const messages = [];
+    if (systemPrompt) {
+        messages.push({ role: 'system', content: systemPrompt });
+    }
+    messages.push(...contextMessages.map(h => {
             // 如果是时间间隔提示，直接返回
             if (h._isTimeGap) {
                 return { role: 'system', content: h.content };
@@ -10633,8 +10902,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
                 }
                 return { role: h.role, content: joinContextTextParts(structuredPrefix, content) };
             }
-        })
-    ];
+        }));
 
     if (typeof window.getScreenShareAiContextMessages === 'function') {
         try {

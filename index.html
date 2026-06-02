@@ -1035,7 +1035,7 @@
                             </div>
 
                             <div class="mag-field">
-                                <label class="mag-label">Prompt Token Overview <span class="separator">/</span> <span class="mag-zh">提示词 Token 概览</span></label>
+                                <label class="mag-label">Prompt Token Estimate <span class="separator">/</span> <span class="mag-zh">提示词 Token 估算</span></label>
                                 <div id="chat-setting-token-preview" class="chat-token-preview editorial-token-overview is-loading">
                                     <div class="mag-metrics">
                                         <div class="mag-metric">
@@ -1051,8 +1051,12 @@
                                     </div>
                                     <div class="chat-token-preview-breakdown mag-chip-list">
                                         <div class="chat-token-preview-item mag-chip">
-                                            <span>System</span>
-                                            <strong id="chat-setting-token-system-base">--</strong>
+                                            <span>System Fixed</span>
+                                            <strong id="chat-setting-token-system-fixed">--</strong>
+                                        </div>
+                                        <div class="chat-token-preview-item mag-chip">
+                                            <span>System Dynamic</span>
+                                            <strong id="chat-setting-token-system-dynamic">--</strong>
                                         </div>
                                         <div class="chat-token-preview-item mag-chip">
                                             <span>Memory</span>
@@ -1072,6 +1076,72 @@
                                         </div>
                                     </div>
                                     <div id="chat-setting-token-meta" class="chat-token-preview-meta editorial-token-meta">按当前未保存设置实时估算</div>
+                                    <button id="chat-setting-request-preview-btn" type="button" class="mag-btn" style="width:100%;margin-top:12px;justify-content:center;">查看实际请求预览</button>
+                                </div>
+                            </div>
+
+                            <div id="chat-request-preview-modal" class="modal hidden">
+                                <div class="modal-content chat-request-preview-card">
+                                    <div class="modal-header chat-request-preview-header">
+                                        <div class="chat-request-preview-header-copy">
+                                            <div class="chat-request-preview-kicker">Prompt Inspector</div>
+                                            <h3>实际请求预览</h3>
+                                        </div>
+                                        <button class="close-btn" id="close-chat-request-preview">&times;</button>
+                                    </div>
+                                    <div class="modal-body chat-request-preview-body">
+                                        <div id="chat-request-preview-nav" class="chat-request-preview-nav" role="tablist" aria-label="实际请求预览导航">
+                                            <button type="button" class="chat-request-preview-nav-btn active" data-target="chat-request-preview-overview">概览</button>
+                                            <button type="button" class="chat-request-preview-nav-btn" data-target="chat-request-preview-fixed-section">固定系统</button>
+                                            <button type="button" class="chat-request-preview-nav-btn" data-target="chat-request-preview-dynamic-section">动态系统</button>
+                                            <button type="button" class="chat-request-preview-nav-btn" data-target="chat-request-preview-message-section">消息</button>
+                                        </div>
+
+                                        <section id="chat-request-preview-overview" class="mag-card chat-request-preview-section">
+                                            <div class="mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> OVERVIEW</div>
+                                            <div class="mag-card-title"><i class="ri-draft-line"></i><span>概览</span></div>
+                                            <div id="chat-request-preview-summary" class="chat-request-preview-summary"></div>
+                                            <div class="mag-metrics chat-request-preview-metrics">
+                                                <div class="mag-metric chat-request-preview-stat">
+                                                    <div class="mag-metric-label">Fixed System</div>
+                                                    <div id="chat-request-preview-fixed-tokens" class="mag-metric-value">--</div>
+                                                    <span class="mag-metric-note">固定系统提示词 token 估算</span>
+                                                </div>
+                                                <div class="mag-metric chat-request-preview-stat">
+                                                    <div class="mag-metric-label">Dynamic System</div>
+                                                    <div id="chat-request-preview-dynamic-tokens" class="mag-metric-value">--</div>
+                                                    <span class="mag-metric-note">动态系统提示词 token 估算</span>
+                                                </div>
+                                                <div class="mag-metric chat-request-preview-stat">
+                                                    <div class="mag-metric-label">Total Prompt</div>
+                                                    <div id="chat-request-preview-total-tokens" class="mag-metric-value">--</div>
+                                                    <span class="mag-metric-note">当前实际请求文本总量</span>
+                                                </div>
+                                            </div>
+                                            <div id="chat-request-preview-system-notes" class="chat-request-preview-note"></div>
+                                            <div id="chat-request-preview-visual-notes" class="chat-request-preview-note"></div>
+                                        </section>
+
+                                        <section id="chat-request-preview-fixed-section" class="mag-card chat-request-preview-section">
+                                            <div class="mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> SYS-01</div>
+                                            <div class="mag-card-title"><i class="ri-lock-line"></i><span>固定系统提示词</span></div>
+                                            <div id="chat-request-preview-fixed-list" class="chat-request-preview-list"></div>
+                                        </section>
+
+                                        <section id="chat-request-preview-dynamic-section" class="mag-card chat-request-preview-section">
+                                            <div class="mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> SYS-02</div>
+                                            <div class="mag-card-title"><i class="ri-shuffle-line"></i><span>动态系统提示词</span></div>
+                                            <div id="chat-request-preview-dynamic-list" class="chat-request-preview-list"></div>
+                                        </section>
+
+                                        <section id="chat-request-preview-message-section" class="mag-card chat-request-preview-section">
+                                            <div class="mag-card-decor"><span class="mag-pulse-symbol">&#10022;</span> MSG-01</div>
+                                            <div class="mag-card-title"><i class="ri-message-3-line"></i><span>实际请求消息</span></div>
+                                            <div id="chat-request-preview-message-list" class="chat-request-preview-list"></div>
+                                        </section>
+
+                                        <button id="copy-chat-request-preview" type="button" class="ios-btn-block secondary">复制展开文本</button>
+                                    </div>
                                 </div>
                             </div>
 

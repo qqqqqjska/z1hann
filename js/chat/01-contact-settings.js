@@ -5719,6 +5719,10 @@ function handleSaveChatSettings() {
 const CHAT_SETTINGS_TOKEN_REFRESH_DEBOUNCE_MS = 180;
 const CHAT_SETTINGS_MEMORY_TOKEN_WARNING_THRESHOLD = 2500;
 let chatSettingsTokenRefreshTimer = null;
+let chatRequestPreviewHideTimer = null;
+let chatRequestPreviewScrollLocked = false;
+let chatRequestPreviewScrollLockState = null;
+let chatRequestPreviewSaveButtonHiddenState = null;
 let chatSettingsTokenRefreshVersion = 0;
 
 function getChatSettingsCheckedIds(selector) {
@@ -5769,6 +5773,9 @@ function buildChatSettingsDraftContact(contact) {
         calendarAwareEnabled: calendarAwareInput ? !!calendarAwareInput.checked : contact.calendarAwareEnabled !== false,
         userPersonaId: Number.isFinite(userPersonaId) ? userPersonaId : null,
         userPersonaPromptOverride: userPromptInput ? userPromptInput.value : (contact.userPersonaPromptOverride || ''),
+        promptPartDisabledMap: contact.promptPartDisabledMap && typeof contact.promptPartDisabledMap === 'object' && !Array.isArray(contact.promptPartDisabledMap)
+            ? { ...contact.promptPartDisabledMap }
+            : undefined,
         linkedWbCategories: getChatSettingsCheckedIds('.wb-category-checkbox'),
         callLinkedWbCategories: getChatSettingsCheckedIds('.call-wb-category-checkbox'),
         linkedStickerCategories: getChatSettingsCheckedIds('.sticker-category-checkbox')
@@ -5779,21 +5786,23 @@ function renderChatTokenPreviewState(state = {}) {
     const previewEl = document.getElementById('chat-setting-token-preview');
     const countEl = document.getElementById('chat-setting-token-count');
     const visualStateEl = document.getElementById('chat-setting-token-visual-state');
-    const systemBaseEl = document.getElementById('chat-setting-token-system-base');
+    const systemFixedEl = document.getElementById('chat-setting-token-system-fixed');
+    const systemDynamicEl = document.getElementById('chat-setting-token-system-dynamic');
     const memoryEl = document.getElementById('chat-setting-token-memory');
     const worldbookEl = document.getElementById('chat-setting-token-worldbook');
     const contextEl = document.getElementById('chat-setting-token-context');
     const extraEl = document.getElementById('chat-setting-token-extra');
     const visualEl = document.getElementById('chat-setting-token-visual');
     const metaEl = document.getElementById('chat-setting-token-meta');
-    if (!previewEl || !countEl || !systemBaseEl || !memoryEl || !worldbookEl || !contextEl || !extraEl || !visualEl || !metaEl) return;
+    if (!previewEl || !countEl || !memoryEl || !worldbookEl || !contextEl || !extraEl || !visualEl || !metaEl) return;
 
     previewEl.classList.toggle('is-loading', !!state.loading);
     previewEl.classList.toggle('has-error', !!state.error);
 
     if (state.loading) {
         countEl.textContent = '--';
-        systemBaseEl.textContent = '--';
+        if (systemFixedEl) systemFixedEl.textContent = '--';
+        if (systemDynamicEl) systemDynamicEl.textContent = '--';
         memoryEl.textContent = '--';
         worldbookEl.textContent = '--';
         contextEl.textContent = '--';
@@ -5806,7 +5815,8 @@ function renderChatTokenPreviewState(state = {}) {
 
     if (state.error) {
         countEl.textContent = '--';
-        systemBaseEl.textContent = '--';
+        if (systemFixedEl) systemFixedEl.textContent = '--';
+        if (systemDynamicEl) systemDynamicEl.textContent = '--';
         memoryEl.textContent = '--';
         worldbookEl.textContent = '--';
         contextEl.textContent = '--';
@@ -5819,7 +5829,8 @@ function renderChatTokenPreviewState(state = {}) {
 
     const preview = state.preview || {};
     const sections = preview.sections || {};
-    const systemBaseTokens = Number(sections.systemBase && sections.systemBase.tokens ? sections.systemBase.tokens : 0);
+    const systemFixedTokens = Number(sections.systemFixed && sections.systemFixed.tokens ? sections.systemFixed.tokens : 0);
+    const systemDynamicTokens = Number(sections.systemDynamic && sections.systemDynamic.tokens ? sections.systemDynamic.tokens : 0);
     const memoryTokens = Number(sections.memory && sections.memory.tokens ? sections.memory.tokens : 0);
     const worldbookTokens = Number(sections.worldbook && sections.worldbook.tokens ? sections.worldbook.tokens : 0);
     const contextTokens = Number(sections.context && sections.context.tokens ? sections.context.tokens : 0);
@@ -5827,7 +5838,17 @@ function renderChatTokenPreviewState(state = {}) {
     const totalTextTokens = Number(preview.totalTextTokens || 0);
     const visualInputs = preview.visualInputs || {};
     const visualParts = [];
-    const metaParts = [`共 ${(preview.messageCount || 0).toLocaleString()} 条请求消息`, '按当前未保存设置实时估算'];
+    const fixedSystemLabels = Array.isArray(preview.systemPromptParts)
+        ? preview.systemPromptParts
+            .filter(part => part && part.fixed)
+            .map(part => String(part.label || '').trim())
+            .filter(Boolean)
+        : [];
+    const metaParts = [
+        `共 ${(preview.messageCount || 0).toLocaleString()} 条请求消息`,
+        '按当前未保存设置实时估算',
+        '仅统计文本内容，不含图像、消息包装和模型分词差异'
+    ];
 
     if (visualInputs.imageCount > 0) {
         visualParts.push(`${visualInputs.imageCount} 张图片`);
@@ -5837,7 +5858,8 @@ function renderChatTokenPreviewState(state = {}) {
     }
 
     countEl.textContent = totalTextTokens.toLocaleString();
-    systemBaseEl.textContent = systemBaseTokens.toLocaleString();
+    if (systemFixedEl) systemFixedEl.textContent = systemFixedTokens.toLocaleString();
+    if (systemDynamicEl) systemDynamicEl.textContent = systemDynamicTokens.toLocaleString();
     memoryEl.textContent = memoryTokens.toLocaleString();
     worldbookEl.textContent = worldbookTokens.toLocaleString();
     contextEl.textContent = contextTokens.toLocaleString();
@@ -5845,13 +5867,395 @@ function renderChatTokenPreviewState(state = {}) {
     if (memoryTokens >= CHAT_SETTINGS_MEMORY_TOKEN_WARNING_THRESHOLD) {
         metaParts.push('记忆注入较长，可能显著增加本轮提示词长度');
     }
+    metaParts.push(`System 固定项：${fixedSystemLabels.length > 0 ? fixedSystemLabels.join(' / ') : '无'}`);
     if (visualStateEl) {
         visualStateEl.textContent = visualParts.length > 0 ? 'ON' : 'OFF';
     }
     visualEl.textContent = visualParts.length > 0
-        ? `当前检测到 ${visualParts.join(' / ')}（未计入上方总数）`
-        : '未检测到视觉输入（未计入上方总数）';
+        ? `当前检测到 ${visualParts.join(' / ')}（不折算为文本 token）`
+        : '未检测到视觉输入（不折算为文本 token）';
     metaEl.textContent = metaParts.join('，');
+    window.__chatSettingsLastPromptPreview = preview;
+    window.__chatSettingsLastPromptPreviewAt = Date.now();
+}
+
+function ensureChatRequestPreviewPortal() {
+    const modal = document.getElementById('chat-request-preview-modal');
+    if (!modal) return null;
+    if (modal.parentElement !== document.body) {
+        document.body.appendChild(modal);
+    }
+    return modal;
+}
+
+function setChatRequestPreviewScrollLocked(locked) {
+    const body = document.body;
+    const html = document.documentElement;
+    if (!body || !html) return;
+
+    if (locked) {
+        if (chatRequestPreviewScrollLocked) return;
+        const scrollbarWidth = Math.max(0, window.innerWidth - html.clientWidth);
+        chatRequestPreviewScrollLockState = {
+            bodyOverflow: body.style.overflow,
+            htmlOverflow: html.style.overflow,
+            bodyPaddingRight: body.style.paddingRight
+        };
+        if (scrollbarWidth > 0) {
+            body.style.paddingRight = `${scrollbarWidth}px`;
+        }
+        body.style.overflow = 'hidden';
+        html.style.overflow = 'hidden';
+        chatRequestPreviewScrollLocked = true;
+        return;
+    }
+
+    if (!chatRequestPreviewScrollLocked) return;
+    const state = chatRequestPreviewScrollLockState || {};
+    body.style.overflow = state.bodyOverflow || '';
+    html.style.overflow = state.htmlOverflow || '';
+    body.style.paddingRight = state.bodyPaddingRight || '';
+    chatRequestPreviewScrollLockState = null;
+    chatRequestPreviewScrollLocked = false;
+}
+
+function setChatSettingsFloatingSaveHiddenForPreview(hidden) {
+    const button = mountChatSettingsFloatingSaveButton();
+    if (!button) return;
+    if (hidden) {
+        if (chatRequestPreviewSaveButtonHiddenState === null) {
+            chatRequestPreviewSaveButtonHiddenState = button.classList.contains('hidden');
+        }
+        button.classList.add('hidden');
+        return;
+    }
+    if (chatRequestPreviewSaveButtonHiddenState !== null) {
+        button.classList.toggle('hidden', chatRequestPreviewSaveButtonHiddenState);
+        chatRequestPreviewSaveButtonHiddenState = null;
+    }
+}
+
+function clearChatPromptPreviewContainer(container) {
+    if (!container) return;
+    while (container.firstChild) {
+        container.removeChild(container.firstChild);
+    }
+}
+
+function getChatPromptPartDisabledMap(contact) {
+    return contact && contact.promptPartDisabledMap && typeof contact.promptPartDisabledMap === 'object' && !Array.isArray(contact.promptPartDisabledMap)
+        ? contact.promptPartDisabledMap
+        : {};
+}
+
+function setChatPromptPartEnabled(contact, partKey, enabled) {
+    if (!contact) return;
+    const key = String(partKey || '').trim();
+    if (!key) return;
+    const disabledMap = getChatPromptPartDisabledMap(contact);
+    if (enabled) {
+        delete disabledMap[key];
+    } else {
+        disabledMap[key] = true;
+    }
+    if (Object.keys(disabledMap).length > 0) {
+        contact.promptPartDisabledMap = disabledMap;
+    } else {
+        delete contact.promptPartDisabledMap;
+    }
+    if (typeof saveConfig === 'function') {
+        saveConfig();
+    }
+}
+
+async function refreshChatPromptRequestPreviewFromCurrentContact() {
+    if (!window.iphoneSimState.currentChatContactId) return null;
+    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+    if (!contact) return null;
+    const draftContact = buildChatSettingsDraftContact(contact);
+    const preview = await window.buildAiPromptRequestPreview(contact.id, {
+        contactOverride: draftContact
+    });
+    if (!preview || preview.status === 'error') {
+        return preview || null;
+    }
+    window.__chatSettingsLastPromptPreview = preview;
+    window.__chatSettingsLastPromptPreviewAt = Date.now();
+    renderChatPromptRequestPreviewModal(preview);
+    return preview;
+}
+
+function appendChatPromptPreviewParts(container, parts, emptyText, options = {}) {
+    if (!container) return;
+    clearChatPromptPreviewContainer(container);
+    const list = Array.isArray(parts) ? parts : [];
+    const hideBody = !!(options && options.hideBody);
+    const showHiddenNote = options && Object.prototype.hasOwnProperty.call(options, 'showHiddenNote')
+        ? !!options.showHiddenNote
+        : true;
+    const showMeta = options && Object.prototype.hasOwnProperty.call(options, 'showMeta')
+        ? !!options.showMeta
+        : true;
+    const showToggle = !!(options && options.showToggle);
+    const onToggle = typeof options.onToggle === 'function' ? options.onToggle : null;
+    if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'chat-request-preview-empty';
+        empty.textContent = emptyText || '无';
+        container.appendChild(empty);
+        return;
+    }
+    list.forEach((part) => {
+        const card = document.createElement('div');
+        card.className = 'chat-request-preview-item';
+        if (part && part.enabled === false) {
+            card.classList.add('is-disabled');
+        }
+        const head = document.createElement('div');
+        head.className = 'chat-request-preview-item-head';
+        const titleWrap = document.createElement('div');
+        titleWrap.className = 'chat-request-preview-item-title-wrap';
+        const title = document.createElement('span');
+        title.className = 'chat-request-preview-item-title';
+        title.textContent = String(part && part.label || '未命名');
+        titleWrap.appendChild(title);
+        if (showMeta) {
+            const meta = document.createElement('span');
+            meta.className = 'chat-request-preview-item-meta';
+            meta.textContent = `${part && part.fixed ? '固定' : '动态'} · ${Number(part && part.tokens || 0)} tokens`;
+            titleWrap.appendChild(meta);
+        }
+        head.appendChild(titleWrap);
+        if (showToggle) {
+            const toggleLabel = document.createElement('label');
+            toggleLabel.className = 'chat-request-preview-item-switch';
+            const toggleText = document.createElement('span');
+            toggleText.className = 'chat-request-preview-item-switch-text';
+            toggleText.textContent = part && part.enabled === false ? '关闭' : '发送';
+            const toggleInput = document.createElement('input');
+            toggleInput.type = 'checkbox';
+            toggleInput.checked = part && part.enabled !== false;
+            toggleInput.dataset.partKey = String(part && part.key || '');
+            toggleInput.setAttribute('aria-label', `${String(part && part.label || '未命名')} 发送开关`);
+            const toggleUi = document.createElement('span');
+            toggleUi.className = 'chat-request-preview-item-switch-ui';
+            toggleLabel.appendChild(toggleText);
+            toggleLabel.appendChild(toggleInput);
+            toggleLabel.appendChild(toggleUi);
+            if (onToggle) {
+                toggleInput.addEventListener('change', async () => {
+                    const checked = !!toggleInput.checked;
+                    toggleText.textContent = checked ? '发送' : '关闭';
+                    await onToggle(part, checked);
+                });
+            }
+            head.appendChild(toggleLabel);
+        }
+        card.appendChild(head);
+        if (hideBody) {
+            if (!showHiddenNote) {
+                container.appendChild(card);
+                return;
+            }
+            const hint = document.createElement('div');
+            hint.className = 'chat-request-preview-item-hidden';
+            hint.textContent = '提示词正文已隐藏，仅展示条目名称与 token 统计。';
+            card.appendChild(hint);
+        } else {
+            const pre = document.createElement('pre');
+            pre.className = 'chat-request-preview-item-body';
+            pre.textContent = String(part && (part.bodyText || part.previewText || part.text) || '（空）');
+            card.appendChild(pre);
+        }
+        container.appendChild(card);
+    });
+}
+
+function setChatPromptPreviewActiveNav(targetId) {
+    const nav = document.getElementById('chat-request-preview-nav');
+    if (!nav) return;
+    const target = String(targetId || '').trim();
+    nav.querySelectorAll('.chat-request-preview-nav-btn').forEach((button) => {
+        const isActive = String(button.dataset.target || '') === target;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+}
+
+function setChatPromptPreviewActiveSection(targetId) {
+    const modal = document.getElementById('chat-request-preview-modal');
+    if (!modal) return;
+    const target = String(targetId || 'chat-request-preview-overview').trim() || 'chat-request-preview-overview';
+    modal.dataset.activeSection = target;
+    const sections = modal.querySelectorAll('.chat-request-preview-section');
+    sections.forEach((section) => {
+        const isActive = section && section.id === target;
+        section.classList.toggle('active', isActive);
+        if (section.tagName === 'DETAILS') {
+            section.open = isActive;
+        }
+    });
+    setChatPromptPreviewActiveNav(target);
+    const body = modal.querySelector('.modal-body');
+    if (body && typeof body.scrollTo === 'function') {
+        body.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (body) {
+        body.scrollTop = 0;
+    }
+}
+
+function renderChatPromptRequestPreviewModal(preview) {
+    const modal = ensureChatRequestPreviewPortal();
+    const nav = document.getElementById('chat-request-preview-nav');
+    const modalBody = modal ? modal.querySelector('.modal-body') : null;
+    const summaryEl = document.getElementById('chat-request-preview-summary');
+    const fixedListEl = document.getElementById('chat-request-preview-fixed-list');
+    const dynamicListEl = document.getElementById('chat-request-preview-dynamic-list');
+    const messageListEl = document.getElementById('chat-request-preview-message-list');
+    const fixedTokensEl = document.getElementById('chat-request-preview-fixed-tokens');
+    const dynamicTokensEl = document.getElementById('chat-request-preview-dynamic-tokens');
+    const totalTokensEl = document.getElementById('chat-request-preview-total-tokens');
+    const systemNotesEl = document.getElementById('chat-request-preview-system-notes');
+    const visualNotesEl = document.getElementById('chat-request-preview-visual-notes');
+    if (!modal || !summaryEl || !fixedListEl || !dynamicListEl || !messageListEl || !fixedTokensEl || !dynamicTokensEl || !totalTokensEl || !systemNotesEl || !visualNotesEl) {
+        return;
+    }
+
+    const initialSectionTarget = String(modal.dataset.activeSection || 'chat-request-preview-overview').trim() || 'chat-request-preview-overview';
+
+    const safePreview = preview && typeof preview === 'object' ? preview : {};
+    const sections = safePreview.sections || {};
+    const fixedParts = Array.isArray(safePreview.systemPromptParts)
+        ? safePreview.systemPromptParts.filter(part => part && part.fixed)
+        : [];
+    const dynamicParts = Array.isArray(safePreview.systemPromptParts)
+        ? safePreview.systemPromptParts.filter(part => part && !part.fixed)
+        : [];
+    const messagesPreview = Array.isArray(safePreview.messagesPreview) ? safePreview.messagesPreview : [];
+
+    summaryEl.textContent = `这是一轮“实际请求预览”，和当前聊天设置保持一致。固定系统项只统计不会随聊天变化的提示词。`;
+    fixedTokensEl.textContent = Number(sections.systemFixed && sections.systemFixed.tokens || 0).toLocaleString();
+    dynamicTokensEl.textContent = Number(sections.systemDynamic && sections.systemDynamic.tokens || 0).toLocaleString();
+    totalTokensEl.textContent = Number(safePreview.totalTextTokens || 0).toLocaleString();
+    systemNotesEl.textContent = `固定系统项：${fixedParts.length > 0 ? fixedParts.map(part => String(part.label || '').trim()).filter(Boolean).join(' / ') : '无'}`;
+    visualNotesEl.textContent = safePreview.visualInputs && safePreview.visualInputs.summary
+        ? `视觉输入：${safePreview.visualInputs.summary}`
+        : '视觉输入：未检测到';
+
+    appendChatPromptPreviewParts(fixedListEl, fixedParts.map(part => ({
+        label: String(part.label || '未命名'),
+        fixed: true,
+        key: String(part.key || ''),
+        enabled: part.enabled !== false,
+        tokens: Number(part.tokens || 0),
+        previewText: String(part.previewText || '').trim(),
+        bodyText: String(part.content || '').trim()
+    })), '当前没有固定系统项', { hideBody: true, showHiddenNote: false, showMeta: true, showToggle: true, onToggle: async (part, checked) => {
+        const contactId = window.iphoneSimState.currentChatContactId;
+        const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+        setChatPromptPartEnabled(contact, part && part.key, checked);
+        await refreshChatPromptRequestPreviewFromCurrentContact();
+        scheduleChatSettingsTokenPreviewRefresh();
+    } });
+
+    appendChatPromptPreviewParts(dynamicListEl, dynamicParts.map(part => ({
+        label: String(part.label || '未命名'),
+        fixed: false,
+        key: String(part.key || ''),
+        enabled: part.enabled !== false,
+        tokens: Number(part.tokens || 0),
+        previewText: String(part.previewText || '').trim(),
+        bodyText: String(part.content || '').trim()
+    })), '当前没有动态系统项', { showMeta: true, showToggle: true, onToggle: async (part, checked) => {
+        const contactId = window.iphoneSimState.currentChatContactId;
+        const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
+        setChatPromptPartEnabled(contact, part && part.key, checked);
+        await refreshChatPromptRequestPreviewFromCurrentContact();
+        scheduleChatSettingsTokenPreviewRefresh();
+    } });
+
+    clearChatPromptPreviewContainer(messageListEl);
+    if (!messagesPreview.length) {
+        const empty = document.createElement('div');
+        empty.className = 'memory-setting-hint';
+        empty.textContent = '当前没有可展示的实际请求消息';
+        messageListEl.appendChild(empty);
+    } else {
+        messagesPreview.forEach((message) => {
+            const card = document.createElement('div');
+            card.style.cssText = 'border:1px solid #e5e5ea;border-radius:16px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:8px;';
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;justify-content:space-between;gap:10px;align-items:flex-start;font-size:13px;font-weight:700;color:#111;';
+            const title = document.createElement('span');
+            title.textContent = `#${Number(message.index || 0) + 1} [${String(message.role || 'unknown')}]`;
+            const meta = document.createElement('span');
+            meta.style.cssText = 'font-size:12px;font-weight:600;color:#666;white-space:nowrap;';
+            meta.textContent = `${Number(message.tokens || 0)} tokens`;
+            head.appendChild(title);
+            head.appendChild(meta);
+            const pre = document.createElement('pre');
+            pre.style.cssText = 'margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace, Menlo, Consolas, monospace;font-size:12px;line-height:1.55;background:#f7f7fa;border-radius:12px;padding:12px;max-height:240px;overflow:auto;';
+            pre.textContent = String(message.previewText || '').trim() || '（空）';
+            card.appendChild(head);
+            card.appendChild(pre);
+            messageListEl.appendChild(card);
+        });
+    }
+
+    const copyBtn = document.getElementById('copy-chat-request-preview');
+    if (copyBtn) {
+        copyBtn.dataset.copyText = String(safePreview.requestText || '').trim();
+    }
+    if (modalBody) {
+        modalBody.scrollTop = 0;
+    }
+    if (nav && !nav.dataset.previewNavBound) {
+        nav.dataset.previewNavBound = '1';
+        nav.addEventListener('click', (event) => {
+            const button = event.target && event.target.closest ? event.target.closest('.chat-request-preview-nav-btn') : null;
+            if (!button || !nav.contains(button)) return;
+            const targetId = String(button.dataset.target || '').trim();
+            if (!targetId) return;
+            setChatPromptPreviewActiveSection(targetId);
+        });
+    }
+    if (chatRequestPreviewHideTimer) {
+        clearTimeout(chatRequestPreviewHideTimer);
+        chatRequestPreviewHideTimer = null;
+    }
+    setChatRequestPreviewScrollLocked(true);
+    setChatSettingsFloatingSaveHiddenForPreview(true);
+    modal.classList.remove('hidden');
+    requestAnimationFrame(() => {
+        modal.classList.add('active');
+    });
+    setChatPromptPreviewActiveSection(initialSectionTarget);
+}
+
+async function openChatPromptRequestPreview() {
+    if (!window.iphoneSimState.currentChatContactId) return;
+    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
+    if (!contact) return;
+    const previewBtn = document.getElementById('chat-setting-request-preview-btn');
+    const originalText = previewBtn ? previewBtn.textContent : '';
+    if (previewBtn) {
+        previewBtn.disabled = true;
+        previewBtn.textContent = '生成预览中...';
+    }
+    try {
+        const preview = await refreshChatPromptRequestPreviewFromCurrentContact();
+        if (!preview || preview.status === 'error') {
+            alert(preview && preview.error ? preview.error : '本轮实际请求预览生成失败');
+            return;
+        }
+    } catch (error) {
+        alert(error && error.message ? error.message : '本轮实际请求预览生成失败');
+    } finally {
+        if (previewBtn) {
+            previewBtn.disabled = false;
+            previewBtn.textContent = originalText;
+        }
+    }
 }
 
 function scheduleChatSettingsTokenPreviewRefresh() {
@@ -5891,6 +6295,46 @@ function ensureChatSettingsTokenPreviewBindings() {
     bindRefresh('chat-setting-allow-real-photo-send', ['change']);
     bindRefresh('chat-setting-device-usage-shared', ['change']);
     bindRefresh('chat-setting-user-persona', ['change']);
+
+    const requestPreviewBtn = document.getElementById('chat-setting-request-preview-btn');
+    if (requestPreviewBtn) {
+        requestPreviewBtn.addEventListener('click', () => {
+            openChatPromptRequestPreview().catch((error) => {
+                console.error('openChatPromptRequestPreview error', error);
+            });
+        });
+    }
+
+    const closeRequestPreviewBtn = document.getElementById('close-chat-request-preview');
+    if (closeRequestPreviewBtn) {
+        closeRequestPreviewBtn.addEventListener('click', () => {
+            const modal = ensureChatRequestPreviewPortal();
+            if (!modal) return;
+            modal.classList.remove('active');
+            if (chatRequestPreviewHideTimer) {
+                clearTimeout(chatRequestPreviewHideTimer);
+            }
+            chatRequestPreviewHideTimer = window.setTimeout(() => {
+                modal.classList.add('hidden');
+                chatRequestPreviewHideTimer = null;
+                setChatRequestPreviewScrollLocked(false);
+                setChatSettingsFloatingSaveHiddenForPreview(false);
+            }, 260);
+        });
+    }
+
+    const copyRequestPreviewBtn = document.getElementById('copy-chat-request-preview');
+    if (copyRequestPreviewBtn) {
+        copyRequestPreviewBtn.addEventListener('click', async () => {
+            const text = String(copyRequestPreviewBtn.dataset.copyText || '').trim();
+            if (!text) {
+                showNotification('没有可复制的预览内容', 1500);
+                return;
+            }
+            const copied = await copyTextToClipboard(text);
+            showNotification(copied ? '已复制展开文本' : '复制失败', 1500, copied ? 'success' : 'error');
+        });
+    }
 
     const wbList = document.getElementById('chat-setting-wb-list');
     if (wbList) {

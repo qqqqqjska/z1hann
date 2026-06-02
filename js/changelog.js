@@ -9,7 +9,7 @@ const CHANGELOG_VERSION = 'v1.0.11'; // 修改这个版本号来让弹窗再次�
 const CHANGELOG_IMAGE = 'https://i.postimg.cc/7Lm6s43m/IMG-8241.jpg';
 const CHANGELOG_ITEMS = [
     '5.30更新',
-    '增加ai翻唱/原创歌曲功能，在音乐应用联系人列表进入主页催更生成 ',
+    '增加ai翻唱/原创歌曲功能，在音乐应用联系人列表进入主页催更生成，用到minimax，配置过的直接用就行',
     '翻唱出来的歌曲背景音乐和原曲不一样是正常现象，minimax生成翻唱歌曲会换伴奏'
     ]
 const CHANGELOG_ACCESS_READY_EVENT = 'z1han:access-ready';

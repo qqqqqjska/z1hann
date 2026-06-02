@@ -6382,6 +6382,12 @@ const MEMORY_VECTOR_INDEX_STORAGE_PREFIX = 'memory-vector-index-v1:';
 const MEMORY_VECTOR_INDEX_MAX_ITEMS = 4000;
 const MEMORY_VECTOR_BUILD_BATCH_SIZE = 6;
 const MEMORY_VECTOR_BACKGROUND_MAX_ITEMS = 12;
+const MEMORY_VECTOR_BUCKET_PRIORITY = {
+    state: 4,
+    refined: 3,
+    short_term: 2,
+    long_term: 1
+};
 const BUILTIN_MEMORY_VECTOR_EMBEDDING = Object.freeze({
     endpoint: 'https://api.siliconflow.cn/v1',
     apiKey: 'sk-tpkfgtmytrfvabkejzzyccvfeqkgwvnqxobpendlnmokojik',
@@ -6399,12 +6405,12 @@ function getMemoryVectorSettings() {
         : {};
     return {
         enabled: !!vector.enabled,
-        endpoint: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.endpoint || '').trim(),
-        apiKey: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.apiKey || '').trim(),
-        model: String(BUILTIN_MEMORY_VECTOR_EMBEDDING.model || 'BAAI/bge-m3').trim() || 'BAAI/bge-m3',
+        endpoint: String(vector.endpoint || BUILTIN_MEMORY_VECTOR_EMBEDDING.endpoint || '').trim(),
+        apiKey: String(vector.apiKey || BUILTIN_MEMORY_VECTOR_EMBEDDING.apiKey || '').trim(),
+        model: String(vector.model || BUILTIN_MEMORY_VECTOR_EMBEDDING.model || 'BAAI/bge-m3').trim() || 'BAAI/bge-m3',
         topK: clampInt(vector.topK, 8, 1, 30),
         minSimilarity: clampFloat(vector.minSimilarity, 0.35, 0.05, 0.99),
-        queryTimeoutMs: clampInt(vector.queryTimeoutMs, 600, 200, 5000),
+        queryTimeoutMs: clampInt(vector.queryTimeoutMs, 1200, 200, 5000),
         useChatKeyFallback: false
     };
 }
@@ -6447,6 +6453,14 @@ function buildMemoryVectorContentHash(memory) {
     const phase = memory && memory.stateMeta ? String(memory.stateMeta.phase || '') : '';
     const normalizedText = normalizeMemoryVectorText(memory && memory.content, 8000);
     return simpleStableHash(`${normalizedText}|${tags}|${owner}|${phase}`);
+}
+
+function getMemoryVectorPrimaryBucket(memory) {
+    const tags = normalizeMemoryTags(memory && memory.memoryTags, 'long_term');
+    for (const bucket of ['state', 'refined', 'short_term', 'long_term']) {
+        if (tags.includes(bucket)) return bucket;
+    }
+    return 'long_term';
 }
 
 function normalizeMemoryVectorIndex(raw, contactId) {
@@ -6543,9 +6557,15 @@ function buildEmbeddingApiUrl(endpoint) {
 }
 
 function resolveMemoryVectorEmbeddingConfig(vectorSettings) {
-    const endpoint = buildEmbeddingApiUrl(BUILTIN_MEMORY_VECTOR_EMBEDDING.endpoint);
-    const model = String(BUILTIN_MEMORY_VECTOR_EMBEDDING.model || '').trim();
-    const apiKey = String(BUILTIN_MEMORY_VECTOR_EMBEDDING.apiKey || '').replace(/[^\x00-\x7F]/g, '').trim();
+    const endpoint = buildEmbeddingApiUrl(vectorSettings && vectorSettings.endpoint
+        ? vectorSettings.endpoint
+        : BUILTIN_MEMORY_VECTOR_EMBEDDING.endpoint);
+    const model = String(vectorSettings && vectorSettings.model
+        ? vectorSettings.model
+        : BUILTIN_MEMORY_VECTOR_EMBEDDING.model || '').trim();
+    const apiKey = String(vectorSettings && vectorSettings.apiKey
+        ? vectorSettings.apiKey
+        : BUILTIN_MEMORY_VECTOR_EMBEDDING.apiKey || '').replace(/[^\x00-\x7F]/g, '').trim();
     return {
         endpoint,
         model,
@@ -7007,22 +7027,32 @@ function buildMemoryContextFromSections(sections) {
         if (title === '状态记忆') {
             text += '- 说明：每条状态会标注主体（用户/联系人），请勿混淆主体。\n';
         }
-        list
+        const sortedList = list
             .slice()
-            .sort((left, right) => Number(left && left.time || 0) - Number(right && right.time || 0))
-            .forEach((memory) => {
-                const date = new Date(Number(memory && memory.time || 0) || Date.now());
-                const dateStr = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-                let lineContent = String(memory && memory.content || '');
-                if (title === '状态记忆') {
-                    const owner = getMemoryStateOwner(memory, 'user');
-                    const ownerLabel = owner === 'contact' ? '联系人状态' : '用户状态';
-                    lineContent = /^((用户|联系人)当前状态[:：]|(用户状态|联系人状态)[:：])/.test(lineContent)
-                        ? lineContent
-                        : `${ownerLabel}：${lineContent}`;
+            .sort((left, right) => {
+                const leftHasScore = Number.isFinite(Number(left && left.score));
+                const rightHasScore = Number.isFinite(Number(right && right.score));
+                if (leftHasScore || rightHasScore) {
+                    const scoreDiff = Number(right && right.score || 0) - Number(left && left.score || 0);
+                    if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
+                    const simDiff = Number(right && right.similarity || 0) - Number(left && left.similarity || 0);
+                    if (Math.abs(simDiff) > 1e-9) return simDiff;
                 }
-                text += `- [${dateStr}] ${lineContent}\n`;
+                return Number(left && left.time || 0) - Number(right && right.time || 0);
             });
+        sortedList.forEach((memory) => {
+            const date = new Date(Number(memory && memory.time || 0) || Date.now());
+            const dateStr = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+            let lineContent = String(memory && memory.content || '');
+            if (title === '状态记忆') {
+                const owner = getMemoryStateOwner(memory, 'user');
+                const ownerLabel = owner === 'contact' ? '联系人状态' : '用户状态';
+                lineContent = /^((用户|联系人)当前状态[:：]|(用户状态|联系人状态)[:：])/.test(lineContent)
+                    ? lineContent
+                    : `${ownerLabel}：${lineContent}`;
+            }
+            text += `- [${dateStr}] ${lineContent}\n`;
+        });
         return text;
     };
     let output = '';
@@ -7034,12 +7064,18 @@ function buildMemoryContextFromSections(sections) {
 }
 
 function buildVectorMemoryQueryText(history) {
-    const source = Array.isArray(history) ? history.slice(-20) : [];
-    return source
-        .map(item => normalizeMemoryVectorText(item && item.content, 1200))
-        .filter(Boolean)
-        .join('\n')
-        .trim();
+    const source = Array.isArray(history) ? history.slice(-12) : [];
+    const lines = [];
+    const seen = new Set();
+    source.forEach((item) => {
+        const text = normalizeMemoryVectorText(item && item.content, 900);
+        if (!text || text.length < 2) return;
+        const key = text.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        lines.push(text);
+    });
+    return lines.join('\n').trim();
 }
 
 async function buildMemoryContextByVectorPolicy(contact, history, debugSource = 'chat') {
@@ -7077,17 +7113,21 @@ async function buildMemoryContextByVectorPolicy(contact, history, debugSource = 
         return importance >= getImportanceLimit(bucket);
     };
 
-    const candidates = [];
+    const candidateById = new Map();
     allMemories.forEach((memory) => {
-        const tags = normalizeMemoryTags(memory.memoryTags, 'long_term');
-        tags.forEach((bucket) => {
-            if (!['state', 'short_term', 'long_term', 'refined'].includes(bucket)) return;
-            if (!isWithinRecentDays(memory, bucket)) return;
-            if (!isAboveImportanceLimit(memory, bucket)) return;
-            if (bucket === 'state' && memory.stateMeta && memory.stateMeta.phase && memory.stateMeta.phase !== 'active') return;
-            candidates.push({ bucket, memory });
-        });
+        const memoryId = String(memory && memory.id || '').trim();
+        if (!memoryId) return;
+        const bucket = getMemoryVectorPrimaryBucket(memory);
+        if (!['state', 'short_term', 'long_term', 'refined'].includes(bucket)) return;
+        if (!isWithinRecentDays(memory, bucket)) return;
+        if (!isAboveImportanceLimit(memory, bucket)) return;
+        if (bucket === 'state' && memory.stateMeta && memory.stateMeta.phase && memory.stateMeta.phase !== 'active') return;
+        const existing = candidateById.get(memoryId);
+        if (!existing || (MEMORY_VECTOR_BUCKET_PRIORITY[bucket] || 0) > (MEMORY_VECTOR_BUCKET_PRIORITY[existing.bucket] || 0)) {
+            candidateById.set(memoryId, { bucket, memory });
+        }
     });
+    const candidates = Array.from(candidateById.values());
     if (!candidates.length) return '';
 
     enqueueMemoryVectorBuild(contact.id);
@@ -7152,9 +7192,13 @@ async function buildMemoryContextByVectorPolicy(contact, history, debugSource = 
     if (!scored.length) return '';
     const selected = scored.slice(0, Math.max(1, vectorSettings.topK));
     const sections = { state: [], short_term: [], long_term: [], refined: [] };
-    selected.forEach((entry) => {
+    selected.forEach((entry, index) => {
         if (!sections[entry.bucket]) return;
-        sections[entry.bucket].push(entry.memory);
+        sections[entry.bucket].push(Object.assign({}, entry.memory, {
+            score: entry.score,
+            similarity: entry.similarity,
+            vectorRank: index + 1
+        }));
     });
     const output = buildMemoryContextFromSections(sections);
     if (!output.trim()) return '';
