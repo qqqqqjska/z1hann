@@ -2029,7 +2029,8 @@ async function generateMeetingSummary(contactId, meeting, injectIntoChat = false
             throw new Error('summary helper unavailable');
         }
         const generated = await window.generateChannelNaturalSummary(contact, meetingMessages, {
-            channel: 'chat',
+            channel: 'meeting',
+            summaryStyle: 'chat',
             source: injectIntoChat ? 'meeting_sync' : 'meeting_summary',
             rangeLabel: meeting && meeting.title ? meeting.title : '见面剧情',
             summaryPromptMode: 'manual',

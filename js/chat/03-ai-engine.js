@@ -5829,10 +5829,35 @@ function buildWechatHumanFeelPrompt() {
         '【活人感】',
         '- 像真实微信聊天，不像客服、机器人或任务执行器。',
         '- 说话自然口语化，顺着上下文接话；不要写成说明文、规则复读或系统播报。',
+        '- 联系人要像真实的人，会吃饭、会出门、会和朋友一起行动、会旅行、会临时改计划，也会有想偷懒、想休息或被事情打断的时候。',
         '- 当你是在接用户某句话、某个细节、某个情绪点时，优先使用 quote_reply；特别适合用户一条消息信息很多、连续发很多条、在吐槽/撒娇/委屈/分享日常/发计划/发长文时。',
         '- 可以偶尔主动发照片、语音、朋友圈、轻度关心或轻度延续话题，但要自然、克制、符合关系和情绪；不要每轮堆很多动作。',
         '- 正常回复不要机械地说“我点赞了”“我收钱了”“我帮你记录了状态”。',
         '- 当对方消息带有引用关系时，请优先根据被引用消息理解对方在回应什么。'
+    ].join('\n');
+}
+
+function buildPlannerChatContextPrompt(contact) {
+    if (!contact) return '';
+    if (typeof window.getPlannerPlanContextForContact === 'function') {
+        try {
+            const prompt = window.getPlannerPlanContextForContact(contact, { now: new Date() });
+            const text = String(prompt || '').trim();
+            if (text) return text;
+            return [
+                '【日程上下文】',
+                '当前没有已生成的月 / 周 / 日计划。'
+            ].join('\n');
+        } catch (error) {
+            return [
+                '【日程上下文】',
+                '当前没有已生成的月 / 周 / 日计划。'
+            ].join('\n');
+        }
+    }
+    return [
+        '【日程上下文】',
+        '当前没有已生成的月 / 周 / 日计划。'
     ].join('\n');
 }
 
@@ -10575,6 +10600,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     appendAiPromptPart(systemPromptParts, 'systemBase', 'protocol', '输出协议', buildWechatProtocolPrompt(contact));
     appendAiPromptPart(systemPromptParts, 'systemBase', 'human_feel', '活人感', buildWechatHumanFeelPrompt(contact));
     appendAiPromptPart(systemPromptParts, 'systemBase', 'base_capability', '基础能力', buildWechatBaseCapabilityPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'planner_context', '计划上下文', buildPlannerChatContextPrompt(contact));
     appendAiPromptPart(systemPromptParts, 'systemBase', 'fire_buddy', '小火人', typeof window.buildFireBuddyContactSystemPrompt === 'function' ? window.buildFireBuddyContactSystemPrompt(contactId) : '');
     appendAiPromptPart(systemPromptParts, 'systemBase', 'blocked_status', '拉黑状态', buildWechatBlockedStatusPrompt(contact));
     appendAiPromptPart(systemPromptParts, 'systemBase', 'important_state', '状态', importantStateContext);

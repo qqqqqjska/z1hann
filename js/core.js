@@ -2124,9 +2124,8 @@ let itineraryNotificationTimeout;
 function showItineraryNotification(message, duration = 0, type = 'info') {
     const notification = document.getElementById('itinerary-notification');
     const textEl = document.getElementById('itinerary-notification-text');
-    const iconEl = notification.querySelector('i');
-
     if (!notification || !textEl) return;
+    const iconEl = notification.querySelector('i');
 
     if (itineraryNotificationTimeout) {
         clearTimeout(itineraryNotificationTimeout);

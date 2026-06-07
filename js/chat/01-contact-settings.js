@@ -4439,6 +4439,9 @@ function getChatSettingsTargetModeElements() {
     const calendarAwareToggleRow = document.getElementById('chat-setting-calendar-aware')
         ? document.getElementById('chat-setting-calendar-aware').closest('.mag-toggle')
         : null;
+    const plannerContextToggleRow = document.getElementById('chat-setting-planner-context-enabled')
+        ? document.getElementById('chat-setting-planner-context-enabled').closest('.mag-toggle')
+        : null;
     const allowRealPhotoSendToggleRow = document.getElementById('chat-setting-allow-real-photo-send')
         ? document.getElementById('chat-setting-allow-real-photo-send').closest('.mag-toggle')
         : null;
@@ -4466,6 +4469,7 @@ function getChatSettingsTargetModeElements() {
         activeReplyIntervalField: document.getElementById('chat-setting-active-interval') ? document.getElementById('chat-setting-active-interval').closest('.mag-field') : null,
         restWindowToggle: document.getElementById('chat-setting-rest-window-enabled') ? document.getElementById('chat-setting-rest-window-enabled').closest('.mag-toggle') : null,
         restWindowPanel: document.getElementById('chat-setting-rest-window-time-panel'),
+        plannerContextToggle: plannerContextToggleRow,
         thoughtCard: document.getElementById('chat-setting-show-thought') ? document.getElementById('chat-setting-show-thought').closest('.editorial-thought-card') : null,
         thoughtPetPanel: document.getElementById('chat-setting-thought-pet-panel'),
         showThoughtToggle: showThoughtToggleRow,
@@ -4504,6 +4508,7 @@ function syncChatSettingsTargetMode(contact) {
         activeReplyIntervalField,
         restWindowToggle,
         restWindowPanel,
+        plannerContextToggle,
         thoughtCard,
         thoughtPetPanel,
         showThoughtToggle,
@@ -4532,6 +4537,7 @@ function syncChatSettingsTargetMode(contact) {
         logicDivider,
         restWindowToggle,
         restWindowPanel,
+        plannerContextToggle,
         fireBuddyCard,
         assetsCard
     ].forEach((element) => setChatSettingsElementHidden(element, isGroupChat));
@@ -4548,7 +4554,7 @@ function syncChatSettingsTargetMode(contact) {
             setChatSettingsElementHidden(element, false);
         });
     } else {
-        [showThoughtToggle, thoughtStyleField, thoughtVisibleToggle, realTimeToggle, calendarAwareToggle, allowRealPhotoSendToggle, deviceUsageToggle].forEach((element) => {
+        [showThoughtToggle, thoughtStyleField, thoughtVisibleToggle, realTimeToggle, calendarAwareToggle, plannerContextToggle, allowRealPhotoSendToggle, deviceUsageToggle].forEach((element) => {
             setChatSettingsElementHidden(element, false);
         });
         setChatSettingsElementHidden(thoughtPetPanel, false);
@@ -4658,6 +4664,7 @@ function openChatSettings() {
     document.getElementById('chat-setting-thought-visible').checked = contact.thoughtVisible || false;
     document.getElementById('chat-setting-real-time-visible').checked = contact.realTimeVisible || false;
     document.getElementById('chat-setting-calendar-aware').checked = contact.calendarAwareEnabled !== false;
+    syncChatPlannerContextToggle(contact);
     const allowRealPhotoSendToggle = document.getElementById('chat-setting-allow-real-photo-send');
     if (allowRealPhotoSendToggle) {
         allowRealPhotoSendToggle.checked = !!contact.allowRealPhotoSend;
@@ -5347,6 +5354,9 @@ function handleSaveChatSettings() {
     const thoughtVisible = document.getElementById('chat-setting-thought-visible').checked;
     const realTimeVisible = document.getElementById('chat-setting-real-time-visible').checked;
     const calendarAwareEnabled = document.getElementById('chat-setting-calendar-aware').checked;
+    const plannerContextEnabled = document.getElementById('chat-setting-planner-context-enabled')
+        ? document.getElementById('chat-setting-planner-context-enabled').checked
+        : true;
     const allowRealPhotoSend = document.getElementById('chat-setting-allow-real-photo-send')
         ? document.getElementById('chat-setting-allow-real-photo-send').checked
         : false;
@@ -5468,6 +5478,20 @@ function handleSaveChatSettings() {
         contact.bilingualTranslationEnabled = bilingualTranslationEnabled;
         contact.bilingualSourceLang = bilingualSourceLang;
         contact.bilingualTargetLang = bilingualTargetLang;
+
+        const promptPartDisabledMap = contact.promptPartDisabledMap && typeof contact.promptPartDisabledMap === 'object' && !Array.isArray(contact.promptPartDisabledMap)
+            ? { ...contact.promptPartDisabledMap }
+            : {};
+        if (plannerContextEnabled) {
+            delete promptPartDisabledMap.planner_context;
+        } else {
+            promptPartDisabledMap.planner_context = true;
+        }
+        if (Object.keys(promptPartDisabledMap).length > 0) {
+            contact.promptPartDisabledMap = promptPartDisabledMap;
+        } else {
+            delete contact.promptPartDisabledMap;
+        }
     }
     contact.contextLimit = contextLimit ? parseInt(contextLimit) : 0;
     contact.summaryLimit = summaryLimit ? parseInt(summaryLimit) : 0;
@@ -5752,7 +5776,18 @@ function buildChatSettingsDraftContact(contact) {
     const thoughtVisibleInput = document.getElementById('chat-setting-thought-visible');
     const realTimeVisibleInput = document.getElementById('chat-setting-real-time-visible');
     const calendarAwareInput = document.getElementById('chat-setting-calendar-aware');
+    const plannerContextInput = document.getElementById('chat-setting-planner-context-enabled');
     const userPersonaId = userPersonaInput ? parseInt(userPersonaInput.value, 10) : NaN;
+    const promptPartDisabledMap = contact.promptPartDisabledMap && typeof contact.promptPartDisabledMap === 'object' && !Array.isArray(contact.promptPartDisabledMap)
+        ? { ...contact.promptPartDisabledMap }
+        : {};
+    if (plannerContextInput) {
+        if (plannerContextInput.checked) {
+            delete promptPartDisabledMap.planner_context;
+        } else {
+            promptPartDisabledMap.planner_context = true;
+        }
+    }
 
     return {
         name: nameInput ? (nameInput.value.trim() || contact.name || '') : (contact.name || ''),
@@ -5773,9 +5808,7 @@ function buildChatSettingsDraftContact(contact) {
         calendarAwareEnabled: calendarAwareInput ? !!calendarAwareInput.checked : contact.calendarAwareEnabled !== false,
         userPersonaId: Number.isFinite(userPersonaId) ? userPersonaId : null,
         userPersonaPromptOverride: userPromptInput ? userPromptInput.value : (contact.userPersonaPromptOverride || ''),
-        promptPartDisabledMap: contact.promptPartDisabledMap && typeof contact.promptPartDisabledMap === 'object' && !Array.isArray(contact.promptPartDisabledMap)
-            ? { ...contact.promptPartDisabledMap }
-            : undefined,
+        promptPartDisabledMap: Object.keys(promptPartDisabledMap).length > 0 ? promptPartDisabledMap : undefined,
         linkedWbCategories: getChatSettingsCheckedIds('.wb-category-checkbox'),
         callLinkedWbCategories: getChatSettingsCheckedIds('.call-wb-category-checkbox'),
         linkedStickerCategories: getChatSettingsCheckedIds('.sticker-category-checkbox')
@@ -5948,6 +5981,13 @@ function getChatPromptPartDisabledMap(contact) {
         : {};
 }
 
+function syncChatPlannerContextToggle(contact) {
+    const input = document.getElementById('chat-setting-planner-context-enabled');
+    if (!input) return;
+    const disabledMap = getChatPromptPartDisabledMap(contact);
+    input.checked = !disabledMap.planner_context;
+}
+
 function setChatPromptPartEnabled(contact, partKey, enabled) {
     if (!contact) return;
     const key = String(partKey || '').trim();
@@ -5965,6 +6005,9 @@ function setChatPromptPartEnabled(contact, partKey, enabled) {
     }
     if (typeof saveConfig === 'function') {
         saveConfig();
+    }
+    if (key === 'planner_context') {
+        syncChatPlannerContextToggle(contact);
     }
 }
 
@@ -6132,8 +6175,11 @@ function renderChatPromptRequestPreviewModal(preview) {
         ? safePreview.systemPromptParts.filter(part => part && !part.fixed)
         : [];
     const messagesPreview = Array.isArray(safePreview.messagesPreview) ? safePreview.messagesPreview : [];
+    const plannerContextPart = Array.isArray(safePreview.systemPromptParts)
+        ? safePreview.systemPromptParts.find(part => part && String(part.key || '') === 'planner_context')
+        : null;
 
-    summaryEl.textContent = `这是一轮“实际请求预览”，和当前聊天设置保持一致。固定系统项只统计不会随聊天变化的提示词。`;
+    summaryEl.textContent = `这是一轮“实际请求预览”，和当前聊天设置保持一致。固定系统项只统计不会随聊天变化的提示词，计划上下文会归入动态系统项。${plannerContextPart ? (plannerContextPart.enabled === false ? ' 当前计划上下文已关闭。' : ' 当前计划上下文已包含在请求中。') : ''}`;
     fixedTokensEl.textContent = Number(sections.systemFixed && sections.systemFixed.tokens || 0).toLocaleString();
     dynamicTokensEl.textContent = Number(sections.systemDynamic && sections.systemDynamic.tokens || 0).toLocaleString();
     totalTokensEl.textContent = Number(safePreview.totalTextTokens || 0).toLocaleString();
@@ -6295,6 +6341,19 @@ function ensureChatSettingsTokenPreviewBindings() {
     bindRefresh('chat-setting-allow-real-photo-send', ['change']);
     bindRefresh('chat-setting-device-usage-shared', ['change']);
     bindRefresh('chat-setting-user-persona', ['change']);
+    bindRefresh('chat-setting-planner-context-enabled', ['change']);
+
+    const plannerContextToggle = document.getElementById('chat-setting-planner-context-enabled');
+    if (plannerContextToggle) {
+        plannerContextToggle.addEventListener('change', () => {
+            const previewModal = document.getElementById('chat-request-preview-modal');
+            if (previewModal && !previewModal.classList.contains('hidden')) {
+                refreshChatPromptRequestPreviewFromCurrentContact().catch((error) => {
+                    console.error('refreshChatPromptRequestPreviewFromCurrentContact error', error);
+                });
+            }
+        });
+    }
 
     const requestPreviewBtn = document.getElementById('chat-setting-request-preview-btn');
     if (requestPreviewBtn) {

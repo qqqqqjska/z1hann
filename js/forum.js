@@ -1175,12 +1175,10 @@ ${recentPostHints.length > 0 ? recentPostHints.map(t => `- ${t.substring(0, 88)}
                 `对方画面:${String(room.pk.rightActionDesc || '').trim() || '(无)'}`,
                 `评论摘要:${(room.comments || []).slice(-20).map(c => `[${c.side || 'left'}]${c.username || '观众'}:${c.content || ''}`).join(' | ') || '(无)'}`
             ].join('\n');
-            const fallbackSummary = `【直播原始记录】\n${rawTimeline}`;
 
             let summaryText = '';
             if (!settings.url || !settings.key) {
-                if (typeof showNotification === 'function') showNotification('直播总结失败：未配置AI', 2000, 'error');
-                window.syncForumEventToChat(contactId, fallbackSummary, 'system', 'live_sync_hidden');
+                if (typeof showNotification === 'function') showNotification('总结出错', 2000);
                 return;
             }
 
@@ -1204,13 +1202,12 @@ ${recentPostHints.length > 0 ? recentPostHints.map(t => `- ${t.substring(0, 88)}
                     .filter(msg => msg.content);
                 const generated = await window.generateChannelNaturalSummary(virtualContact, timelineMessages, {
                     channel: 'live_link',
+                    summaryStyle: 'chat',
                     source: 'live_sync_hidden',
                     rangeLabel: `${room.host || '我方'} vs ${(room.pk.opponent && room.pk.opponent.name) || '对方'}`,
-                    detailModeHint: '当前是直播连线总结，重点写模式、双方互动、观众反馈、结果与后续策略。',
                     summaryPromptMode: 'manual',
                     totalMessageCount: timelineMessages.length,
                     sourceMessageCount: timelineMessages.length,
-                    rangeOverride: { target: 170, min: 120, max: 220, maxTokens: 760 },
                     settings
                 });
                 summaryText = String(generated && generated.summary || '').trim();
@@ -1229,9 +1226,9 @@ ${recentPostHints.length > 0 ? recentPostHints.map(t => `- ${t.substring(0, 88)}
                 if (typeof saveConfig === 'function') saveConfig();
                 window.syncForumEventToChat(contactId, `[直播连线总结] ${summaryText}`, 'system', 'live_sync_hidden');
             } catch (err) {
-                const msg = (err && err.message) ? err.message : '未知错误';
-                if (typeof showNotification === 'function') showNotification(`直播总结失败：${msg}`, 2200, 'error');
-                window.syncForumEventToChat(contactId, fallbackSummary, 'system', 'live_sync_hidden');
+                console.error('直播总结失败:', err);
+                if (typeof showNotification === 'function') showNotification('总结出错', 2000);
+                return;
             }
         }
 

@@ -8753,7 +8753,7 @@
                                 '<div class="music-v2-fh-profile-info">' +
                                     '<div id="music-v2-fh-name" class="music-v2-fh-name">联系人</div>' +
                                     '<div id="music-v2-fh-uid" class="music-v2-fh-uid">ID: 00000000</div>' +
-                                    '<div id="music-v2-fh-scene" class="music-v2-fh-scene"></div>' +
+                                    '<div id="music-v2-fh-scene" class="music-v2-fh-scene">帮我设计一个行程的页面ui样式，可以点击某一天的日期查看当天的行程安排（需要有 时间线），用户可以进行交互，要求是页面过渡动画自然，需要有点击反馈，整体简约ios风格，黑白灰配色，手账本样式，可以翻页，可以切换查看月计划周计划和日计划，周计划月计划的布局和标记方式可以参考 我给的图片，上下竖屏，不要夜间模式，需要有新意，可以有磨砂玻璃效果，用到中英文、特殊字体、符号、图标来装饰（重要），加一些小动效，不要emoji，给我两个版本文件。</div>' +
                                 '</div>' +
                             '</div>' +
                             '<div class="music-v2-fh-stats">' +

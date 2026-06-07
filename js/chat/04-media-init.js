@@ -6538,9 +6538,11 @@ async function summarizeVoiceCall(contactId, startIndex) {
     if (!callContent) return;
 
     const totalMessageCount = callMessages.length;
-    const lengthRange = typeof getSummaryLengthRangeByCount === 'function'
-        ? getSummaryLengthRangeByCount(totalMessageCount, 'call')
-        : { count: Math.max(1, totalMessageCount), target: 120, min: 90, max: 260 };
+    const lengthRange = typeof getChannelNaturalSummaryLengthRange === 'function'
+        ? getChannelNaturalSummaryLengthRange(totalMessageCount, 'chat', 'manual')
+        : (typeof getNaturalSummaryLengthRange === 'function'
+            ? getNaturalSummaryLengthRange(totalMessageCount, 'manual')
+            : { count: Math.max(1, totalMessageCount), target: 560, min: 520, max: 680, maxTokens: 3000 });
     console.log('[summary-length-call]', {
         count: lengthRange.count,
         target: lengthRange.target,
@@ -6559,31 +6561,20 @@ async function summarizeVoiceCall(contactId, startIndex) {
         }
         const generated = await window.generateChannelNaturalSummary(contact, callTextMessages, {
             channel: 'call',
+            summaryStyle: 'chat',
             source: 'call_summary',
             rangeLabel: '语音通话',
-            detailModeHint: '当前是通话总结，重点写通话中的确认点、未决点与下一次确认时点。',
             summaryPromptMode: 'manual',
-            rangeLabel: '语音通话',
-            detailModeHint: '',
             totalMessageCount,
             sourceMessageCount: totalMessageCount,
-            rangeOverride: Object.assign({}, lengthRange, { maxTokens: 900 }),
             settings
         });
         summary = String(generated && generated.summary || '').trim();
         if (!summary) throw new Error('empty summary');
     } catch (error) {
         console.error('通话总结失败:', error);
-        const rawRecord = callTextMessages
-            .slice(0, 14)
-            .map(msg => `${msg.role === 'user' ? userName : contactLabel}: ${msg.content}`)
-            .join('；');
-        summary = rawRecord ? `【通话原始记录】${rawRecord}` : '';
-        if (!summary) {
-            showNotification('总结出错', 2000, 'error');
-            return;
-        }
-        showNotification('AI总结失败，已使用原始记录兜底', 2000, 'warning');
+        showNotification('总结出错', 2000);
+        return;
     }
 
     if (summary && summary !== '无' && summary !== '无。') {
@@ -6763,7 +6754,7 @@ async function summarizeVoiceCall(contactId, startIndex) {
 
     } catch (error) {
         console.error('通话总结失败:', error);
-        showNotification('总结出错', 2000, 'error');
+        showNotification('总结出错', 2000);
     }
     }
 }
@@ -10435,8 +10426,16 @@ function setupChatListeners() {
                     }
                     return;
                 }
+                if (item.id === 'chat-more-location-btn') {
+                    e.stopPropagation();
+                    closeAllPanels();
+                    if (typeof window.openLocationApp === 'function') {
+                        window.openLocationApp();
+                    }
+                    return;
+                }
 
-                if (item.id === 'chat-more-photo-btn' || item.id === 'chat-more-camera-btn' || item.id === 'chat-more-transfer-btn' || item.id === 'chat-more-red-packet-btn' || item.id === 'chat-more-group-poll-btn' || item.id === 'chat-more-group-relay-btn' || item.id === 'chat-more-group-meeting-btn' || item.id === 'chat-more-memory-btn' || item.id === 'chat-more-location-btn' || item.id === 'chat-more-regenerate-btn' || item.id === 'chat-more-voice-btn' || item.id === 'chat-more-video-call-btn' || item.id === 'chat-more-screen-share-btn' || item.id === 'chat-more-fire-buddy-btn' || item.id === 'chat-more-food-btn' || item.id === 'chat-more-nav-btn') return;
+                if (item.id === 'chat-more-photo-btn' || item.id === 'chat-more-camera-btn' || item.id === 'chat-more-transfer-btn' || item.id === 'chat-more-red-packet-btn' || item.id === 'chat-more-group-poll-btn' || item.id === 'chat-more-group-relay-btn' || item.id === 'chat-more-group-meeting-btn' || item.id === 'chat-more-memory-btn' || item.id === 'chat-more-regenerate-btn' || item.id === 'chat-more-voice-btn' || item.id === 'chat-more-video-call-btn' || item.id === 'chat-more-screen-share-btn' || item.id === 'chat-more-fire-buddy-btn' || item.id === 'chat-more-food-btn' || item.id === 'chat-more-nav-btn') return;
                 
                 e.stopPropagation();
                 const label = item.querySelector('.more-label').textContent;
@@ -10652,13 +10651,6 @@ function setupChatListeners() {
         chatMoreMemoryBtn.addEventListener('click', () => {
             if (window.openMemoryApp) window.openMemoryApp();
             document.getElementById('chat-more-panel').classList.add('hidden');
-        });
-    }
-
-    const chatMoreLocationBtn = document.getElementById('chat-more-location-btn');
-    if (chatMoreLocationBtn) {
-        chatMoreLocationBtn.addEventListener('click', () => {
-            if (window.openLocationApp) window.openLocationApp();
         });
     }
 

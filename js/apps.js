@@ -2203,6 +2203,17 @@ function resolveNaturalSummaryMode(options = {}) {
     return 'auto';
 }
 
+function resolveNaturalSummaryStyle(options = {}) {
+    if (options && options.useChatSummaryFlow === true) {
+        return 'chat';
+    }
+    const explicitStyle = String(options && options.summaryStyle || '').trim().toLowerCase();
+    if (explicitStyle === 'chat') {
+        return 'chat';
+    }
+    return 'native';
+}
+
 function getNaturalSummaryLengthRange(messageCount, mode = 'auto') {
     const config = NATURAL_SUMMARY_LENGTH_POLICY[mode === 'manual' ? 'manual' : 'auto'];
     const rawCount = Number(messageCount);
@@ -8848,27 +8859,31 @@ async function generateChannelNaturalSummary(contact, textMessages, options = {}
     const resolvedUserName = actorNames.userLabel;
     const contactLabel = actorNames.contactLabel;
     const mode = resolveNaturalSummaryMode(options);
-    const channel = ['chat', 'meeting', 'call', 'live_link'].includes(String(options.channel || '').trim())
+    const requestedChannel = ['chat', 'meeting', 'call', 'live_link'].includes(String(options.channel || '').trim())
         ? String(options.channel || '').trim()
         : 'chat';
+    const summaryStyle = resolveNaturalSummaryStyle(options);
+    const summaryChannel = summaryStyle === 'chat' ? 'chat' : requestedChannel;
     const totalMessageCount = Number.isFinite(Number(options.totalMessageCount))
         ? Number(options.totalMessageCount)
         : normalizedMessages.length;
     const sourceMessageCount = Number.isFinite(Number(options.sourceMessageCount))
         ? Number(options.sourceMessageCount)
         : sourceMessages.length;
-    const lengthRange = getChannelNaturalSummaryLengthRange(totalMessageCount, channel, mode, options.rangeOverride || null);
+    const lengthRange = getChannelNaturalSummaryLengthRange(totalMessageCount, summaryChannel, mode, options.rangeOverride || null);
     const sourceTag = String(options.source || 'auto_summary').trim() || 'auto_summary';
 
     console.log('[summary-natural-start]', {
         mode,
+        summaryStyle,
+        sourceChannel: requestedChannel,
         sourceCount: sourceMessageCount,
         textCount: normalizedMessages.length,
         target: lengthRange.target,
         min: lengthRange.min,
         max: lengthRange.max,
         source: sourceTag,
-        channel
+        channel: summaryChannel
     });
 
     const settings = options.settings && options.settings.url && options.settings.key
@@ -8882,7 +8897,9 @@ async function generateChannelNaturalSummary(contact, textMessages, options = {}
     const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     const runtimeContext = {
-        channel,
+        channel: summaryChannel,
+        sourceChannel: requestedChannel,
+        summaryStyle,
         mode,
         rangeLabel: String(options.rangeLabel || '').trim(),
         totalMessageCount,
@@ -8892,7 +8909,7 @@ async function generateChannelNaturalSummary(contact, textMessages, options = {}
         userLabel: resolvedUserName,
         contactLabel,
         persona: String(contact.persona || '傲娇、温柔').trim(),
-        detailModeHint: getNaturalSummaryDetailHintByChannel(channel, options.detailModeHint),
+        detailModeHint: getNaturalSummaryDetailHintByChannel(summaryChannel, options.detailModeHint),
         range: lengthRange
     };
 
@@ -8932,11 +8949,12 @@ async function generateChannelNaturalSummary(contact, textMessages, options = {}
 
     console.log('[summary-natural-first-pass]', {
         mode,
+        summaryStyle,
         outputChars: countSummaryChars(summary),
         target: lengthRange.target,
         min: lengthRange.min,
         max: lengthRange.max,
-        channel
+        channel: summaryChannel
     });
 
     if (!summary) {
@@ -8945,9 +8963,10 @@ async function generateChannelNaturalSummary(contact, textMessages, options = {}
 
     console.log('[summary-natural-final]', {
         mode,
+        summaryStyle,
         outputChars: countSummaryChars(summary),
         finalStage: 'first_pass',
-        channel
+        channel: summaryChannel
     });
 
     return {
@@ -8972,6 +8991,7 @@ async function generateSummary(contact, messages, range, options = {}) {
     try {
         const result = await generateChannelNaturalSummary(contact, textMessages, {
             channel: 'chat',
+            summaryStyle: 'chat',
             source: options.source || 'auto_summary',
             rangeLabel: String(range || ''),
             summaryPromptMode: options.summaryPromptMode,
@@ -8991,142 +9011,6 @@ async function generateSummary(contact, messages, range, options = {}) {
 
 // --- 行程功能 ---
 
-async function generateDailyItinerary(forceRefresh = false) {
-    if (!window.iphoneSimState.currentChatContactId) {
-        alert('请先进入一个聊天窗口');
-        return;
-    }
-
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
-    if (!contact) return;
-
-    const today = new Date().toISOString().split('T')[0];
-    
-    if (!window.iphoneSimState.itineraries) window.iphoneSimState.itineraries = {};
-    const storedItinerary = window.iphoneSimState.itineraries[contact.id];
-    
-    if (!forceRefresh) {
-        if (storedItinerary && storedItinerary.generatedDate === today) {
-            renderItinerary(storedItinerary.events);
-            return;
-        }
-    }
-
-    const settings = window.iphoneSimState.aiSettings.url ? window.iphoneSimState.aiSettings : window.iphoneSimState.aiSettings2;
-    if (!settings.url || !settings.key) {
-        alert('请先在设置中配置AI API');
-        return;
-    }
-
-    const container = document.getElementById('agendaList');
-    if (container) container.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;"><i class="fas fa-spinner fa-spin"></i> 正在生成行程...</div>';
-    
-    const refreshBtn = document.getElementById('refresh-location-btn');
-    if (refreshBtn) refreshBtn.innerText = 'GENERATING...';
-
-    let worldbookContext = '';
-    if (window.iphoneSimState.worldbook && window.iphoneSimState.worldbook.length > 0 && contact.linkedWbCategories) {
-        const activeEntries = window.iphoneSimState.worldbook.filter(e => e.enabled && contact.linkedWbCategories.includes(e.categoryId));
-        if (activeEntries.length > 0) {
-            worldbookContext = activeEntries.map(e => e.content).join('\n');
-        }
-    }
-
-    let chatContext = '';
-    const history = window.iphoneSimState.chatHistory[contact.id] || [];
-    if (history.length > 0) {
-        chatContext = history.slice(-10).map(m => `${m.role === 'user' ? '用户' : contact.name}: ${m.content}`).join('\n');
-    }
-
-    const now = new Date();
-    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-
-    const systemPrompt = `你是一个行程生成助手。请根据以下信息，生成${contact.name}今天从起床到现在的日常行程。`;
-    const userPrompt = `角色设定：${contact.persona || '无'}
-关联背景：${worldbookContext || '无'}
-最近的对话：${chatContext || '无'}
-
-请生成5-8个行程事件，每个事件包含时间段（如08:00-09:00）、地点（如家中、公司）和描述（约50字，第三人称叙述）。
-重要要求：
-1. 行程必须是连续的。
-2. 最后一条行程的结束时间必须完全准确地是 ${currentTime} (现在的时间)。
-
-请直接返回JSON数组格式，不要包含Markdown代码块标记。
-JSON格式示例：
-[
-  {
-    "time": "08:00-08:30",
-    "location": "家中",
-    "description": "起床洗漱..."
-  }
-]`;
-
-    try {
-        let fetchUrl = settings.url;
-        if (!fetchUrl.endsWith('/chat/completions')) {
-            fetchUrl = fetchUrl.endsWith('/') ? fetchUrl + 'chat/completions' : fetchUrl + '/chat/completions';
-        }
-
-        const response = await fetch(fetchUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${settings.key}`
-            },
-            body: JSON.stringify({
-                model: settings.model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt }
-                ],
-                temperature: 0.7
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`API Error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        let content = data.choices[0].message.content.trim();
-        
-        content = content.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        let events = [];
-        try {
-            events = JSON.parse(content);
-            if (!Array.isArray(events)) {
-                if (events.events && Array.isArray(events.events)) {
-                    events = events.events;
-                } else {
-                    throw new Error('返回格式不是数组');
-                }
-            }
-        } catch (e) {
-            console.error('JSON解析失败', e);
-            alert('生成的数据格式有误，请重试');
-            if (container) container.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff3b30;">生成失败，请重试</div>';
-            return;
-        }
-
-        const itineraryData = {
-            generatedDate: today,
-            events: events
-        };
-        window.iphoneSimState.itineraries[contact.id] = itineraryData;
-        saveConfig();
-
-        renderItinerary(events);
-
-    } catch (error) {
-        console.error('生成行程失败:', error);
-        alert(`生成失败: ${error.message}`);
-        if (container) container.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff3b30;">生成失败，请检查网络或配置</div>';
-    } finally {
-        if (refreshBtn) refreshBtn.innerText = 'IN PROGRESS';
-    }
-}
-
 async function generateNewItinerary(contact) {
     if (!contact) return;
     if (contact.isGeneratingItinerary) return;
@@ -9135,7 +9019,6 @@ async function generateNewItinerary(contact) {
     if (!settings.url || !settings.key) return;
 
     contact.isGeneratingItinerary = true;
-    showItineraryNotification('正在生成行程...');
 
     const today = new Date().toISOString().split('T')[0];
     
@@ -9254,220 +9137,13 @@ JSON格式示例：
             contact.lastItineraryIndex = history.length;
             contact.messagesSinceLastItinerary = 0;
             saveConfig();
-
-            if (window.iphoneSimState.currentChatContactId === contact.id && !document.getElementById('location-app').classList.contains('hidden')) {
-                renderItinerary(existingEvents);
-            }
-            
-            showItineraryNotification('行程生成成功', 2000, 'success');
         }
 
     } catch (error) {
         console.error('生成新行程失败:', error);
-        showItineraryNotification('生成失败', 2000, 'error');
     } finally {
         contact.isGeneratingItinerary = false;
     }
-}
-
-function renderItinerary(events) {
-    const container = document.getElementById('agendaList');
-    if (!container) return;
-
-    // Recreate progress line
-    container.innerHTML = '';
-    const progressLine = document.createElement('div');
-    progressLine.className = 'agenda-progress';
-    progressLine.id = 'progressLine';
-    container.appendChild(progressLine);
-
-    if (!events || events.length === 0) {
-        const emptyDiv = document.createElement('div');
-        emptyDiv.style.textAlign = 'center';
-        emptyDiv.style.padding = '20px';
-        emptyDiv.style.color = '#999';
-        emptyDiv.textContent = '暂无行程';
-        container.appendChild(emptyDiv);
-        return;
-    }
-
-    // Re-sort chronologically for proper display
-    events.sort((a, b) => {
-        const timeA = a.time.split('-')[0];
-        const timeB = b.time.split('-')[0];
-        return timeA.localeCompare(timeB);
-    });
-
-    // Determine current time in minutes
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
-
-    // Parse time string "HH:MM" to minutes
-    function toMinutes(timeStr) {
-        const parts = (timeStr || '').trim().split(':');
-        if (parts.length < 2) return -1;
-        return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-    }
-
-    // Find which event is currently active (current time falls within its range)
-    let activeIndex = -1;
-    events.forEach((event, index) => {
-        const timeParts = event.time.split('-');
-        const startMin = toMinutes(timeParts[0]);
-        const endMin = toMinutes(timeParts[1]);
-        if (startMin >= 0 && endMin >= 0 && nowMinutes >= startMin && nowMinutes <= endMin) {
-            activeIndex = index;
-        }
-    });
-
-    // If no active event found, use the last event whose start time has passed
-    if (activeIndex === -1) {
-        for (let i = events.length - 1; i >= 0; i--) {
-            const startMin = toMinutes(events[i].time.split('-')[0]);
-            if (startMin >= 0 && nowMinutes >= startMin) {
-                activeIndex = i;
-                break;
-            }
-        }
-    }
-
-    // Render items
-    events.forEach((event, index) => {
-        const item = document.createElement('div');
-        const isActive = index === activeIndex;
-        item.className = `agenda-item visible ${isActive ? 'active expanded' : ''}`;
-        
-        const startTime = event.time.split('-')[0].trim();
-        
-        let generatedTimeHtml = '';
-        if (event.generatedAt) {
-            const genDate = new Date(event.generatedAt);
-            const genTimeStr = `${genDate.getHours()}:${genDate.getMinutes().toString().padStart(2, '0')}`;
-            generatedTimeHtml = `<div style="font-size: 10px; color: #ccc; margin-top: 5px; text-align: right;">生成于 ${genTimeStr}</div>`;
-        }
-
-        item.innerHTML = `
-            <div class="time-col">
-                <span class="time-prefix">// time</span>
-                ${startTime}
-                <div class="node"></div>
-            </div>
-            <div class="content-col">
-                <div class="title-wrapper">
-                    <div class="item-title">${event.location}</div>
-                    <i class="ph ph-map-pin item-icon"></i>
-                </div>
-                <div class="item-details">
-                    <div class="ornament">◆ ◆ ◆</div>
-                    <div class="detail-text">${event.description}</div>
-                    <div class="detail-meta">
-                        <span class="meta-tag"><i class="ph ph-clock"></i> ${event.time}</span>
-                    </div>
-                    ${generatedTimeHtml}
-                </div>
-            </div>
-        `;
-        
-        // Add click listener for expand/collapse
-        item.addEventListener('click', () => {
-            const allItems = container.querySelectorAll('.agenda-item');
-            allItems.forEach(other => {
-                if (other !== item) {
-                    other.classList.remove('expanded');
-                    other.classList.remove('active');
-                }
-            });
-            item.classList.toggle('expanded');
-            item.classList.toggle('active');
-        });
-
-        container.appendChild(item);
-    });
-
-    // Calculate and set progress line height after layout is complete
-    setTimeout(() => {
-        updateProgressLine(events, nowMinutes);
-    }, 100);
-}
-
-function parseTimeToMinutes(timeStr) {
-    const parts = (timeStr || '').trim().split(':');
-    if (parts.length < 2) return -1;
-    return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-}
-
-function updateProgressLine(events, nowMinutes) {
-    const container = document.getElementById('agendaList');
-    const progressLine = document.getElementById('progressLine');
-    if (!container || !progressLine || !events || events.length === 0) return;
-
-    // Find the first and last event times
-    const firstStart = parseTimeToMinutes(events[0].time.split('-')[0]);
-    const lastEnd = parseTimeToMinutes(events[events.length - 1].time.split('-')[1] || events[events.length - 1].time.split('-')[0]);
-
-    if (firstStart < 0 || lastEnd < 0 || lastEnd <= firstStart) {
-        progressLine.style.height = '0px';
-        return;
-    }
-
-    // Clamp nowMinutes between first start and last end
-    const clampedNow = Math.max(firstStart, Math.min(lastEnd, nowMinutes));
-    
-    // Calculate the ratio through the timeline
-    const ratio = (clampedNow - firstStart) / (lastEnd - firstStart);
-
-    // Use pixel height based on the container's actual scroll height
-    const totalHeight = container.scrollHeight;
-    progressLine.style.height = `${Math.round(ratio * totalHeight)}px`;
-}
-
-function openLocationApp() {
-    const locationApp = document.getElementById('location-app');
-    locationApp.classList.remove('hidden');
-    document.getElementById('chat-more-panel').classList.add('hidden');
-
-    // Update date display in header
-    const now = new Date();
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const dayName = days[now.getDay()];
-    const day = now.getDate();
-    const month = months[now.getMonth()];
-    const shortMonth = shortMonths[now.getMonth()];
-    const headerDateEl = document.getElementById('location-header-date');
-    if (headerDateEl) headerDateEl.textContent = `${dayName}, ${day} ${month}`;
-    const introDateEl = document.getElementById('location-intro-date');
-    if (introDateEl) introDateEl.textContent = `\u2605 Daily Itinerary / ${shortMonth} ${day}`;
-
-    generateDailyItinerary();
-}
-
-function openItinerarySettings() {
-    if (!window.iphoneSimState.currentChatContactId) return;
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
-    if (!contact) return;
-
-    document.getElementById('auto-itinerary-toggle').checked = contact.autoItineraryEnabled || false;
-    document.getElementById('auto-itinerary-interval').value = contact.autoItineraryInterval || 10;
-    
-    document.getElementById('itinerary-settings-modal').classList.remove('hidden');
-}
-
-function handleSaveItinerarySettings() {
-    if (!window.iphoneSimState.currentChatContactId) return;
-    const contact = window.iphoneSimState.contacts.find(c => c.id === window.iphoneSimState.currentChatContactId);
-    if (!contact) return;
-
-    const enabled = document.getElementById('auto-itinerary-toggle').checked;
-    const interval = parseInt(document.getElementById('auto-itinerary-interval').value);
-
-    contact.autoItineraryEnabled = enabled;
-    contact.autoItineraryInterval = isNaN(interval) || interval < 1 ? 10 : interval;
-
-    saveConfig();
-    document.getElementById('itinerary-settings-modal').classList.add('hidden');
-    alert('行程设置已保存');
 }
 
 async function getCurrentItineraryInfo(contactId) {
@@ -11216,28 +10892,6 @@ function setupAppsListeners() {
             }
         });
     }
-
-    const closeLocationBtn = document.getElementById('close-location-app');
-    const itinerarySettingsBtn = document.getElementById('itinerary-settings-btn');
-    const itinerarySettingsModal = document.getElementById('itinerary-settings-modal');
-    const closeItinerarySettingsBtn = document.getElementById('close-itinerary-settings');
-    const saveItinerarySettingsBtn = document.getElementById('save-itinerary-settings-btn');
-    const refreshLocationBtn = document.getElementById('refresh-location-btn');
-
-    if (closeLocationBtn) closeLocationBtn.addEventListener('click', () => document.getElementById('location-app').classList.add('hidden'));
-    if (refreshLocationBtn) refreshLocationBtn.addEventListener('click', () => generateDailyItinerary(true));
-    if (itinerarySettingsBtn) itinerarySettingsBtn.addEventListener('click', openItinerarySettings);
-    if (closeItinerarySettingsBtn) closeItinerarySettingsBtn.addEventListener('click', () => itinerarySettingsModal.classList.add('hidden'));
-    if (saveItinerarySettingsBtn) saveItinerarySettingsBtn.addEventListener('click', handleSaveItinerarySettings);
-    
-    // Bind new UI elements to location app functions
-    const closeLocationBtnNew = document.getElementById('close-location-btn-new');
-    const itinerarySettingsBtnNew = document.getElementById('itinerary-settings-btn-new');
-    const refreshLocationBtnNew = document.getElementById('refresh-location-btn-new');
-    
-    if (closeLocationBtnNew) closeLocationBtnNew.addEventListener('click', () => document.getElementById('location-app').classList.add('hidden'));
-    if (itinerarySettingsBtnNew) itinerarySettingsBtnNew.addEventListener('click', openItinerarySettings);
-    if (refreshLocationBtnNew) refreshLocationBtnNew.addEventListener('click', () => generateDailyItinerary(true));
 
     const musicWidget = document.getElementById('music-widget');
     const musicSettingsModal = document.getElementById('music-settings-modal');
