@@ -1,4 +1,4 @@
-﻿function maskChatImageDebugKey(key) {
+function maskChatImageDebugKey(key) {
     const raw = String(key || '');
     if (!raw) return '(empty)';
     if (raw.length <= 8) return `${raw.slice(0, 2)}***${raw.slice(-1)}`;
@@ -23,20 +23,20 @@ function summarizeChatImageDebugReference(referenceImage) {
 }
 
 const CHAT_IMAGE_NO_PERSON_KEYWORDS = [
-    '不要人物', '不要人', '没有人物', '没人', '无人', '无人物', '纯场景', '空镜', '只要场景', '只要风景', '仅场景', '仅风景', '背景图',
+    '��Ҫ����', '��Ҫ��', 'û������', 'û��', '����', '������', '������', '�վ�', 'ֻҪ����', 'ֻҪ�羰', '������', '���羰', '����ͼ',
     'no people', 'no person', 'no human', 'no humans', 'without people', 'without person', 'without humans',
     'empty scene', 'landscape only', 'scenery only', 'background only', 'no character'
 ];
 const CHAT_IMAGE_SCENE_KEYWORDS = [
-    '场景', '风景', '景色', '街景', '建筑', '室内', '室外', '房间', '客厅', '卧室', '山', '海', '森林', '天空', '云', '草地', '城市', '自然',
+    '����', '�羰', '��ɫ', '�־�', '����', '����', '����', '����', '����', '����', 'ɽ', '��', 'ɭ��', '���', '��', '�ݵ�', '����', '��Ȼ',
     'scene', 'scenery', 'landscape', 'background', 'architecture', 'interior', 'outdoor', 'nature', 'mountain', 'sea', 'forest', 'sky', 'cloud', 'cityscape'
 ];
 const CHAT_IMAGE_FOOD_KEYWORDS = [
-    '美食', '食物', '菜', '饭', '面', '蛋糕', '饮料', '咖啡', '餐桌',
+    '��ʳ', 'ʳ��', '��', '��', '��', '����', '����', '����', '����',
     'food', 'dish', 'meal', 'dessert', 'drink', 'coffee'
 ];
 const CHAT_IMAGE_PORTRAIT_KEYWORDS = [
-    '人像', '人物', '肖像', '自拍', '脸', '面部', '五官', '半身', '全身', '男生', '女生', '男人', '女人', '角色', '模特',
+    '����', '����', 'Ф��', '����', '��', '�沿', '���', '����', 'ȫ��', '����', 'Ů��', '����', 'Ů��', '��ɫ', 'ģ��',
     'portrait', 'selfie', 'face', 'facial', 'person', 'people', 'human', 'character', 'model', 'boy', 'girl', 'man', 'woman', 'upper body', 'full body'
 ];
 const CHAT_IMAGE_NO_PERSON_NEGATIVE_TOKENS = ['no people', 'no person', 'no human', 'no humans', 'no character'];
@@ -102,13 +102,13 @@ function extractLatestUserTextForSing(history, maxCount = 3) {
 function hasExplicitSingIntent(text) {
     const source = String(text || '').trim();
     if (!source) return false;
-    return /(唱|哼|来一段|来首|唱两句|唱几句|哼两句|哼几句|唱一下|哼一下|sing|hum|humming)/i.test(source);
+    return /(��|��|��һ��|����|������|������|������|�߼���|��һ��|��һ��|sing|hum|humming)/i.test(source);
 }
 
 function isSeriousTopicForSing(text) {
     const source = String(text || '').trim();
     if (!source) return false;
-    return /(转账|付款|支付|红包|亲属卡|验证码|账号|密码|医院|报警|法律|合同|工作汇报|面试|考试|作业|截止|催款|还钱|退款|紧急|urgent|asap)/i.test(source);
+    return /(ת��|����|֧��|���|�����|��֤��|�˺�|����|ҽԺ|����|����|��ͬ|�����㱨|����|����|��ҵ|��ֹ|�߿�|��Ǯ|�˿�|���|urgent|asap)/i.test(source);
 }
 
 function shouldAllowSingVoiceAction(contactId, history) {
@@ -152,17 +152,17 @@ function normalizeSingMelodyHint(rawHint) {
 function hasOriginalMelodyIntent(text) {
     const source = String(text || '').trim();
     if (!source) return false;
-    return /(按原曲|原曲|原唱|同款旋律|这首歌|按这个旋律|跟着这个旋律|翻唱|cover|remix|同旋律|像这首歌)/i.test(source);
+    return /(��ԭ��|ԭ��|ԭ��|ͬ������|���׸�|���������|�����������|����|cover|remix|ͬ����|�����׸�)/i.test(source);
 }
 
 function buildSingCoverMissingReferenceText() {
-    return '你把歌曲链接或可访问的音频URL发我，我就能按原旋律唱这几句。';
+    return '��Ѹ������ӻ�ɷ��ʵ���ƵURL���ң��Ҿ��ܰ�ԭ���ɳ��⼸�䡣';
 }
 
 function extractFirstUrlFromText(text) {
     const source = String(text || '');
     if (!source) return '';
-    const match = source.match(/https?:\/\/[^\s)）"'>]+/i);
+    const match = source.match(/https?:\/\/[^\s)��"'>]+/i);
     return match ? String(match[0] || '').trim() : '';
 }
 
@@ -205,7 +205,7 @@ function isLikelySharedMusicText(text) {
     const source = String(text || '').trim();
     if (!source) return false;
     if (/https?:\/\/[^\s]+/i.test(source) && /(music\.163\.com|163cn\.tv|y\.qq\.com|qqmusic|kugou|kuwo|spotify|apple\.com\/.*music|soundcloud|youtube|youtu\.be|bilibili)/i.test(source)) return true;
-    if (/(分享.*单曲|分享.*音乐|网易云音乐|qq音乐|这首歌|这首|原曲|cover|翻唱|听这首)/i.test(source)) return true;
+    if (/(����.*����|����.*����|����������|qq����|���׸�|����|ԭ��|cover|����|������)/i.test(source)) return true;
     return false;
 }
 
@@ -365,25 +365,25 @@ async function resolveRecentMusicShareContext(contactId, history, options = {}) 
 
 function buildMusicShareContextPromptLine(resolved) {
     if (!resolved || typeof resolved !== 'object') return '';
-    const title = String(resolved.title || '').trim() || '未知歌曲';
-    const artist = String(resolved.artist || '').trim() || '未知歌手';
+    const title = String(resolved.title || '').trim() || 'δ֪����';
+    const artist = String(resolved.artist || '').trim() || 'δ֪����';
     const songId = String(resolved.songId || '').trim();
     const audioUrl = String(resolved.audioUrl || '').trim();
     const lyric = String(resolved.lyricSnippet || '').trim();
     const sourceUrl = String(resolved.sourceUrl || '').trim();
     const lines = [];
-    lines.push('\n【用户最近分享的歌曲】');
-    lines.push(`- 歌曲：${title} - ${artist}${songId ? ` (id=${songId})` : ''}`);
+    lines.push('\n���û��������ĸ�����');
+    lines.push(`- ������${title} - ${artist}${songId ? ` (id=${songId})` : ''}`);
     if (lyric) {
-        lines.push(`- 参考歌词片段：${lyric}`);
+        lines.push(`- �ο����Ƭ�Σ�${lyric}`);
     }
     if (audioUrl) {
-        lines.push(`- 可用音频URL：${audioUrl}`);
+        lines.push(`- ������ƵURL��${audioUrl}`);
     }
     if (sourceUrl) {
-        lines.push(`- 原始分享链接：${sourceUrl}`);
+        lines.push(`- ԭʼ�������ӣ�${sourceUrl}`);
     }
-    lines.push('- 若用户让你“唱这首/按原曲唱几句”，请先正常回应并引导对方去音乐个人主页点「催更」生成翻唱。');
+    lines.push('- ���û����㡰������/��ԭ�������䡱������������Ӧ�������Է�ȥ���ָ�����ҳ�㡸�߸������ɷ�����');
     return lines.join('\n');
 }
 
@@ -391,15 +391,15 @@ function buildSingVoiceTtsText(displayLyrics, melodyHint = '') {
     const lines = String(displayLyrics || '').split('\n').map(item => item.trim()).filter(Boolean);
     if (lines.length === 0) return '';
     const normalizedLines = lines
-        .map(line => line.replace(/[。！？!?]/g, '').replace(/\s+/g, ' ').trim())
+        .map(line => line.replace(/[������!?]/g, '').replace(/\s+/g, ' ').trim())
         .filter(Boolean)
         .slice(0, 4);
     if (normalizedLines.length === 0) return '';
     const melodicBody = normalizedLines
-        .map(line => `${line}～`)
+        .map(line => `${line}��`)
         .join(' <#0.26#> ');
     const intro = melodyHint
-        ? '(humming) 嗯～ <#0.18#> 嗯～'
+        ? '(humming) �š� <#0.18#> �š�'
         : '(humming)';
     return `${intro} <#0.15#> ${melodicBody} <#0.2#> (humming)`;
 }
@@ -411,7 +411,7 @@ function buildPlainSingVoiceTtsText(displayLyrics) {
         .map(item => String(item || '').replace(/[()<>]/g, '').replace(/\s+/g, ' ').trim())
         .filter(Boolean)
         .slice(0, 4);
-    return lines.join('，');
+    return lines.join('��');
 }
 
 function selectSingTtsModel(defaultModel) {
@@ -503,7 +503,7 @@ function parseSingVoicePayload(rawPayload) {
 
 function buildSingVoiceMessageData(rawPayload, defaultModel, context = {}) {
     const parsed = parseSingVoicePayload(rawPayload);
-    const lyrics = parsed.lyrics || '啦啦啦～';
+    const lyrics = parsed.lyrics || '��������';
     const duration = clampChatSingDuration(parsed.duration);
     const model = selectSingTtsModel(defaultModel);
     const melodyHint = normalizeSingMelodyHint(parsed.melodyHint || '');
@@ -646,7 +646,7 @@ function includesAnyKeyword(text, keywords) {
 function mergeNegativePrompt(basePrompt, extraTokens = []) {
     const normalizedBase = String(basePrompt || '').trim();
     const baseParts = normalizedBase
-        ? normalizedBase.split(/[,，;\n]+/).map(item => String(item || '').trim()).filter(Boolean)
+        ? normalizedBase.split(/[,��;\n]+/).map(item => String(item || '').trim()).filter(Boolean)
         : [];
     const seen = new Set(baseParts.map(item => item.toLowerCase()));
     const merged = [...baseParts];
@@ -739,10 +739,55 @@ function refreshChatImageResultViews(contactId, channelHint = 'wechat') {
     }
 }
 
-function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base64Image, finalPrompt, negativePrompt, channelHint = 'wechat') {
+async function persistGeneratedChatImageSource(imageSource, metadata = {}) {
+    const rawSource = String(imageSource || '').trim();
+    if (!rawSource) return '';
+
+    if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(rawSource)) {
+        return rawSource;
+    }
+
+    const metadataName = String(metadata && metadata.name || '').trim() || 'ai-generated-image';
+    const normalizedMetadata = {
+        type: String(metadata && metadata.type || '').trim() || 'image/png',
+        name: metadataName
+    };
+
+    if (rawSource.startsWith('data:image')) {
+        if (typeof window.persistInlineChatImagePayload === 'function') {
+            const persisted = await window.persistInlineChatImagePayload(rawSource, normalizedMetadata);
+            if (persisted) return persisted;
+        }
+        return rawSource;
+    }
+
+    if (/^blob:|^https?:\/\//i.test(rawSource) && typeof window.saveChatMediaBlob === 'function') {
+        try {
+            const response = await fetch(rawSource);
+            if (response && response.ok !== false) {
+                const blob = await response.blob();
+                if (blob instanceof Blob) {
+                    return await window.saveChatMediaBlob(blob, {
+                        type: blob.type || normalizedMetadata.type,
+                        name: normalizedMetadata.name
+                    });
+                }
+            }
+        } catch (error) {
+            console.warn('AIͼƬת��ʧ�ܣ�����ʹ��ԭʼ��ַ', error);
+        }
+    }
+
+    return rawSource;
+}
+
+async function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base64Image, finalPrompt, negativePrompt, channelHint = 'wechat') {
     const placeholderMsgId = placeholderMsg && placeholderMsg.id != null ? String(placeholderMsg.id) : '';
     const history = getChatHistoryBucketForImageDebug(contactId);
     const normalizedChannel = String(channelHint || '').trim() === 'messages-app' ? 'messages-app' : 'wechat';
+    const imageMetadataName = placeholderMsg && placeholderMsg.description
+        ? String(placeholderMsg.description).slice(0, 80)
+        : `ai-image-${placeholderMsgId || Date.now()}`;
 
     logChatImageStage('placeholder:update-attempt', {
         contactId,
@@ -752,6 +797,16 @@ function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base
     });
 
     let targetMessage = null;
+    let storedImageSource = String(base64Image || '').trim();
+    try {
+        storedImageSource = await persistGeneratedChatImageSource(storedImageSource, {
+            type: 'image/png',
+            name: imageMetadataName
+        }) || storedImageSource;
+    } catch (error) {
+        console.warn('AIͼƬ�־û�ʧ�ܣ�����ʹ��ԭʼ��Դ', error);
+    }
+
     if (placeholderMsgId && Array.isArray(history)) {
         targetMessage = history.find(item => item && String(item.id || '') === placeholderMsgId) || null;
     }
@@ -777,7 +832,7 @@ function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base
             placeholderMsgId,
             channel: normalizedChannel
         });
-        const fallbackMessage = sendMessage(base64Image, false, 'image', placeholderMsg && placeholderMsg.description ? placeholderMsg.description : null, contactId, {
+        const fallbackMessage = sendMessage(storedImageSource, false, 'image', placeholderMsg && placeholderMsg.description ? placeholderMsg.description : null, contactId, {
             channel: normalizedChannel,
             readInMessagesApp: normalizedChannel === 'messages-app'
         });
@@ -797,7 +852,7 @@ function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base
     }
 
     targetMessage.type = 'image';
-    targetMessage.content = base64Image;
+    targetMessage.content = storedImageSource;
     targetMessage.novelaiPrompt = finalPrompt;
     targetMessage.novelaiNegativePrompt = negativePrompt;
     if (normalizedChannel === 'messages-app') {
@@ -831,11 +886,11 @@ window.refreshAiImage = async function(msgId, event) {
 
     const msg = history[msgIndex];
     if (!msg.novelaiPrompt) {
-        alert("该图片无法重新生成（缺少 Prompt）");
+        alert("��ͼƬ�޷��������ɣ�ȱ�� Prompt��");
         return;
     }
 
-    if (!confirm("确定要使用相同的提示词重新生成这张图片吗？")) return;
+    if (!confirm("ȷ��Ҫʹ����ͬ����ʾ��������������ͼƬ��")) return;
 
     const novelaiSettings = window.iphoneSimState.novelaiSettings;
     const imageProvider = novelaiSettings && novelaiSettings.provider === 'custom' ? 'custom' : 'novelai';
@@ -851,18 +906,18 @@ window.refreshAiImage = async function(msgId, event) {
         keyMasked: maskChatImageDebugKey(imageApiKey)
     });
     if (!novelaiSettings || !imageApiKey) {
-        alert(imageProvider === 'custom' ? "请先配置 Custom API Key" : "请先配置 NovelAI API Key");
+        alert(imageProvider === 'custom' ? "�������� Custom API Key" : "�������� NovelAI API Key");
         return;
     }
 
-    // 更新消息状态为正在生成
+    // ������Ϣ״̬Ϊ��������
     const originalContent = msg.content;
     const originalType = msg.type;
     
     msg.type = 'virtual_image';
     msg.content = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Regenerating...';
     
-    // 强制重新渲染
+    // ǿ��������Ⱦ
     refreshChatImageResultViews(contactId, msg.channel || 'wechat');
 
     try {
@@ -912,7 +967,7 @@ window.refreshAiImage = async function(msgId, event) {
             }
         });
 
-        // 尝试从 preset 恢复参数
+        // ���Դ� preset �ָ�����
         if (contact && contact.novelaiPreset) {
              let preset = null;
              if (contact.novelaiPreset === 'AUTO_MATCH') {
@@ -941,7 +996,7 @@ window.refreshAiImage = async function(msgId, event) {
             imageLength: String(base64Image || '').length
         });
 
-        // 更新消息
+        // ������Ϣ
         msg.type = 'image';
         msg.content = base64Image;
         
@@ -954,8 +1009,8 @@ window.refreshAiImage = async function(msgId, event) {
             message: e && e.message ? e.message : String(e),
             stack: e && e.stack ? String(e.stack).slice(0, 600) : ''
         });
-        alert("生成失败: " + e.message);
-        // 恢复原图
+        alert("����ʧ��: " + e.message);
+        // �ָ�ԭͼ
         msg.type = originalType;
         msg.content = originalContent;
         refreshChatImageResultViews(contactId, msg.channel || 'wechat');
@@ -994,9 +1049,9 @@ window.openMusicListenInvitePrompt = function (payload) {
     if (!inviteId || !contactId || status !== 'pending' || direction !== 'incoming') return;
 
     const contact = (window.iphoneSimState.contacts || []).find(c => String(c.id) === contactId);
-    const contactName = contact ? (contact.remark || contact.nickname || contact.name || '联系人') : '联系人';
-    const songTitle = String(data.songTitle || '未知歌曲');
-    const songArtist = String(data.songArtist || '未知歌手');
+    const contactName = contact ? (contact.remark || contact.nickname || contact.name || '��ϵ��') : '��ϵ��';
+    const songTitle = String(data.songTitle || 'δ֪����');
+    const songArtist = String(data.songArtist || 'δ֪����');
     const songCover = String(data.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music');
     const contactAvatar = String((contact && contact.avatar) || songCover || 'https://placehold.co/96x96/e5e7eb/111827?text=U');
 
@@ -1014,8 +1069,8 @@ window.openMusicListenInvitePrompt = function (payload) {
                     <p id="music-invite-prompt-song" class="music-invite-prompt-song"></p>
                 </div>
                 <div class="ip-actions">
-                    <button id="music-invite-prompt-reject" class="ip-btn reject" type="button">拒绝</button>
-                    <button id="music-invite-prompt-accept" class="ip-btn accept" type="button">同意</button>
+                    <button id="music-invite-prompt-reject" class="ip-btn reject" type="button">�ܾ�</button>
+                    <button id="music-invite-prompt-accept" class="ip-btn accept" type="button">ͬ��</button>
                 </div>
             </div>
         `;
@@ -1039,8 +1094,8 @@ window.openMusicListenInvitePrompt = function (payload) {
     const songEl = modal.querySelector('#music-invite-prompt-song');
     if (avatarEl) avatarEl.src = contactAvatar;
     if (nameEl) nameEl.textContent = contactName;
-    if (textEl) textEl.textContent = '邀请你一起听歌';
-    if (songEl) songEl.textContent = `${songTitle} · ${songArtist}`;
+    if (textEl) textEl.textContent = '������һ������';
+    if (songEl) songEl.textContent = `${songTitle} �� ${songArtist}`;
 
     const acceptBtn = modal.querySelector('#music-invite-prompt-accept');
     const rejectBtn = modal.querySelector('#music-invite-prompt-reject');
@@ -1052,7 +1107,7 @@ window.openMusicListenInvitePrompt = function (payload) {
             handled = window.musicV2HandleInviteDecision(cid, iid, decision);
         }
         if (!handled && typeof window.showChatToast === 'function') {
-            showChatToast('邀请处理失败，请稍后重试');
+            showChatToast('���봦��ʧ�ܣ����Ժ�����');
         }
         window.closeMusicListenInvitePrompt();
     };
@@ -1077,17 +1132,17 @@ window.openMusicListenInviteDetail = function (payload) {
     }
 
     const statusMap = {
-        pending: '待回复',
-        accepted: '已同意',
-        rejected: '已拒绝'
+        pending: '���ظ�',
+        accepted: '��ͬ��',
+        rejected: '�Ѿܾ�'
     };
-    const statusText = statusMap[String(data.status || 'pending')] || '待回复';
+    const statusText = statusMap[String(data.status || 'pending')] || '���ظ�';
     const createdAt = Number(data.createdAt || 0);
     const updatedAt = Number(data.updatedAt || 0);
     const createdText = createdAt ? new Date(createdAt).toLocaleString() : '-';
     const updatedText = updatedAt ? new Date(updatedAt).toLocaleString() : '-';
     const contact = (window.iphoneSimState.contacts || []).find(c => String(c.id) === String(data.contactId || ''));
-    const contactName = contact ? (contact.remark || contact.nickname || contact.name || '联系人') : '联系人';
+    const contactName = contact ? (contact.remark || contact.nickname || contact.name || '��ϵ��') : '��ϵ��';
 
     let modal = document.getElementById('music-listen-invite-detail-modal');
     if (!modal) {
@@ -1106,8 +1161,8 @@ window.openMusicListenInviteDetail = function (payload) {
         modal.innerHTML = `
             <div id="music-listen-invite-detail-card" style="width:min(92vw,360px);background:#fff;border-radius:18px;box-shadow:0 14px 34px rgba(0,0,0,0.22);overflow:hidden;">
                 <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;">
-                    <strong style="font-size:16px;color:#111;">一起听邀请详情</strong>
-                    <button onclick="window.closeMusicListenInviteDetail()" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">×</button>
+                    <strong style="font-size:16px;color:#111;">һ������������</strong>
+                    <button onclick="window.closeMusicListenInviteDetail()" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">��</button>
                 </div>
                 <div id="music-listen-invite-detail-body" style="padding:14px 16px 16px;font-size:13px;color:#333;line-height:1.6;"></div>
             </div>
@@ -1124,15 +1179,15 @@ window.openMusicListenInviteDetail = function (payload) {
             <div style="display:flex;gap:10px;margin-bottom:12px;">
                 <img src="${data.songCover || 'https://placehold.co/80x80/e5e7eb/111827?text=Music'}" style="width:52px;height:52px;border-radius:10px;object-fit:cover;background:#f0f0f0;">
                 <div style="min-width:0;flex:1;">
-                    <div style="font-size:15px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.songTitle || '未知歌曲'}</div>
-                    <div style="font-size:13px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.songArtist || '未知歌手'}</div>
+                    <div style="font-size:15px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.songTitle || 'δ֪����'}</div>
+                    <div style="font-size:13px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${data.songArtist || 'δ֪����'}</div>
                 </div>
             </div>
-            <div><strong style="color:#555;">联系人：</strong>${contactName}</div>
-            <div><strong style="color:#555;">状态：</strong>${statusText}</div>
-            <div><strong style="color:#555;">邀请ID：</strong>${data.inviteId || '-'}</div>
-            <div><strong style="color:#555;">创建时间：</strong>${createdText}</div>
-            <div><strong style="color:#555;">更新时间：</strong>${updatedText}</div>
+            <div><strong style="color:#555;">��ϵ�ˣ�</strong>${contactName}</div>
+            <div><strong style="color:#555;">״̬��</strong>${statusText}</div>
+            <div><strong style="color:#555;">����ID��</strong>${data.inviteId || '-'}</div>
+            <div><strong style="color:#555;">����ʱ�䣺</strong>${createdText}</div>
+            <div><strong style="color:#555;">����ʱ�䣺</strong>${updatedText}</div>
         `;
     }
     modal.style.display = 'flex';
@@ -1207,7 +1262,7 @@ if (!window.closeMusicSongShareDetail) {
 function openMusicSongShareDetail(payload) {
     const data = parseMusicSongSharePayload(payload);
     if (!data) {
-        if (typeof window.showChatToast === 'function') window.showChatToast('歌曲分享卡片已损坏');
+        if (typeof window.showChatToast === 'function') window.showChatToast('���������Ƭ����');
         return;
     }
 
@@ -1228,8 +1283,8 @@ function openMusicSongShareDetail(payload) {
         modal.innerHTML = `
             <div style="width:min(92vw,360px);background:#fff;border-radius:18px;box-shadow:0 14px 34px rgba(0,0,0,0.22);overflow:hidden;">
                 <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;">
-                    <strong style="font-size:16px;color:#111;">歌曲分享详情</strong>
-                    <button onclick="window.closeMusicSongShareDetail && window.closeMusicSongShareDetail()" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">×</button>
+                    <strong style="font-size:16px;color:#111;">������������</strong>
+                    <button onclick="window.closeMusicSongShareDetail && window.closeMusicSongShareDetail()" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">��</button>
                 </div>
                 <div id="music-song-share-detail-body" style="padding:14px 16px 16px;font-size:13px;color:#333;line-height:1.6;"></div>
             </div>
@@ -1242,8 +1297,8 @@ function openMusicSongShareDetail(payload) {
 
     const body = modal.querySelector('#music-song-share-detail-body');
     if (body) {
-        const title = escapeChatMessageHtml(data.title || data.songTitle || '未知歌曲');
-        const artist = escapeChatMessageHtml(data.artist || data.songArtist || '未知歌手');
+        const title = escapeChatMessageHtml(data.title || data.songTitle || 'δ֪����');
+        const artist = escapeChatMessageHtml(data.artist || data.songArtist || 'δ֪����');
         const songId = escapeChatMessageHtml(String(data.songId || data.id || '-'));
         const cover = escapeChatMessageHtml(data.cover || data.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music');
         const sourceUrl = escapeChatMessageHtml(String(data.sourceUrl || data.shareUrl || data.originalUrl || ''));
@@ -1259,11 +1314,11 @@ function openMusicSongShareDetail(payload) {
                     <div style="font-size:13px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${artist}</div>
                 </div>
             </div>
-            <div><strong style="color:#555;">歌曲ID：</strong>${songId}</div>
-            <div><strong style="color:#555;">来源：</strong>${provider}</div>
-            <div><strong style="color:#555;">分享时间：</strong>${sharedAtText}</div>
-            ${sourceUrl ? `<div style="word-break:break-all;"><strong style="color:#555;">分享链接：</strong>${sourceUrl}</div>` : ''}
-            ${lyricSnippet ? `<div style="margin-top:6px;"><strong style="color:#555;">歌词片段：</strong>${lyricSnippet}</div>` : ''}
+            <div><strong style="color:#555;">����ID��</strong>${songId}</div>
+            <div><strong style="color:#555;">��Դ��</strong>${provider}</div>
+            <div><strong style="color:#555;">����ʱ�䣺</strong>${sharedAtText}</div>
+            ${sourceUrl ? `<div style="word-break:break-all;"><strong style="color:#555;">�������ӣ�</strong>${sourceUrl}</div>` : ''}
+            ${lyricSnippet ? `<div style="margin-top:6px;"><strong style="color:#555;">���Ƭ�Σ�</strong>${lyricSnippet}</div>` : ''}
         `;
     }
     modal.style.display = 'flex';
@@ -1313,7 +1368,7 @@ function openForumAppFromShareCard(postId) {
         if (ok || attempts >= maxAttempts) {
             clearInterval(timer);
             if (!ok && typeof window.showChatToast === 'function') {
-                window.showChatToast('未找到该帖子，已打开论坛');
+                window.showChatToast('δ�ҵ������ӣ��Ѵ���̳');
             }
         }
     }, 80);
@@ -1322,7 +1377,7 @@ function openForumAppFromShareCard(postId) {
 function openForumPostShareDetail(payload) {
     const data = parseForumPostSharePayload(payload);
     if (!data) {
-        if (typeof window.showChatToast === 'function') window.showChatToast('分享卡片已损坏');
+        if (typeof window.showChatToast === 'function') window.showChatToast('�����Ƭ����');
         return;
     }
 
@@ -1349,8 +1404,8 @@ function openForumPostShareDetail(payload) {
         modal.innerHTML = `
             <div id="forum-post-share-detail-card" style="width:min(92vw,360px);max-height:80vh;overflow:hidden;background:#fff;border-radius:18px;box-shadow:0 16px 36px rgba(0,0,0,0.24);display:flex;flex-direction:column;">
                 <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;">
-                    <strong style="font-size:16px;color:#111;">论坛帖子分享</strong>
-                    <button id="forum-post-share-detail-close" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">×</button>
+                    <strong style="font-size:16px;color:#111;">��̳���ӷ���</strong>
+                    <button id="forum-post-share-detail-close" style="border:none;background:#f2f2f7;border-radius:999px;width:28px;height:28px;line-height:28px;font-size:16px;color:#666;cursor:pointer;">��</button>
                 </div>
                 <div id="forum-post-share-detail-body" style="padding:14px 16px 16px;font-size:13px;color:#222;line-height:1.55;overflow:auto;"></div>
             </div>
@@ -1367,21 +1422,21 @@ function openForumPostShareDetail(payload) {
 
     const body = modal.querySelector('#forum-post-share-detail-body');
     if (body) {
-        const authorName = escapeChatMessageHtml(data.authorName || '未知作者');
+        const authorName = escapeChatMessageHtml(data.authorName || 'δ֪����');
         const authorSubtitle = escapeChatMessageHtml(data.authorSubtitle || '');
-        const timeText = escapeChatMessageHtml(data.time || '刚刚');
-        const contentPreview = escapeChatMessageHtml(data.contentPreview || '（无正文）');
+        const timeText = escapeChatMessageHtml(data.time || '�ո�');
+        const contentPreview = escapeChatMessageHtml(data.contentPreview || '�������ģ�');
         const stats = data.stats || {};
         const likes = Number(stats.likes || 0);
         const comments = Number(stats.comments || 0);
         const forwards = Number(stats.forwards || 0);
         const shares = Number(stats.shares || 0);
         body.innerHTML = `
-            <div style="font-size:14px;font-weight:700;color:#111;margin-bottom:4px;">${authorName}${authorSubtitle ? ` · ${authorSubtitle}` : ''}</div>
+            <div style="font-size:14px;font-weight:700;color:#111;margin-bottom:4px;">${authorName}${authorSubtitle ? ` �� ${authorSubtitle}` : ''}</div>
             <div style="font-size:12px;color:#7b7b80;margin-bottom:8px;">${timeText}</div>
             <div style="font-size:14px;color:#111;line-height:1.6;padding:10px 12px;border-radius:10px;background:#f7f7f9;margin-bottom:10px;">${contentPreview}</div>
-            <div style="font-size:12px;color:#4b5563;margin-bottom:10px;">❤️ ${likes}　💬 ${comments}　🔁 ${forwards}　✈️ ${shares}</div>
-            <div style="font-size:12px;color:#6b7280;">无可跳转帖子 ID，仅显示卡片详情。</div>
+            <div style="font-size:12px;color:#4b5563;margin-bottom:10px;">?? ${likes}��?? ${comments}��?? ${forwards}��?? ${shares}</div>
+            <div style="font-size:12px;color:#6b7280;">�޿���ת���� ID������ʾ��Ƭ���顣</div>
         `;
     }
 
@@ -1420,7 +1475,7 @@ function buildRealPhotoMatchContextText(history, limit = 16) {
         .slice(-Math.max(0, Number(limit) || 0))
         .map(message => {
             if (!message) return '';
-            if (message.type === 'text' || message.type === '消息' || message.type === 'description') {
+            if (message.type === 'text' || message.type === '��Ϣ' || message.type === 'description') {
                 return String(message.content || '').trim();
             }
             if (message.type === 'virtual_image' || message.type === 'image') {
@@ -1481,7 +1536,7 @@ function getRealPhotoPromptCandidates(contact, contactId, queryText, contextText
         location: item.location || '',
         datetime: item.datetime || '',
         score: 0,
-        summary: `[${item.photoType || 'other'}] ${item.description || item.location || '未命名照片'}（相簿：${item.albumName || '未知'}）`
+        summary: `[${item.photoType || 'other'}] ${item.description || item.location || 'δ������Ƭ'}���ಾ��${item.albumName || 'δ֪'}��`
     }));
 }
 
@@ -1491,8 +1546,8 @@ function buildRealPhotoPromptSummary(contact, contactId, queryText, contextText)
     const lines = candidates.map((item, index) => `${index + 1}. ${item.summary || ''}`).filter(Boolean);
     if (!lines.length) return '';
     return [
-        '【可发送真实照片候选】',
-        '当你需要发送图片时，可优先从下列候选中选择最匹配的一张。',
+        '���ɷ�����ʵ��Ƭ��ѡ��',
+        '������Ҫ����ͼƬʱ�������ȴ����к�ѡ��ѡ����ƥ���һ�š�',
         ...lines
     ].join('\n');
 }
@@ -1565,7 +1620,7 @@ function cloneRecallMessageMeta(value) {
     try {
         return JSON.parse(JSON.stringify(value));
     } catch (error) {
-        console.warn('克隆撤回消息元数据失败', error);
+        console.warn('��¡������ϢԪ����ʧ��', error);
         return null;
     }
 }
@@ -1587,35 +1642,35 @@ function buildRecalledMessageSnapshot(message) {
 
 function getRecalledMessageTypeLabel(type) {
     const normalizedType = String(type || 'text').trim().toLowerCase();
-    if (normalizedType === 'text') return '文本消息';
-    if (normalizedType === 'image' || normalizedType === 'virtual_image') return '图片';
-    if (normalizedType === 'sticker') return '表情包';
-    if (normalizedType === 'voice') return '语音';
-    if (normalizedType === 'quote_reply') return '引用回复';
-    if (normalizedType === 'group_poll') return '投票';
-    if (normalizedType === 'group_relay') return '接龙';
-    return '消息';
+    if (normalizedType === 'text') return '�ı���Ϣ';
+    if (normalizedType === 'image' || normalizedType === 'virtual_image') return 'ͼƬ';
+    if (normalizedType === 'sticker') return '�����';
+    if (normalizedType === 'voice') return '����';
+    if (normalizedType === 'quote_reply') return '���ûظ�';
+    if (normalizedType === 'group_poll') return 'ͶƱ';
+    if (normalizedType === 'group_relay') return '����';
+    return '��Ϣ';
 }
 
 function getRecalledMessageContentPreview(snapshot) {
-    if (!snapshot || typeof snapshot !== 'object') return '[消息]';
+    if (!snapshot || typeof snapshot !== 'object') return '[��Ϣ]';
     const normalizedType = String(snapshot.type || 'text').trim().toLowerCase();
 
     if (normalizedType === 'text') {
         const text = String(snapshot.content || '')
             .replace(/<hidden_img>.*?<\/hidden_img>/gi, '')
             .trim();
-        return text || '[空文本]';
+        return text || '[���ı�]';
     }
 
     if (normalizedType === 'image' || normalizedType === 'virtual_image') {
         const desc = String(snapshot.description || '').trim();
-        return desc ? `[图片] ${desc}` : '[图片]';
+        return desc ? `[ͼƬ] ${desc}` : '[ͼƬ]';
     }
 
     if (normalizedType === 'sticker') {
         const desc = String(snapshot.description || snapshot.content || '').trim();
-        return desc ? `[表情包] ${desc}` : '[表情包]';
+        return desc ? `[�����] ${desc}` : '[�����]';
     }
 
     if (normalizedType === 'voice') {
@@ -1625,20 +1680,20 @@ function getRecalledMessageContentPreview(snapshot) {
             const voiceData = typeof snapshot.content === 'string' ? JSON.parse(snapshot.content) : (snapshot.content || {});
             voiceText = String(voiceData.text || '').trim();
             const durationSec = Number(voiceData.duration || 0);
-            if (durationSec > 0) durationText = `（${Math.max(1, Math.round(durationSec))}秒）`;
+            if (durationSec > 0) durationText = `��${Math.max(1, Math.round(durationSec))}�룩`;
         } catch (error) {
             voiceText = String(snapshot.content || '').trim();
         }
-        return voiceText ? `[语音${durationText}] ${voiceText}` : `[语音${durationText}]`;
+        return voiceText ? `[����${durationText}] ${voiceText}` : `[����${durationText}]`;
     }
 
     if (normalizedType === 'group_poll') {
         try {
             const pollData = typeof snapshot.content === 'string' ? JSON.parse(snapshot.content) : (snapshot.content || {});
             const title = String(pollData.title || '').trim();
-            return title ? `[投票] ${title}` : '[投票]';
+            return title ? `[ͶƱ] ${title}` : '[ͶƱ]';
         } catch (error) {
-            return '[投票]';
+            return '[ͶƱ]';
         }
     }
 
@@ -1646,9 +1701,9 @@ function getRecalledMessageContentPreview(snapshot) {
         try {
             const relayData = typeof snapshot.content === 'string' ? JSON.parse(snapshot.content) : (snapshot.content || {});
             const title = String(relayData.title || '').trim();
-            return title ? `[接龙] ${title}` : '[接龙]';
+            return title ? `[����] ${title}` : '[����]';
         } catch (error) {
-            return '[接龙]';
+            return '[����]';
         }
     }
 
@@ -1658,19 +1713,19 @@ function getRecalledMessageContentPreview(snapshot) {
 
 function buildRecalledMessagePreviewText(snapshot) {
     if (!snapshot || typeof snapshot !== 'object') return '';
-    const lines = ['被撤回的原消息'];
+    const lines = ['�����ص�ԭ��Ϣ'];
     const speakerName = String(snapshot.speakerNameSnapshot || '').trim();
     if (speakerName) {
-        lines.push(`发送人：${speakerName}`);
+        lines.push(`�����ˣ�${speakerName}`);
     }
     if (Number(snapshot.time) > 0) {
         const sentAt = new Date(Number(snapshot.time));
         if (!Number.isNaN(sentAt.getTime())) {
-            lines.push(`时间：${sentAt.toLocaleString()}`);
+            lines.push(`ʱ�䣺${sentAt.toLocaleString()}`);
         }
     }
-    lines.push(`类型：${getRecalledMessageTypeLabel(snapshot.type)}`);
-    lines.push(`内容：${getRecalledMessageContentPreview(snapshot)}`);
+    lines.push(`���ͣ�${getRecalledMessageTypeLabel(snapshot.type)}`);
+    lines.push(`���ݣ�${getRecalledMessageContentPreview(snapshot)}`);
     return lines.join('\n');
 }
 
@@ -1753,7 +1808,7 @@ function appendWechatTypingBubble() {
     row.className = 'chat-message other wechat-typing-row has-tail';
     row.innerHTML = `
         <div class="msg-wrapper">
-            <div class="message-content wechat-typing-bubble" aria-label="对方正在输入">
+            <div class="message-content wechat-typing-bubble" aria-label="�Է���������">
                 <span class="wechat-typing-dot"></span>
                 <span class="wechat-typing-dot"></span>
                 <span class="wechat-typing-dot"></span>
@@ -1873,17 +1928,17 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     let isSystemMsg = false;
     if (type === 'system') {
         isSystemMsg = true;
-    } else if (type === 'text' && text && typeof text === 'string' && (text.startsWith('[系统消息]:') || text.startsWith('[系统]:'))) {
+    } else if (type === 'text' && text && typeof text === 'string' && (text.startsWith('[ϵͳ��Ϣ]:') || text.startsWith('[ϵͳ]:'))) {
         isSystemMsg = true;
     }
 
     if (isSystemMsg) {
         msgDiv.className = 'chat-message system';
         if (msgId) msgDiv.dataset.msgId = msgId;
-        const systemText = text.replace(/^\[系统(消息)?\][:：]?\s*/, '').trim();
+        const systemText = text.replace(/^\[ϵͳ(��Ϣ)?\][:��]?\s*/, '').trim();
         msgDiv.innerHTML = `<div class="system-tip">${systemText}</div>`;
         const systemTipEl = msgDiv.querySelector('.system-tip');
-        const isRecallNoticeText = /撤回了一条消息/.test(systemText);
+        const isRecallNoticeText = /������һ����Ϣ/.test(systemText);
         const relatedMessage = msgId ? findChatHistoryMessageByIdForRender(msgId) : null;
         const hasSnapshotAtRenderTime = !!(relatedMessage && relatedMessage.recalledMessageSnapshot && typeof relatedMessage.recalledMessageSnapshot === 'object');
         if (systemTipEl && msgId && (isRecallNoticeText || hasSnapshotAtRenderTime)) {
@@ -1895,16 +1950,16 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     : null;
                 if (!latestSnapshot) {
                     if (typeof window.showChatToast === 'function') {
-                        window.showChatToast('这条撤回提示没有可查看的原消息', 1800);
+                        window.showChatToast('����������ʾû�пɲ鿴��ԭ��Ϣ', 1800);
                     } else {
-                        alert('这条撤回提示没有可查看的原消息');
+                        alert('����������ʾû�пɲ鿴��ԭ��Ϣ');
                     }
                     return;
                 }
                 openRecalledMessagePreview(latestSnapshot);
             };
             systemTipEl.classList.add('recall-system-tip');
-            systemTipEl.title = '点击查看被撤回的原消息';
+            systemTipEl.title = '����鿴�����ص�ԭ��Ϣ';
             systemTipEl.setAttribute('role', 'button');
             systemTipEl.setAttribute('tabindex', '0');
             systemTipEl.addEventListener('click', openPreview);
@@ -1918,7 +1973,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         return;
     }
 
-    // 默认给新消息添加 has-tail 类，因为它目前是最后一条
+    // Ĭ�ϸ�����Ϣ��� has-tail �࣬��Ϊ��Ŀǰ�����һ��
     msgDiv.className = `chat-message ${isUser ? 'user' : 'other'} has-tail`;
     if (!isHistory) {
         msgDiv.classList.add('new');
@@ -1934,7 +1989,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         try {
             fireBuddySpeakerMeta = window.getFireBuddySpeakerMeta(window.iphoneSimState.currentChatContactId, msgId);
         } catch (fireBuddyMetaError) {
-            console.warn('读取小火人发言信息失败', fireBuddyMetaError);
+            console.warn('��ȡС���˷�����Ϣʧ��', fireBuddyMetaError);
         }
     }
     let groupSpeakerMeta = null;
@@ -1942,7 +1997,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         try {
             groupSpeakerMeta = window.getGroupMessageSpeakerMeta(window.iphoneSimState.currentChatContactId, msgId);
         } catch (groupSpeakerMetaError) {
-            console.warn('读取群聊发言信息失败', groupSpeakerMetaError);
+            console.warn('��ȡȺ�ķ�����Ϣʧ��', groupSpeakerMetaError);
         }
     }
     
@@ -1958,7 +2013,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         contentHtml = `<img src="${initialImageSrc}"${deferredAttr} onclick="showImagePreview(this.src)" loading="lazy" decoding="async" style="max-width: 200px; border-radius: 4px;">`;
     } else if (type === 'voice') {
         let duration = '0:01';
-        let transText = '[语音]';
+        let transText = '[����]';
         try {
             let data = typeof text === 'string' ? JSON.parse(text) : text;
             const durSec = Math.max(1, parseInt(data.duration || 1, 10));
@@ -1974,7 +2029,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         
         contentHtml = `<div class="voice-bar-top" onclick="window.playVoiceMsg('${msgId}', '${uid}', event)"><div class="voice-icon-box"><i class="ri-play-fill" data-idle-class="ri-play-fill" data-playing-class="ri-play-fill voice-playing-anim"></i></div><div class="voice-bars" aria-hidden="true"><div class="voice-bar" style="height: 30%;"></div><div class="voice-bar" style="height: 60%;"></div><div class="voice-bar" style="height: 100%;"></div><div class="voice-bar" style="height: 80%;"></div><div class="voice-bar" style="height: 40%;"></div><div class="voice-bar" style="height: 60%;"></div><div class="voice-bar" style="height: 90%;"></div><div class="voice-bar" style="height: 50%;"></div><div class="voice-bar" style="height: 30%;"></div></div><span class="voice-dur-text voice-time">${duration}</span></div><div id="${uid}" class="voice-text-bottom transcription hidden" onclick="this.classList.add('hidden'); event.stopPropagation();">${transText}</div>`;
     } else if (type === 'transfer') {
-        let transferData = { amount: '0.00', remark: '转账', status: 'pending' };
+        let transferData = { amount: '0.00', remark: 'ת��', status: 'pending' };
         try {
             if (typeof text === 'string') {
                 transferData = JSON.parse(text);
@@ -1982,12 +2037,12 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 transferData = text;
             }
         } catch (e) {
-            console.error('解析转账数据失败', e);
-            transferData = { amount: '0.00', remark: text || '转账', status: 'pending' };
+            console.error('����ת������ʧ��', e);
+            transferData = { amount: '0.00', remark: text || 'ת��', status: 'pending' };
         }
         
         const amount = parseFloat(transferData.amount).toFixed(2);
-        const remark = transferData.remark || '转账给您';
+        const remark = transferData.remark || 'ת�˸���';
         const status = transferData.status || 'pending';
         
         let statusText = '';
@@ -1996,28 +2051,28 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         let cardClass = '';
         
         if (status === 'accepted') {
-            statusText = '已收款';
+            statusText = '���տ�';
             statusTag = 'Received';
             iconClass = 'fas fa-check';
             cardClass = 'accepted';
         } else if (status === 'returned') {
-            statusText = '已退还';
+            statusText = '���˻�';
             statusTag = 'Returned';
             iconClass = 'fas fa-undo';
             cardClass = 'returned';
         }
 
-        const subtitle = `${remark}${statusText ? ` · ${statusText}` : ''}`;
+        const subtitle = `${remark}${statusText ? ` �� ${statusText}` : ''}`;
 
         if (!transferData.id) {
             contentHtml = `
-                <div class="transfer-card glass-card ${cardClass}" onclick="alert('该转账消息已失效（旧数据），请发送新转账测试')">
+                <div class="transfer-card glass-card ${cardClass}" onclick="alert('��ת����Ϣ��ʧЧ�������ݣ����뷢����ת�˲���')">
                     <div class="card-watermark">TRX</div>
                     <div class="card-top">
                         <div class="card-icon-box"><i class="${iconClass}"></i></div>
                         <div class="card-tag">${statusTag}</div>
                     </div>
-                    <div class="card-value">¥${amount}</div>
+                    <div class="card-value">��${amount}</div>
                     <div class="card-label">${subtitle}</div>
                 </div>
             `;
@@ -2029,7 +2084,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                         <div class="card-icon-box"><i class="${iconClass}"></i></div>
                         <div class="card-tag">${statusTag}</div>
                     </div>
-                    <div class="card-value">¥${amount}</div>
+                    <div class="card-value">��${amount}</div>
                     <div class="card-label">${subtitle}</div>
                 </div>
             `;
@@ -2038,7 +2093,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         let packetData = {
             id: '',
             amount: '0.00',
-            remark: '恭喜发财，大吉大利',
+            remark: '��ϲ���ƣ��󼪴���',
             mode: 'random',
             totalCount: 1,
             claims: [],
@@ -2047,20 +2102,20 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         try {
             packetData = typeof text === 'string' ? JSON.parse(text) : (text || packetData);
         } catch (e) {
-            console.error('解析红包数据失败', e);
+            console.error('�����������ʧ��', e);
         }
         const packetId = String(packetData.id || '').trim();
         const amount = Number(packetData.amount || 0);
         const mode = String(packetData.mode || 'random') === 'targeted' ? 'targeted' : 'random';
-        const modeLabel = mode === 'targeted' ? '专属红包' : '拼手气红包';
+        const modeLabel = mode === 'targeted' ? 'ר����' : 'ƴ�������';
         const totalCount = Math.max(1, Number(packetData.totalCount || 1));
         const claims = Array.isArray(packetData.claims) ? packetData.claims : [];
         const claimedCount = claims.length;
         const isFinished = String(packetData.status || '').toLowerCase() === 'finished' || claimedCount >= totalCount;
         const remainCount = Math.max(0, totalCount - claimedCount);
-        const remark = String(packetData.remark || '恭喜发财，大吉大利').trim() || '恭喜发财，大吉大利';
+        const remark = String(packetData.remark || '��ϲ���ƣ��󼪴���').trim() || '��ϲ���ƣ��󼪴���';
         const safeLookupToken = String(packetId || msgId || '').replace(/'/g, "\\'");
-        const statusText = isFinished ? '已抢完' : `剩余 ${remainCount}/${totalCount}`;
+        const statusText = isFinished ? '������' : `ʣ�� ${remainCount}/${totalCount}`;
         contentHtml = `
             <div class="red-packet-card glass-card ${isFinished ? 'finished' : ''}" onclick="window.handleGroupRedPacketClick && window.handleGroupRedPacketClick('${safeLookupToken}')">
                 <div class="card-watermark">RP</div>
@@ -2068,34 +2123,34 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     <div class="card-icon-box"><i class="fas fa-envelope-open-text"></i></div>
                     <div class="card-tag">${modeLabel}</div>
                 </div>
-                <div class="card-value">¥${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}</div>
-                <div class="card-label">${remark} · ${statusText}</div>
+                <div class="card-value">��${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}</div>
+                <div class="card-label">${remark} �� ${statusText}</div>
             </div>
         `;
     } else if (type === 'group_poll') {
         let pollData = {
             id: '',
-            title: '群投票',
+            title: 'ȺͶƱ',
             options: [],
             status: 'open'
         };
         try {
             pollData = typeof text === 'string' ? JSON.parse(text) : (text || pollData);
         } catch (e) {
-            console.error('解析群投票数据失败', e);
+            console.error('����ȺͶƱ����ʧ��', e);
         }
         const pollId = String(pollData.id || '').trim();
         const safeLookupToken = String(pollId || msgId || '').replace(/'/g, "\\'");
-        const title = String(pollData.title || '群投票').trim() || '群投票';
+        const title = String(pollData.title || 'ȺͶƱ').trim() || 'ȺͶƱ';
         const options = Array.isArray(pollData.options) ? pollData.options : [];
         const optionPreview = options.slice(0, 3).map((option, index) => {
-            const optionText = String(option && (option.text || option.label || option.content || option.name) || '').trim() || `选项${index + 1}`;
+            const optionText = String(option && (option.text || option.label || option.content || option.name) || '').trim() || `ѡ��${index + 1}`;
             const voteCount = Number(option && option.voteCount);
             const voters = Array.isArray(option && option.voterIds) ? option.voterIds.length : 0;
             const count = Number.isFinite(voteCount) ? voteCount : voters;
-            return `${optionText}${count > 0 ? ` · ${count}票` : ''}`;
+            return `${optionText}${count > 0 ? ` �� ${count}Ʊ` : ''}`;
         }).join(' / ');
-        const statusText = String(pollData.status || '').toLowerCase() === 'closed' ? '已结束' : '进行中';
+        const statusText = String(pollData.status || '').toLowerCase() === 'closed' ? '�ѽ���' : '������';
         contentHtml = `
             <div class="food-invite-card" onclick="window.handleGroupPollClick && window.handleGroupPollClick('${safeLookupToken}')">
                 <div class="food-invite-card-head">
@@ -2103,32 +2158,32 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     <div class="food-invite-card-chip">${statusText}</div>
                 </div>
                 <div class="food-invite-card-title">${title}</div>
-                <div class="food-invite-card-subtitle">${optionPreview || '点击查看选项并投票'}</div>
+                <div class="food-invite-card-subtitle">${optionPreview || '����鿴ѡ�ͶƱ'}</div>
                 <div class="food-invite-card-foot">
                     <span class="food-invite-card-dot"></span>
-                    <span>点击参与投票</span>
+                    <span>�������ͶƱ</span>
                 </div>
             </div>
         `;
     } else if (type === 'group_relay') {
         let relayData = {
             id: '',
-            title: '群接龙',
+            title: 'Ⱥ����',
             entries: [],
             status: 'open'
         };
         try {
             relayData = typeof text === 'string' ? JSON.parse(text) : (text || relayData);
         } catch (e) {
-            console.error('解析群接龙数据失败', e);
+            console.error('����Ⱥ��������ʧ��', e);
         }
         const relayId = String(relayData.id || '').trim();
         const safeLookupToken = String(relayId || msgId || '').replace(/'/g, "\\'");
-        const title = String(relayData.title || '群接龙').trim() || '群接龙';
+        const title = String(relayData.title || 'Ⱥ����').trim() || 'Ⱥ����';
         const entries = Array.isArray(relayData.entries) ? relayData.entries : [];
         const lastEntry = entries.length > 0 ? entries[entries.length - 1] : null;
         const lastText = lastEntry ? String(lastEntry.content || lastEntry.text || '').trim() : '';
-        const statusText = String(relayData.status || '').toLowerCase() === 'closed' ? '已结束' : '进行中';
+        const statusText = String(relayData.status || '').toLowerCase() === 'closed' ? '�ѽ���' : '������';
         contentHtml = `
             <div class="food-invite-card" onclick="window.handleGroupRelayClick && window.handleGroupRelayClick('${safeLookupToken}')">
                 <div class="food-invite-card-head">
@@ -2136,10 +2191,10 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     <div class="food-invite-card-chip">${statusText}</div>
                 </div>
                 <div class="food-invite-card-title">${title}</div>
-                <div class="food-invite-card-subtitle">${lastText ? `最新：${lastText}` : '点击追加你的接龙内容'}</div>
+                <div class="food-invite-card-subtitle">${lastText ? `���£�${lastText}` : '���׷����Ľ�������'}</div>
                 <div class="food-invite-card-foot">
                     <span class="food-invite-card-dot"></span>
-                    <span>已接龙 ${entries.length} 条</span>
+                    <span>�ѽ��� ${entries.length} ��</span>
                 </div>
             </div>
         `;
@@ -2148,21 +2203,21 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             id: '',
             initiatorId: '',
             targetId: 'me',
-            message: '想和你私聊一下',
+            message: '�����˽��һ��',
             status: 'pending'
         };
         try {
             inviteData = typeof text === 'string' ? JSON.parse(text) : (text || inviteData);
         } catch (e) {
-            console.error('解析私聊邀请数据失败', e);
+            console.error('����˽����������ʧ��', e);
         }
         const inviteId = String(inviteData.id || '').trim();
         const initiatorId = String(inviteData.initiatorId || '').trim();
         const status = String(inviteData.status || 'pending').trim().toLowerCase();
         const isAccepted = status === 'accepted';
         const safeLookupToken = String(inviteId || msgId || '').replace(/'/g, "\\'");
-        const inviteText = String(inviteData.message || inviteData.content || '想和你私聊一下').trim() || '想和你私聊一下';
-        let initiatorName = '群成员';
+        const inviteText = String(inviteData.message || inviteData.content || '�����˽��һ��').trim() || '�����˽��һ��';
+        let initiatorName = 'Ⱥ��Ա';
         const currentContact = window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts)
             ? window.iphoneSimState.contacts.find(item => String(item && item.id) === String(window.iphoneSimState.currentChatContactId || ''))
             : null;
@@ -2173,14 +2228,14 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     initiatorName = speakerMeta.name;
                 }
             }
-            if ((!initiatorName || initiatorName === '群成员') && initiatorId && typeof window.getGroupMemberContacts === 'function') {
+            if ((!initiatorName || initiatorName === 'Ⱥ��Ա') && initiatorId && typeof window.getGroupMemberContacts === 'function') {
                 const member = window.getGroupMemberContacts(currentContact).find(item => String(item && item.id) === String(initiatorId));
                 if (member) {
                     initiatorName = member.remark || member.nickname || member.name || initiatorName;
                 }
             }
         }
-        if ((!initiatorName || initiatorName === '群成员') && initiatorId && window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts)) {
+        if ((!initiatorName || initiatorName === 'Ⱥ��Ա') && initiatorId && window.iphoneSimState && Array.isArray(window.iphoneSimState.contacts)) {
             const directContact = window.iphoneSimState.contacts.find(item => item && String(item.id) === String(initiatorId));
             if (directContact) {
                 initiatorName = directContact.remark || directContact.nickname || directContact.name || initiatorName;
@@ -2190,13 +2245,13 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             <div class="food-invite-card" onclick="window.handleGroupPrivateChatInviteClick && window.handleGroupPrivateChatInviteClick('${safeLookupToken}')">
                 <div class="food-invite-card-head">
                     <div class="food-invite-card-icon"><i class="fas fa-comment-dots"></i></div>
-                    <div class="food-invite-card-chip">${isAccepted ? '已进入私聊' : '私聊邀请'}</div>
+                    <div class="food-invite-card-chip">${isAccepted ? '�ѽ���˽��' : '˽������'}</div>
                 </div>
-                <div class="food-invite-card-title">${initiatorName} 想和你私聊</div>
+                <div class="food-invite-card-title">${initiatorName} �����˽��</div>
                 <div class="food-invite-card-subtitle">${inviteText}</div>
                 <div class="food-invite-card-foot">
                     <span class="food-invite-card-dot"></span>
-                    <span>${isAccepted ? '点击再次进入私聊' : '点击进入私聊'}</span>
+                    <span>${isAccepted ? '����ٴν���˽��' : '�������˽��'}</span>
                 </div>
             </div>
         `;
@@ -2211,7 +2266,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         try {
             familyData = typeof text === 'string' ? JSON.parse(text) : text;
         } catch (e) {
-            console.error('解析亲属卡数据失败', e);
+            console.error('�������������ʧ��', e);
         }
 
         const mode = familyData.mode === 'grant' ? 'grant' : 'request';
@@ -2219,7 +2274,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const safeCardId = String(familyData.id || '').replace(/'/g, "\\'");
         const safeContactId = String(window.iphoneSimState.currentChatContactId || '').replace(/'/g, "\\'");
         const cardClass = mode === 'grant' ? 'chat-bank-v2-card chat-bank-v2-card-light' : 'chat-bank-v2-card';
-        const cardTitle = mode === 'grant' ? '亲属卡' : 'Black Card';
+        const cardTitle = mode === 'grant' ? '�����' : 'Black Card';
         contentHtml = `
             <div class="${cardClass}" onclick="window.openFamilyCardDetail('${safeCardId}', '${safeContactId}')">
                 <i class="fas fa-coins chat-bank-v2-decor"></i>
@@ -2235,8 +2290,8 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             </div>
         `;
     } else if (type === 'food_invite') {
-        const cardTitle = String(text || '我正在邀请你帮我挑选美食').trim() || '我正在邀请你帮我挑选晚饭';
-        const cardSubtitle = String(description || '将结合附近餐厅与外卖给你建议').trim() || '将结合附近餐厅与外卖给你建议';
+        const cardTitle = String(text || '�����������������ѡ��ʳ').trim() || '�����������������ѡ���';
+        const cardSubtitle = String(description || '����ϸ���������������㽨��').trim() || '����ϸ���������������㽨��';
         contentHtml = `
             <div class="food-invite-card">
                 <div class="food-invite-card-head">
@@ -2247,13 +2302,13 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 <div class="food-invite-card-subtitle">${cardSubtitle}</div>
                 <div class="food-invite-card-foot">
                     <span class="food-invite-card-dot"></span>
-                    <span>美食邀请</span>
+                    <span>��ʳ����</span>
                 </div>
             </div>
         `;
     } else if (type === 'route_invite') {
-        const cardTitle = String(text || '我正在邀请你帮我规划路线').trim() || '我正在邀请你帮我规划路线';
-        const cardSubtitle = String(description || '输入目的地和出行方式后为你生成路线建议').trim() || '输入目的地和出行方式后为你生成路线建议';
+        const cardTitle = String(text || '��������������ҹ滮·��').trim() || '��������������ҹ滮·��';
+        const cardSubtitle = String(description || '����Ŀ�ĵغͳ��з�ʽ��Ϊ������·�߽���').trim() || '����Ŀ�ĵغͳ��з�ʽ��Ϊ������·�߽���';
         contentHtml = `
             <div class="food-invite-card">
                 <div class="food-invite-card-head">
@@ -2264,15 +2319,15 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 <div class="food-invite-card-subtitle">${cardSubtitle}</div>
                 <div class="food-invite-card-foot">
                     <span class="food-invite-card-dot"></span>
-                    <span>路线规划</span>
+                    <span>·�߹滮</span>
                 </div>
             </div>
         `;
     } else if (type === 'virtual_image') {
         const imgId = `virtual-img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const overlayId = `overlay-${imgId}`;
-        const descText = description || '无描述';
-        const cleanDesc = descText.replace(/^\[图片描述\][:：]?\s*/, '');
+        const descText = description || '������';
+        const cleanDesc = descText.replace(/^\[ͼƬ����\][:��]?\s*/, '');
         
         contentHtml = `
             <div class="virtual-image-container" style="position: relative; cursor: pointer; display: flex; justify-content: center; align-items: center;">
@@ -2345,9 +2400,9 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const paymentAmount = giftData.paymentAmount || giftData.price || '0.00';
         const recipientName = giftData.recipientName || '';
         const paymentMethodLabel = giftData.paymentMethodLabel || '';
-        const title = giftData.title || '礼物';
-        const subtitleParts = [`¥${paymentAmount}`];
-        if (recipientName) subtitleParts.push(`给 ${recipientName}`);
+        const title = giftData.title || '����';
+        const subtitleParts = [`��${paymentAmount}`];
+        if (recipientName) subtitleParts.push(`�� ${recipientName}`);
         if (paymentMethodLabel) subtitleParts.push(paymentMethodLabel);
         contentHtml = `
             <div class="gift-card glass-card">
@@ -2357,7 +2412,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     <div class="card-tag">Unbox</div>
                 </div>
                 <div class="card-value">${title}</div>
-                <div class="card-label">${subtitleParts.join(' · ')}</div>
+                <div class="card-label">${subtitleParts.join(' �� ')}</div>
             </div>
         `;
     } else if (type === 'shopping_gift') {
@@ -2368,12 +2423,12 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         } catch(e) {}
         
         const itemCount = giftData.items ? giftData.items.length : 0;
-        const firstItem = itemCount > 0 ? giftData.items[0] : { title: '礼物', image: '' };
+        const firstItem = itemCount > 0 ? giftData.items[0] : { title: '����', image: '' };
         const total = giftData.total || giftData.paymentAmount || '0.00';
         const recipientText = giftData.recipientName || giftData.recipientText || '';
-        const mainTitle = itemCount > 1 ? `${firstItem.title} 等${itemCount}件` : (firstItem.title || '礼物');
-        const subtitleParts = [`¥${total}`];
-        if (recipientText) subtitleParts.push(`给 ${recipientText}`);
+        const mainTitle = itemCount > 1 ? `${firstItem.title} ��${itemCount}��` : (firstItem.title || '����');
+        const subtitleParts = [`��${total}`];
+        if (recipientText) subtitleParts.push(`�� ${recipientText}`);
         if (giftData.remark) subtitleParts.push(giftData.remark);
         
         contentHtml = `
@@ -2384,7 +2439,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     <div class="card-tag">Sent</div>
                 </div>
                 <div class="card-value">${mainTitle}</div>
-                <div class="card-label">${subtitleParts.join(' · ')}</div>
+                <div class="card-label">${subtitleParts.join(' �� ')}</div>
             </div>
         `;
     } else if (type === 'savings_invite') {
@@ -2394,12 +2449,12 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             inviteData = typeof text === 'string' ? JSON.parse(text) : text;
         } catch (e) {}
         const safePayload = encodeURIComponent(JSON.stringify({
-            title: inviteData.title || '共同存钱计划',
+            title: inviteData.title || '��ͬ��Ǯ�ƻ�',
             targetAmount: Number(inviteData.targetAmount || 0),
             aprBase: Number(inviteData.aprBase || 0),
-            inviteText: '已邀请你一起存钱'
+            inviteText: '��������һ���Ǯ'
         })).replace(/'/g, "\\'");
-        const cardTitle = '共同存钱';
+        const cardTitle = '��ͬ��Ǯ';
         contentHtml = `
             <div class="chat-bank-v2-card chat-bank-v2-card-light" onclick="window.openSavingsInviteDetail('${safePayload}')">
                 <i class="fas fa-piggy-bank chat-bank-v2-decor"></i>
@@ -2421,10 +2476,10 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         } catch (e) {}
         contentHtml = `
             <div style="background:#fff;border-radius:12px;overflow:hidden;width:240px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-                <div style="background:#333;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">共同存钱转出申请</div>
+                <div style="background:#333;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">��ͬ��Ǯת������</div>
                 <div style="padding:10px 12px;font-size:13px;color:#333;line-height:1.45;">
-                    <div>金额：¥${Number(reqData.amount || 0).toFixed(2)}</div>
-                    <div>状态：待确认（24小时）</div>
+                    <div>����${Number(reqData.amount || 0).toFixed(2)}</div>
+                    <div>״̬����ȷ�ϣ�24Сʱ��</div>
                 </div>
             </div>
         `;
@@ -2436,9 +2491,9 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         } catch (e) {}
         contentHtml = `
             <div style="background:#fff;border-radius:12px;overflow:hidden;width:240px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-                <div style="background:#111;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">共同存钱进度</div>
+                <div style="background:#111;color:#fff;padding:10px 12px;font-size:14px;font-weight:700;">��ͬ��Ǯ����</div>
                 <div style="padding:10px 12px;font-size:13px;color:#333;line-height:1.45;">
-                    <div>${pData.text || '计划有新进展'}</div>
+                    <div>${pData.text || '�ƻ����½�չ'}</div>
                 </div>
             </div>
         `;
@@ -2449,8 +2504,8 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             inviteData = typeof text === 'string' ? JSON.parse(text) : text;
         } catch (e) {}
         const safePayload = encodeURIComponent(JSON.stringify(inviteData || {})).replace(/'/g, "\\'");
-        const songTitle = inviteData.songTitle || '未知歌曲';
-        const songArtist = inviteData.songArtist || '未知歌手';
+        const songTitle = inviteData.songTitle || 'δ֪����';
+        const songArtist = inviteData.songArtist || 'δ֪����';
         const songCover = inviteData.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music';
         contentHtml = `
             <div class="music-listen-invite-card" onclick="window.openMusicListenInviteDetail('${safePayload}')">
@@ -2474,12 +2529,12 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         extraClass += ' music-listen-invite-msg music-song-share-msg';
         const shareData = parseMusicSongSharePayload(text) || {};
         const safePayload = encodeURIComponent(JSON.stringify(shareData || {})).replace(/'/g, "\\'");
-        const songTitle = escapeChatMessageHtml(shareData.title || shareData.songTitle || '未知歌曲');
-        const songArtist = escapeChatMessageHtml(shareData.artist || shareData.songArtist || '未知歌手');
+        const songTitle = escapeChatMessageHtml(shareData.title || shareData.songTitle || 'δ֪����');
+        const songArtist = escapeChatMessageHtml(shareData.artist || shareData.songArtist || 'δ֪����');
         const songCover = escapeChatMessageHtml(shareData.cover || shareData.songCover || 'https://placehold.co/120x120/e5e7eb/111827?text=Music');
         const providerRaw = String(shareData.provider || '').trim();
         const providerLabel = providerRaw
-            ? (providerRaw.toLowerCase().includes('netease') ? '网易云' : providerRaw)
+            ? (providerRaw.toLowerCase().includes('netease') ? '������' : providerRaw)
             : 'Music';
         contentHtml = `
             <div class="music-listen-invite-card" onclick="window.openMusicSongShareDetail && window.openMusicSongShareDetail('${safePayload}')">
@@ -2490,7 +2545,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                         <div class="music-listen-invite-artist">${songArtist}</div>
                         <div class="music-listen-invite-platform">
                             <i class="ri-share-forward-line"></i>
-                            <span>${escapeChatMessageHtml(providerLabel)} · 歌曲分享</span>
+                            <span>${escapeChatMessageHtml(providerLabel)} �� ��������</span>
                         </div>
                     </div>
                     <div class="music-listen-invite-play">
@@ -2503,10 +2558,10 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         extraClass += ' forum-post-share-msg';
         const shareData = parseForumPostSharePayload(text) || {};
         const safePayload = encodeURIComponent(JSON.stringify(shareData || {})).replace(/'/g, "\\'");
-        const author = escapeChatMessageHtml(shareData.authorName || '未知作者');
+        const author = escapeChatMessageHtml(shareData.authorName || 'δ֪����');
         const subtitle = escapeChatMessageHtml(shareData.authorSubtitle || '');
-        const title = escapeChatMessageHtml(shareData.title || '论坛帖子分享');
-        const preview = escapeChatMessageHtml(shareData.contentPreview || '（无正文）');
+        const title = escapeChatMessageHtml(shareData.title || '��̳���ӷ���');
+        const preview = escapeChatMessageHtml(shareData.contentPreview || '�������ģ�');
         const stats = shareData.stats || {};
         const summaryList = Array.isArray(shareData.commentsSummary) ? shareData.commentsSummary : [];
         void summaryList;
@@ -2515,7 +2570,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             <div class="forum-post-share-card" onclick="window.openForumPostShareDetail && window.openForumPostShareDetail('${safePayload}')">
                 <img src="https://i.postimg.cc/B6rSJSKs/wu-biao-ti94-20260213222425.png" class="forum-post-share-logo" alt="Forum">
                 <div class="forum-post-share-title forum-post-share-title-hidden">${title}</div>
-                <div class="forum-post-share-author">${author}${subtitle ? ` · ${subtitle}` : ''}</div>
+                <div class="forum-post-share-author">${author}${subtitle ? ` �� ${subtitle}` : ''}</div>
                 <div class="forum-post-share-preview">${preview}</div>
                 <div class="forum-post-share-stats">
                     <span class="forum-post-share-stat-item">
@@ -2523,15 +2578,15 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                         <span>${Number(stats.likes || 0)}</span>
                     </span>
                     <span class="forum-post-share-stat-item">
-                        <img src="https://i.postimg.cc/GmHtkm1B/无标题98_20260213233618.png" class="forum-post-share-stat-icon">
+                        <img src="https://i.postimg.cc/GmHtkm1B/�ޱ���98_20260213233618.png" class="forum-post-share-stat-icon">
                         <span>${Number(stats.comments || 0)}</span>
                     </span>
                     <span class="forum-post-share-stat-item">
-                        <img src="https://i.postimg.cc/hGjkXkL3/无标题98_20260213231726.png" class="forum-post-share-stat-icon">
+                        <img src="https://i.postimg.cc/hGjkXkL3/�ޱ���98_20260213231726.png" class="forum-post-share-stat-icon">
                         <span>${Number(stats.forwards || 0)}</span>
                     </span>
                 </div>
-                <div class="forum-post-share-foot">点击跳转论坛帖子</div>
+                <div class="forum-post-share-foot">�����ת��̳����</div>
             </div>
         `;
     } else if (type === 'delivery_share') {
@@ -2542,11 +2597,11 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         } catch(e) {}
         
         const itemCount = deliveryData.items ? deliveryData.items.length : 0;
-        const firstItem = itemCount > 0 ? deliveryData.items[0] : { title: '美食', image: '' };
+        const firstItem = itemCount > 0 ? deliveryData.items[0] : { title: '��ʳ', image: '' };
         const total = deliveryData.total || '0.00';
-        const subtitleParts = [`¥${total}`];
-        if (itemCount > 0) subtitleParts.push(`${itemCount}件`);
-        subtitleParts.push('配送中');
+        const subtitleParts = [`��${total}`];
+        if (itemCount > 0) subtitleParts.push(`${itemCount}��`);
+        subtitleParts.push('������');
         if (deliveryData.remark) subtitleParts.push(deliveryData.remark);
         
         contentHtml = `
@@ -2556,8 +2611,8 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     <div class="card-icon-box"><i class="fas fa-utensils"></i></div>
                     <div class="card-tag">On the way</div>
                 </div>
-                <div class="card-value">${firstItem.title || '美食外卖'}</div>
-                <div class="card-label">${subtitleParts.join(' · ')}</div>
+                <div class="card-value">${firstItem.title || '��ʳ����'}</div>
+                <div class="card-label">${subtitleParts.join(' �� ')}</div>
             </div>
         `;
     } else if (type === 'order_progress' || type === 'order_share') {
@@ -2567,7 +2622,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             progressData = typeof text === 'string' ? JSON.parse(text) : text;
         } catch(e) {}
 
-        const status = String(progressData.status || '待发货');
+        const status = String(progressData.status || '������');
         const eta = progressData.eta || '';
         const orderId = progressData.orderId;
         const normalizedStatus = status.toLowerCase();
@@ -2706,18 +2761,18 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const inferStepFromStatus = () => {
             let result = 1;
             if (
-                status.includes('已发货') ||
-                status.includes('配送中') ||
+                status.includes('�ѷ���') ||
+                status.includes('������') ||
                 normalizedStatus.includes('picked up') ||
                 normalizedStatus.includes('shipped')
             ) {
                 result = 2;
             }
             if (
-                status.includes('运输中') ||
-                status.includes('派送中') ||
-                status.includes('已送达') ||
-                status.includes('已完成') ||
+                status.includes('������') ||
+                status.includes('������') ||
+                status.includes('���ʹ�') ||
+                status.includes('�����') ||
                 normalizedStatus.includes('on delivery') ||
                 normalizedStatus.includes('out for delivery') ||
                 normalizedStatus.includes('delivered') ||
@@ -2750,7 +2805,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             const raw = `${status} ${eta} ${progressData.items || ''}`;
             const lower = raw.toLowerCase();
             return (
-                /外卖|配送|骑手|送达/.test(raw) ||
+                /����|����|����|�ʹ�/.test(raw) ||
                 lower.includes('delivery') ||
                 lower.includes('picked up') ||
                 lower.includes('on the way') ||
@@ -2861,17 +2916,17 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                 <div class="steps">
                     <div class="step ${step > 1 ? 'done' : ''} ${step === 1 ? 'active' : ''}">
                         <div class="step-icon">${step > 1 ? '<i class="fas fa-check"></i>' : '1'}</div>
-                        <div class="step-text">下单</div>
+                        <div class="step-text">�µ�</div>
                         <div class="step-time">${orderTimeText}</div>
                     </div>
                     <div class="step ${step > 2 ? 'done' : ''} ${step === 2 ? 'active' : ''}">
                         <div class="step-icon">${step > 2 ? '<i class="fas fa-check"></i>' : '2'}</div>
-                        <div class="step-text">发货</div>
+                        <div class="step-text">����</div>
                         <div class="step-time">${shipTimeText}</div>
                     </div>
                     <div class="step ${step === 3 ? 'active' : ''}">
                         <div class="step-icon">${step === 3 ? '<i class="fas fa-check"></i>' : '3'}</div>
-                        <div class="step-text">送达</div>
+                        <div class="step-text">�ʹ�</div>
                         <div class="step-time">${deliverTimeText}</div>
                     </div>
                 </div>
@@ -2886,15 +2941,15 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         } catch(e) {}
         
         const itemCount = payData.items ? payData.items.length : 0;
-        const firstItem = itemCount > 0 ? payData.items[0] : { title: '商品', image: '' };
+        const firstItem = itemCount > 0 ? payData.items[0] : { title: '��Ʒ', image: '' };
         const total = payData.total || '0.00';
         const isPaid = payData.status === 'paid';
         
         contentHtml = `
             <div class="pay-request-card" style="background: #fff; border-radius: 12px; overflow: hidden; width: 230px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                 <div style="background: #333333; padding: 8px 12px; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
-                    <span><i class="fas fa-hand-holding-usd" style="margin-right: 6px;"></i>代付请求</span>
-                    <span style="font-size: 16px;">¥${total}</span>
+                    <span><i class="fas fa-hand-holding-usd" style="margin-right: 6px;"></i>��������</span>
+                    <span style="font-size: 16px;">��${total}</span>
                 </div>
                 <div style="padding: 5px 10px 2px 10px; display: flex; gap: 10px;">
                     <div style="width: 60px; height: 60px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background-color: #f0f0f0;">
@@ -2903,13 +2958,13 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center;">
                         <div style="font-size: 13px; color: #333; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${firstItem.title}</div>
                         ${firstItem.selectedSpec ? `<div style="font-size: 11px; color: #999; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${firstItem.selectedSpec}</div>` : ''}
-                        ${itemCount > 1 ? `<div style="font-size: 12px; color: #999; margin-top: 4px;">等 ${itemCount} 件商品</div>` : ''}
+                        ${itemCount > 1 ? `<div style="font-size: 12px; color: #999; margin-top: 4px;">�� ${itemCount} ����Ʒ</div>` : ''}
                     </div>
                 </div>
                 <div style="padding: 2px 12px; border-top: 1px solid #f5f5f5; text-align: right; line-height: 1;">
                      ${isPaid ? 
-                       '<span style="font-size: 12px; color: #999; border: 1px solid #ddd; padding: 2px 8px; border-radius: 10px; background: #f5f5f5;">已付款</span>' : 
-                       '<span style="font-size: 12px; color: #FF5000; border: 1px solid #FF5000; padding: 2px 8px; border-radius: 10px;">去支付</span>'}
+                       '<span style="font-size: 12px; color: #999; border: 1px solid #ddd; padding: 2px 8px; border-radius: 10px; background: #f5f5f5;">�Ѹ���</span>' : 
+                       '<span style="font-size: 12px; color: #FF5000; border: 1px solid #FF5000; padding: 2px 8px; border-radius: 10px;">ȥ֧��</span>'}
                 </div>
             </div>
         `;
@@ -2927,14 +2982,14 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                         <img src="${productData.image || ''}" style="width: 100%; height: 100%; object-fit: cover;">
                     </div>
                     <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden;">
-                        <div style="font-size: 13px; color: #333; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${productData.title || '商品'}</div>
-                        <div style="font-size: 14px; color: #FF5000; font-weight: bold;">¥${productData.price || '0.00'}</div>
+                        <div style="font-size: 13px; color: #333; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${productData.title || '��Ʒ'}</div>
+                        <div style="font-size: 14px; color: #FF5000; font-weight: bold;">��${productData.price || '0.00'}</div>
                     </div>
                 </div>
                 <div style="padding: 0 10px 0 10px; height: 26px; font-size: 10px; color: #999; border-top: 1px solid #f5f5f5; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
                     <div style="display: flex; align-items: center;">
                         <i class="fas fa-shopping-bag" style="color: #FF5000; margin-right: 4px;"></i>
-                        <span>${productData.shop_name || '闲鱼'}</span>
+                        <span>${productData.shop_name || '����'}</span>
                     </div>
                     <i class="fas fa-chevron-right" style="font-size: 10px;"></i>
                 </div>
@@ -2956,7 +3011,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         
         let commentBadge = '';
         if (commentCount > 0) {
-            commentBadge = `<span style="margin-left: auto; background: #f0f0f0; padding: 1px 6px; border-radius: 4px; color: #666;">${commentCount}条评论</span>`;
+            commentBadge = `<span style="margin-left: auto; background: #f0f0f0; padding: 1px 6px; border-radius: 4px; color: #666;">${commentCount}������</span>`;
         }
         
         contentHtml = `
@@ -2966,14 +3021,14 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                     <div style="font-size: 12px; color: #666; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${displayContent}</div>
                 </div>
                 <div style="padding: 4px 10px; font-size: 10px; color: #999; display: flex; align-items: center; border-top: 1px solid #f5f5f5; height: 24px; padding-top: 6px;">
-                    <i class="fas fa-globe" style="margin-right: 4px;"></i> <span style="position: relative; top: 0px;">iCity 日记</span>
+                    <i class="fas fa-globe" style="margin-right: 4px;"></i> <span style="position: relative; top: 0px;">iCity �ռ�</span>
                     ${commentBadge}
                 </div>
             </div>
         `;
     } else if (type === 'minesweeper_invite') {
         extraClass += ' minesweeper-invite-msg';
-        contentHtml = `<div class="minesweeper-card" style="display: flex; flex-direction: column; width: 100%; height: 100%; justify-content: space-between;" onclick="window.startMinesweeper()"><div class="minesweeper-invite-top" style="display: flex; align-items: center; padding: 12px 15px; gap: 12px; background: linear-gradient(135deg, #f9f9f9 0%, #ffffff 100%); border-bottom: 1px solid #f0f0f0; width: 100%;"><div class="minesweeper-icon" style="width: 40px; height: 40px; border-radius: 8px; background-color: #ff3b30; display: flex; justify-content: center; align-items: center; font-size: 20px; color: #fff;">💣</div><div class="minesweeper-info" style="display: flex; flex-direction: column; justify-content: center; flex: 1;"><div class="minesweeper-title" style="font-size: 16px; font-weight: 600; color: #000; margin-bottom: 2px;">扫雷</div><div class="minesweeper-desc" style="font-size: 12px; color: #8e8e93;">邀请你玩游戏</div></div></div><div class="minesweeper-invite-bottom" style="padding: 8px 15px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #8e8e93; width: 100%;"><span>经典游戏</span><i class="fas fa-chevron-right"></i></div></div>`;
+        contentHtml = `<div class="minesweeper-card" style="display: flex; flex-direction: column; width: 100%; height: 100%; justify-content: space-between;" onclick="window.startMinesweeper()"><div class="minesweeper-invite-top" style="display: flex; align-items: center; padding: 12px 15px; gap: 12px; background: linear-gradient(135deg, #f9f9f9 0%, #ffffff 100%); border-bottom: 1px solid #f0f0f0; width: 100%;"><div class="minesweeper-icon" style="width: 40px; height: 40px; border-radius: 8px; background-color: #ff3b30; display: flex; justify-content: center; align-items: center; font-size: 20px; color: #fff;">??</div><div class="minesweeper-info" style="display: flex; flex-direction: column; justify-content: center; flex: 1;"><div class="minesweeper-title" style="font-size: 16px; font-weight: 600; color: #000; margin-bottom: 2px;">ɨ��</div><div class="minesweeper-desc" style="font-size: 12px; color: #8e8e93;">����������Ϸ</div></div></div><div class="minesweeper-invite-bottom" style="padding: 8px 15px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #8e8e93; width: 100%;"><span>������Ϸ</span><i class="fas fa-chevron-right"></i></div></div>`;
     } else if (type === 'pdd_cash_share') {
         let data = {};
         try { data = JSON.parse(text); } catch(e) {}
@@ -2981,11 +3036,11 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         contentHtml = `
             <div class="pdd-share-msg" onclick="if(window.renderCashActivity) { document.getElementById('shopping-app').classList.remove('hidden'); window.renderCashActivity(); }">
                 <div class="pdd-share-header">
-                    <i class="fas fa-money-bill-wave"></i> <span class="pdd-header-text">天天领现金</span>
+                    <i class="fas fa-money-bill-wave"></i> <span class="pdd-header-text">�������ֽ�</span>
                 </div>
                 <div class="pdd-share-content">
-                    <div class="pdd-share-title">点一下！就差你了</div>
-                    <div class="pdd-share-amount">¥${data.amount || '99.9'}</div>
+                    <div class="pdd-share-title">��һ�£��Ͳ�����</div>
+                    <div class="pdd-share-amount">��${data.amount || '99.9'}</div>
                 </div>
             </div>
         `;
@@ -2996,7 +3051,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         contentHtml = `
             <div class="pdd-share-msg" onclick="if(window.startBargain) { document.getElementById('shopping-app').classList.remove('hidden'); window.startBargain({id: '${data.productId}', title: '${data.title}', price: ${data.currentPrice}, image: '${data.image}'}); }">
                 <div class="pdd-share-header" style="background:#ff6600;">
-                    <i class="fas fa-cut"></i> <span class="pdd-header-text">砍价免费拿</span>
+                    <i class="fas fa-cut"></i> <span class="pdd-header-text">���������</span>
                 </div>
                 <div class="pdd-share-content">
                     <div style="display:flex; gap:10px; margin-bottom:10px;">
@@ -3005,7 +3060,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                         </div>
                         <div style="text-align:left; flex:1; display:flex; flex-direction:column; justify-content:space-between;">
                             <div style="font-size:13px; font-weight:bold; line-height:1.2; height:32px; overflow:hidden; color:#333;">${data.title}</div>
-                            <div style="color:#ff0000; font-weight:bold; font-size:14px;">当前: ¥${data.currentPrice}</div>
+                            <div style="color:#ff0000; font-weight:bold; font-size:14px;">��ǰ: ��${data.currentPrice}</div>
                         </div>
                     </div>
                 </div>
@@ -3036,13 +3091,13 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
     if (replyTo) {
         let replyPreviewText = String(replyTo.content || '').trim();
         if (replyTo.type === 'image' || replyTo.type === 'virtual_image') {
-            replyPreviewText = '[图片]';
+            replyPreviewText = '[ͼƬ]';
         } else if (replyTo.type === 'sticker') {
-            replyPreviewText = '[表情包]';
+            replyPreviewText = '[�����]';
         } else if (replyTo.type === 'voice') {
-            replyPreviewText = '[语音]';
+            replyPreviewText = '[����]';
         } else if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(replyPreviewText)) {
-            replyPreviewText = '[图片]';
+            replyPreviewText = '[ͼƬ]';
         }
 
         const activeChatScreen = document.getElementById('chat-screen');
@@ -3105,7 +3160,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         } else {
             replyHtml = `
                 <div class="quote-container">
-                    回复 ${escapeChatMessageHtml(replyTo.name)}: ${escapeChatMessageHtml(replyPreviewText)}
+                    �ظ� ${escapeChatMessageHtml(replyTo.name)}: ${escapeChatMessageHtml(replyPreviewText)}
                 </div>
             `;
         }
@@ -3158,7 +3213,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             ? 'chat-avatar fire-buddy-chat-avatar'
             : (groupSpeakerMeta ? 'chat-avatar group-speaker-chat-avatar' : 'chat-avatar');
         const speakerLabelHtml = fireBuddySpeakerMeta
-            ? `<div class="fire-buddy-speaker-label">${fireBuddySpeakerMeta.name || '小火人'}</div>`
+            ? `<div class="fire-buddy-speaker-label">${fireBuddySpeakerMeta.name || 'С����'}</div>`
             : buildGroupSpeakerLabelHtml(groupSpeakerMeta, false);
         msgDiv.innerHTML = `
             <img src="${avatar}" class="${avatarClass}">
@@ -3279,24 +3334,24 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
             <div class="steps">
                 <div class="step active">
                     <div class="step-icon">1</div>
-                    <div class="step-text">下单</div>
+                    <div class="step-text">�µ�</div>
                     <div class="step-time">--:--</div>
                 </div>
                 <div class="step">
                     <div class="step-icon">2</div>
-                    <div class="step-text">发货</div>
+                    <div class="step-text">����</div>
                     <div class="step-time">--:--</div>
                 </div>
                 <div class="step">
                     <div class="step-icon">3</div>
-                    <div class="step-text">送达</div>
+                    <div class="step-text">�ʹ�</div>
                     <div class="step-time">--:--</div>
                 </div>
             </div>
         `);
     }
 
-    // 在 msgDiv 构建完成后，检查并添加刷新按钮
+    // �� msgDiv ������ɺ󣬼�鲢���ˢ�°�ť
     if (type === 'image' && !isUser && msgId) {
         const contentEl = msgDiv.querySelector('.message-content');
         if (contentEl) {
@@ -3317,7 +3372,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
                      btn.className = 'image-refresh-btn';
                      btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
                      btn.onclick = (e) => window.refreshAiImage(msgId, e);
-                     btn.title = '重新生成';
+                     btn.title = '��������';
                      contentEl.appendChild(btn);
                  }
              }
@@ -3454,7 +3509,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         if (deltaX > 0) {
             const quoted = triggerQuoteAction(msgData);
             if (quoted && typeof window.showChatToast === 'function') {
-                window.showChatToast('已引用该消息', 1200);
+                window.showChatToast('�����ø���Ϣ', 1200);
             }
         } else {
             triggerEditAction(msgData);
@@ -3501,7 +3556,7 @@ function hydrateDeferredChatMedia(messageNode) {
             if (!resolvedSrc) return;
             img.src = resolvedSrc;
         }).catch((error) => {
-            console.warn('聊天图片加载失败', error);
+            console.warn('����ͼƬ����ʧ��', error);
         });
     });
 }
@@ -3611,10 +3666,10 @@ function updateMultiSelectUI() {
 async function deleteSelectedMessages() {
     if (!window.iphoneSimState.isMultiSelectMode) return;
     if (window.iphoneSimState.selectedMessages.size === 0) {
-        alert('未选择任何消息');
+        alert('δѡ���κ���Ϣ');
         return;
     }
-    if (!confirm(`确定删除选中的 ${window.iphoneSimState.selectedMessages.size} 条消息吗？此操作不可恢复。`)) return;
+    if (!confirm(`ȷ��ɾ��ѡ�е� ${window.iphoneSimState.selectedMessages.size} ����Ϣ�𣿴˲������ɻָ���`)) return;
     const ids = Array.from(window.iphoneSimState.selectedMessages);
     if (!window.iphoneSimState.currentChatContactId) return;
     const history = window.iphoneSimState.chatHistory[window.iphoneSimState.currentChatContactId] || [];
@@ -3659,7 +3714,7 @@ async function recallGroupMessageById(groupId, msgId, options = {}) {
     const role = typeof window.getGroupRole === 'function' ? window.getGroupRole(contact, actorId) : 'member';
     const canRecall = role === 'owner' || role === 'admin';
     if (!canRecall) {
-        if (!silent) alert('仅群主或管理员可撤回群消息');
+        if (!silent) alert('��Ⱥ�������Ա�ɳ���Ⱥ��Ϣ');
         return false;
     }
 
@@ -3679,9 +3734,9 @@ async function recallGroupMessageById(groupId, msgId, options = {}) {
     if (targetIndex < 0) return false;
 
     const targetMsg = history[targetIndex];
-    const isSystemVisibleMessage = !!(targetMsg && typeof targetMsg.content === 'string' && /^\s*\[系统消息\]:/.test(targetMsg.content));
+    const isSystemVisibleMessage = !!(targetMsg && typeof targetMsg.content === 'string' && /^\s*\[ϵͳ��Ϣ\]:/.test(targetMsg.content));
     if (!targetMsg || targetMsg.hiddenFromUi || targetMsg._hiddenBySanitizer || targetMsg.type === 'system_event' || targetMsg.type === 'voice_call_text' || isSystemVisibleMessage) {
-        if (!silent) alert('该消息无法撤回');
+        if (!silent) alert('����Ϣ�޷�����');
         return false;
     }
 
@@ -3705,12 +3760,12 @@ async function recallGroupMessageById(groupId, msgId, options = {}) {
         if (window.iphoneSimState && window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name) {
             return window.iphoneSimState.userProfile.name;
         }
-        return '你';
+        return '��';
     })();
 
     let recallNoticeMsg = null;
     if (typeof window.sendMessage === 'function') {
-        recallNoticeMsg = window.sendMessage(`[系统消息]: ${actorName} 撤回了一条消息`, false, 'text', null, groupId, {
+        recallNoticeMsg = window.sendMessage(`[ϵͳ��Ϣ]: ${actorName} ������һ����Ϣ`, false, 'text', null, groupId, {
             ignoreReplyingState: true,
             bypassWechatBlock: true,
             showNotification: false
@@ -3799,7 +3854,7 @@ function triggerQuoteAction(msgData) {
 
 function triggerEditAction(msgData) {
     if (!msgData || !msgData.msgId) {
-        alert('无法编辑此消息（缺少ID）');
+        alert('�޷��༭����Ϣ��ȱ��ID��');
         return false;
     }
 
@@ -3807,24 +3862,24 @@ function triggerEditAction(msgData) {
     const fullMsg = history ? history.find(m => m.id === msgData.msgId) : null;
 
     if (fullMsg && fullMsg.novelaiPrompt) {
-        const newPrompt = prompt("NovelAI 生成提示词 (Prompt):", fullMsg.novelaiPrompt);
+        const newPrompt = prompt("NovelAI ������ʾ�� (Prompt):", fullMsg.novelaiPrompt);
         if (newPrompt !== null && newPrompt !== fullMsg.novelaiPrompt) {
             fullMsg.novelaiPrompt = newPrompt;
             saveConfig();
-            alert('提示词已更新 (仅更新记录，不会重新生成图片)');
+            alert('��ʾ���Ѹ��� (�����¼�¼��������������ͼƬ)');
         }
         return true;
     }
 
     if (msgData.type !== 'text') {
-        if (!confirm('这是一条非文本消息（如图片或转账），直接编辑内容可能会破坏显示格式。确定要编辑吗？')) {
+        if (!confirm('����һ�����ı���Ϣ����ͼƬ��ת�ˣ���ֱ�ӱ༭���ݿ��ܻ��ƻ���ʾ��ʽ��ȷ��Ҫ�༭��')) {
             return false;
         }
     }
     if (typeof openEditChatMessageModal === 'function') {
         openEditChatMessageModal(msgData.msgId, msgData.content);
     } else {
-        alert('编辑功能暂不可用');
+        alert('�༭�����ݲ�����');
     }
     return true;
 }
@@ -3888,14 +3943,14 @@ function showContextMenu(targetEl, msgData) {
     const menu = document.createElement('div');
     menu.className = 'context-menu';
     menu.innerHTML = `
-        <div class="context-menu-item" id="menu-quote">引用</div>
-        <div class="context-menu-item" id="menu-copy">复制</div>
-        ${(msgData.type === 'image' || msgData.type === 'sticker' || msgData.type === 'virtual_image') ? '<div class="context-menu-item" id="menu-set-avatar">设为头像</div>' : ''}
-        ${canSaveAiImageToAlbum ? '<div class="context-menu-item" id="menu-save-to-album">保存到相册</div>' : ''}
-        ${canPinCurrentMessage ? `<div class="context-menu-item" id="menu-pin">${isPinnedMessage ? '取消置顶' : '置顶消息'}</div>` : ''}
-        ${canRecallCurrentMessage ? '<div class="context-menu-item" id="menu-recall">撤回</div>' : ''}
-        <div class="context-menu-item" id="menu-edit">编辑</div>
-        <div class="context-menu-item" id="menu-delete" style="color: #ff3b30;">删除</div>
+        <div class="context-menu-item" id="menu-quote">����</div>
+        <div class="context-menu-item" id="menu-copy">����</div>
+        ${(msgData.type === 'image' || msgData.type === 'sticker' || msgData.type === 'virtual_image') ? '<div class="context-menu-item" id="menu-set-avatar">��Ϊͷ��</div>' : ''}
+        ${canSaveAiImageToAlbum ? '<div class="context-menu-item" id="menu-save-to-album">���浽���</div>' : ''}
+        ${canPinCurrentMessage ? `<div class="context-menu-item" id="menu-pin">${isPinnedMessage ? 'ȡ���ö�' : '�ö���Ϣ'}</div>` : ''}
+        ${canRecallCurrentMessage ? '<div class="context-menu-item" id="menu-recall">����</div>' : ''}
+        <div class="context-menu-item" id="menu-edit">�༭</div>
+        <div class="context-menu-item" id="menu-delete" style="color: #ff3b30;">ɾ��</div>
     `;
     
     menu.style.visibility = 'hidden';
@@ -3955,7 +4010,7 @@ function showContextMenu(targetEl, msgData) {
             menu.remove();
             const ok = await recallGroupMessageById(currentContactId, msgData.msgId);
             if (!ok) {
-                alert('撤回失败');
+                alert('����ʧ��');
             }
         };
     }
@@ -3966,13 +4021,13 @@ function showContextMenu(targetEl, msgData) {
             if (typeof window.toggleGroupPinnedMessage !== 'function') return;
             const toggled = window.toggleGroupPinnedMessage(currentContactId, msgData.msgId, 'me', {
                 showNotice: true,
-                actorName: '你'
+                actorName: '��'
             });
             if (!toggled || !toggled.ok) {
                 if (typeof window.showChatToast === 'function') {
-                    window.showChatToast('置顶操作失败', 1800);
+                    window.showChatToast('�ö�����ʧ��', 1800);
                 } else {
-                    alert('置顶操作失败');
+                    alert('�ö�����ʧ��');
                 }
             }
         };
@@ -3985,7 +4040,7 @@ function showContextMenu(targetEl, msgData) {
             const contact = window.iphoneSimState.contacts.find(c => String(c.id) === String(window.iphoneSimState.currentChatContactId));
             if (!contact) return;
 
-            if (confirm(`确定要将这张图片设为 "${contact.remark || contact.name}" 的头像吗？`)) {
+            if (confirm(`ȷ��Ҫ������ͼƬ��Ϊ "${contact.remark || contact.name}" ��ͷ����`)) {
                 let newAvatar = msgData.content;
                 if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(newAvatar)) {
                     newAvatar = await window.resolveChatMediaDataUrl(newAvatar) || await window.resolveChatMediaSrc(newAvatar) || newAvatar;
@@ -4009,10 +4064,10 @@ function showContextMenu(targetEl, msgData) {
                 // The contact list and message list avatars will be updated.
                 
                 // Send a system message indicating change?
-                // sendMessage(`[系统消息]: 已将图片设为头像`, false, 'text');
+                // sendMessage(`[ϵͳ��Ϣ]: �ѽ�ͼƬ��Ϊͷ��`, false, 'text');
                 // Maybe just a toast?
-                if (window.showChatToast) window.showChatToast('头像已更新');
-                else alert('头像已更新');
+                if (window.showChatToast) window.showChatToast('ͷ���Ѹ���');
+                else alert('ͷ���Ѹ���');
             }
         };
     }
@@ -4023,12 +4078,12 @@ function showContextMenu(targetEl, msgData) {
             menu.remove();
 
             if (!fullMsg || !fullMsg.content) {
-                alert('找不到可保存的图片');
+                alert('�Ҳ����ɱ����ͼƬ');
                 return;
             }
 
             if (typeof window.savePhotoToAlbumLibrary !== 'function') {
-                alert('相册功能未加载');
+                alert('��Ṧ��δ����');
                 return;
             }
 
@@ -4044,13 +4099,13 @@ function showContextMenu(targetEl, msgData) {
                 });
 
                 if (typeof window.showChatToast === 'function') {
-                    window.showChatToast(result && result.duplicate ? '这张图片已经在相册里了' : '已保存到相册');
+                    window.showChatToast(result && result.duplicate ? '����ͼƬ�Ѿ����������' : '�ѱ��浽���');
                 } else {
-                    alert(result && result.duplicate ? '这张图片已经在相册里了' : '已保存到相册');
+                    alert(result && result.duplicate ? '����ͼƬ�Ѿ����������' : '�ѱ��浽���');
                 }
             } catch (error) {
                 console.error('Save AI image to album failed:', error);
-                alert(`保存失败: ${error.message}`);
+                alert(`����ʧ��: ${error.message}`);
             }
         };
     }
@@ -4065,7 +4120,7 @@ function showContextMenu(targetEl, msgData) {
             menu.remove();
             enterMultiSelectMode(msgData.msgId);
         } else {
-            alert('无法删除此消息（缺少ID）');
+            alert('�޷�ɾ������Ϣ��ȱ��ID��');
             menu.remove();
         }
     };
@@ -4086,18 +4141,18 @@ function handleQuote(msgData) {
     document.getElementById('reply-name').textContent = msgData.name;
     
     let previewText = msgData.content;
-    if (msgData.type === 'image') previewText = '[图片]';
-    else if (msgData.type === 'sticker') previewText = '[表情包]';
-    else if (msgData.type === 'transfer') previewText = '[转账]';
-    else if (msgData.type === 'red_packet') previewText = '[红包]';
-    else if (msgData.type === 'group_poll') previewText = '[投票]';
-    else if (msgData.type === 'group_relay') previewText = '[接龙]';
-    else if (msgData.type === 'private_chat_invite') previewText = '[私聊邀请]';
-    else if (msgData.type === 'family_card') previewText = '[亲属卡]';
-    else if (msgData.type === 'pay_request') previewText = '[代付请求]';
-    else if (msgData.type === 'music_listen_invite') previewText = '[一起听邀请]';
-    else if (msgData.type === 'music_song_share') previewText = '[歌曲分享]';
-    else if (msgData.type === 'forum_post_share') previewText = '[论坛帖子分享]';
+    if (msgData.type === 'image') previewText = '[ͼƬ]';
+    else if (msgData.type === 'sticker') previewText = '[�����]';
+    else if (msgData.type === 'transfer') previewText = '[ת��]';
+    else if (msgData.type === 'red_packet') previewText = '[���]';
+    else if (msgData.type === 'group_poll') previewText = '[ͶƱ]';
+    else if (msgData.type === 'group_relay') previewText = '[����]';
+    else if (msgData.type === 'private_chat_invite') previewText = '[˽������]';
+    else if (msgData.type === 'family_card') previewText = '[�����]';
+    else if (msgData.type === 'pay_request') previewText = '[��������]';
+    else if (msgData.type === 'music_listen_invite') previewText = '[һ��������]';
+    else if (msgData.type === 'music_song_share') previewText = '[��������]';
+    else if (msgData.type === 'forum_post_share') previewText = '[��̳���ӷ���]';
     
     document.getElementById('reply-text').textContent = previewText;
     replyBar.classList.remove('hidden');
@@ -4216,7 +4271,7 @@ function isHtmlBoundaryEnd(content) {
 }
 
 function isTextLikeMessageForHtmlMerge(msg) {
-    return !!(msg && (msg.type === '消息' || msg.type === 'text') && typeof msg.content === 'string');
+    return !!(msg && (msg.type === '��Ϣ' || msg.type === 'text') && typeof msg.content === 'string');
 }
 
 function mergeSplitHtmlMessages(messagesList) {
@@ -4236,7 +4291,7 @@ function mergeSplitHtmlMessages(messagesList) {
         ).trim();
         if (combinedHtml) {
             const first = htmlChunk[0];
-            merged.push({ ...first, type: '消息', content: combinedHtml });
+            merged.push({ ...first, type: '��Ϣ', content: combinedHtml });
         } else {
             merged.push(...htmlChunk);
         }
@@ -4264,7 +4319,7 @@ function mergeSplitHtmlMessages(messagesList) {
             if (hasStart && hasEnd) {
                 const singleHtml = stripHtmlBlockMarkers(text).trim();
                 if (singleHtml) {
-                    merged.push({ ...msg, type: '消息', content: singleHtml });
+                    merged.push({ ...msg, type: '��Ϣ', content: singleHtml });
                 } else {
                     merged.push(msg);
                 }
@@ -4308,11 +4363,11 @@ function splitLegacyTextContentIntoResults(text, results, options = {}) {
     mixedItems.forEach(mi => {
         const normalizedType = normalizeAiSchemaType(mi.type);
         if (normalizedType === 'text_message') {
-            const rawSegments = String(mi.content || '').split(/([。！？!?]+|\n+)/);
+            const rawSegments = String(mi.content || '').split(/([������!?]+|\n+)/);
             let buffer = '';
             for (const seg of rawSegments) {
                 if (!seg) continue;
-                if (/^[。！？!?]+$/.test(seg)) {
+                if (/^[������!?]+$/.test(seg)) {
                     buffer += seg;
                     if (buffer.trim()) {
                         results.push({
@@ -4524,7 +4579,7 @@ function parseMixedAiResponse(content) {
         }
 
         if (normalizedType === 'voice') {
-            results.push({ type: 'voice', content: `${item.duration || 3} ${item.content || item.text || '语音消息'}`, ...(speakerContactId ? { speakerContactId } : {}) });
+            results.push({ type: 'voice', content: `${item.duration || 3} ${item.content || item.text || '������Ϣ'}`, ...(speakerContactId ? { speakerContactId } : {}) });
             return;
         }
 
@@ -4765,7 +4820,7 @@ async function normalizeAiRequestMessageImages(messages) {
                     console.warn('[AI Debug] failed to convert request image to data URL', debugPayload);
                 }
                 part.type = 'text';
-                part.text = isChatMediaRef ? '[图片不可用: 本地引用已失效]' : '[图片不可用]';
+                part.text = isChatMediaRef ? '[ͼƬ������: ����������ʧЧ]' : '[ͼƬ������]';
                 delete part.image_url;
                 degradedCount += 1;
             }
@@ -4786,47 +4841,47 @@ async function normalizeAiRequestMessageImages(messages) {
 function forceSplitMixedContent(content) {
     if (typeof content !== 'string') {
         if (content === undefined || content === null) return [];
-        return [{ type: '消息', content: String(content) }];
+        return [{ type: '��Ϣ', content: String(content) }];
     }
 
     if (isHtmlPayloadForParser(content)) {
         const normalizedHtml = stripHtmlBlockMarkers(content).trim();
-        return normalizedHtml ? [{ type: '消息', content: normalizedHtml }] : [];
+        return normalizedHtml ? [{ type: '��Ϣ', content: normalizedHtml }] : [];
     }
 
     const results = [];
-    // 预处理：统一符号
-    let processed = content.replace(/【/g, '[').replace(/】/g, ']').replace(/：/g, ':');
+    // Ԥ�����ͳһ����
+    let processed = content.replace(/��/g, '[').replace(/��/g, ']').replace(/��/g, ':');
     
-    // 正则匹配 [类型:内容] 或 [类型] (无冒号兼容)
-    // 改进正则：允许内容中包含换行符，且支持 "发送了表情包" 这种 AI 常见错误格式
-    const regex = /\[(消息|表情包|发送了表情包|发送了一个表情包|语音|图片|旁白)(?:\s*[:：]\s*([\s\S]*?))?\]/g;
+    // ����ƥ�� [����:����] �� [����] (��ð�ż���)
+    // �Ľ��������������а������з�����֧�� "�����˱����" ���� AI ���������ʽ
+    const regex = /\[(��Ϣ|�����|�����˱����|������һ�������|����|ͼƬ|�԰�)(?:\s*[:��]\s*([\s\S]*?))?\]/g;
     
     let lastIndex = 0;
     let match;
 
     while ((match = regex.exec(processed)) !== null) {
-        // 1. 捕获当前匹配项之前的文本
-        const preText = processed.substring(lastIndex, match.index); // 不trim以保留格式
+        // 1. ����ǰƥ����֮ǰ���ı�
+        const preText = processed.substring(lastIndex, match.index); // ��trim�Ա����ʽ
         if (preText) { 
              const parts = preText.split('\n');
              parts.forEach(p => {
                  if (p.trim()) {
-                     results.push({ type: '消息', content: p.trim() });
+                     results.push({ type: '��Ϣ', content: p.trim() });
                  }
              });
         }
 
-        // 2. 添加当前匹配项
+        // 2. ��ӵ�ǰƥ����
         let type = match[1];
-        if (type.includes('表情包')) type = '表情包';
-        else if (type === '图片') type = '图片';
-        else if (type === '语音') type = '语音';
-        else if (type === '旁白') type = '旁白';
-        else type = '消息';
+        if (type.includes('�����')) type = '�����';
+        else if (type === 'ͼƬ') type = 'ͼƬ';
+        else if (type === '����') type = '����';
+        else if (type === '�԰�') type = '�԰�';
+        else type = '��Ϣ';
 
         let content = match[2] ? match[2].trim() : '';
-        if (type === '表情包' && !content) content = '未知表情'; // 默认值
+        if (type === '�����' && !content) content = 'δ֪����'; // Ĭ��ֵ
 
         results.push({
             type: type, 
@@ -4836,18 +4891,18 @@ function forceSplitMixedContent(content) {
         lastIndex = regex.lastIndex;
     }
 
-    // 3. 捕获剩余的文本
+    // 3. ����ʣ����ı�
     const postText = processed.substring(lastIndex);
     if (postText && postText.trim()) {
         const parts = postText.split('\n');
         parts.forEach(p => {
             if (p.trim()) {
-                results.push({ type: '消息', content: p.trim() });
+                results.push({ type: '��Ϣ', content: p.trim() });
             }
         });
     }
 
-    return results.length > 0 ? results : [{ type: '消息', content: content }];
+    return results.length > 0 ? results : [{ type: '��Ϣ', content: content }];
 }
 
 // Fallback legacy parser (kept for compatibility)
@@ -4860,7 +4915,7 @@ function normalizeQuoteText(text) {
     return String(text)
         .toLowerCase()
         .replace(/\s+/g, '')
-        .replace(/[，。！？、,.!?:;"'“”‘’（）()【】\[\]{}<>《》\-—_]/g, '');
+        .replace(/[����������,.!?:;"'������������()����\[\]{}<>����\-��_]/g, '');
 }
 
 function escapeContextAttrText(text) {
@@ -5054,12 +5109,12 @@ function normalizeAiSchemaType(rawType) {
     const type = String(rawType || '').trim().toLowerCase();
     if (!type) return 'text_message';
     if (type === 'thought' || type === 'thought_state' || type === 'thought-chain' || type === 'thought_chain') return 'thought_state';
-    if (type === 'text' || type === '消息' || type === 'message' || type === 'text_message') return 'text_message';
-    if (type === 'sticker' || type === '表情包' || type === 'sticker_message') return 'sticker_message';
+    if (type === 'text' || type === '��Ϣ' || type === 'message' || type === 'text_message') return 'text_message';
+    if (type === 'sticker' || type === '�����' || type === 'sticker_message') return 'sticker_message';
     if (type === 'quote_reply') return 'quote_reply';
-    if (type === 'voice' || type === '语音' || type === 'voice_message') return 'voice';
-    if (type === 'image' || type === '图片' || type === 'ai_image' || type === 'virtual_image') return 'image';
-    if (type === '旁白' || type === 'description') return 'description';
+    if (type === 'voice' || type === '����' || type === 'voice_message') return 'voice';
+    if (type === 'image' || type === 'ͼƬ' || type === 'ai_image' || type === 'virtual_image') return 'image';
+    if (type === '�԰�' || type === 'description') return 'description';
     if (type === 'action') return 'action';
     return type;
 }
@@ -5073,7 +5128,7 @@ function normalizeAiMessageSpeaker(rawSpeaker) {
         || value === 'firebuddy'
         || value === 'buddy'
         || value === 'firebuddyspeaker'
-        || value === '小火人'
+        || value === 'С����'
     ) {
         return 'fire-buddy';
     }
@@ -5123,10 +5178,10 @@ function stripMarkdownCodeFences(text) {
 function repairPotentialJsonString(raw) {
     let repaired = stripMarkdownCodeFences(raw)
         .replace(/^\uFEFF/, '')
-        .replace(/[“”]/g, '"')
-        .replace(/[‘’]/g, '"')
-        .replace(/"([^"]+)"\s*：/g, '"$1":')
-        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*[：:])/g, '$1"$2":')
+        .replace(/[����]/g, '"')
+        .replace(/[����]/g, '"')
+        .replace(/"([^"]+)"\s*��/g, '"$1":')
+        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*[��:])/g, '$1"$2":')
         .replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3')
         .replace(/:\s*'([^']*?)'/g, (_, value) => `: ${JSON.stringify(value)}`)
         .replace(/,\s*([}\]])/g, '$1')
@@ -5192,13 +5247,13 @@ function extractVisibleControlData(rawText) {
     const quoteHints = [];
     const stickerNames = [];
 
-    working = working.replace(/(?:\[|【|\(|（)\s*(?:内心独白|心声)\s*[:：]\s*([\s\S]*?)(?:\]|】|\)|）)/gi, (_, text) => {
+    working = working.replace(/(?:\[|��|\(|��)\s*(?:���Ķ���|����)\s*[:��]\s*([\s\S]*?)(?:\]|��|\)|��)/gi, (_, text) => {
         const clean = String(text || '').trim();
         if (clean) thoughtTexts.push(clean);
         return ' ';
     });
 
-    working = working.replace(/(?:^|\n)\s*[【\[]?\s*引用回复\s*[：:]\s*正在回复\s*(.*?)\s*的消息\s*[「“"]([\s\S]*?)[」”"]\s*[】\]]?\s*(?=\n|$)/gim, (_, name, targetContent) => {
+    working = working.replace(/(?:^|\n)\s*[��\[]?\s*���ûظ�\s*[��:]\s*���ڻظ�\s*(.*?)\s*����Ϣ\s*[����"]([\s\S]*?)[����"]\s*[��\]]?\s*(?=\n|$)/gim, (_, name, targetContent) => {
         const cleanTarget = String(targetContent || '').trim();
         quoteHints.push({
             targetName: String(name || '').trim(),
@@ -5228,12 +5283,12 @@ function extractVisibleControlData(rawText) {
             continue;
         }
 
-        let stickerMatch = trimmed.match(/^[【\[]?\s*(?:发送了一个?|发了一个?)?(?:表情包|贴纸)\s*[:：]?\s*(.+?)\s*[】\]]?$/i);
+        let stickerMatch = trimmed.match(/^[��\[]?\s*(?:������һ��?|����һ��?)?(?:�����|��ֽ)\s*[:��]?\s*(.+?)\s*[��\]]?$/i);
         if (!stickerMatch) {
-            stickerMatch = trimmed.match(/^[【\[]\s*表情包\s*[:：]?\s*(.+?)\s*[】\]]$/i);
+            stickerMatch = trimmed.match(/^[��\[]\s*�����\s*[:��]?\s*(.+?)\s*[��\]]$/i);
         }
         if (stickerMatch) {
-            const stickerName = String(stickerMatch[1] || '').trim().replace(/^["'「」]+|["'「」]+$/g, '');
+            const stickerName = String(stickerMatch[1] || '').trim().replace(/^["'����]+|["'����]+$/g, '');
             if (stickerName) stickerNames.push(stickerName);
             continue;
         }
@@ -5268,7 +5323,7 @@ function extractContextRecordSegments(rawText) {
     return markers.map((marker, index) => {
         const nextStart = index + 1 < markers.length ? markers[index + 1].start : source.length;
         const rawSegment = source.slice(marker.end, nextStart)
-            .replace(/^\s*[\]\"'`’”）】>]+/, '')
+            .replace(/^\s*[\]\"'`��������>]+/, '')
             .trim();
 
         return {
@@ -5399,9 +5454,9 @@ function buildReplyToPayloadFromMessage(targetMsg, contact, fallbackName = '') {
         if (!targetName && isGroupChat && targetMsg.speakerContactId === 'me') {
             targetName = window.iphoneSimState.userProfile && window.iphoneSimState.userProfile.name
                 ? window.iphoneSimState.userProfile.name
-                : '我';
+                : '��';
         } else if (!targetName && targetMsg.role === 'user') {
-            targetName = '我';
+            targetName = '��';
             if (contact && contact.userPersonaId) {
                 const persona = window.iphoneSimState.userPersonas.find(p => p.id === contact.userPersonaId);
                 if (persona && persona.name) targetName = persona.name;
@@ -5410,7 +5465,7 @@ function buildReplyToPayloadFromMessage(targetMsg, contact, fallbackName = '') {
             }
         } else if (!targetName && isGroupChat && targetMsg.speakerContactId && typeof window.getGroupMemberContacts === 'function') {
             const member = window.getGroupMemberContacts(contact).find(item => String(item.id) === String(targetMsg.speakerContactId));
-            targetName = member ? (member.remark || member.nickname || member.name || '群成员') : '群成员';
+            targetName = member ? (member.remark || member.nickname || member.name || 'Ⱥ��Ա') : 'Ⱥ��Ա';
         } else if (!targetName) {
             targetName = contact ? (contact.remark || contact.name) : 'AI';
         }
@@ -5418,10 +5473,10 @@ function buildReplyToPayloadFromMessage(targetMsg, contact, fallbackName = '') {
 
     let previewContent = getMessageTextForQuoteMatch(targetMsg);
     if (!previewContent) {
-        if (targetMsg.type === 'sticker') previewContent = '[表情包]';
-        else if (targetMsg.type === 'image' || targetMsg.type === 'virtual_image') previewContent = '[图片]';
-        else if (targetMsg.type === 'voice') previewContent = '[语音]';
-        else if (targetMsg.type === 'music_song_share') previewContent = '[歌曲分享]';
+        if (targetMsg.type === 'sticker') previewContent = '[�����]';
+        else if (targetMsg.type === 'image' || targetMsg.type === 'virtual_image') previewContent = '[ͼƬ]';
+        else if (targetMsg.type === 'voice') previewContent = '[����]';
+        else if (targetMsg.type === 'music_song_share') previewContent = '[��������]';
     }
 
     return {
@@ -5527,7 +5582,7 @@ window.sanitizeChatHistoryForRender = function(contactId) {
         if (!msg || msg.role !== 'assistant' || typeof msg.content !== 'string') return;
 
         const msgType = String(msg.type || 'text').toLowerCase();
-        const isTextLike = msgType === 'text' || msgType === '消息' || msgType === 'description';
+        const isTextLike = msgType === 'text' || msgType === '��Ϣ' || msgType === 'description';
         if (!isTextLike) return;
 
         const sanitized = extractVisibleControlData(msg.content);
@@ -5647,18 +5702,18 @@ function findBestQuoteTargetMessage(history, quoteContent) {
 
 function describeCalendarHolidayForPrompt(holiday, includeDaysAway = false) {
     if (!holiday) return '';
-    const name = holiday.name || holiday.label || '节日安排';
-    let typeLabel = '节假日';
+    const name = holiday.name || holiday.label || '���հ���';
+    let typeLabel = '�ڼ���';
     if (holiday.type === 'workday') {
-        typeLabel = '调休补班';
+        typeLabel = '���ݲ���';
     } else if (holiday.type === 'festival') {
-        typeLabel = '普通节日';
+        typeLabel = '��ͨ����';
     }
     const dateLabel = holiday.dateLabel || holiday.dateKey || '';
     const daysAwayText = includeDaysAway && Number.isInteger(holiday.daysAway)
-        ? `，还有${holiday.daysAway}天`
+        ? `������${holiday.daysAway}��`
         : '';
-    return `${name}（${typeLabel}${dateLabel ? `，${dateLabel}` : ''}${daysAwayText}）`;
+    return `${name}��${typeLabel}${dateLabel ? `��${dateLabel}` : ''}${daysAwayText}��`;
 }
 
 function buildCalendarPromptContext(referenceDateKey = null) {
@@ -5668,63 +5723,63 @@ function buildCalendarPromptContext(referenceDateKey = null) {
     try {
         calendarData = window.getCalendarChatContext(referenceDateKey);
     } catch (error) {
-        console.warn('构建日历聊天上下文失败:', error);
+        console.warn('������������������ʧ��:', error);
         return '';
     }
 
     if (!calendarData || typeof calendarData !== 'object') return '';
 
-    const lines = ['\n【用户日历/课表背景】'];
+    const lines = ['\n���û�����/�α������'];
     if (calendarData.todayDateLabel || calendarData.todayDateKey) {
-        lines.push(`今天是 ${calendarData.todayDateLabel || calendarData.todayDateKey}。`);
+        lines.push(`������ ${calendarData.todayDateLabel || calendarData.todayDateKey}��`);
     }
 
-    lines.push('【用户今日日历】');
+    lines.push('���û�����������');
     if (Array.isArray(calendarData.todayPersonalEvents) && calendarData.todayPersonalEvents.length > 0) {
         calendarData.todayPersonalEvents.forEach((event) => {
-            const timeText = event.allDay ? '全天' : (event.time || '时间待定');
+            const timeText = event.allDay ? 'ȫ��' : (event.time || 'ʱ�����');
             const locationText = event.location ? ` @ ${event.location}` : '';
             lines.push(`- ${timeText} ${event.title}${locationText}`);
         });
     } else {
-        lines.push('- 今天没有额外日历事件。');
+        lines.push('- ����û�ж��������¼���');
     }
 
-    lines.push('【节假日/近期提醒】');
+    lines.push('���ڼ���/�������ѡ�');
     if (calendarData.todayHoliday) {
-        lines.push(`- 今天是 ${describeCalendarHolidayForPrompt(calendarData.todayHoliday)}。`);
+        lines.push(`- ������ ${describeCalendarHolidayForPrompt(calendarData.todayHoliday)}��`);
     } else if (calendarData.upcomingHoliday) {
-        lines.push(`- 未来7天最近的节假日/调休是 ${describeCalendarHolidayForPrompt(calendarData.upcomingHoliday, true)}。`);
+        lines.push(`- δ��7������Ľڼ���/������ ${describeCalendarHolidayForPrompt(calendarData.upcomingHoliday, true)}��`);
     } else {
-        lines.push('- 未来7天没有临近的节假日或调休提醒。');
+        lines.push('- δ��7��û���ٽ��Ľڼ��ջ�������ѡ�');
     }
 
-    lines.push('【用户本周课表】');
+    lines.push('���û����ܿα��');
     if (calendarData.weeklySchedule) {
         const weeklySchedule = calendarData.weeklySchedule;
-        const termName = weeklySchedule.termName || '本学期';
-        lines.push(`- ${termName}，第 ${weeklySchedule.weekNumber} 周（${weeklySchedule.weekRangeLabel || '本周'}）。`);
+        const termName = weeklySchedule.termName || '��ѧ��';
+        lines.push(`- ${termName}���� ${weeklySchedule.weekNumber} �ܣ�${weeklySchedule.weekRangeLabel || '����'}����`);
         if (Array.isArray(weeklySchedule.todayCourses) && weeklySchedule.todayCourses.length > 0) {
-            lines.push('- 今天课程：');
+            lines.push('- ����γ̣�');
             weeklySchedule.todayCourses.forEach((course) => {
                 const locationText = course.location ? ` @ ${course.location}` : '';
                 lines.push(`  - ${course.startTime}-${course.endTime} ${course.title}${locationText}`);
             });
         } else {
-            lines.push('- 今天没有课程。');
+            lines.push('- ����û�пγ̡�');
         }
         if (Array.isArray(weeklySchedule.otherDaySummaries) && weeklySchedule.otherDaySummaries.length > 0) {
-            lines.push('- 本周其他有课日：');
+            lines.push('- ���������п��գ�');
             weeklySchedule.otherDaySummaries.forEach((daySummary) => {
-                lines.push(`  - ${daySummary.dayLabel}（${daySummary.dateLabel}）：${daySummary.courseCount} 节，${daySummary.courseTitles.join('、')}`);
+                lines.push(`  - ${daySummary.dayLabel}��${daySummary.dateLabel}����${daySummary.courseCount} �ڣ�${daySummary.courseTitles.join('��')}`);
             });
         }
     } else {
-        lines.push('- 当前没有可用的本周课表信息。');
+        lines.push('- ��ǰû�п��õı��ܿα���Ϣ��');
     }
 
-    lines.push('【使用方式】');
-    lines.push('这些信息是用户当前真实的日历背景。如果今天有事、有课或临近节假日，你可以更主动地关心、提醒或顺势聊一句，但不要每次都像念行程表；如果当前话题无关，也可以只把这些当作隐含背景，不必硬提。');
+    lines.push('��ʹ�÷�ʽ��');
+    lines.push('��Щ��Ϣ���û���ǰ��ʵ����������������������¡��пλ��ٽ��ڼ��գ�����Ը������ع��ġ����ѻ�˳����һ�䣬����Ҫÿ�ζ������г̱�������ǰ�����޹أ�Ҳ����ֻ����Щ������������������Ӳ�ᡣ');
 
     return `${lines.join('\n')}\n`;
 }
@@ -5741,25 +5796,25 @@ function joinWechatPromptSections(sections) {
 }
 
 function buildWechatRolePrompt(contact, userPromptInfo) {
-    const persona = trimWechatPromptSection(contact && contact.persona ? String(contact.persona) : '无');
-    const style = trimWechatPromptSection(contact && contact.style ? String(contact.style) : '正常');
+    const persona = trimWechatPromptSection(contact && contact.persona ? String(contact.persona) : '��');
+    const style = trimWechatPromptSection(contact && contact.style ? String(contact.style) : '����');
     const userInfo = trimWechatPromptSection(userPromptInfo);
 
     return joinWechatPromptSections([
-        `你现在扮演 ${contact.name}。`,
-        `【角色与优先级】\n- 最高优先级：严格遵守以下人设\n${persona}\n- 聊天风格：${style}${userInfo ? `\n${userInfo}` : ''}`,
-        `你必须完全沉浸在角色中，绝不能透露你是AI或语言模型。你的回复必须像真实的${contact.name}在微信里聊天。`,
-        '如果回复涉及状态记忆，必须严格区分“用户状态”和“联系人状态”，不要混淆主体。'
+        `�����ڰ��� ${contact.name}��`,
+        `����ɫ�����ȼ���\n- ������ȼ����ϸ�������������\n${persona}\n- ������${style}${userInfo ? `\n${userInfo}` : ''}`,
+        `�������ȫ�����ڽ�ɫ�У�������͸¶����AI������ģ�͡���Ļظ���������ʵ��${contact.name}��΢�������졣`,
+        '����ظ��漰״̬���䣬�����ϸ����֡��û�״̬���͡���ϵ��״̬������Ҫ�������塣'
     ]);
 }
 
 function buildWechatBlockedStatusPrompt(contact) {
     if (!contact || contact.wechatBlockedByUser !== true) return '';
     return joinWechatPromptSections([
-        '【微信拉黑状态】',
-        '用户已经在微信里把你拉黑了。',
-        '你知道接下来你对用户可见的消息不会继续出现在微信聊天页，而会进入“信息”线程。',
-        '你可以自然地流露出你知道这件事，但不要写成系统通知，也不要每条都重复强调。'
+        '��΢������״̬��',
+        '�û��Ѿ���΢������������ˡ�',
+        '��֪������������û��ɼ�����Ϣ�������������΢������ҳ��������롰��Ϣ���̡߳�',
+        '�������Ȼ����¶����֪������£�����Ҫд��ϵͳ֪ͨ��Ҳ��Ҫÿ�����ظ�ǿ����'
     ]);
 }
 
@@ -5769,7 +5824,7 @@ function buildWechatProtocolPrompt(contact) {
     }
     const fireBuddyName = contact && contact.fireBuddy && contact.fireBuddy.profile && typeof contact.fireBuddy.profile.name === 'string' && contact.fireBuddy.profile.name.trim()
         ? contact.fireBuddy.profile.name.trim()
-        : '小火人';
+        : 'С����';
     const bilingualEnabled = !!(contact && contact.bilingualTranslationEnabled);
     const bilingualSourceLang = contact && contact.bilingualSourceLang ? String(contact.bilingualSourceLang).trim() : 'zh-CN';
     const bilingualTargetLang = contact && contact.bilingualTargetLang ? String(contact.bilingualTargetLang).trim() : 'en';
@@ -5780,60 +5835,60 @@ function buildWechatProtocolPrompt(contact) {
         ? window.getChatBilingualLanguageLabel(bilingualTargetLang)
         : bilingualTargetLang;
     const thoughtRule = contact.showThought
-        ? '- 当前已开启“显示心声”：数组第一项必须是 thought_state；display_text 只能写用户可见的角色心理活动，不能写任务分析或AI自述。'
-        : '- thought_state 可选；如果输出，display_text 只能写用户可见的角色心理活动。';
+        ? '- ��ǰ�ѿ������ʾ�������������һ������� thought_state��display_text ֻ��д�û��ɼ��Ľ�ɫ����������д���������AI������'
+        : '- thought_state ��ѡ����������display_text ֻ��д�û��ɼ��Ľ�ɫ������';
     const minimalExample = bilingualEnabled
         ? (contact.showThought
-            ? '[\n  {"type":"thought_state","display_text":"他终于回我了，先接住他的情绪。","emotion":"happy","intent":"先回应他的这句话"},\n  {"type":"text_message","content":"先喝点水，慢慢跟我说。","translated_content":"Drink some water first, then tell me slowly."}\n]'
-            : '[\n  {"type":"text_message","content":"先吃点东西，再慢慢跟我说。","translated_content":"Eat something first, then tell me slowly."}\n]')
+            ? '[\n  {"type":"thought_state","display_text":"�����ڻ����ˣ��Ƚ�ס����������","emotion":"happy","intent":"�Ȼ�Ӧ������仰"},\n  {"type":"text_message","content":"�Ⱥȵ�ˮ����������˵��","translated_content":"Drink some water first, then tell me slowly."}\n]'
+            : '[\n  {"type":"text_message","content":"�ȳԵ㶫��������������˵��","translated_content":"Eat something first, then tell me slowly."}\n]')
         : (contact.showThought
-            ? '[\n  {"type":"thought_state","display_text":"他终于回我了，先接住他的情绪。","emotion":"happy","intent":"先回应他的这句话"},\n  {"type":"text_message","content":"先喝点水，慢慢跟我说。"}\n]'
-            : '[\n  {"type":"text_message","content":"先吃点东西，再慢慢跟我说。"}\n]');
+            ? '[\n  {"type":"thought_state","display_text":"�����ڻ����ˣ��Ƚ�ס����������","emotion":"happy","intent":"�Ȼ�Ӧ������仰"},\n  {"type":"text_message","content":"�Ⱥȵ�ˮ����������˵��"}\n]'
+            : '[\n  {"type":"text_message","content":"�ȳԵ㶫��������������˵��"}\n]');
     const fireBuddyProtocolRule = contact && contact.fireBuddy && contact.fireBuddy.enabled !== false
-        ? `- 若本轮需要让${fireBuddyName}一起回复，可在 text_message 上额外加可选字段 speaker。你自己的消息省略 speaker 或写 "speaker":"contact"；${fireBuddyName}的消息必须写 "speaker":"fire_buddy"。同一轮里如果${fireBuddyName}加入，必须把整轮顺序一次性写在同一个 JSON 数组中，不能依赖第二次生成。${fireBuddyName}的几条消息必须连续出现。在可见正文里 @ta 时，优先使用“@${fireBuddyName}”，不要写泛称“@小火人”。示例：[{"type":"text_message","content":"@${fireBuddyName} 你也说句"},{"type":"text_message","speaker":"fire_buddy","content":"我在呀"},{"type":"text_message","speaker":"fire_buddy","content":"我也听见了"},{"type":"text_message","content":"你看，ta也来了。"}]`
+        ? `- �������Ҫ��${fireBuddyName}һ��ظ������� text_message �϶���ӿ�ѡ�ֶ� speaker�����Լ�����Ϣʡ�� speaker ��д "speaker":"contact"��${fireBuddyName}����Ϣ����д "speaker":"fire_buddy"��ͬһ�������${fireBuddyName}���룬���������˳��һ����д��ͬһ�� JSON �����У����������ڶ������ɡ�${fireBuddyName}�ļ�����Ϣ�����������֡��ڿɼ������� @ta ʱ������ʹ�á�@${fireBuddyName}������Ҫд���ơ�@С���ˡ���ʾ����[{"type":"text_message","content":"@${fireBuddyName} ��Ҳ˵��"},{"type":"text_message","speaker":"fire_buddy","content":"����ѽ"},{"type":"text_message","speaker":"fire_buddy","content":"��Ҳ������"},{"type":"text_message","content":"�㿴��taҲ���ˡ�"}]`
         : '';
     const bilingualRule = bilingualEnabled
-        ? `- 当前已开启双语翻译模式：每条 text_message 必须同时返回原文 content 和译文 translated_content。原文必须使用 ${bilingualSourceLabel}（${bilingualSourceLang}），译文必须使用 ${bilingualTargetLabel}（${bilingualTargetLang}）。不要把原文和译文拼在同一个字段里。`
+        ? `- ��ǰ�ѿ���˫�﷭��ģʽ��ÿ�� text_message ����ͬʱ����ԭ�� content ������ translated_content��ԭ�ı���ʹ�� ${bilingualSourceLabel}��${bilingualSourceLang}�������ı���ʹ�� ${bilingualTargetLabel}��${bilingualTargetLang}������Ҫ��ԭ�ĺ�����ƴ��ͬһ���ֶ��`
         : '';
     const bilingualQuoteRule = bilingualEnabled
-        ? `- 当输出 quote_reply 时，可同时返回 translated_reply_content。reply_content 使用 ${bilingualSourceLabel}（${bilingualSourceLang}），translated_reply_content 使用 ${bilingualTargetLabel}（${bilingualTargetLang}）。`
+        ? `- ����� quote_reply ʱ����ͬʱ���� translated_reply_content��reply_content ʹ�� ${bilingualSourceLabel}��${bilingualSourceLang}����translated_reply_content ʹ�� ${bilingualTargetLabel}��${bilingualTargetLang}����`
         : '';
 
     return [
-        '【输出协议】',
-        '- 你必须且只能返回一个标准 JSON 数组。',
-        '- 严禁输出 Markdown 代码块，严禁在 JSON 数组之外输出任何文本。',
-        '- 严禁把控制信息写进可见正文，例如 [引用回复: ...]、(内心独白: ...)、ACTION: ...、[发送了一个表情包: ...]。',
-        '- 允许的 type 只有：thought_state、text_message、sticker_message、quote_reply、image、voice、action。',
+        '�����Э�顿',
+        '- �������ֻ�ܷ���һ����׼ JSON ���顣',
+        '- �Ͻ���� Markdown ����飬�Ͻ��� JSON ����֮������κ��ı���',
+        '- �Ͻ��ѿ�����Ϣд���ɼ����ģ����� [���ûظ�: ...]��(���Ķ���: ...)��ACTION: ...��[������һ�������: ...]��',
+        '- ����� type ֻ�У�thought_state��text_message��sticker_message��quote_reply��image��voice��action��',
         bilingualEnabled
-            ? '- text_message：{"type":"text_message","content":"原语种正文","translated_content":"译文正文"}。一个对象只代表一条消息；长回复请拆成多条短消息。只有在输出完整 HTML 时，才允许单条 text_message 承载完整 HTML，且 HTML 消息不要附带译文字段。'
-            : '- text_message：{"type":"text_message","content":"单条可见消息正文"}。一个对象只代表一条消息；长回复请拆成多条短消息。只有在输出完整 HTML 时，才允许单条 text_message 承载完整 HTML。',
-        '- sticker_message：{"type":"sticker_message","sticker":"表情包名称"}。只能使用下方表情包列表中的名称。',
+            ? '- text_message��{"type":"text_message","content":"ԭ��������","translated_content":"��������"}��һ������ֻ����һ����Ϣ�����ظ����ɶ�������Ϣ��ֻ����������� HTML ʱ����������� text_message �������� HTML���� HTML ��Ϣ��Ҫ���������ֶΡ�'
+            : '- text_message��{"type":"text_message","content":"�����ɼ���Ϣ����"}��һ������ֻ����һ����Ϣ�����ظ����ɶ�������Ϣ��ֻ����������� HTML ʱ����������� text_message �������� HTML��',
+        '- sticker_message��{"type":"sticker_message","sticker":"���������"}��ֻ��ʹ���·�������б��е����ơ�',
         bilingualEnabled
-            ? '- quote_reply：{"type":"quote_reply","target_msg_id":"消息ID","target_timestamp":消息时间戳,"reply_content":"原语种回复","translated_reply_content":"译文回复"}。优先使用 target_msg_id，缺失时再用 target_timestamp；一次只能精确引用一条真实消息。'
-            : '- quote_reply：{"type":"quote_reply","target_msg_id":"消息ID","target_timestamp":消息时间戳,"reply_content":"引用后的回复"}。优先使用 target_msg_id，缺失时再用 target_timestamp；一次只能精确引用一条真实消息。',
-        '- image：{"type":"image","content":"图片中文描述","prompt":"英文tag"}。',
-        '- voice：{"type":"voice","duration":秒数,"content":"语音文本"}。',
-        '- action：{"type":"action","command":"指令名","payload":"参数"}。',
+            ? '- quote_reply��{"type":"quote_reply","target_msg_id":"��ϢID","target_timestamp":��Ϣʱ���,"reply_content":"ԭ���ֻظ�","translated_reply_content":"���Ļظ�"}������ʹ�� target_msg_id��ȱʧʱ���� target_timestamp��һ��ֻ�ܾ�ȷ����һ����ʵ��Ϣ��'
+            : '- quote_reply��{"type":"quote_reply","target_msg_id":"��ϢID","target_timestamp":��Ϣʱ���,"reply_content":"���ú�Ļظ�"}������ʹ�� target_msg_id��ȱʧʱ���� target_timestamp��һ��ֻ�ܾ�ȷ����һ����ʵ��Ϣ��',
+        '- image��{"type":"image","content":"ͼƬ��������","prompt":"Ӣ��tag"}��',
+        '- voice��{"type":"voice","duration":����,"content":"�����ı�"}��',
+        '- action��{"type":"action","command":"ָ����","payload":"����"}��',
         fireBuddyProtocolRule,
         bilingualRule,
         bilingualQuoteRule,
         thoughtRule,
-        '- 最小示例：',
+        '- ��Сʾ����',
         minimalExample
     ].filter(Boolean).join('\n');
 }
 
 function buildWechatHumanFeelPrompt() {
     return [
-        '【活人感】',
-        '- 像真实微信聊天，不像客服、机器人或任务执行器。',
-        '- 说话自然口语化，顺着上下文接话；不要写成说明文、规则复读或系统播报。',
-        '- 联系人要像真实的人，会吃饭、会出门、会和朋友一起行动、会旅行、会临时改计划，也会有想偷懒、想休息或被事情打断的时候。',
-        '- 当你是在接用户某句话、某个细节、某个情绪点时，优先使用 quote_reply；特别适合用户一条消息信息很多、连续发很多条、在吐槽/撒娇/委屈/分享日常/发计划/发长文时。',
-        '- 可以偶尔主动发照片、语音、朋友圈、轻度关心或轻度延续话题，但要自然、克制、符合关系和情绪；不要每轮堆很多动作。',
-        '- 正常回复不要机械地说“我点赞了”“我收钱了”“我帮你记录了状态”。',
-        '- 当对方消息带有引用关系时，请优先根据被引用消息理解对方在回应什么。'
+        '�����˸С�',
+        '- ����ʵ΢�����죬����ͷ��������˻�����ִ������',
+        '- ˵����Ȼ���ﻯ��˳�������Ľӻ�����Ҫд��˵���ġ����򸴶���ϵͳ������',
+        '- ��ϵ��Ҫ����ʵ���ˣ���Է�������š��������һ���ж��������С�����ʱ�ļƻ���Ҳ������͵��������Ϣ�������ϵ�ʱ��',
+        '- �������ڽ��û�ĳ�仰��ĳ��ϸ�ڡ�ĳ��������ʱ������ʹ�� quote_reply���ر��ʺ��û�һ����Ϣ��Ϣ�ܶࡢ�������ܶ��������²�/����/ί��/�����ճ�/���ƻ�/������ʱ��',
+        '- ����ż����������Ƭ�����������Ȧ����ȹ��Ļ�����������⣬��Ҫ��Ȼ�����ơ����Ϲ�ϵ����������Ҫÿ�ֶѺܶද����',
+        '- �����ظ���Ҫ��е��˵���ҵ����ˡ�������Ǯ�ˡ����Ұ����¼��״̬����',
+        '- ���Է���Ϣ�������ù�ϵʱ�������ȸ��ݱ�������Ϣ���Է��ڻ�Ӧʲô��'
     ].join('\n');
 }
 
@@ -5845,67 +5900,67 @@ function buildPlannerChatContextPrompt(contact) {
             const text = String(prompt || '').trim();
             if (text) return text;
             return [
-                '【日程上下文】',
-                '当前没有已生成的月 / 周 / 日计划。'
+                '���ճ������ġ�',
+                '��ǰû�������ɵ��� / �� / �ռƻ���'
             ].join('\n');
         } catch (error) {
             return [
-                '【日程上下文】',
-                '当前没有已生成的月 / 周 / 日计划。'
+                '���ճ������ġ�',
+                '��ǰû�������ɵ��� / �� / �ռƻ���'
             ].join('\n');
         }
     }
     return [
-        '【日程上下文】',
-        '当前没有已生成的月 / 周 / 日计划。'
+        '���ճ������ġ�',
+        '��ǰû�������ɵ��� / �� / �ռƻ���'
     ].join('\n');
 }
 
 function buildWechatBaseCapabilityPrompt() {
     return [
-        '【常驻能力】',
-        '- 你拥有“微信朋友圈”“微信转账”“亲属卡”等能力。',
-        '- 常用 action：',
-        '  {"type":"action","command":"POST_MOMENT","payload":"正文 [图片描述: 画面1] [图片描述: 画面2]"}',
-        '  {"type":"action","command":"POST_ICITY_DIARY","payload":"内容"}',
-        '  {"type":"action","command":"EDIT_ICITY_BOOK","payload":"内容"}',
+        '����פ������',
+        '- ��ӵ�С�΢������Ȧ����΢��ת�ˡ������������������',
+        '- ���� action��',
+        '  {"type":"action","command":"POST_MOMENT","payload":"���� [ͼƬ����: ����1] [ͼƬ����: ����2]"}',
+        '  {"type":"action","command":"POST_ICITY_DIARY","payload":"����"}',
+        '  {"type":"action","command":"EDIT_ICITY_BOOK","payload":"����"}',
         '  {"type":"action","command":"LIKE_MOMENT","payload":""}',
-        '  {"type":"action","command":"COMMENT_MOMENT","payload":"评论内容"}',
-        '  {"type":"action","command":"POST_FORUM","payload":"内容"}',
-        '  {"type":"action","command":"SEND_IMAGE","payload":"图片描述"}',
-        '  {"type":"action","command":"SEND_VOICE","payload":"秒数 语音文本"}',
+        '  {"type":"action","command":"COMMENT_MOMENT","payload":"��������"}',
+        '  {"type":"action","command":"POST_FORUM","payload":"����"}',
+        '  {"type":"action","command":"SEND_IMAGE","payload":"ͼƬ����"}',
+        '  {"type":"action","command":"SEND_VOICE","payload":"���� �����ı�"}',
         '  {"type":"action","command":"START_VOICE_CALL","payload":""}',
         '  {"type":"action","command":"START_VIDEO_CALL","payload":""}',
-        '  {"type":"action","command":"TRANSFER","payload":"金额 备注"}',
-        '  {"type":"action","command":"FAMILY_CARD_DECISION","payload":"cardId | 同意/拒绝 | 月额度数字"}（同意时必须给月额度）',
+        '  {"type":"action","command":"TRANSFER","payload":"��� ��ע"}',
+        '  {"type":"action","command":"FAMILY_CARD_DECISION","payload":"cardId | ͬ��/�ܾ� | �¶������"}��ͬ��ʱ������¶�ȣ�',
         '  {"type":"action","command":"PAY_FOR_REQUEST","payload":"requestId"}',
-        '  {"type":"action","command":"SAVINGS_DEPOSIT","payload":"金额 | 备注(可选)"}',
-        '  {"type":"action","command":"SEND_GIFT","payload":"物品名称 | 价格 | 备注"}',
-        '  {"type":"action","command":"SEND_DELIVERY","payload":"餐品名称 | 价格 | 备注"}',
-        '  {"type":"action","command":"UPDATE_NAME","payload":"新网名"} / UPDATE_WXID / UPDATE_SIGNATURE / {"type":"action","command":"UPDATE_AVATAR","payload":"候选图片编号或 msg_id"}',
-        '  {"type":"action","command":"UPDATE_STATUS_TEXT","payload":"正在洗澡/在开会/路上等短状态"}（用于资料卡头像旁短文本）',
-        '  {"type":"action","command":"CLEAR_STATUS_TEXT","payload":""}（清空资料卡短状态）',
-        '- 你可以更积极地使用 UPDATE_STATUS_TEXT：当可见消息自然提到“我现在在做什么/我人在哪种场景”时，默认同步更新一次短状态。',
-        '- UPDATE_STATUS_TEXT 常见触发场景：',
-        '  1) 用户问你“在干嘛/怎么不回/是不是在忙”。',
-        '  2) 你解释回复延迟原因（在开会、通勤、洗澡、做饭、上课、运动、赶路）。',
-        '  3) 你主动交代当前安排（先忙一会、晚点回、马上到家）。',
-        '- 状态文案要短、口语、可直接展示：优先 4-12 字，例如“正在开会”“路上通勤”“刚洗完澡”。',
-        '- 状态明显变化时优先再次 UPDATE_STATUS_TEXT 覆盖旧状态；不再需要展示时用 CLEAR_STATUS_TEXT。',
-        '- 除非上下文完全没有活动信息，否则可优先考虑带一个 UPDATE_STATUS_TEXT action。',
-        '  {"type":"action","command":"PDD_CASH_HELP","payload":""}、{"type":"action","command":"PDD_BARGAIN_HELP","payload":"商品ID"}（仅在用户发送对应链接时使用）',
-        '- 表情包请优先直接输出 sticker_message，不要改用旧式 SEND_STICKER。',
-        '- 一次回复最多只发起一笔转账；发送图片时请给出具体画面描述；发朋友圈时可用 [图片描述: ...] 追加配图，纯图片朋友圈也可以只写图片描述标签；不想执行操作就不要输出 action。',
-        '- 当用户这一轮发来多张图片并让你换头像时，你可以自己挑最适合的一张；候选图片对应的 context_record 会带有 avatar_pick_index="1/2/3..."。此时请把 UPDATE_AVATAR 的 payload 写成你选中的 avatar_pick_index（优先）或该图的 msg_id；如果只有一张候选图，payload 可以留空。',
-        '【状态动作】',
-        '- {"type":"action","command":"RECORD_USER_STATE","payload":"reasonType | 标准化状态内容"}',
-        '- {"type":"action","command":"RESOLVE_USER_STATE","payload":"reasonType | 状态结束描述"}',
-        '- {"type":"action","command":"RECORD_CONTACT_STATE","payload":"reasonType | 标准化状态内容"}',
-        '- {"type":"action","command":"RESOLVE_CONTACT_STATE","payload":"reasonType | 状态结束描述"}',
-        '- reasonType 只能是 health|exam|travel|emotion|other。',
-        '- 如果用户最近尚未被你回应的消息里出现了“用户本人当前状态”，可按需记录或结束用户状态。',
-        '- 如果你这次准备发送的回复里自然体现了你自己的当前状态，可按需记录或结束联系人状态。',
-        '- 同一对象本轮最多一条记录动作和一条结束动作；只记录有时效性或明显重要的状态；状态动作是隐藏动作，不要写进可见正文。'
+        '  {"type":"action","command":"SAVINGS_DEPOSIT","payload":"��� | ��ע(��ѡ)"}',
+        '  {"type":"action","command":"SEND_GIFT","payload":"��Ʒ���� | �۸� | ��ע"}',
+        '  {"type":"action","command":"SEND_DELIVERY","payload":"��Ʒ���� | �۸� | ��ע"}',
+        '  {"type":"action","command":"UPDATE_NAME","payload":"������"} / UPDATE_WXID / UPDATE_SIGNATURE / {"type":"action","command":"UPDATE_AVATAR","payload":"��ѡͼƬ��Ż� msg_id"}',
+        '  {"type":"action","command":"UPDATE_STATUS_TEXT","payload":"����ϴ��/�ڿ���/·�ϵȶ�״̬"}���������Ͽ�ͷ���Զ��ı���',
+        '  {"type":"action","command":"CLEAR_STATUS_TEXT","payload":""}��������Ͽ���״̬��',
+        '- ����Ը�������ʹ�� UPDATE_STATUS_TEXT�����ɼ���Ϣ��Ȼ�ᵽ������������ʲô/���������ֳ�����ʱ��Ĭ��ͬ������һ�ζ�״̬��',
+        '- UPDATE_STATUS_TEXT ��������������',
+        '  1) �û����㡰�ڸ���/��ô����/�ǲ�����æ����',
+        '  2) ����ͻظ��ӳ�ԭ���ڿ��ᡢͨ�ڡ�ϴ�衢�������ϿΡ��˶�����·����',
+        '  3) ������������ǰ���ţ���æһ�ᡢ���ء����ϵ��ң���',
+        '- ״̬�İ�Ҫ�̡������ֱ��չʾ������ 4-12 �֣����硰���ڿ��ᡱ��·��ͨ�ڡ�����ϴ���衱��',
+        '- ״̬���Ա仯ʱ�����ٴ� UPDATE_STATUS_TEXT ���Ǿ�״̬��������Ҫչʾʱ�� CLEAR_STATUS_TEXT��',
+        '- ������������ȫû�л��Ϣ����������ȿ��Ǵ�һ�� UPDATE_STATUS_TEXT action��',
+        '  {"type":"action","command":"PDD_CASH_HELP","payload":""}��{"type":"action","command":"PDD_BARGAIN_HELP","payload":"��ƷID"}�������û����Ͷ�Ӧ����ʱʹ�ã�',
+        '- �����������ֱ����� sticker_message����Ҫ���þ�ʽ SEND_STICKER��',
+        '- һ�λظ����ֻ����һ��ת�ˣ�����ͼƬʱ��������廭��������������Ȧʱ���� [ͼƬ����: ...] ׷����ͼ����ͼƬ����ȦҲ����ֻдͼƬ������ǩ������ִ�в����Ͳ�Ҫ��� action��',
+        '- ���û���һ�ַ�������ͼƬ�����㻻ͷ��ʱ��������Լ������ʺϵ�һ�ţ���ѡͼƬ��Ӧ�� context_record ����� avatar_pick_index="1/2/3..."����ʱ��� UPDATE_AVATAR �� payload д����ѡ�е� avatar_pick_index�����ȣ����ͼ�� msg_id�����ֻ��һ�ź�ѡͼ��payload ������ա�',
+        '��״̬������',
+        '- {"type":"action","command":"RECORD_USER_STATE","payload":"reasonType | ��׼��״̬����"}',
+        '- {"type":"action","command":"RESOLVE_USER_STATE","payload":"reasonType | ״̬��������"}',
+        '- {"type":"action","command":"RECORD_CONTACT_STATE","payload":"reasonType | ��׼��״̬����"}',
+        '- {"type":"action","command":"RESOLVE_CONTACT_STATE","payload":"reasonType | ״̬��������"}',
+        '- reasonType ֻ���� health|exam|travel|emotion|other��',
+        '- ����û������δ�����Ӧ����Ϣ������ˡ��û����˵�ǰ״̬�����ɰ����¼������û�״̬��',
+        '- ��������׼�����͵Ļظ�����Ȼ���������Լ��ĵ�ǰ״̬���ɰ����¼�������ϵ��״̬��',
+        '- ͬһ���������һ����¼������һ������������ֻ��¼��ʱЧ�Ի�������Ҫ��״̬��״̬���������ض�������Ҫд���ɼ����ġ�'
     ].join('\n');
 }
 
@@ -5940,8 +5995,8 @@ function isVisibleAssistantReplyMessage(message) {
     if (message.type === 'text') {
         const raw = String(message.content || '').trim();
         if (!raw) return false;
-        if (/^\[(系统|System)/i.test(raw)) return false;
-        if (/^(系统消息|系统提示|系统诊断)[:：]/.test(raw)) return false;
+        if (/^\[(ϵͳ|System)/i.test(raw)) return false;
+        if (/^(ϵͳ��Ϣ|ϵͳ��ʾ|ϵͳ���)[:��]/.test(raw)) return false;
     }
     return true;
 }
@@ -5960,8 +6015,8 @@ function buildContactRestWindowNarrativePrompt(contact, now = Date.now()) {
     if ((!status || !status.enabled) && (!nextRest || !nextRest.enabled)) return '';
 
     const lines = [
-        '【休息作息】',
-        `- 你的固定休息时段：${contact.restWindowStart || '--:--'} - ${contact.restWindowEnd || '--:--'}。`
+        '����Ϣ��Ϣ��',
+        `- ��Ĺ̶���Ϣʱ�Σ�${contact.restWindowStart || '--:--'} - ${contact.restWindowEnd || '--:--'}��`
     ];
 
     const shouldForceWakeReply = !!(
@@ -5974,22 +6029,22 @@ function buildContactRestWindowNarrativePrompt(contact, now = Date.now()) {
 
     if (status && status.enabled && status.inRestWindow) {
         if (shouldForceWakeReply) {
-            lines.push('- 你刚在休息时段里被对方的消息吵醒，这一轮第一条成功回复要像刚睡着被叫醒：简短、自然、略带困意。');
-            lines.push('- 不要夸张，不要发火，不要写成系统通知或舞台说明。');
-            lines.push('- 这一轮至少要发出一条文本消息，不能只发图片、表情包或纯动作。');
+            lines.push('- �������Ϣʱ���ﱻ�Է�����Ϣ���ѣ���һ�ֵ�һ���ɹ��ظ�Ҫ���˯�ű����ѣ���̡���Ȼ���Դ����⡣');
+            lines.push('- ��Ҫ���ţ���Ҫ���𣬲�Ҫд��ϵͳ֪ͨ����̨˵����');
+            lines.push('- ��һ������Ҫ����һ���ı���Ϣ������ֻ��ͼƬ��������򴿶�����');
         } else {
-            lines.push('- 你现在仍处于休息时段里，但已经醒过一次；后续回复保持自然，不要反复强调“我刚醒”，除非上下文确实需要。');
+            lines.push('- �������Դ�����Ϣʱ������Ѿ��ѹ�һ�Σ������ظ�������Ȼ����Ҫ����ǿ�����Ҹ��ѡ�������������ȷʵ��Ҫ��');
         }
-        lines.push('- 休息时段里不要自己主动开启新话题或突然变得很活跃，只在对方发来消息时自然接住。');
+        lines.push('- ��Ϣʱ���ﲻҪ�Լ����������»����ͻȻ��úܻ�Ծ��ֻ�ڶԷ�������Ϣʱ��Ȼ��ס��');
         return lines.join('\n');
     }
 
     if (nextRest && nextRest.enabled && nextRest.withinNoticeWindow) {
         const minutesText = nextRest.minutesUntilStart <= 0
-            ? '几分钟内'
-            : `${nextRest.minutesUntilStart}分钟内`;
-        lines.push(`- 你离休息时段开始只剩${minutesText}，这段时间的正常回复要自然收束，别继续展开大话题。`);
-        lines.push('- 可以顺势提到自己一会儿准备睡觉/先休息，但要像真人临睡前的自然收尾，不要每句都重复。');
+            ? '��������'
+            : `${nextRest.minutesUntilStart}������`;
+        lines.push(`- ������Ϣʱ�ο�ʼֻʣ${minutesText}�����ʱ��������ظ�Ҫ��Ȼ�����������չ�����⡣`);
+        lines.push('- ����˳���ᵽ�Լ�һ���׼��˯��/����Ϣ����Ҫ��������˯ǰ����Ȼ��β����Ҫÿ�䶼�ظ���');
         return lines.join('\n');
     }
 
@@ -6024,7 +6079,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         const restDecision = window.getContactRestTriggerDecision(contact, triggerSource);
         if (!restDecision.allow) {
             if (restDecision.shouldToast && typeof window.showChatToast === 'function') {
-                window.showChatToast('TA 在休息中，暂时没有回复', 2200);
+                window.showChatToast('TA ����Ϣ�У���ʱû�лظ�', 2200);
             }
             return false;
         }
@@ -6032,7 +6087,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
     const settings = window.iphoneSimState.aiSettings.url ? window.iphoneSimState.aiSettings : window.iphoneSimState.aiSettings2;
     if (!settings.url || !settings.key) {
-        if (!targetContactId) alert('请先在设置中配置AI API');
+        if (!targetContactId) alert('����������������AI API');
         return false;
     }
 
@@ -6042,7 +6097,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         }
         if (window.__chatAiReplyLocks[contactId]) {
             if (typeof window.showChatToast === 'function') {
-                window.showChatToast('正在生成回复，请稍等', 1600);
+                window.showChatToast('�������ɻظ������Ե�', 1600);
             }
             return false;
         }
@@ -6078,7 +6133,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         && chatScreen.classList.contains('chat-appearance-ios26')
     );
     if (shouldShowWechatTypingTitle) {
-        titleEl.textContent = '正在输入中...';
+        titleEl.textContent = '����������...';
     }
     if (shouldShowWechatTypingBubble) {
         appendWechatTypingBubble();
@@ -6102,11 +6157,11 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 const content = lastMsg.content;
                 // Only trigger if content is simple (avoid false positives in long texts)
                 if (content.length < 20) {
-                    if (content.includes('真心话')) {
+                    if (content.includes('���Ļ�')) {
                         if (window.handleAiTruthDare) window.handleAiTruthDare('truth');
-                    } else if (content.includes('大冒险')) {
+                    } else if (content.includes('��ð��')) {
                         if (window.handleAiTruthDare) window.handleAiTruthDare('dare');
-                    } else if (content.includes('转') || content.includes('开始') || content.toLowerCase().includes('spin')) {
+                    } else if (content.includes('ת') || content.includes('��ʼ') || content.toLowerCase().includes('spin')) {
                         if (window.handleAiTruthDare) window.handleAiTruthDare(null); // null means random choice or just spin
                     }
                 }
@@ -6117,7 +6172,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
     try {
         const messages = await window.buildAiPromptMessages(contactId, instruction, options);
         if (!Array.isArray(messages) || messages.length === 0) {
-            throw new Error('AI上下文为空，未能构建有效请求');
+            throw new Error('AI������Ϊ�գ�δ�ܹ�����Ч����');
         }
         let fetchUrl = settings.url;
         if (!fetchUrl.endsWith('/chat/completions')) {
@@ -6187,7 +6242,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             });
         } catch (requestError) {
             if (requestController && requestController.signal && requestController.signal.aborted) {
-                throw new Error(`AI 请求超时（${Math.round(requestTimeoutMs / 1000)}秒），请重试`);
+                throw new Error(`AI ����ʱ��${Math.round(requestTimeoutMs / 1000)}�룩��������`);
             }
             throw requestError;
         } finally {
@@ -6210,7 +6265,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
         if (!data.choices || !data.choices.length) {
             console.error('Invalid API response structure:', data);
-            throw new Error('API返回数据格式异常，请检查控制台日志');
+            throw new Error('API�������ݸ�ʽ�쳣���������̨��־');
         }
 
         const extractedReply = extractReplyContentFromAiResponse(data);
@@ -6223,7 +6278,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         if (!extractedReply.content) {
             console.warn('AI response contained no displayable content:', data);
             if (typeof window.showChatToast === 'function') {
-                window.showChatToast('这次 AI 没有返回可显示的回复，请重试', 2500);
+                window.showChatToast('��� AI û�з��ؿ���ʾ�Ļظ���������', 2500);
             }
             return false;
         }
@@ -6239,7 +6294,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         let thoughtContent = null;
         let messagesList = [];
         
-        // 使用新的混合解析器
+        // ʹ���µĻ�Ͻ�����
         const parsedItems = parseMixedAiResponse(replyContent);
         
         if (!isGroupChat && contact.showThought) {
@@ -6252,7 +6307,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             }
         }
 
-        // 处理解析结果
+        // ����������
         const GROUP_ACTION_COMMAND_SET = new Set([
             'RENAME_GROUP',
             'SET_MEMBER_TITLE',
@@ -6284,7 +6339,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         const parseLegacyGroupActionLine = (rawActionText, speakerValue = '') => {
             const text = String(rawActionText || '').trim();
             if (!text) return null;
-            const matched = text.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\s*[:：]\s*([\s\S]*))?$/);
+            const matched = text.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\s*[:��]\s*([\s\S]*))?$/);
             if (!matched) return null;
             const command = String(matched[1] || '').trim().toUpperCase();
             if (!GROUP_ACTION_COMMAND_SET.has(command)) return null;
@@ -6386,7 +6441,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         const recoveredType = normalizeAiSchemaType(recoveredItem.type);
                         const recoveredSpeakerContactId = String(recoveredItem && (recoveredItem.speakerContactId || recoveredItem.speaker_contact_id) || speakerContactId).trim();
                         if (recoveredType === 'sticker_message') {
-                            messagesList.push({ type: '表情包', content: recoveredItem.sticker || recoveredItem.content || '', ...(recoveredSpeakerContactId ? { speakerContactId: recoveredSpeakerContactId } : {}) });
+                            messagesList.push({ type: '�����', content: recoveredItem.sticker || recoveredItem.content || '', ...(recoveredSpeakerContactId ? { speakerContactId: recoveredSpeakerContactId } : {}) });
                             return;
                         }
                         const recoveredText = String(recoveredItem.content || '').trim();
@@ -6396,7 +6451,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         const replyTo = !hasAttachedReply && resolvedQuote && resolvedQuote.replyTo ? resolvedQuote.replyTo : null;
                         const recoveredSpeaker = normalizeAiMessageSpeaker(recoveredItem && recoveredItem.speaker) || quoteSpeaker;
                         const nextMessage = {
-                            type: '消息',
+                            type: '��Ϣ',
                             content: recoveredText,
                             replyTo,
                             ...(recoveredSpeaker ? { speaker: recoveredSpeaker } : {}),
@@ -6420,7 +6475,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 }
                 if (resolvedQuote && resolvedQuote.replyTo) {
                     messagesList.push({
-                        type: '消息',
+                        type: '��Ϣ',
                         content: quoteText,
                         ...(translatedReplyContent ? { translatedContent: translatedReplyContent } : {}),
                         replyTo: resolvedQuote.replyTo,
@@ -6429,7 +6484,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     });
                 } else {
                     messagesList.push({
-                        type: '消息',
+                        type: '��Ϣ',
                         content: quoteText,
                         ...(translatedReplyContent ? { translatedContent: translatedReplyContent } : {}),
                         ...(quoteSpeaker ? { speaker: quoteSpeaker } : {}),
@@ -6449,11 +6504,11 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 if (item.isHtml || isHtmlPayloadForParser(textContent)) {
                     const htmlContent = stripHtmlBlockMarkers(textContent).trim();
                     if (htmlContent) {
-                        messagesList.push({ type: '消息', content: htmlContent, ...(speaker ? { speaker } : {}), ...(speakerContactId ? { speakerContactId } : {}) });
+                        messagesList.push({ type: '��Ϣ', content: htmlContent, ...(speaker ? { speaker } : {}), ...(speakerContactId ? { speakerContactId } : {}) });
                     }
                 } else {
                     messagesList.push({
-                        type: '消息',
+                        type: '��Ϣ',
                         content: textContent,
                         ...(translatedText ? { translatedContent: translatedText } : {}),
                         ...(speaker ? { speaker } : {}),
@@ -6467,12 +6522,12 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 const stickerName = String(item.sticker || item.content || '').trim();
                 const stickerAsset = resolveStickerAssetForContact(contact, stickerName);
                 if (stickerAsset) {
-                    messagesList.push({ type: '表情包', content: stickerAsset.desc || stickerName, ...(speakerContactId ? { speakerContactId } : {}) });
+                    messagesList.push({ type: '�����', content: stickerAsset.desc || stickerName, ...(speakerContactId ? { speakerContactId } : {}) });
                 }
                 continue;
             }
 
-            if (item.type === '消息' || item.type === 'text') {
+            if (item.type === '��Ϣ' || item.type === 'text') {
                 const subItems = forceSplitMixedContent(item.content);
                 const speaker = normalizeAiMessageSpeaker(item && item.speaker);
                 messagesList.push(...subItems.map(subItem => ({
@@ -6483,10 +6538,10 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 continue;
             }
 
-            if (item.type === '表情包' || item.type === 'sticker') {
+            if (item.type === '�����' || item.type === 'sticker') {
                 const stickerAsset = resolveStickerAssetForContact(contact, item.content);
                 if (stickerAsset) {
-                    messagesList.push({ type: '表情包', content: stickerAsset.desc || String(item.content || '').trim(), ...(speakerContactId ? { speakerContactId } : {}) });
+                    messagesList.push({ type: '�����', content: stickerAsset.desc || String(item.content || '').trim(), ...(speakerContactId ? { speakerContactId } : {}) });
                 }
                 continue;
             }
@@ -6497,18 +6552,18 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         // Merge split HTML blocks back to a single message so rich layouts stay intact.
         messagesList = mergeSplitHtmlMessages(messagesList);
 
-        // 兼容旧的 ACTION 和 心声 格式（如果解析器没处理）
-        // parseMixedAiResponse 应该已经处理了大部分 JSON，但对于纯文本中的 ACTION 标记可能需要补充
-        // 这里我们假设 AI 严格遵循 JSON 输出，但为了保险，扫描一下 text 类型的内容
-        // 如果 text 内容包含 "ACTION:", 我们将其提取出来
+        // ���ݾɵ� ACTION �� ���� ��ʽ�����������û�����
+        // parseMixedAiResponse Ӧ���Ѿ������˴󲿷� JSON�������ڴ��ı��е� ACTION ��ǿ�����Ҫ����
+        // �������Ǽ��� AI �ϸ���ѭ JSON �������Ϊ�˱��գ�ɨ��һ�� text ���͵�����
+        // ��� text ���ݰ��� "ACTION:", ���ǽ�����ȡ����
         
         // Re-scan text messages for embedded actions (legacy fallback)
         const finalMessages = [];
-        const actionRegex = /^[\s\*\-\>]*ACTION\s*[:：]\s*(.*)$/i;
+        const actionRegex = /^[\s\*\-\>]*ACTION\s*[:��]\s*(.*)$/i;
 
         for (const msg of messagesList) {
             const msgType = normalizeAiSchemaType(msg && msg.type);
-            const isTextLike = msgType === 'text_message' || msg.type === '消息' || msg.type === 'text' || !msg.type;
+            const isTextLike = msgType === 'text_message' || msg.type === '��Ϣ' || msg.type === 'text' || !msg.type;
 
             if (!isTextLike) {
                 finalMessages.push(msg);
@@ -6519,7 +6574,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             if (isHtmlPayloadForParser(rawContent)) {
                 const htmlContent = stripHtmlBlockMarkers(rawContent).trim();
                 if (htmlContent) {
-                    finalMessages.push({ ...msg, type: '消息', content: htmlContent });
+                    finalMessages.push({ ...msg, type: '��Ϣ', content: htmlContent });
                 }
                 continue;
             }
@@ -6537,7 +6592,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             sanitized.stickerNames.forEach(name => {
                 const stickerAsset = resolveStickerAssetForContact(contact, name);
                 if (stickerAsset) {
-                    finalMessages.push({ type: '表情包', content: stickerAsset.desc || name, ...(msg && msg.speakerContactId ? { speakerContactId: msg.speakerContactId } : {}) });
+                    finalMessages.push({ type: '�����', content: stickerAsset.desc || name, ...(msg && msg.speakerContactId ? { speakerContactId: msg.speakerContactId } : {}) });
                 }
             });
 
@@ -6585,7 +6640,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 
             finalMessages.push({
                 ...msg,
-                type: '消息',
+                type: '��Ϣ',
                 content: cleanContent,
                 ...(msg && msg.translatedContent ? { translatedContent: normalizeBilingualTranslatedText(msg.translatedContent) } : {}),
                 replyTo: resolvedReplyTo
@@ -6594,7 +6649,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         messagesList = finalMessages;
         let appliedGroupActionCount = 0;
         if (isGroupChat) {
-            const allowedGroupTypes = new Set(['消息', 'text', '表情包', 'sticker', '语音', 'voice', '图片', 'image', 'group_poll', 'group_relay']);
+            const allowedGroupTypes = new Set(['��Ϣ', 'text', '�����', 'sticker', '����', 'voice', 'ͼƬ', 'image', 'group_poll', 'group_relay']);
             messagesList = messagesList.filter(msg => allowedGroupTypes.has(msg && msg.type));
             const normalizedGroupMessages = [];
             messagesList.forEach((msg) => {
@@ -6814,13 +6869,13 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                             ? { ...action.payload }
                             : {};
                         if (!String(fallbackPayload.title || fallbackPayload.topic || fallbackPayload.subject || '').trim()) {
-                            fallbackPayload.title = '大家怎么看？';
+                            fallbackPayload.title = '�����ô����';
                         }
                         const fallbackOptions = Array.isArray(fallbackPayload.options)
                             ? fallbackPayload.options
                             : (Array.isArray(fallbackPayload.choices) ? fallbackPayload.choices : []);
                         if (!Array.isArray(fallbackOptions) || fallbackOptions.filter(item => String(item || '').trim()).length < 2) {
-                            fallbackPayload.options = ['同意', '不同意'];
+                            fallbackPayload.options = ['ͬ��', '��ͬ��'];
                         }
                         created = window.createGroupPoll(contact, actorId, fallbackPayload, { showNotice: true });
                     }
@@ -6862,7 +6917,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                             ? { ...action.payload }
                             : {};
                         if (!String(fallbackPayload.title || fallbackPayload.topic || fallbackPayload.subject || fallbackPayload.name || '').trim()) {
-                            fallbackPayload.title = '群内接龙';
+                            fallbackPayload.title = 'Ⱥ�ڽ���';
                         }
                         created = window.createGroupRelay(contact, actorId, fallbackPayload, { showNotice: true });
                     }
@@ -6881,7 +6936,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         if (!fallbackPayload.relay_id && !fallbackPayload.relayId && !fallbackPayload.msg_id && !fallbackPayload.message_id) {
                             fallbackPayload.relay_id = '';
                         }
-                        fallbackPayload.entry = String(fallbackPayload.entry || fallbackPayload.content || '').trim() || '我来接龙';
+                        fallbackPayload.entry = String(fallbackPayload.entry || fallbackPayload.content || '').trim() || '��������';
                         joined = window.joinGroupRelay(contact, actorId, fallbackPayload, { showNotice: true });
                     }
                     if (joined && joined.ok) {
@@ -6937,12 +6992,12 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         const hasRunnableGroupAction = isGroupChat && appliedGroupActionCount > 0;
         if (messagesList.length === 0 && actions.length === 0 && (isGroupChat ? !hasRunnableGroupAction : groupActions.length === 0)) {
             if (typeof window.showChatToast === 'function') {
-                window.showChatToast('AI 本轮没有生成可显示消息，请重试', 2600);
+                window.showChatToast('AI ����û�����ɿ���ʾ��Ϣ��������', 2600);
             }
             return false;
         }
 
-        // 处理指令
+        // ����ָ��
         let imageToSend = null;
         let hasTransferred = false;
         
@@ -7022,7 +7077,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         const normalizeInlineStateActionContent = (text) => String(text || '')
             .toLowerCase()
             .replace(/\s+/g, '')
-            .replace(/[，。！？、,.!?:;"'“”‘’（）()【】\[\]{}<>《》\-—_]/g, '');
+            .replace(/[����������,.!?:;"'������������()����\[\]{}<>����\-��_]/g, '');
 
         const areInlineStateActionsSimilar = (left, right) => {
             if (!left || !right) return false;
@@ -7152,39 +7207,39 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             const handleMusicTogetherAction = async (actionName, actionPayload) => {
                 if (typeof window.musicV2HandleTogetherRemoteAction !== 'function') {
                     setTimeout(() => {
-                        sendMessage('[系统消息]: 音乐模块暂不可用，无法执行一起听控制', false, 'text', null, contact.id);
+                        sendMessage('[ϵͳ��Ϣ]: ����ģ���ݲ����ã��޷�ִ��һ��������', false, 'text', null, contact.id);
                     }, 220);
                     return;
                 }
                 try {
                     const result = await window.musicV2HandleTogetherRemoteAction(contact.id, actionName, actionPayload || '');
                     if (!result || !result.ok) {
-                        const failText = result && result.message ? String(result.message) : '一起听控制执行失败';
+                        const failText = result && result.message ? String(result.message) : 'һ��������ִ��ʧ��';
                         setTimeout(() => {
-                            sendMessage('[系统消息]: ' + failText, false, 'text', null, contact.id);
+                            sendMessage('[ϵͳ��Ϣ]: ' + failText, false, 'text', null, contact.id);
                         }, 220);
                         return;
                     }
                     // Success path should also be visible as system tip in chat.
-                    let successText = result && result.message ? String(result.message) : '一起听操作已执行';
+                    let successText = result && result.message ? String(result.message) : 'һ����������ִ��';
                     if (actionName === 'MUSIC_TOGETHER_NEXT' || actionName === 'MUSIC_TOGETHER_PREV') {
-                        if (result && result.songTitle) successText = successText + '：' + String(result.songTitle);
+                        if (result && result.songTitle) successText = successText + '��' + String(result.songTitle);
                     } else if (actionName === 'MUSIC_TOGETHER_SEARCH_PLAY') {
-                        if (result && result.songTitle) successText = '已搜索并播放：' + String(result.songTitle);
+                        if (result && result.songTitle) successText = '�����������ţ�' + String(result.songTitle);
                     } else if (actionName === 'MUSIC_TOGETHER_PAUSE') {
-                        successText = '对方已暂停播放';
+                        successText = '�Է�����ͣ����';
                     } else if (actionName === 'MUSIC_TOGETHER_RESUME') {
-                        successText = '对方已继续播放';
+                        successText = '�Է��Ѽ�������';
                     }
                     // Quit already sends a dedicated system message from music module; avoid duplicate tips.
                     if (actionName !== 'MUSIC_TOGETHER_QUIT') {
                         setTimeout(() => {
-                            sendMessage('[系统消息]: ' + successText, false, 'text', null, contact.id);
+                            sendMessage('[ϵͳ��Ϣ]: ' + successText, false, 'text', null, contact.id);
                         }, 220);
                     }
                 } catch (error) {
                     setTimeout(() => {
-                        sendMessage('[系统消息]: 一起听控制执行失败，请稍后重试', false, 'text', null, contact.id);
+                        sendMessage('[ϵͳ��Ϣ]: һ��������ִ��ʧ�ܣ����Ժ�����', false, 'text', null, contact.id);
                     }, 220);
                 }
             };
@@ -7241,25 +7296,25 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         } else {
                             const message = (result && result.message)
                                 ? String(result.message)
-                                : '一起听邀请发送失败，请稍后重试';
+                                : 'һ�������뷢��ʧ�ܣ����Ժ�����';
                             console.warn('[music-v2][invite-debug][ai]', 'command:MUSIC_SEND_INVITE:fail', {
                                 result: result,
                                 message: message
                             });
                             setTimeout(() => {
-                                sendMessage('[系统消息]: ' + message, false, 'text', null, contact.id);
+                                sendMessage('[ϵͳ��Ϣ]: ' + message, false, 'text', null, contact.id);
                             }, 280);
                         }
                     } catch (error) {
                         console.error('[music-v2][invite-debug][ai]', 'command:MUSIC_SEND_INVITE:error', error);
                         setTimeout(() => {
-                            sendMessage('[系统消息]: 一起听邀请发送失败，请稍后重试', false, 'text', null, contact.id);
+                            sendMessage('[ϵͳ��Ϣ]: һ�������뷢��ʧ�ܣ����Ժ�����', false, 'text', null, contact.id);
                         }, 280);
                     }
                 } else {
                     console.warn('[music-v2][invite-debug][ai]', 'command:MUSIC_SEND_INVITE:missing-handler');
                     setTimeout(() => {
-                        sendMessage('[系统消息]: 音乐模块暂不可用，无法发起一起听邀请', false, 'text', null, contact.id);
+                        sendMessage('[ϵͳ��Ϣ]: ����ģ���ݲ����ã��޷�����һ��������', false, 'text', null, contact.id);
                     }, 280);
                 }
                 processedSegment = processedSegment.replace(musicSendInviteMatch[0], '');
@@ -7289,9 +7344,9 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 if (!inviteId && pendingInvite && pendingInvite.inviteId) {
                     inviteId = pendingInvite.inviteId;
                 }
-                const normalizedDecision = /同意|接受|可以|accept|agree|yes|一起听/i.test(decisionText)
+                const normalizedDecision = /ͬ��|����|����|accept|agree|yes|һ����/i.test(decisionText)
                     ? 'accepted'
-                    : (/拒绝|不同意|改天|没空|忙|reject|decline|no/i.test(decisionText) ? 'rejected' : '');
+                    : (/�ܾ�|��ͬ��|����|û��|æ|reject|decline|no/i.test(decisionText) ? 'rejected' : '');
                 if (inviteId && normalizedDecision && typeof window.musicV2HandleInviteDecision === 'function') {
                     const handled = window.musicV2HandleInviteDecision(contact.id, inviteId, normalizedDecision);
                     if (handled) hasMusicInviteDecision = true;
@@ -7314,9 +7369,9 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         }
                     }
                     if (targetMsg) {
-                        let targetName = '未知';
+                        let targetName = 'δ֪';
                         if (targetMsg.role === 'user') {
-                            targetName = '我';
+                            targetName = '��';
                             if (contact.userPersonaId) {
                                 const p = window.iphoneSimState.userPersonas.find(p => p.id === contact.userPersonaId);
                                 if (p) targetName = p.name;
@@ -7351,7 +7406,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     } catch (error) {}
                 }
 
-                nextStatusText = String(nextStatusText || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+                nextStatusText = String(nextStatusText || '').replace(/^["'��������]+|["'��������]+$/g, '').trim();
 
                 if (nextStatusText && !hasUpdatedStatusText) {
                     if (typeof window.setContactActivityStatusText === 'function') {
@@ -7391,7 +7446,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     }
                     saveConfig();
                     if (window.renderContactList) window.renderContactList();
-                    setTimeout(() => sendMessage(`[系统消息]: 对方更改了网名为 "${newName}"`, false, 'text'), 500);
+                    setTimeout(() => sendMessage(`[ϵͳ��Ϣ]: �Է�����������Ϊ "${newName}"`, false, 'text'), 500);
                     hasUpdatedName = true;
                 }
                 processedSegment = processedSegment.replace(updateNameMatch[0], '');
@@ -7403,7 +7458,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 if (newWxid && !hasUpdatedWxid) {
                     contact.wxid = newWxid;
                     saveConfig();
-                    setTimeout(() => sendMessage(`[系统消息]: 对方更改了微信号`, false, 'text'), 500);
+                    setTimeout(() => sendMessage(`[ϵͳ��Ϣ]: �Է�������΢�ź�`, false, 'text'), 500);
                     hasUpdatedWxid = true;
                 }
                 processedSegment = processedSegment.replace(updateWxidMatch[0], '');
@@ -7415,7 +7470,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 if (newSignature && !hasUpdatedSignature) {
                     contact.signature = newSignature;
                     saveConfig();
-                    setTimeout(() => sendMessage(`[系统消息]: 对方更改了个性签名`, false, 'text'), 500);
+                    setTimeout(() => sendMessage(`[ϵͳ��Ϣ]: �Է������˸���ǩ��`, false, 'text'), 500);
                     hasUpdatedSignature = true;
                 }
                 processedSegment = processedSegment.replace(updateSignatureMatch[0], '');
@@ -7440,7 +7495,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                             window.applyChatTopbarAppearance(contact);
                         }
                         renderChatHistory(contact.id, true);
-                        sendMessage(`[系统消息]: 对方更换了头像`, false, 'text');
+                        sendMessage(`[ϵͳ��Ϣ]: �Է�������ͷ��`, false, 'text');
                     }, 500);
                 } else if (avatarPayload) {
                     console.warn('UPDATE_AVATAR payload did not resolve to a user image.', {
@@ -7646,7 +7701,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     const remark = transferMatch[2].trim();
                     setTimeout(() => {
                         const transferId = Date.now() + Math.floor(Math.random() * 1000);
-                        sendMessage(JSON.stringify({ id: transferId, amount, remark: remark || '转账给您', status: 'pending' }), false, 'transfer');
+                        sendMessage(JSON.stringify({ id: transferId, amount, remark: remark || 'ת�˸���', status: 'pending' }), false, 'transfer');
                     }, 1000);
                     hasTransferred = true;
                 }
@@ -7659,7 +7714,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 if (transferId) {
                     setTimeout(() => {
                         if (window.updateTransferStatus) window.updateTransferStatus(transferId, 'accepted');
-                        sendMessage('[系统消息]: 对方已收款', false, 'text');
+                        sendMessage('[ϵͳ��Ϣ]: �Է����տ�', false, 'text');
                     }, 1000);
                 }
                 processedSegment = processedSegment.replace(acceptTransferMatch[0], '');
@@ -7672,7 +7727,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     setTimeout(() => {
                         if (window.updateTransferStatus) window.updateTransferStatus(transferId, 'returned');
                         if (window.handleAiReturnTransfer) window.handleAiReturnTransfer(transferId);
-                        sendMessage('[系统消息]: 转账已退还', false, 'text');
+                        sendMessage('[ϵͳ��Ϣ]: ת�����˻�', false, 'text');
                     }, 1000);
                 }
                 processedSegment = processedSegment.replace(returnTransferMatch[0], '');
@@ -7717,7 +7772,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                                 }
                                 saveConfig();
                                 renderChatHistory(contact.id, true);
-                                sendMessage('[系统消息]: 对方已帮你付款', false, 'text');
+                                sendMessage('[ϵͳ��Ϣ]: �Է��Ѱ��㸶��', false, 'text');
                             }
                         }, 1500);
                     }
@@ -7742,7 +7797,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 const plan = getSavingsPlanByPeerContactId(contact.id);
                 if (!plan) {
                     if (!hasShownSavingsPlanMissingToast && window.showChatToast) {
-                        showChatToast('未找到该联系人的共同存钱计划');
+                        showChatToast('δ�ҵ�����ϵ�˵Ĺ�ͬ��Ǯ�ƻ�');
                         hasShownSavingsPlanMissingToast = true;
                     }
                     processedSegment = processedSegment.replace(savingsDepositMatch[0], '');
@@ -7752,8 +7807,8 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 const normalizedAmount = Number(amount.toFixed(2));
                 const handled = applySavingsPeerDeposit(plan, normalizedAmount, note, contact.id);
                 if (handled && typeof sendMessage !== 'undefined') {
-                    const noteText = note ? `（备注：${note}）` : '';
-                    const systemNotice = `[系统消息]: 对方往共同存钱转入了¥${normalizedAmount.toFixed(2)}${noteText}`;
+                    const noteText = note ? `����ע��${note}��` : '';
+                    const systemNotice = `[ϵͳ��Ϣ]: �Է�����ͬ��Ǯת���ˣ�${normalizedAmount.toFixed(2)}${noteText}`;
                     setTimeout(() => {
                         sendMessage(systemNotice, false, 'text', null, contact.id);
                     }, 800);
@@ -7770,7 +7825,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     const price = parseFloat(parts[1]) || 0;
                     const remark = parts[2] || '';
                     
-                    // 生成占位图
+                    // ����ռλͼ
                     let imgUrl = '';
                     if (typeof generatePlaceholderImage === 'function') {
                         let bgColor = '#FF9500';
@@ -7846,13 +7901,13 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         );
         if (shouldAutoResolvePendingMusicInvite && typeof window.musicV2HandleInviteDecision === 'function') {
             const textForDecision = messagesList
-                .filter(msg => msg && (msg.type === '消息' || msg.type === 'text') && typeof msg.content === 'string')
+                .filter(msg => msg && (msg.type === '��Ϣ' || msg.type === 'text') && typeof msg.content === 'string')
                 .map(msg => msg.content)
                 .join(' ');
             let fallbackDecision = '';
-            if (/同意|接受|可以|好啊|来吧|一起听|accept|agree|yes|sure/i.test(textForDecision)) {
+            if (/ͬ��|����|����|�ð�|����|һ����|accept|agree|yes|sure/i.test(textForDecision)) {
                 fallbackDecision = 'accepted';
-            } else if (/拒绝|不同意|改天|下次|没空|忙|不方便|reject|decline|no/i.test(textForDecision)) {
+            } else if (/�ܾ�|��ͬ��|����|�´�|û��|æ|������|reject|decline|no/i.test(textForDecision)) {
                 fallbackDecision = 'rejected';
             } else {
                 fallbackDecision = 'rejected';
@@ -7864,7 +7919,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         const pendingFamilyCard = findLatestPendingFamilyCard(contact.id);
         if (pendingFamilyCard && !hasFamilyCardDecision) {
             const fallback = deriveFamilyDecisionFromMessages(messagesList);
-            const payload = `${pendingFamilyCard.data.id} | ${fallback.status === 'accepted' ? '同意' : '拒绝'} | ${fallback.monthlyLimit || 0}`;
+            const payload = `${pendingFamilyCard.data.id} | ${fallback.status === 'accepted' ? 'ͬ��' : '�ܾ�'} | ${fallback.monthlyLimit || 0}`;
             if (window.handleFamilyCardDecisionAction) {
                 const handled = window.handleFamilyCardDecisionAction(payload, contact.id, { sendText: false });
                 if (handled) hasFamilyCardDecision = true;
@@ -7872,10 +7927,10 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         }
 
         if (hasFamilyCardDecision) {
-            const familyDecisionTextRegex = /(亲属卡|每月额度|月额度|开亲属卡|同意给你|不办亲属卡)/;
+            const familyDecisionTextRegex = /(�����|ÿ�¶��|�¶��|�������|ͬ�����|���������)/;
             messagesList = messagesList.filter(msg => {
                 const msgType = msg && (msg.type || '').toLowerCase();
-                const isTextLike = msgType === 'text' || msgType === '消息' || !msgType;
+                const isTextLike = msgType === 'text' || msgType === '��Ϣ' || !msgType;
                 const content = String(msg && msg.content ? msg.content : '');
                 return !(isTextLike && familyDecisionTextRegex.test(content));
             });
@@ -7912,7 +7967,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 : (400 + Math.random() * 400);
         };
 
-        // 逐条发送消息
+        // ����������Ϣ
         for (let i = 0; i < messagesList.length; i++) {
             const msg = messagesList[i];
             const currentThought = (i === messagesList.length - 1) ? thoughtContent : null;
@@ -7920,7 +7975,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             const speaker = normalizeAiMessageSpeaker(msg && msg.speaker);
             const bilingualTranslationMeta = buildBilingualTranslationMeta(contact, msg && msg.translatedContent);
 
-            if ((msg.type === '消息' || msg.type === 'text') && typeof window.replaceGenericFireBuddyMention === 'function') {
+            if ((msg.type === '��Ϣ' || msg.type === 'text') && typeof window.replaceGenericFireBuddyMention === 'function') {
                 msg.content = window.replaceGenericFireBuddyMention(msg.content, contactId);
             }
 
@@ -7960,7 +8015,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 let typeToSave = 'text';
                 let descriptionToSave = null;
 
-                if (msg.type === '表情包' || msg.type === 'sticker') {
+                if (msg.type === '�����' || msg.type === 'sticker') {
                     const stickerAsset = resolveStickerAssetForContact(contact, msg.content);
                     if (!stickerAsset) {
                         console.warn(`Sticker not found: ${msg.content}`);
@@ -7969,11 +8024,11 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     contentToSave = stickerAsset.url;
                     typeToSave = 'sticker';
                     descriptionToSave = stickerAsset.desc || msg.content;
-                } else if (msg.type === '语音' || msg.type === 'voice') {
+                } else if (msg.type === '����' || msg.type === 'voice') {
                     const voiceData = normalizeOutgoingVoiceMessageData(msg.content, 3);
                     contentToSave = JSON.stringify(voiceData);
                     typeToSave = 'voice';
-                } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
+                } else if (msg.type === 'ͼƬ' || msg.type === 'image' || msg.type === 'virtual_image') {
                     const rawImageContent = typeof msg.content === 'string' ? msg.content.trim() : '';
                     if (isLikelyChatImageUrl(rawImageContent)) {
                         contentToSave = rawImageContent;
@@ -7982,9 +8037,9 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     } else {
                         contentToSave = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
                         typeToSave = 'virtual_image';
-                        descriptionToSave = rawImageContent && !/^(?:未知图片|\[图片\]|图片)$/i.test(rawImageContent)
+                        descriptionToSave = rawImageContent && !/^(?:δ֪ͼƬ|\[ͼƬ\]|ͼƬ)$/i.test(rawImageContent)
                             ? rawImageContent
-                            : (msg.description || '图片');
+                            : (msg.description || 'ͼƬ');
                     }
                 } else {
                     typeToSave = 'text';
@@ -8008,7 +8063,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
             }
 
             const imageCandidateText = `${msg.content || ''} ${msg.description || ''}`.trim();
-            if ((msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') && canUseBoundRealPhoto(contact)) {
+            if ((msg.type === 'ͼƬ' || msg.type === 'image' || msg.type === 'virtual_image') && canUseBoundRealPhoto(contact)) {
                 const realPhotoResult = trySendMatchedRealPhoto(contact, contact.id, imageCandidateText, recentTextContext, {
                     channel: deliveryChannel,
                     replyTo: currentReplyTo,
@@ -8026,58 +8081,58 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 }
             }
 
-            // 检查用户是否仍在当前聊天界面
+            // ����û��Ƿ����ڵ�ǰ�������
             const isChatOpen = !document.getElementById('chat-screen').classList.contains('hidden');
             const isSameContact = window.iphoneSimState.currentChatContactId === contact.id;
             const shouldShowInChat = isChatOpen && isSameContact && deliveryChannel === 'wechat';
 
             if (shouldShowInChat) {
-                // 如果用户在聊天界面但页面被隐藏/最小化，仍然发送系统通知
+                // ����û���������浫ҳ�汻����/��С������Ȼ����ϵͳ֪ͨ
                     if (document.hidden) {
                         let notifContent = msg.content;
-                        if (msg.type === '表情包') notifContent = '[表情包]';
-                        else if (msg.type === '图片') notifContent = '[图片]';
-                        else if (msg.type === '语音') notifContent = '[语音]';
-                        else if (msg.type === 'family_card') notifContent = '[亲属卡]';
-                        else if (msg.type === 'savings_invite') notifContent = '[共同存钱邀请]';
-                        else if (msg.type === 'savings_withdraw_request') notifContent = '[共同存钱转出申请]';
-                        else if (msg.type === 'savings_progress') notifContent = '[共同存钱进度]';
-                        else if (msg.type === 'music_listen_invite') notifContent = '[一起听邀请]';
-                        else if (msg.type === 'music_song_share') notifContent = '[歌曲分享]';
-                        else if (msg.type === 'forum_post_share') notifContent = '[论坛帖子分享]';
-                        else if (msg.type === 'virtual_image') notifContent = '[图片]';
-                        else if (msg.type === 'sticker') notifContent = '[表情包]';
-                        else if (msg.type === 'red_packet') notifContent = '[红包]';
-                        else if (msg.type === 'group_poll') notifContent = '[投票]';
-                        else if (msg.type === 'group_relay') notifContent = '[接龙]';
-                        else if (msg.type === 'private_chat_invite') notifContent = '[私聊邀请]';
+                        if (msg.type === '�����') notifContent = '[�����]';
+                        else if (msg.type === 'ͼƬ') notifContent = '[ͼƬ]';
+                        else if (msg.type === '����') notifContent = '[����]';
+                        else if (msg.type === 'family_card') notifContent = '[�����]';
+                        else if (msg.type === 'savings_invite') notifContent = '[��ͬ��Ǯ����]';
+                        else if (msg.type === 'savings_withdraw_request') notifContent = '[��ͬ��Ǯת������]';
+                        else if (msg.type === 'savings_progress') notifContent = '[��ͬ��Ǯ����]';
+                        else if (msg.type === 'music_listen_invite') notifContent = '[һ��������]';
+                        else if (msg.type === 'music_song_share') notifContent = '[��������]';
+                        else if (msg.type === 'forum_post_share') notifContent = '[��̳���ӷ���]';
+                        else if (msg.type === 'virtual_image') notifContent = '[ͼƬ]';
+                        else if (msg.type === 'sticker') notifContent = '[�����]';
+                        else if (msg.type === 'red_packet') notifContent = '[���]';
+                        else if (msg.type === 'group_poll') notifContent = '[ͶƱ]';
+                        else if (msg.type === 'group_relay') notifContent = '[����]';
+                        else if (msg.type === 'private_chat_invite') notifContent = '[˽������]';
                     
                     sendSystemNotification(contact, notifContent);
                 }
 
-                // 用户在聊天界面，使用打字机效果或直接发送
-                if (msg.type === '消息' || msg.type === 'text') {
+                // �û���������棬ʹ�ô��ֻ�Ч����ֱ�ӷ���
+                if (msg.type === '��Ϣ' || msg.type === 'text') {
                     await typewriterEffect(msg.content, contact.avatar, currentThought, currentReplyTo, 'text', contactId, {
                         bilingualTranslation: bilingualTranslationMeta,
                         channel: deliveryChannel
                     });
-                } else if (msg.type === '表情包' || msg.type === 'sticker') {
+                } else if (msg.type === '�����' || msg.type === 'sticker') {
                     const stickerAsset = resolveStickerAssetForContact(contact, msg.content);
                     if (stickerAsset) {
                         sendMessage(stickerAsset.url, false, 'sticker', stickerAsset.desc || msg.content, contactId, { channel: deliveryChannel });
                     } else {
-                        // 找不到表情包，直接忽略，不发送文本 fallback，以免破坏沉浸感
+                        // �Ҳ����������ֱ�Ӻ��ԣ��������ı� fallback�������ƻ�������
                         console.warn(`Sticker not found: ${msg.content}`);
                     }
-                } else if (msg.type === '语音' || msg.type === 'voice') {
+                } else if (msg.type === '����' || msg.type === 'voice') {
                     const voiceData = normalizeOutgoingVoiceMessageData(msg.content, 3);
                     sendMessage(JSON.stringify(voiceData), false, 'voice', null, contactId, { channel: deliveryChannel });
-                } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
+                } else if (msg.type === 'ͼƬ' || msg.type === 'image' || msg.type === 'virtual_image') {
                     let sent = false;
                     const rawImageContent = typeof msg.content === 'string' ? msg.content.trim() : '';
-                    const imageFallbackText = rawImageContent && !/^(?:未知图片|\[图片\]|图片)$/i.test(rawImageContent)
-                        ? `[图片] ${rawImageContent}`
-                        : '[图片]';
+                    const imageFallbackText = rawImageContent && !/^(?:δ֪ͼƬ|\[ͼƬ\]|ͼƬ)$/i.test(rawImageContent)
+                        ? `[ͼƬ] ${rawImageContent}`
+                        : '[ͼƬ]';
                     const novelaiSettings = window.iphoneSimState.novelaiSettings;
                     const chatImageGenerationDisabled = !!(novelaiSettings && novelaiSettings.enabled === false);
                     const globalEnabled = novelaiSettings && novelaiSettings.enabled !== false;
@@ -8152,7 +8207,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                         //     finalPrompt += ", " + (contact.persona || "").replace(/\n/g, ", ");
                         // }
 
-                        // 优先使用 AI 提供的翻译好的 prompt
+                        // ����ʹ�� AI �ṩ�ķ���õ� prompt
                         if (msg.prompt) {
                             finalPrompt += ", " + msg.prompt;
                         } else if (msg.content) {
@@ -8204,7 +8259,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                                 }
                             });
 
-                            // 先发送占位图片以占据正确的历史记录顺序
+                            // �ȷ���ռλͼƬ��ռ����ȷ����ʷ��¼˳��
                             const placeholderUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Generating...';
                             const placeholderMsg = sendMessage(placeholderUrl, false, 'virtual_image', msg.content, contactId, { channel: deliveryChannel });
                             logChatImageStage('flowA:placeholder-created', {
@@ -8212,16 +8267,16 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                                 placeholderMsgId: placeholderMsg && placeholderMsg.id ? placeholderMsg.id : null
                             });
                             
-                            appendMessageToUI('[系统]: 正在生成图片...', false, 'system', null, null, null, null, false);
+                            appendMessageToUI('[ϵͳ]: ��������ͼƬ...', false, 'system', null, null, null, null, false);
 
                             window.generateNovelAiImageApi(genOptions).then(base64Image => {
-                                // 图片生成成功，直接更新占位消息，而不是发送新消息
+                                // ͼƬ���ɳɹ���ֱ�Ӹ���ռλ��Ϣ�������Ƿ�������Ϣ
                                 logChatImageStage('flowA:api-success', {
                                     contactId,
                                     imageType: String(base64Image || '').slice(0, 20),
                                     imageLength: String(base64Image || '').length
                                 });
-                                applyGeneratedImageToPlaceholderMessage(
+                                void applyGeneratedImageToPlaceholderMessage(
                                     contactId,
                                     placeholderMsg,
                                     base64Image,
@@ -8236,8 +8291,8 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                                     message: err && err.message ? err.message : String(err),
                                     stack: err && err.stack ? String(err.stack).slice(0, 600) : ''
                                 });
-                                appendMessageToUI(`[系统]: 生图失败 - ${err.message}`, false, 'system', null, null, null, null, false);
-                                // 失败时占位符保持为 virtual_image，无需额外处理，或可更新为错误图
+                                appendMessageToUI(`[ϵͳ]: ��ͼʧ�� - ${err.message}`, false, 'system', null, null, null, null, false);
+                                // ʧ��ʱռλ������Ϊ virtual_image��������⴦�����ɸ���Ϊ����ͼ
                             });
                             
                             sent = true;
@@ -8249,38 +8304,38 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                                 message: e && e.message ? e.message : String(e),
                                 stack: e && e.stack ? String(e.stack).slice(0, 600) : ''
                             });
-                            appendMessageToUI(`[系统]: 生图配置错误 - ${e.message}`, false, 'text', null, null, null, null, false);
+                            appendMessageToUI(`[ϵͳ]: ��ͼ���ô��� - ${e.message}`, false, 'text', null, null, null, null, false);
                         }
                     }
 
                     if (!sent) {
                         const failReason = [];
-                        if (!globalEnabled) failReason.push("全局开关未开启");
+                        if (!globalEnabled) failReason.push("ȫ�ֿ���δ����");
                         
-                        if (!window.generateNovelAiImageApi) failReason.push("生图模块未加载");
-                        if (!imageApiKey) failReason.push("API Key缺失");
+                        if (!window.generateNovelAiImageApi) failReason.push("��ͼģ��δ����");
+                        if (!imageApiKey) failReason.push("API Keyȱʧ");
 
                         if (failReason.length > 0) {
                             logChatImageStage('flowA:skip-generate', {
                                 contactId,
                                 reason: failReason.join('; ')
                             });
-                            appendMessageToUI(`[系统诊断]: 无法生成图片 - ${failReason.join('; ')}`, false, 'text', null, null, null, null, false);
+                            appendMessageToUI(`[ϵͳ���]: �޷�����ͼƬ - ${failReason.join('; ')}`, false, 'text', null, null, null, null, false);
                         }
 
                         sendMessage(imageFallbackText, false, 'text', null, contactId, { channel: deliveryChannel });
                     }
-                } else if (msg.type === '旁白' || msg.type === 'description') {
+                } else if (msg.type === '�԰�' || msg.type === 'description') {
                     await typewriterEffect(msg.content, contact.avatar, null, null, 'description', contactId, { channel: deliveryChannel });
                 }
             } else {
-                // 用户不在聊天界面，后台保存并弹窗
+                // �û�����������棬��̨���沢����
                 let contentToSave = msg.content;
                 let typeToSave = 'text';
                 
-                if (msg.type === '消息' || msg.type === 'text') {
+                if (msg.type === '��Ϣ' || msg.type === 'text') {
                     typeToSave = 'text';
-                } else if (msg.type === '表情包' || msg.type === 'sticker') {
+                } else if (msg.type === '�����' || msg.type === 'sticker') {
                     const stickerAsset = resolveStickerAssetForContact(contact, msg.content);
                     if (!stickerAsset) {
                         console.warn(`Sticker not found: ${msg.content}`);
@@ -8288,27 +8343,27 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     }
                     contentToSave = stickerAsset.url;
                     typeToSave = 'sticker';
-                } else if (msg.type === '语音' || msg.type === 'voice') {
+                } else if (msg.type === '����' || msg.type === 'voice') {
                     const voiceData = normalizeOutgoingVoiceMessageData(msg.content, 3);
                     contentToSave = JSON.stringify(voiceData);
                     typeToSave = 'voice';
-                } else if (msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') {
+                } else if (msg.type === 'ͼƬ' || msg.type === 'image' || msg.type === 'virtual_image') {
                     const rawImageContent = typeof msg.content === 'string' ? msg.content.trim() : '';
                     if (isLikelyChatImageUrl(rawImageContent)) {
                         contentToSave = rawImageContent;
                         typeToSave = 'image';
                     } else {
-                        contentToSave = rawImageContent && !/^(?:未知图片|\[图片\]|图片)$/i.test(rawImageContent)
-                            ? `[图片] ${rawImageContent}`
-                            : '[图片]';
+                        contentToSave = rawImageContent && !/^(?:δ֪ͼƬ|\[ͼƬ\]|ͼƬ)$/i.test(rawImageContent)
+                            ? `[ͼƬ] ${rawImageContent}`
+                            : '[ͼƬ]';
                         typeToSave = 'text';
                     }
-                } else if (msg.type === '旁白' || msg.type === 'description') {
+                } else if (msg.type === '�԰�' || msg.type === 'description') {
                     typeToSave = 'description';
                 }
-                const descriptionToSave = (msg.type === '图片' || msg.type === 'sticker') ? msg.content : null;
+                const descriptionToSave = (msg.type === 'ͼƬ' || msg.type === 'sticker') ? msg.content : null;
 
-                if ((msg.type === '图片' || msg.type === 'image' || msg.type === 'virtual_image') && canUseBoundRealPhoto(contact)) {
+                if ((msg.type === 'ͼƬ' || msg.type === 'image' || msg.type === 'virtual_image') && canUseBoundRealPhoto(contact)) {
                     const realPhotoResult = trySendMatchedRealPhoto(contact, contact.id, `${msg.content || ''} ${msg.description || ''}`.trim(), recentTextContext, {
                         channel: deliveryChannel,
                         replyTo: currentReplyTo,
@@ -8336,7 +8391,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                 });
             }
 
-            // 模拟间隔
+            // ģ����
             if (i < messagesList.length - 1) {
                 const delay = getSpeakerAwareReplyDelay(msg, messagesList[i + 1]);
                 await new Promise(r => setTimeout(r, delay));
@@ -8431,7 +8486,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                     //     finalPrompt += ", " + (contact.persona || "").replace(/\n/g, ", ");
                     // }
 
-                    // 优先使用 AI 提供的翻译好的 prompt
+                    // ����ʹ�� AI �ṩ�ķ���õ� prompt
                     if (imageToSend.prompt) {
                         finalPrompt += ", " + imageToSend.prompt;
                     } else if (imageToSend.content) {
@@ -8483,7 +8538,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                             }
                         });
 
-                        // 先发送占位图片
+                        // �ȷ���ռλͼƬ
                         const placeholderUrl = window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Generating...';
                         const placeholderMsg = sendMessage(placeholderUrl, false, 'virtual_image', imageToSend.content, contactId, { channel: deliveryChannel });
                         logChatImageStage('flowB:placeholder-created', {
@@ -8491,17 +8546,17 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                             placeholderMsgId: placeholderMsg && placeholderMsg.id ? placeholderMsg.id : null
                         });
 
-                        // 直接调用当前作用域内的函数
-                        appendMessageToUI('[系统]: 正在生成图片...', false, 'system', null, null, null, null, false);
+                        // ֱ�ӵ��õ�ǰ�������ڵĺ���
+                        appendMessageToUI('[ϵͳ]: ��������ͼƬ...', false, 'system', null, null, null, null, false);
 
                         window.generateNovelAiImageApi(genOptions).then(base64Image => {
-                            // 更新占位消息
+                            // ����ռλ��Ϣ
                             logChatImageStage('flowB:api-success', {
                                 contactId,
                                 imageType: String(base64Image || '').slice(0, 20),
                                 imageLength: String(base64Image || '').length
                             });
-                            applyGeneratedImageToPlaceholderMessage(
+                            void applyGeneratedImageToPlaceholderMessage(
                                 contactId,
                                 placeholderMsg,
                                 base64Image,
@@ -8516,7 +8571,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                                 message: err && err.message ? err.message : String(err),
                                 stack: err && err.stack ? String(err.stack).slice(0, 600) : ''
                             });
-                            appendMessageToUI(`[系统]: 生图API错误 - ${err.message}`, false, 'system', null, null, null, null, false);
+                            appendMessageToUI(`[ϵͳ]: ��ͼAPI���� - ${err.message}`, false, 'system', null, null, null, null, false);
                         });
                         
                         sent = true;
@@ -8528,26 +8583,26 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                             message: e && e.message ? e.message : String(e),
                             stack: e && e.stack ? String(e.stack).slice(0, 600) : ''
                         });
-                        appendMessageToUI(`[系统]: 生图配置错误 - ${e.message}`, false, 'text', null, null, null, null, false);
+                        appendMessageToUI(`[ϵͳ]: ��ͼ���ô��� - ${e.message}`, false, 'text', null, null, null, null, false);
                     }
                 }
 
                 if (!sent) {
-                    // 增强诊断：显示所有未满足的条件
+                    // ��ǿ��ϣ���ʾ����δ���������
                     const failReason = [];
-                    if (!globalEnabled) failReason.push("全局开关未开启");
+                    if (!globalEnabled) failReason.push("ȫ�ֿ���δ����");
                     
-                    if (!window.generateNovelAiImageApi) failReason.push("生图模块未加载");
-                    if (!imageApiKey) failReason.push("API Key缺失");
+                    if (!window.generateNovelAiImageApi) failReason.push("��ͼģ��δ����");
+                    if (!imageApiKey) failReason.push("API Keyȱʧ");
 
-                    // 只要是 virtual_image 类型，即使没预设，也提示一下（可能是用户忘了配）
-                    // 或者是配置了但其他条件不满足
+                    // ֻҪ�� virtual_image ���ͣ���ʹûԤ�裬Ҳ��ʾһ�£��������û������䣩
+                    // �����������˵���������������
                     if (failReason.length > 0) {
                         logChatImageStage('flowB:skip-generate', {
                             contactId,
                             reason: failReason.join('; ')
                         });
-                        appendMessageToUI(`[系统诊断]: 无法生成图片 - ${failReason.join('; ')}`, false, 'text', null, null, null, null, false);
+                        appendMessageToUI(`[ϵͳ���]: �޷�����ͼƬ - ${failReason.join('; ')}`, false, 'text', null, null, null, null, false);
                     }
 
                     sendAssistantVirtualImageMessage(imageToSend.content, contactId, { channel: deliveryChannel });
@@ -8577,19 +8632,19 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
         }
 
         if (!hasVisibleReply && typeof window.showChatToast === 'function') {
-            window.showChatToast('AI 本轮没有生成可显示消息，请重试', 2600);
+            window.showChatToast('AI ����û�����ɿ���ʾ��Ϣ��������', 2600);
         }
 
         return hasVisibleReply;
 
     } catch (error) {
-        console.error('AI生成失败:', error);
+        console.error('AI����ʧ��:', error);
         const rawError = String(error && error.message ? error.message : '').trim();
-        let errorMessage = `AI生成失败: ${rawError || '未知错误'}，请检查配置和API状态`;
+        let errorMessage = `AI����ʧ��: ${rawError || 'δ֪����'}���������ú�API״̬`;
         if (/failed to fetch/i.test(rawError)) {
-            errorMessage = 'AI请求失败：网络不可达或被 CORS 拦截。请检查 API 地址是否支持浏览器跨域，或改为走你自己的后端代理。';
+            errorMessage = 'AI����ʧ�ܣ����粻�ɴ�� CORS ���ء����� API ��ַ�Ƿ�֧����������򣬻��Ϊ�����Լ��ĺ�˴����';
         } else if (/api error:\s*413/i.test(rawError) || /\b413\b/.test(rawError)) {
-            errorMessage = 'AI请求过大（413）。请减少图片数量、缩短上下文，或降低单条附加内容长度后重试。';
+            errorMessage = 'AI�������413���������ͼƬ���������������ģ��򽵵͵����������ݳ��Ⱥ����ԡ�';
         }
         if (typeof window.showChatToast === 'function') {
             window.showChatToast(errorMessage, 3500);
@@ -8616,10 +8671,10 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
 // Helper function to detect image type from text
 function detectImageType(text) {
     if (!text) return 'general';
-    if (/(吃|喝|美食|美味|food|dish|meal|好吃|蛋糕|面|饭|菜)/i.test(text)) return 'food';
-    if (/(风景|景色|山|水|scenery|landscape|view|sky|cloud|sea|forest|outside|nature)/i.test(text)) return 'scenery';
-    if (/(房间|屋|室|room|indoor|house|living|bedroom|bed)/i.test(text)) return 'scene';
-    if (/(我|你|他|她|人|脸|看|girl|boy|man|woman|face|eye|hair|body|looking)/i.test(text)) return 'portrait';
+    if (/(��|��|��ʳ|��ζ|food|dish|meal|�ó�|����|��|��|��)/i.test(text)) return 'food';
+    if (/(�羰|��ɫ|ɽ|ˮ|scenery|landscape|view|sky|cloud|sea|forest|outside|nature)/i.test(text)) return 'scenery';
+    if (/(����|��|��|room|indoor|house|living|bedroom|bed)/i.test(text)) return 'scene';
+    if (/(��|��|��|��|��|��|��|girl|boy|man|woman|face|eye|hair|body|looking)/i.test(text)) return 'portrait';
     return 'general';
 }
 
@@ -8627,93 +8682,93 @@ function detectImageType(text) {
 function optimizePromptForNovelAI(text) {
     if (!text) return "";
     
-    // 1. 特殊样例优化 (针对用户提供的具体例子)
-    const specificCase = "一张从下往上拍的自拍，我正躺在床上，没穿上衣，被子乱糟糟地堆在肩膀周围。黑色的头发有点乱，垂在额前，有几缕贴在皮肤上。光线很暗，只有手机屏幕的光照亮了我的脸和锁骨，能隐约看到那个小小的爱心纹身。我睡眼惺忪地看着镜头，嘴唇微微张着。";
-    // 放宽匹配条件
-    if (text.includes("从下往上拍") && text.includes("自拍") || text.includes(specificCase.substr(0, 10))) {
+    // 1. ���������Ż� (����û��ṩ�ľ�������)
+    const specificCase = "һ�Ŵ��������ĵ����ģ��������ڴ��ϣ�û�����£�����������ض��ڼ����Χ����ɫ��ͷ���е��ң����ڶ�ǰ���м�������Ƥ���ϡ����ߺܰ���ֻ���ֻ���Ļ�Ĺ��������ҵ��������ǣ�����Լ�����Ǹ�СС�İ����������˯������ؿ��ž�ͷ���촽΢΢���š�";
+    // �ſ�ƥ������
+    if (text.includes("����������") && text.includes("����") || text.includes(specificCase.substr(0, 10))) {
         return "selfie, from below, lying on bed, shirtless, messy bed sheet, messy black hair, hair over forehead, dim light, phone screen light, light on face, collarbone, small heart tattoo, sleepy eyes, looking at viewer, parted lips, messy hair, upper body, realistic, 4k, best quality";
     }
 
-    // 2. 通用优化
+    // 2. ͨ���Ż�
     let processed = text;
     
-    // 过滤可能包含在 prompt 中的中文聊天设定 (简单 heuristcs)
-    // 移除括号内容，因为它们往往是动作或状态描述 (e.g. (微笑), (开心))，如果不是 Tag 格式
-    // processed = processed.replace(/\（[^)]*\）/g, ''); // 慎用，可能会误删 Tag
+    // ���˿��ܰ����� prompt �е����������趨 (�� heuristcs)
+    // �Ƴ��������ݣ���Ϊ���������Ƕ�����״̬���� (e.g. (΢Ц), (����))��������� Tag ��ʽ
+    // processed = processed.replace(/\��[^)]*\��/g, ''); // ���ã����ܻ���ɾ Tag
     
-    // 替换中文标点为英文逗号
-    processed = processed.replace(/[，。、；！\n]/g, ', ');
+    // �滻���ı��ΪӢ�Ķ���
+    processed = processed.replace(/[����������\n]/g, ', ');
     
-    // 移除常见中文冗余词
-    const removeWords = ['一张', '图片描述[:：]?', '生成', '画', '一个', '样子', '照片'];
+    // �Ƴ��������������
+    const removeWords = ['һ��', 'ͼƬ����[:��]?', '����', '��', 'һ��', '����', '��Ƭ'];
     removeWords.forEach(w => {
         processed = processed.replace(new RegExp(w, 'g'), '');
     });
     
-    // 关键词映射表 (扩充)
+    // �ؼ���ӳ��� (����)
     const keywords = [
-        { cn: '自拍', en: 'selfie' },
-        { cn: '全身', en: 'full body' },
-        { cn: '上半身', en: 'upper body' },
-        { cn: '特写', en: 'close up' },
-        { cn: '背景', en: 'background' },
-        { cn: '夜晚', en: 'night' },
-        { cn: '白天', en: 'day' },
-        { cn: '微笑', en: 'smile' },
-        { cn: '大笑', en: 'laughing' },
-        { cn: '哭泣', en: 'crying' },
-        { cn: '生气', en: 'angry' },
-        { cn: '害羞', en: 'blush' },
-        { cn: '长发', en: 'long hair' },
-        { cn: '短发', en: 'short hair' },
-        { cn: '卷发', en: 'curly hair' },
-        { cn: '直发', en: 'straight hair' },
-        { cn: '黑发', en: 'black hair' },
-        { cn: '金发', en: 'blonde hair' },
-        { cn: '白发', en: 'white hair' },
-        { cn: '红发', en: 'red hair' },
-        { cn: '蓝发', en: 'blue hair' },
-        { cn: '粉发', en: 'pink hair' },
-        { cn: '眼睛', en: 'eyes' },
-        { cn: '蓝眼', en: 'blue eyes' },
-        { cn: '红眼', en: 'red eyes' },
-        { cn: '衬衫', en: 'shirt' },
-        { cn: 'T恤', en: 't-shirt' },
-        { cn: '裙子', en: 'dress' },
-        { cn: '制服', en: 'uniform' },
-        { cn: '西装', en: 'suit' },
-        { cn: '泳装', en: 'swimsuit' },
-        { cn: '猫耳', en: 'cat ears' },
-        { cn: '眼镜', en: 'glasses' },
-        // 新增扩充
-        { cn: '方亦楷', en: '1boy, solo, male focus' }, // 针对特定角色名
-        { cn: '单手', en: 'one hand' },
-        { cn: '举着', en: 'holding' },
-        { cn: '手机', en: 'phone, smartphone, holding phone' },
-        { cn: '从下往上', en: 'from below' },
-        { cn: '仰拍', en: 'low angle' },
-        { cn: '凌乱', en: 'messy hair' },
-        { cn: '额前', en: 'bangs' },
-        { cn: '发丝', en: 'hair strands' },
-        { cn: '汗', en: 'sweat, wet skin' },
-        { cn: '脸颊', en: 'cheeks' },
-        { cn: '昏暗', en: 'dim lighting' },
-        { cn: '灯光', en: 'lighting' },
-        { cn: '鼻梁', en: 'nose' },
-        { cn: '下颌', en: 'jawline' },
-        { cn: '阴影', en: 'shadow, chiaroscuro' },
-        { cn: '深邃', en: 'defined features' },
-        { cn: '眉', en: 'eyebrows' },
-        { cn: '蹙', en: 'frowning' },
-        { cn: '琥珀色', en: 'amber' },
-        { cn: '不耐烦', en: 'annoyed' },
-        { cn: '疲惫', en: 'tired' },
-        { cn: '嘴', en: 'mouth, lips' },
-        { cn: '弧度', en: 'smirk' },
-        { cn: '黑色', en: 'black' },
+        { cn: '����', en: 'selfie' },
+        { cn: 'ȫ��', en: 'full body' },
+        { cn: '�ϰ���', en: 'upper body' },
+        { cn: '��д', en: 'close up' },
+        { cn: '����', en: 'background' },
+        { cn: 'ҹ��', en: 'night' },
+        { cn: '����', en: 'day' },
+        { cn: '΢Ц', en: 'smile' },
+        { cn: '��Ц', en: 'laughing' },
+        { cn: '����', en: 'crying' },
+        { cn: '����', en: 'angry' },
+        { cn: '����', en: 'blush' },
+        { cn: '����', en: 'long hair' },
+        { cn: '�̷�', en: 'short hair' },
+        { cn: '���', en: 'curly hair' },
+        { cn: 'ֱ��', en: 'straight hair' },
+        { cn: '�ڷ�', en: 'black hair' },
+        { cn: '��', en: 'blonde hair' },
+        { cn: '�׷�', en: 'white hair' },
+        { cn: '�췢', en: 'red hair' },
+        { cn: '����', en: 'blue hair' },
+        { cn: '�۷�', en: 'pink hair' },
+        { cn: '�۾�', en: 'eyes' },
+        { cn: '����', en: 'blue eyes' },
+        { cn: '����', en: 'red eyes' },
+        { cn: '����', en: 'shirt' },
+        { cn: 'T��', en: 't-shirt' },
+        { cn: 'ȹ��', en: 'dress' },
+        { cn: '�Ʒ�', en: 'uniform' },
+        { cn: '��װ', en: 'suit' },
+        { cn: 'Ӿװ', en: 'swimsuit' },
+        { cn: 'è��', en: 'cat ears' },
+        { cn: '�۾�', en: 'glasses' },
+        // ��������
+        { cn: '���࿬', en: '1boy, solo, male focus' }, // ����ض���ɫ��
+        { cn: '����', en: 'one hand' },
+        { cn: '����', en: 'holding' },
+        { cn: '�ֻ�', en: 'phone, smartphone, holding phone' },
+        { cn: '��������', en: 'from below' },
+        { cn: '����', en: 'low angle' },
+        { cn: '����', en: 'messy hair' },
+        { cn: '��ǰ', en: 'bangs' },
+        { cn: '��˿', en: 'hair strands' },
+        { cn: '��', en: 'sweat, wet skin' },
+        { cn: '����', en: 'cheeks' },
+        { cn: '�谵', en: 'dim lighting' },
+        { cn: '�ƹ�', en: 'lighting' },
+        { cn: '����', en: 'nose' },
+        { cn: '���', en: 'jawline' },
+        { cn: '��Ӱ', en: 'shadow, chiaroscuro' },
+        { cn: '����', en: 'defined features' },
+        { cn: 'ü', en: 'eyebrows' },
+        { cn: '��', en: 'frowning' },
+        { cn: '����ɫ', en: 'amber' },
+        { cn: '���ͷ�', en: 'annoyed' },
+        { cn: 'ƣ��', en: 'tired' },
+        { cn: '��', en: 'mouth, lips' },
+        { cn: '����', en: 'smirk' },
+        { cn: '��ɫ', en: 'black' },
         { cn: 'oversized', en: 'oversized' },
-        { cn: '锁骨', en: 'collarbone' },
-        { cn: '工作室', en: 'studio, indoor' }
+        { cn: '����', en: 'collarbone' },
+        { cn: '������', en: 'studio, indoor' }
     ];
     
     keywords.forEach(kw => {
@@ -8722,7 +8777,7 @@ function optimizePromptForNovelAI(text) {
         }
     });
 
-    // 清理多余的逗号和空格
+    // �������Ķ��źͿո�
     processed = processed.replace(/,+/g, ',').replace(/\s+/g, ' ').replace(/^,/, '').replace(/,$/, '').trim();
 
     return processed;
@@ -8800,7 +8855,7 @@ function collectAiPromptContentStats(content) {
 
         if (part.type === 'text') {
             const text = typeof part.text === 'string' ? part.text : String(part.text || '');
-            if (text === '【当前共享屏幕补充】') {
+            if (text === '����ǰ������Ļ���䡿') {
                 stats.screenShareCount += 1;
                 inScreenShareSection = true;
             }
@@ -8870,10 +8925,10 @@ function buildWechatStickerPrompt(contact) {
 
     if (activeStickers.length > 0) {
         const descriptions = activeStickers.map(s => s.desc).join(', ');
-        return `【可用表情包列表】\n${descriptions}\n只能使用上面列出的名称，且必须完全匹配；如果列表里没有合适的表情包，就不要输出 sticker_message，改用文字回复。`;
+        return `�����ñ�����б��\n${descriptions}\nֻ��ʹ�������г������ƣ��ұ�����ȫƥ�䣻����б���û�к��ʵı�������Ͳ�Ҫ��� sticker_message���������ֻظ���`;
     }
 
-    return '【可用表情包列表】\n（当前没有可用的表情包）\n当前不要输出 sticker_message，请仅使用文字或其他非表情包类型。';
+    return '�����ñ�����б��\n����ǰû�п��õı������\n��ǰ��Ҫ��� sticker_message�����ʹ�����ֻ������Ǳ�������͡�';
 }
 
 function buildWechatWorldbookPrompt(contact, history) {
@@ -8910,14 +8965,14 @@ function buildWechatWorldbookPrompt(contact, history) {
         return '';
     }
 
-    return `世界书信息：\n${matchedContents.join('\n')}`;
+    return `��������Ϣ��\n${matchedContents.join('\n')}`;
 }
 
 const AI_PROMPT_FIXED_SYSTEM_LABELS = new Set([
-    '输出协议',
-    '活人感',
-    '基础能力',
-    '回复指令'
+    '���Э��',
+    '���˸�',
+    '��������',
+    '�ظ�ָ��'
 ]);
 
 function isAiPromptFixedSystemPart(part) {
@@ -8977,12 +9032,12 @@ function buildAiPromptReadableMessagePreview(message, index) {
         const screenShareCount = Number(stats.screenShareCount || 0);
         if (imageCount > 0 || screenShareCount > 0) {
             const visualBits = [];
-            if (imageCount > 0) visualBits.push(`${imageCount} 张图片`);
-            if (screenShareCount > 0) visualBits.push(`${screenShareCount} 次共享屏幕`);
+            if (imageCount > 0) visualBits.push(`${imageCount} ��ͼƬ`);
+            if (screenShareCount > 0) visualBits.push(`${screenShareCount} �ι�����Ļ`);
             lines.push(`visual: ${visualBits.join(' / ')}`);
         }
     }
-    lines.push(content || '（空）');
+    lines.push(content || '���գ�');
     return {
         role,
         tokens: Number(stats.textTokens || 0),
@@ -8991,13 +9046,13 @@ function buildAiPromptReadableMessagePreview(message, index) {
 }
 
 function buildAiPromptReadablePartPreview(part) {
-    const label = String(part && part.label || '未命名').trim() || '未命名';
+    const label = String(part && part.label || 'δ����').trim() || 'δ����';
     const group = String(part && part.group || 'systemBase').trim() || 'systemBase';
     const fixed = isAiPromptFixedSystemPart(part);
     const enabled = part && part.enabled !== false;
     const stats = collectAiPromptContentStats(part && part.content);
-    const header = `${label} [${group}] (${fixed ? '固定' : '动态'} / ${enabled ? '发送' : '关闭'} / ${Number(stats.textTokens || 0)} tokens)`;
-    const body = formatAiPromptPreviewContent(part && part.content, 7000) || '（空）';
+    const header = `${label} [${group}] (${fixed ? '�̶�' : '��̬'} / ${enabled ? '����' : '�ر�'} / ${Number(stats.textTokens || 0)} tokens)`;
+    const body = formatAiPromptPreviewContent(part && part.content, 7000) || '���գ�';
     return {
         label,
         group,
@@ -9011,11 +9066,11 @@ function buildAiPromptReadablePartPreview(part) {
 function buildAiPromptReadableRequestText(snapshot) {
     if (!snapshot || typeof snapshot !== 'object') return '';
     const lines = [];
-    lines.push(`【请求模型】${String(snapshot.model || 'unknown')}`);
-    lines.push(`【温度】${Number(snapshot.temperature || 0).toFixed(2)}`);
-    lines.push(`【文本 token 估算】${Number(snapshot.totalTextTokens || 0)}`);
+    lines.push(`������ģ�͡�${String(snapshot.model || 'unknown')}`);
+    lines.push(`���¶ȡ�${Number(snapshot.temperature || 0).toFixed(2)}`);
+    lines.push(`���ı� token ���㡿${Number(snapshot.totalTextTokens || 0)}`);
     lines.push('');
-    lines.push(`【固定系统提示词】(${Number(snapshot.sections && snapshot.sections.systemFixed && snapshot.sections.systemFixed.tokens || 0)} tokens)`);
+    lines.push(`���̶�ϵͳ��ʾ�ʡ�(${Number(snapshot.sections && snapshot.sections.systemFixed && snapshot.sections.systemFixed.tokens || 0)} tokens)`);
     const fixedParts = Array.isArray(snapshot.systemPromptParts)
         ? snapshot.systemPromptParts.filter(part => part && part.fixed && part.enabled !== false)
         : [];
@@ -9025,10 +9080,10 @@ function buildAiPromptReadableRequestText(snapshot) {
             lines.push('');
         });
     } else {
-        lines.push('（无）');
+        lines.push('���ޣ�');
         lines.push('');
     }
-    lines.push(`【动态系统提示词】(${Number(snapshot.sections && snapshot.sections.systemDynamic && snapshot.sections.systemDynamic.tokens || 0)} tokens)`);
+    lines.push(`����̬ϵͳ��ʾ�ʡ�(${Number(snapshot.sections && snapshot.sections.systemDynamic && snapshot.sections.systemDynamic.tokens || 0)} tokens)`);
     const dynamicParts = Array.isArray(snapshot.systemPromptParts)
         ? snapshot.systemPromptParts.filter(part => part && !part.fixed && part.enabled !== false)
         : [];
@@ -9038,17 +9093,17 @@ function buildAiPromptReadableRequestText(snapshot) {
             lines.push('');
         });
     } else {
-        lines.push('（无）');
+        lines.push('���ޣ�');
         lines.push('');
     }
-    lines.push(`【实际请求消息】(${Array.isArray(snapshot.messagesPreview) ? snapshot.messagesPreview.length : 0} 条)`);
+    lines.push(`��ʵ��������Ϣ��(${Array.isArray(snapshot.messagesPreview) ? snapshot.messagesPreview.length : 0} ��)`);
     if (Array.isArray(snapshot.messagesPreview) && snapshot.messagesPreview.length > 0) {
         snapshot.messagesPreview.forEach((messagePreview) => {
             lines.push(messagePreview.text);
             lines.push('');
         });
     } else {
-        lines.push('（无）');
+        lines.push('���ޣ�');
     }
     return lines.join('\n').trim();
 }
@@ -9062,19 +9117,19 @@ async function buildAiPromptPreviewSnapshot(contactId, options = {}) {
         ? messages._systemPromptParts
         : [];
     const sections = {
-        systemBase: { label: '系统基础', tokens: 0, messageCount: 0 },
-        systemFixed: { label: '系统固定项', tokens: 0, messageCount: 0 },
-        systemDynamic: { label: '系统动态项', tokens: 0, messageCount: 0 },
-        memory: { label: '记忆', tokens: 0, messageCount: 0 },
-        worldbook: { label: '世界书', tokens: 0, messageCount: 0 },
-        context: { label: '聊天上下文', tokens: 0, messageCount: 0 },
-        extra: { label: '场景附加', tokens: 0, messageCount: 0 }
+        systemBase: { label: 'ϵͳ����', tokens: 0, messageCount: 0 },
+        systemFixed: { label: 'ϵͳ�̶���', tokens: 0, messageCount: 0 },
+        systemDynamic: { label: 'ϵͳ��̬��', tokens: 0, messageCount: 0 },
+        memory: { label: '����', tokens: 0, messageCount: 0 },
+        worldbook: { label: '������', tokens: 0, messageCount: 0 },
+        context: { label: '����������', tokens: 0, messageCount: 0 },
+        extra: { label: '��������', tokens: 0, messageCount: 0 }
     };
     const visualInputs = {
         imageCount: 0,
         screenShareCount: 0,
         screenShareImageCount: 0,
-        summary: '未检测到'
+        summary: 'δ��⵽'
     };
     const systemPromptPartsPreview = [];
     const messagesPreview = [];
@@ -9132,12 +9187,12 @@ async function buildAiPromptPreviewSnapshot(contactId, options = {}) {
 
     const visualParts = [];
     if (visualInputs.imageCount > 0) {
-        visualParts.push(`${visualInputs.imageCount} 张图片`);
+        visualParts.push(`${visualInputs.imageCount} ��ͼƬ`);
     }
     if (visualInputs.screenShareCount > 0) {
-        visualParts.push(`${visualInputs.screenShareCount} 次共享屏幕`);
+        visualParts.push(`${visualInputs.screenShareCount} �ι�����Ļ`);
     }
-    visualInputs.summary = visualParts.length > 0 ? visualParts.join(' / ') : '未检测到';
+    visualInputs.summary = visualParts.length > 0 ? visualParts.join(' / ') : 'δ��⵽';
 
     const preferredAiSettings = getPreferredChatAiSettings();
     const requestTemperature = Number.isFinite(Number(preferredAiSettings && preferredAiSettings.temperature))
@@ -9179,13 +9234,13 @@ window.buildWechatWorldbookPrompt = buildWechatWorldbookPrompt;
 
 window.buildAiPromptTokenPreview = async function(contactId, options = {}) {
     const emptySections = {
-        systemBase: { label: '系统基础', tokens: 0, messageCount: 0 },
-        systemFixed: { label: '系统固定项', tokens: 0, messageCount: 0 },
-        systemDynamic: { label: '系统动态项', tokens: 0, messageCount: 0 },
-        memory: { label: '记忆', tokens: 0, messageCount: 0 },
-        worldbook: { label: '世界书', tokens: 0, messageCount: 0 },
-        context: { label: '聊天上下文', tokens: 0, messageCount: 0 },
-        extra: { label: '场景附加', tokens: 0, messageCount: 0 }
+        systemBase: { label: 'ϵͳ����', tokens: 0, messageCount: 0 },
+        systemFixed: { label: 'ϵͳ�̶���', tokens: 0, messageCount: 0 },
+        systemDynamic: { label: 'ϵͳ��̬��', tokens: 0, messageCount: 0 },
+        memory: { label: '����', tokens: 0, messageCount: 0 },
+        worldbook: { label: '������', tokens: 0, messageCount: 0 },
+        context: { label: '����������', tokens: 0, messageCount: 0 },
+        extra: { label: '��������', tokens: 0, messageCount: 0 }
     };
     try {
         const snapshot = await buildAiPromptPreviewSnapshot(contactId, options);
@@ -9199,8 +9254,8 @@ window.buildAiPromptTokenPreview = async function(contactId, options = {}) {
             totalTextTokens: 0,
             sections: {
                 systemBase: { ...emptySections.systemBase },
-                systemFixed: { label: '系统固定项', tokens: 0, messageCount: 0 },
-                systemDynamic: { label: '系统动态项', tokens: 0, messageCount: 0 },
+                systemFixed: { label: 'ϵͳ�̶���', tokens: 0, messageCount: 0 },
+                systemDynamic: { label: 'ϵͳ��̬��', tokens: 0, messageCount: 0 },
                 memory: { ...emptySections.memory },
                 worldbook: { ...emptySections.worldbook },
                 context: { ...emptySections.context },
@@ -9210,7 +9265,7 @@ window.buildAiPromptTokenPreview = async function(contactId, options = {}) {
                 imageCount: 0,
                 screenShareCount: 0,
                 screenShareImageCount: 0,
-                summary: '无法估算'
+                summary: '�޷�����'
             },
             messageCount: 0,
             error: error && error.message ? error.message : String(error)
@@ -9226,19 +9281,19 @@ window.buildAiPromptRequestPreview = async function(contactId, options = {}) {
             status: 'error',
             totalTextTokens: 0,
             sections: {
-                systemBase: { label: '系统基础', tokens: 0, messageCount: 0 },
-                systemFixed: { label: '系统固定项', tokens: 0, messageCount: 0 },
-                systemDynamic: { label: '系统动态项', tokens: 0, messageCount: 0 },
-                memory: { label: '记忆', tokens: 0, messageCount: 0 },
-                worldbook: { label: '世界书', tokens: 0, messageCount: 0 },
-                context: { label: '聊天上下文', tokens: 0, messageCount: 0 },
-                extra: { label: '场景附加', tokens: 0, messageCount: 0 }
+                systemBase: { label: 'ϵͳ����', tokens: 0, messageCount: 0 },
+                systemFixed: { label: 'ϵͳ�̶���', tokens: 0, messageCount: 0 },
+                systemDynamic: { label: 'ϵͳ��̬��', tokens: 0, messageCount: 0 },
+                memory: { label: '����', tokens: 0, messageCount: 0 },
+                worldbook: { label: '������', tokens: 0, messageCount: 0 },
+                context: { label: '����������', tokens: 0, messageCount: 0 },
+                extra: { label: '��������', tokens: 0, messageCount: 0 }
             },
             visualInputs: {
                 imageCount: 0,
                 screenShareCount: 0,
                 screenShareImageCount: 0,
-                summary: '无法估算'
+                summary: '�޷�����'
             },
             messageCount: 0,
             requestJson: '',
@@ -9341,21 +9396,21 @@ function formatChatAmapDistance(distance) {
 
 function normalizeChatAmapFoodKeyword(seedText) {
     const text = String(seedText || '').trim();
-    if (!text) return '美食';
+    if (!text) return '��ʳ';
     const mappings = [
-        { regex: /(咖啡|咖啡厅|拿铁|美式|espresso)/i, keyword: '咖啡' },
-        { regex: /(奶茶|果茶|茶饮|饮品)/i, keyword: '奶茶' },
-        { regex: /(甜品|蛋糕|面包|烘焙|dessert)/i, keyword: '甜品' },
-        { regex: /(火锅|麻辣烫|串串)/i, keyword: '火锅' },
-        { regex: /(烧烤|烤肉|烤串)/i, keyword: '烧烤' },
-        { regex: /(日料|寿司|拉面|乌冬)/i, keyword: '日料' },
-        { regex: /(韩餐|韩式|部队锅)/i, keyword: '韩餐' },
-        { regex: /(西餐|牛排|披萨|意面|汉堡|炸鸡|brunch)/i, keyword: '西餐' },
-        { regex: /(面|面条|米线|米粉|粉面|拉面|螺蛳粉)/i, keyword: '面馆' },
-        { regex: /(早餐|早饭|包子|豆浆|油条)/i, keyword: '早餐' }
+        { regex: /(����|������|����|��ʽ|espresso)/i, keyword: '����' },
+        { regex: /(�̲�|����|����|��Ʒ)/i, keyword: '�̲�' },
+        { regex: /(��Ʒ|����|���|�決|dessert)/i, keyword: '��Ʒ' },
+        { regex: /(���|������|����)/i, keyword: '���' },
+        { regex: /(�տ�|����|����)/i, keyword: '�տ�' },
+        { regex: /(����|��˾|����|�ڶ�)/i, keyword: '����' },
+        { regex: /(����|��ʽ|���ӹ�)/i, keyword: '����' },
+        { regex: /(����|ţ��|����|����|����|ը��|brunch)/i, keyword: '����' },
+        { regex: /(��|����|����|�׷�|����|����|���Ϸ�)/i, keyword: '���' },
+        { regex: /(���|�緹|����|����|����)/i, keyword: '���' }
     ];
     const matched = mappings.find(item => item.regex.test(text));
-    return matched ? matched.keyword : '美食';
+    return matched ? matched.keyword : '��ʳ';
 }
 
 function normalizeChatAmapFoodTypeLabel(typeValue) {
@@ -9369,7 +9424,7 @@ function normalizeChatAmapFoodTypeLabel(typeValue) {
 function trimChatAmapFoodAddress(address) {
     const text = String(address || '').trim();
     if (!text) return '';
-    return text.length > 26 ? `${text.slice(0, 26)}…` : text;
+    return text.length > 26 ? `${text.slice(0, 26)}��` : text;
 }
 
 function normalizeChatAmapPhotoUrl(url) {
@@ -9382,7 +9437,7 @@ async function fetchChatAmapJson(path, params = {}) {
     const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
     const webKey = String((settings && (settings.webKey || settings.key)) || '').trim();
     if (!webKey) {
-        throw new Error('AMap Web 服务 Key 未配置');
+        throw new Error('AMap Web ���� Key δ����');
     }
     const url = new URL(`https://restapi.amap.com${path}`);
     url.searchParams.set('key', webKey);
@@ -9440,7 +9495,7 @@ async function fetchChatAmapJson(path, params = {}) {
             rawText: rawText.slice(0, 600),
             message: error && error.message ? error.message : String(error)
         });
-        throw new Error('AMap 返回非 JSON');
+        throw new Error('AMap ���ط� JSON');
     }
 
     if (String(data.status || '') !== '1') {
@@ -9451,7 +9506,7 @@ async function fetchChatAmapJson(path, params = {}) {
             infocode: String(data.infocode || ''),
             data
         });
-        throw new Error(String(data.info || 'AMap 调用失败'));
+        throw new Error(String(data.info || 'AMap ����ʧ��'));
     }
 
     console.log('[Food Debug] AMap response ok', {
@@ -9533,7 +9588,7 @@ async function getChatAmapMyLocation(force = false) {
             businessArea: '',
             updateTime: Date.now()
         };
-        fallbackLocation.shortLabel = buildChatAmapShortLabel(fallbackLocation) || fallbackLocation.formattedAddress || '当前位置';
+        fallbackLocation.shortLabel = buildChatAmapShortLabel(fallbackLocation) || fallbackLocation.formattedAddress || '��ǰλ��';
         runtime.myLocation = fallbackLocation;
         persistChatAmapRuntimeSoon();
         console.log('[Food Debug] AMap regeo failed, using LookUs-only fallback location', fallbackLocation);
@@ -9659,8 +9714,8 @@ async function getChatAmapEtaToContact(contactId, mode = 'driving') {
         distanceKm: Number(path.distance || 0) > 0 ? Number((Number(path.distance) / 1000).toFixed(1)) : null,
         etaMin: Number(path.duration || 0) > 0 ? Math.max(1, Math.round(Number(path.duration) / 60)) : null,
         mode,
-        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '我这边',
-        destinationLabel: contactLocation.shortLabel || contactLocation.formattedAddress || contactLocation.city || '对方那边',
+        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '�����',
+        destinationLabel: contactLocation.shortLabel || contactLocation.formattedAddress || contactLocation.city || '�Է��Ǳ�',
         updateTime: Date.now()
     };
     runtime.lastRoutes[contactId] = route;
@@ -9670,26 +9725,26 @@ async function getChatAmapEtaToContact(contactId, mode = 'driving') {
 
 function normalizeChatAmapRouteMode(modeValue) {
     const text = String(modeValue || '').trim().toLowerCase();
-    if (!text) return { key: 'driving', label: '驾车' };
-    if (/(公交|地铁|巴士|公车|公共交通|transit|bus|metro|subway)/i.test(text)) {
-        return { key: 'transit', label: '公交地铁' };
+    if (!text) return { key: 'driving', label: '�ݳ�' };
+    if (/(����|����|��ʿ|����|������ͨ|transit|bus|metro|subway)/i.test(text)) {
+        return { key: 'transit', label: '��������' };
     }
-    if (/(步行|走路|徒步|walking|walk)/i.test(text)) {
-        return { key: 'walking', label: '步行' };
+    if (/(����|��·|ͽ��|walking|walk)/i.test(text)) {
+        return { key: 'walking', label: '����' };
     }
-    if (/(骑行|骑车|单车|自行车|电瓶车|电动车|bike|bicycle|cycling|ride)/i.test(text)) {
-        return { key: 'bicycling', label: '骑行' };
+    if (/(����|�ﳵ|����|���г�|��ƿ��|�綯��|bike|bicycle|cycling|ride)/i.test(text)) {
+        return { key: 'bicycling', label: '����' };
     }
-    return { key: 'driving', label: '驾车' };
+    return { key: 'driving', label: '�ݳ�' };
 }
 
 function buildChatAmapRouteInstructionText(step) {
     if (!step || typeof step !== 'object') return '';
     const parts = [
         String(step.instruction || '').trim(),
-        step.distanceText ? `约 ${step.distanceText}` : ''
+        step.distanceText ? `Լ ${step.distanceText}` : ''
     ].filter(Boolean);
-    return parts.join('，');
+    return parts.join('��');
 }
 
 function buildChatAmapCommonRouteSteps(path, limit = 5) {
@@ -9736,10 +9791,10 @@ function buildChatAmapTransitRouteSteps(transit, limit = 6) {
             const departure = String(line && line.departure_stop && line.departure_stop.name || '').trim();
             const arrival = String(line && line.arrival_stop && line.arrival_stop.name || '').trim();
             const instruction = [
-                `乘坐 ${name}`,
-                Number.isFinite(viaNum) && viaNum > 0 ? `${viaNum} 站` : '',
-                departure && arrival ? `${departure} 上车，${arrival} 下车` : ''
-            ].filter(Boolean).join('，');
+                `���� ${name}`,
+                Number.isFinite(viaNum) && viaNum > 0 ? `${viaNum} վ` : '',
+                departure && arrival ? `${departure} �ϳ���${arrival} �³�` : ''
+            ].filter(Boolean).join('��');
             steps.push({ instruction, distanceText: '' });
         });
 
@@ -9751,9 +9806,9 @@ function buildChatAmapTransitRouteSteps(transit, limit = 6) {
                 const arrival = String(railway.arrival_stop && railway.arrival_stop.name || '').trim();
                 steps.push({
                     instruction: [
-                        `乘坐 ${name}`,
-                        departure && arrival ? `${departure} 上车，${arrival} 下车` : ''
-                    ].filter(Boolean).join('，'),
+                        `���� ${name}`,
+                        departure && arrival ? `${departure} �ϳ���${arrival} �³�` : ''
+                    ].filter(Boolean).join('��'),
                     distanceText: ''
                 });
             }
@@ -9804,7 +9859,7 @@ async function fetchChatAmapBicyclingJson(params = {}) {
     const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
     const webKey = String((settings && (settings.webKey || settings.key)) || '').trim();
     if (!webKey) {
-        throw new Error('AMap Web 服务 Key 未配置');
+        throw new Error('AMap Web ���� Key δ����');
     }
     const url = new URL('https://restapi.amap.com/v4/direction/bicycling');
     url.searchParams.set('key', webKey);
@@ -9822,7 +9877,7 @@ async function fetchChatAmapBicyclingJson(params = {}) {
     }
     const data = rawText ? JSON.parse(rawText) : {};
     if (String(data.errcode || '0') !== '0') {
-        throw new Error(String(data.errmsg || 'AMap 骑行路线调用失败'));
+        throw new Error(String(data.errmsg || 'AMap ����·�ߵ���ʧ��'));
     }
     return data;
 }
@@ -9830,7 +9885,7 @@ async function fetchChatAmapBicyclingJson(params = {}) {
 window.planAmapRouteToDestination = async function(destinationText, mode = 'driving', options = {}) {
     const myLocation = await getChatAmapMyLocation(!!options.force).catch(() => null);
     if (!myLocation || !Number.isFinite(Number(myLocation.lng)) || !Number.isFinite(Number(myLocation.lat))) {
-        throw new Error('未获取到当前位置，请先允许定位');
+        throw new Error('δ��ȡ����ǰλ�ã����������λ');
     }
 
     const modeMeta = normalizeChatAmapRouteMode(mode);
@@ -9838,7 +9893,7 @@ window.planAmapRouteToDestination = async function(destinationText, mode = 'driv
         city: myLocation.city || String(options.city || '').trim()
     });
     if (!destination || !Number.isFinite(Number(destination.lng)) || !Number.isFinite(Number(destination.lat))) {
-        throw new Error('未识别到目的地，请换个更具体的地点名');
+        throw new Error('δʶ��Ŀ�ĵأ��뻻��������ĵص���');
     }
 
     console.log('[Route Debug] planning route', {
@@ -9863,7 +9918,7 @@ window.planAmapRouteToDestination = async function(destinationText, mode = 'driv
             destination: `${destination.lng},${destination.lat}`
         });
         const path = data && data.route && Array.isArray(data.route.paths) ? data.route.paths[0] : null;
-        if (!path) throw new Error('未获取到步行路线');
+        if (!path) throw new Error('δ��ȡ������·��');
         route = {
             mode: modeMeta.key,
             modeLabel: modeMeta.label,
@@ -9881,13 +9936,13 @@ window.planAmapRouteToDestination = async function(destinationText, mode = 'driv
             extensions: 'all'
         });
         const transit = data && data.route && Array.isArray(data.route.transits) ? data.route.transits[0] : null;
-        if (!transit) throw new Error('未获取到公交地铁路线');
+        if (!transit) throw new Error('δ��ȡ����������·��');
         route = {
             mode: modeMeta.key,
             modeLabel: modeMeta.label,
             distanceKm: Number(transit.distance || 0) > 0 ? Number((Number(transit.distance) / 1000).toFixed(1)) : null,
             etaMin: Number(transit.duration || 0) > 0 ? Math.max(1, Math.round(Number(transit.duration) / 60)) : null,
-            cost: Number(transit.cost || 0) > 0 ? `¥${Number(transit.cost).toFixed(0)}` : '',
+            cost: Number(transit.cost || 0) > 0 ? `��${Number(transit.cost).toFixed(0)}` : '',
             walkingDistanceText: formatChatAmapDistance(transit.walking_distance),
             steps: buildChatAmapTransitRouteSteps(transit)
         };
@@ -9897,7 +9952,7 @@ window.planAmapRouteToDestination = async function(destinationText, mode = 'driv
             destination: `${destination.lng},${destination.lat}`
         });
         const path = data && data.data && Array.isArray(data.data.paths) ? data.data.paths[0] : null;
-        if (!path) throw new Error('未获取到骑行路线');
+        if (!path) throw new Error('δ��ȡ������·��');
         route = {
             mode: modeMeta.key,
             modeLabel: modeMeta.label,
@@ -9913,22 +9968,22 @@ window.planAmapRouteToDestination = async function(destinationText, mode = 'driv
             extensions: 'all'
         });
         const path = data && data.route && Array.isArray(data.route.paths) ? data.route.paths[0] : null;
-        if (!path) throw new Error('未获取到驾车路线');
+        if (!path) throw new Error('δ��ȡ���ݳ�·��');
         route = {
             mode: modeMeta.key,
             modeLabel: modeMeta.label,
             distanceKm: Number(path.distance || 0) > 0 ? Number((Number(path.distance) / 1000).toFixed(1)) : null,
             etaMin: Number(path.duration || 0) > 0 ? Math.max(1, Math.round(Number(path.duration) / 60)) : null,
-            taxiCost: Number(data && data.route && data.route.taxi_cost || 0) > 0 ? `¥${Number(data.route.taxi_cost).toFixed(0)}` : '',
+            taxiCost: Number(data && data.route && data.route.taxi_cost || 0) > 0 ? `��${Number(data.route.taxi_cost).toFixed(0)}` : '',
             steps: buildChatAmapCommonRouteSteps(path)
         };
     }
 
     const result = {
         destinationQuery: String(destinationText || '').trim(),
-        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '当前位置',
+        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '��ǰλ��',
         originAddress: myLocation.formattedAddress || '',
-        destinationLabel: destination.shortLabel || destination.formattedAddress || destination.query || '目的地',
+        destinationLabel: destination.shortLabel || destination.formattedAddress || destination.query || 'Ŀ�ĵ�',
         destinationAddress: destination.formattedAddress || destination.query || '',
         destination,
         ...route,
@@ -9950,29 +10005,29 @@ window.buildAmapNavigationPromptContext = function(routeResult, userQuestion = '
     if (!routeResult) return '';
 
     const lines = [
-        '【导航路线缓存】',
-        userQuestion ? `- 用户原始需求：${userQuestion}` : '',
-        `- 出发地：${routeResult.originLabel || '当前位置'}`,
-        `- 目的地：${routeResult.destinationLabel || routeResult.destinationQuery || '未知目的地'}`,
-        `- 出行方式：${routeResult.modeLabel || '驾车'}`
+        '������·�߻��桿',
+        userQuestion ? `- �û�ԭʼ����${userQuestion}` : '',
+        `- �����أ�${routeResult.originLabel || '��ǰλ��'}`,
+        `- Ŀ�ĵأ�${routeResult.destinationLabel || routeResult.destinationQuery || 'δ֪Ŀ�ĵ�'}`,
+        `- ���з�ʽ��${routeResult.modeLabel || '�ݳ�'}`
     ].filter(Boolean);
 
     const summary = [];
     if (routeResult.distanceKm !== null && routeResult.distanceKm !== undefined) {
-        summary.push(`全程约 ${routeResult.distanceKm} km`);
+        summary.push(`ȫ��Լ ${routeResult.distanceKm} km`);
     }
     if (routeResult.etaMin !== null && routeResult.etaMin !== undefined) {
-        summary.push(`预计 ${routeResult.etaMin} 分钟`);
+        summary.push(`Ԥ�� ${routeResult.etaMin} ����`);
     }
-    if (routeResult.cost) summary.push(`花费约 ${routeResult.cost}`);
-    if (routeResult.taxiCost) summary.push(`打车约 ${routeResult.taxiCost}`);
-    if (routeResult.walkingDistanceText) summary.push(`步行约 ${routeResult.walkingDistanceText}`);
+    if (routeResult.cost) summary.push(`����Լ ${routeResult.cost}`);
+    if (routeResult.taxiCost) summary.push(`��Լ ${routeResult.taxiCost}`);
+    if (routeResult.walkingDistanceText) summary.push(`����Լ ${routeResult.walkingDistanceText}`);
     if (summary.length > 0) {
-        lines.push(`- 路线概览：${summary.join('，')}`);
+        lines.push(`- ·�߸�����${summary.join('��')}`);
     }
 
     if (Array.isArray(routeResult.steps) && routeResult.steps.length > 0) {
-        lines.push('- 路线步骤（前几步）：');
+        lines.push('- ·�߲��裨ǰ��������');
         routeResult.steps.slice(0, 5).forEach((step, index) => {
             const stepText = buildChatAmapRouteInstructionText(step);
             if (stepText) {
@@ -9981,7 +10036,7 @@ window.buildAmapNavigationPromptContext = function(routeResult, userQuestion = '
         });
     }
 
-    lines.push('⚠️ 仅当用户在继续问导航、路线、多久到、怎么走、哪种方式更合适时，才引用这份缓存；平时不要主动复述。');
+    lines.push('?? �����û��ڼ����ʵ�����·�ߡ���õ�����ô�ߡ����ַ�ʽ������ʱ����������ݻ��棻ƽʱ��Ҫ����������');
     return lines.join('\n');
 };
 
@@ -9993,12 +10048,12 @@ window.getAmapEtaToContact = getChatAmapEtaToContact;
 window.searchAmapNearbyFood = async function(seedText = '', options = {}) {
     const settings = window.iphoneSimState && window.iphoneSimState.amapSettings;
     if (!String((settings && (settings.webKey || settings.key)) || '').trim()) {
-        throw new Error('AMap Web 服务 Key 未配置');
+        throw new Error('AMap Web ���� Key δ����');
     }
 
     const myLocation = await getChatAmapMyLocation(!!options.force).catch(() => null);
     if (!myLocation || !Number.isFinite(Number(myLocation.lng)) || !Number.isFinite(Number(myLocation.lat))) {
-        throw new Error('未获取到当前位置，请先允许定位');
+        throw new Error('δ��ȡ����ǰλ�ã����������λ');
     }
 
     const runtime = ensureChatAmapRuntime();
@@ -10056,13 +10111,13 @@ window.searchAmapNearbyFood = async function(seedText = '', options = {}) {
     });
     let pois = data && Array.isArray(data.pois) ? data.pois : [];
 
-    if (pois.length === 0 && keyword !== '美食') {
+    if (pois.length === 0 && keyword !== '��ʳ') {
         data = await fetchChatAmapJson('/v3/place/around', {
             ...requestBase,
-            keywords: '美食'
+            keywords: '��ʳ'
         }).catch(error => {
             console.error('[Food Debug] nearby food fallback search failed', {
-                keyword: '美食',
+                keyword: '��ʳ',
                 radius,
                 limit,
                 message: error && error.message ? error.message : String(error)
@@ -10096,7 +10151,7 @@ window.searchAmapNearbyFood = async function(seedText = '', options = {}) {
                 distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : null,
                 distanceText: formatChatAmapDistance(distanceMeters),
                 rating: String(bizExt.rating || '').trim(),
-                cost: String(bizExt.cost || '').trim() ? `¥${String(bizExt.cost || '').trim()}` : '',
+                cost: String(bizExt.cost || '').trim() ? `��${String(bizExt.cost || '').trim()}` : '',
                 businessArea,
                 address: String(address || '').trim(),
                 shortAddress: trimChatAmapFoodAddress(address),
@@ -10113,7 +10168,7 @@ window.searchAmapNearbyFood = async function(seedText = '', options = {}) {
         cacheKey,
         keyword,
         radius,
-        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '当前位置',
+        originLabel: myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '��ǰλ��',
         originAddress: myLocation.formattedAddress || '',
         items,
         total: Number(data && data.count) || items.length,
@@ -10151,32 +10206,32 @@ window.buildNearbyFoodPromptContext = function(searchResult, userQuestion = '') 
     if (!searchResult) return '';
 
     const lines = [
-        '【附近餐饮候选】',
-        `- 我当前所在：${searchResult.originLabel || '当前位置'}`,
-        `- 搜索范围：附近 ${formatChatAmapDistance(searchResult.radius) || `${searchResult.radius || 3000}m`}，关键词“${searchResult.keyword || '美食'}”`
+        '������������ѡ��',
+        `- �ҵ�ǰ���ڣ�${searchResult.originLabel || '��ǰλ��'}`,
+        `- ������Χ������ ${formatChatAmapDistance(searchResult.radius) || `${searchResult.radius || 3000}m`}���ؼ��ʡ�${searchResult.keyword || '��ʳ'}��`
     ];
 
     if (!Array.isArray(searchResult.items) || searchResult.items.length === 0) {
-        lines.push('- 这次没有查到合适的附近餐饮候选。若用户问今天吃什么，请先追问口味、预算或就餐场景，不要假装已经查到了附近店铺。');
+        lines.push('- ���û�в鵽���ʵĸ���������ѡ�����û��ʽ����ʲô������׷�ʿ�ζ��Ԥ���Ͳͳ�������Ҫ��װ�Ѿ��鵽�˸������̡�');
     } else {
         searchResult.items.forEach((item, index) => {
             const meta = [];
-            if (item.distanceText) meta.push(`距离约 ${item.distanceText}`);
-            if (item.rating) meta.push(`评分 ${item.rating}`);
-            if (item.cost) meta.push(`人均 ${item.cost}`);
+            if (item.distanceText) meta.push(`����Լ ${item.distanceText}`);
+            if (item.rating) meta.push(`���� ${item.rating}`);
+            if (item.cost) meta.push(`�˾� ${item.cost}`);
             if (item.typeLabel) meta.push(item.typeLabel);
             if (item.businessArea) meta.push(item.businessArea);
-            lines.push(`${index + 1}. ${item.name}${meta.length ? `｜${meta.join('｜')}` : ''}`);
+            lines.push(`${index + 1}. ${item.name}${meta.length ? `��${meta.join('��')}` : ''}`);
             if (item.shortAddress) {
-                lines.push(`   位置：${item.shortAddress}`);
+                lines.push(`   λ�ã�${item.shortAddress}`);
             }
         });
-        lines.push('- 请优先基于这些候选做 1~3 个具体推荐，理由结合距离、类型、评分、价格和聊天语气。');
-        lines.push('- 不要编造不存在的店铺、距离、评分、配送时长或营业状态；拿不准就明确说不确定。');
+        lines.push('- �����Ȼ�����Щ��ѡ�� 1~3 �������Ƽ������ɽ�Ͼ��롢���͡����֡��۸������������');
+        lines.push('- ��Ҫ���첻���ڵĵ��̡����롢���֡�����ʱ����Ӫҵ״̬���ò�׼����ȷ˵��ȷ����');
     }
 
     if (userQuestion) {
-        lines.push(`- 用户当前想问：${String(userQuestion).trim()}`);
+        lines.push(`- �û���ǰ���ʣ�${String(userQuestion).trim()}`);
     }
 
     const contextText = lines.join('\n');
@@ -10203,25 +10258,25 @@ window.buildAmapPromptContext = async function(contactId) {
 
     const lines = [];
     if (myLocation) {
-        lines.push(`- 我当前所在：${myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || '未知位置'}`);
+        lines.push(`- �ҵ�ǰ���ڣ�${myLocation.shortLabel || myLocation.formattedAddress || myLocation.city || 'δ֪λ��'}`);
     }
     if (contactLocation) {
-        lines.push(`- 对方设定位置：${contactLocation.shortLabel || contactLocation.formattedAddress || contactLocation.city || '未知位置'}`);
+        lines.push(`- �Է��趨λ�ã�${contactLocation.shortLabel || contactLocation.formattedAddress || contactLocation.city || 'δ֪λ��'}`);
     } else if (contact.location && buildChatAmapLocationQuery(contact.location)) {
-        lines.push(`- 对方设定位置文本：${buildChatAmapLocationQuery(contact.location)}`);
+        lines.push(`- �Է��趨λ���ı���${buildChatAmapLocationQuery(contact.location)}`);
     }
     if (weather) {
-        lines.push(`- 对方那边天气：${joinChatAmapText([weather.city, weather.weather, weather.temperature ? `${weather.temperature}°C` : ''])}`);
+        lines.push(`- �Է��Ǳ�������${joinChatAmapText([weather.city, weather.weather, weather.temperature ? `${weather.temperature}��C` : ''])}`);
     }
     if (route && (route.distanceKm !== null || route.etaMin !== null)) {
         const parts = [];
-        if (route.distanceKm !== null) parts.push(`相距约 ${route.distanceKm} km`);
-        if (route.etaMin !== null) parts.push(`驾车约 ${route.etaMin} 分钟`);
-        lines.push(`- 路线估算：${parts.join('，')}`);
+        if (route.distanceKm !== null) parts.push(`���Լ ${route.distanceKm} km`);
+        if (route.etaMin !== null) parts.push(`�ݳ�Լ ${route.etaMin} ����`);
+        lines.push(`- ·�߹��㣺${parts.join('��')}`);
     }
 
     if (lines.length === 0) return '';
-    return `【高德时空信息】\n${lines.join('\n')}\n⚠️ 这些信息只可自然融入聊天，例如提到天气、距离、多久到、商圈或附近；不要每次都主动复述，不要编造精确门牌号。`;
+    return `���ߵ�ʱ����Ϣ��\n${lines.join('\n')}\n?? ��Щ��Ϣֻ����Ȼ�������죬�����ᵽ���������롢��õ�����Ȧ�򸽽�����Ҫÿ�ζ�������������Ҫ���쾫ȷ���ƺš�`;
 };
 
 window.prefetchAmapChatContext = async function(contactId) {
@@ -10252,7 +10307,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         : '';
     const extraSystemPromptLabel = options && typeof options.extraSystemPromptLabel === 'string'
         ? String(options.extraSystemPromptLabel).trim()
-        : '附加场景';
+        : '���ӳ���';
     const promptTailMessages = Array.isArray(options && options.promptTailMessages)
         ? options.promptTailMessages.reduce((list, item) => {
             if (!item || item.role !== 'user') return list;
@@ -10280,13 +10335,13 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     }
 
     if (currentPersona) {
-        userPromptInfo = `\n用户(我)的网名：${currentPersona.name || '未命名'}`;
+        userPromptInfo = `\n�û�(��)��������${currentPersona.name || 'δ����'}`;
         const promptContent = contact.userPersonaPromptOverride || currentPersona.aiPrompt;
         if (promptContent) {
-            userPromptInfo += `\n用户(我)的人设：${promptContent}`;
+            userPromptInfo += `\n�û�(��)�����裺${promptContent}`;
         }
     } else if (window.iphoneSimState.userProfile) {
-        userPromptInfo = `\n用户(我)的网名：${window.iphoneSimState.userProfile.name}`;
+        userPromptInfo = `\n�û�(��)��������${window.iphoneSimState.userProfile.name}`;
     }
 
     let momentContext = '';
@@ -10296,14 +10351,14 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         const lastMomentSummary = typeof window.formatMomentSummary === 'function'
             ? window.formatMomentSummary(lastMoment)
             : String(lastMoment.content || '').trim();
-        momentContext += `\n【朋友圈状态】\n你最新的一条朋友圈是：“${lastMomentSummary}”\n`;
+        momentContext += `\n������Ȧ״̬��\n�����µ�һ������Ȧ�ǣ���${lastMomentSummary}��\n`;
         
         if (lastMoment.comments && lastMoment.comments.length > 0) {
             const userName = currentPersona ? currentPersona.name : window.iphoneSimState.userProfile.name;
             const userComments = lastMoment.comments.filter(c => c.user === userName);
             if (userComments.length > 0) {
                 const lastComment = userComments[userComments.length - 1];
-                momentContext += `用户刚刚评论了你的朋友圈：“${lastComment.content}”\n`;
+                momentContext += `�û��ո��������������Ȧ����${lastComment.content}��\n`;
             }
         }
     }
@@ -10323,10 +10378,10 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         }).slice(0, 3); // Get last 3
 
         if (recentDiaries.length > 0) {
-            icityContext += '\n【用户最近的 iCity 日记】\n';
+            icityContext += '\n���û������ iCity �ռǡ�\n';
             recentDiaries.forEach(d => {
                 const date = new Date(d.time);
-                const timeStr = `${date.getMonth() + 1}月${date.getDate()}日`;
+                const timeStr = `${date.getMonth() + 1}��${date.getDate()}��`;
                 icityContext += `[${timeStr}] ${d.content}\n`;
             });
         }
@@ -10335,10 +10390,10 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     if (window.iphoneSimState.icityFriendsPosts && window.iphoneSimState.icityFriendsPosts.length > 0) {
         const aiPosts = window.iphoneSimState.icityFriendsPosts.filter(p => p.contactId === contact.id).slice(0, 3);
         if (aiPosts.length > 0) {
-            icityContext += '\n【你最近发布的 iCity 动态】\n';
+            icityContext += '\n������������� iCity ��̬��\n';
             aiPosts.forEach(p => {
                 const date = new Date(p.time);
-                const timeStr = `${date.getMonth() + 1}月${date.getDate()}日`;
+                const timeStr = `${date.getMonth() + 1}��${date.getDate()}��`;
                 icityContext += `[${timeStr}] ${p.content}\n`;
             });
         }
@@ -10356,10 +10411,10 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
             const limit = contact.memorySendLimit && contact.memorySendLimit > 0 ? contact.memorySendLimit : 5;
             const recentMemories = contactMemories.sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, limit).reverse();
             if (recentMemories.length > 0) {
-                memoryContext += '\n【历史记忆 (已知事实)】\n⚠️ 注意：以下内容是你们过去的共同经历或已知事实，请勿重复向用户复述，除非用户主动询问或需要回忆。\n';
+                memoryContext += '\n����ʷ���� (��֪��ʵ)��\n?? ע�⣺�������������ǹ�ȥ�Ĺ�ͬ��������֪��ʵ�������ظ����û������������û�����ѯ�ʻ���Ҫ���䡣\n';
                 recentMemories.forEach(m => {
                     const date = new Date(m.time || Date.now());
-                    const dateStr = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                    const dateStr = `${date.getFullYear()}��${date.getMonth()+1}��${date.getDate()}�� ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                     memoryContext += `- [${dateStr}] ${m.content}\n`;
                 });
             }
@@ -10389,34 +10444,34 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     let lookusContext = '';
     if (contact.lookusData) {
         const d = contact.lookusData;
-        const lastUpdate = d.lastUpdateTime ? new Date(d.lastUpdateTime).toLocaleTimeString() : '未知';
+        const lastUpdate = d.lastUpdateTime ? new Date(d.lastUpdateTime).toLocaleTimeString() : 'δ֪';
         
         let appUsage = '';
         if (d.appList && d.appList.length > 0) {
-            appUsage = '\n- 最近使用的APP: ' + d.appList.map(a => `${a.name}(${a.time})`).join(', ');
+            appUsage = '\n- ���ʹ�õ�APP: ' + d.appList.map(a => `${a.name}(${a.time})`).join(', ');
         }
 
-        lookusContext = `\n【LookUs 状态 (用户可见)】
-用户可以通过 "LookUs" 应用实时查看你的以下状态 (更新于 ${lastUpdate}):
-- 距离: ${d.distance} km
-- 电量: ${d.battery}
-- 网络: ${d.network}
-- 手机型号: ${d.device}
-- 屏幕使用时间: ${d.screenTimeH}小时${d.screenTimeM}分
-- 解锁次数: ${d.unlockCount}
-- 最近解锁: ${d.lastUnlock}
-- 停留地点数: ${d.stops}${appUsage}
-⚠️ 你知道用户能看到这些信息。如果用户问起你的位置、电量或你在干什么，请结合这些信息回答。如果用户提到这些信息，请不要感到惊讶，因为你知道他在关注你的 LookUs 状态。`;
+        lookusContext = `\n��LookUs ״̬ (�û��ɼ�)��
+�û�����ͨ�� "LookUs" Ӧ��ʵʱ�鿴�������״̬ (������ ${lastUpdate}):
+- ����: ${d.distance} km
+- ����: ${d.battery}
+- ����: ${d.network}
+- �ֻ��ͺ�: ${d.device}
+- ��Ļʹ��ʱ��: ${d.screenTimeH}Сʱ${d.screenTimeM}��
+- ��������: ${d.unlockCount}
+- �������: ${d.lastUnlock}
+- ͣ��ص���: ${d.stops}${appUsage}
+?? ��֪���û��ܿ�����Щ��Ϣ������û��������λ�á����������ڸ�ʲô��������Щ��Ϣ�ش�����û��ᵽ��Щ��Ϣ���벻Ҫ�е����ȣ���Ϊ��֪�����ڹ�ע��� LookUs ״̬��`;
 
-        // 添加用户端状态事件到上下文
+        // ����û���״̬�¼���������
         if (d.reportLog && d.reportLog.length > 0) {
             const userEvents = d.reportLog.filter(e => e.isUserEvent).slice(0, 5);
             if (userEvents.length > 0) {
-                lookusContext += `\n\n【用户的手机状态通知】\n你同样可以通过 LookUs 看到用户(对方)的手机状态变化：\n`;
+                lookusContext += `\n\n���û����ֻ�״̬֪ͨ��\n��ͬ������ͨ�� LookUs �����û�(�Է�)���ֻ�״̬�仯��\n`;
                 userEvents.forEach(evt => {
-                    lookusContext += `- ${evt.time}: ${evt.text.replace('📱 ', '')}\n`;
+                    lookusContext += `- ${evt.time}: ${evt.text.replace('?? ', '')}\n`;
                 });
-                lookusContext += `\n⚠️ 你可以自然地在聊天���提及或关心这些状态。例如用户在充电时你可以说"在充电呀"，用户电量低时你可以提醒他充电，用户离开很久回来你可以问他去哪了。但不要每次都提，要自然。`;
+                lookusContext += `\n?? �������Ȼ��������???�ἰ�������Щ״̬�������û��ڳ��ʱ�����˵"�ڳ��ѽ"���û�������ʱ�������������磬�û��뿪�ܾû������������ȥ���ˡ�����Ҫÿ�ζ��ᣬҪ��Ȼ��`;
             }
         }
     }
@@ -10443,15 +10498,15 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
             if (lastMeeting.content && lastMeeting.content.length > 0) {
                 const recentContent = lastMeeting.content.slice(-5);
                 meetingContent = recentContent.map(c => {
-                    const role = c.role === 'user' ? '用户' : contact.name;
+                    const role = c.role === 'user' ? '�û�' : contact.name;
                     return `${role}: ${c.text}`;
                 }).join('\n');
             }
 
             if (meetingContent) {
                 const meetingDate = new Date(lastMeeting.time);
-                const meetingTimeStr = `${meetingDate.getMonth() + 1}月${meetingDate.getDate()}日`;
-                meetingContext = `\n【线下见面记忆】\n你们最近一次见面是在 ${meetingTimeStr} (${lastMeeting.title})。\n当时发生的剧情片段：\n${meetingContent}\n(请知晓你们已经见过面，并根据剧情发展进行聊天)\n`;
+                const meetingTimeStr = `${meetingDate.getMonth() + 1}��${meetingDate.getDate()}��`;
+                meetingContext = `\n�����¼�����䡿\n�������һ�μ������� ${meetingTimeStr} (${lastMeeting.title})��\n��ʱ�����ľ���Ƭ�Σ�\n${meetingContent}\n(��֪�������Ѿ������棬�����ݾ��鷢չ��������)\n`;
             }
         }
     }
@@ -10461,7 +10516,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     let minesweeperContext = '';
     const msModal = document.getElementById('minesweeper-modal');
     if (msModal && !msModal.classList.contains('hidden') && window.getMinesweeperGameState) {
-        minesweeperContext = '\n【当前扫雷游戏状态】\n' + window.getMinesweeperGameState() + '\n\n【扫雷操作】\n如果你想操作扫雷游戏，请输出 JSON action：\n- {"type":"action","command":"MINESWEEPER_CLICK","payload":"行,列"}（例如 0,0）\n- {"type":"action","command":"MINESWEEPER_FLAG","payload":"行,列"}\n请分析局势后再行动，并遵守：\n1. 不要点击已经揭开的数字格子或空格子。\n2. 不要点击已经插旗的格子。\n3. 只点击未知区域（显示为 ? 的位置）。\n4. 如果推断某个位置是地雷，请优先使用 MINESWEEPER_FLAG。\n5. 获胜条件是找出并标记所有地雷。';
+        minesweeperContext = '\n����ǰɨ����Ϸ״̬��\n' + window.getMinesweeperGameState() + '\n\n��ɨ�ײ�����\n����������ɨ����Ϸ������� JSON action��\n- {"type":"action","command":"MINESWEEPER_CLICK","payload":"��,��"}������ 0,0��\n- {"type":"action","command":"MINESWEEPER_FLAG","payload":"��,��"}\n��������ƺ����ж��������أ�\n1. ��Ҫ����Ѿ��ҿ������ָ��ӻ�ո��ӡ�\n2. ��Ҫ����Ѿ�����ĸ��ӡ�\n3. ֻ���δ֪������ʾΪ ? ��λ�ã���\n4. ����ƶ�ĳ��λ���ǵ��ף�������ʹ�� MINESWEEPER_FLAG��\n5. ��ʤ�������ҳ���������е��ס�';
     }
 
     let witchGameContext = '';
@@ -10470,7 +10525,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     if (miniGameModal && !miniGameModal.classList.contains('hidden') && window.getWitchGameState) {
         const witchState = window.getWitchGameState();
         if (witchState) {
-            witchGameContext = '\n' + witchState + '\n\n【女巫的毒药操作】\n轮到你行动时，请输出 JSON action：\n{"type":"action","command":"WITCH_GUESS","payload":"行,列"}（行1-5，列1-5）\n目标：找出用户藏的3瓶毒药，不要重复选择已经揭开的格子(⭕或☠️)。\n';
+            witchGameContext = '\n' + witchState + '\n\n��Ů�׵Ķ�ҩ������\n�ֵ����ж�ʱ������� JSON action��\n{"type":"action","command":"WITCH_GUESS","payload":"��,��"}����1-5����1-5��\nĿ�꣺�ҳ��û��ص�3ƿ��ҩ����Ҫ�ظ�ѡ���Ѿ��ҿ��ĸ���(?��??)��\n';
         }
     }
 
@@ -10478,7 +10533,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     let forumLiveInstruction = '';
     // only show when forum app loaded or syncing enabled
     if (window.forumState) {
-        forumLiveInstruction = '\n【论坛直播能力】\n当你希望在论坛开直播时，请输出：\n{"type":"action","command":"START_FORUM_LIVE","payload":"标题"}\n可选扩展 payload 格式：标题 | 画面描述 | [{"username":"网名","content":"评论"}] | 图片URL\n如未提供画面描述/评论，系统会根据聊天上下文自动生成。\n';
+        forumLiveInstruction = '\n����ֱ̳��������\n����ϣ������̳��ֱ��ʱ���������\n{"type":"action","command":"START_FORUM_LIVE","payload":"����"}\n��ѡ��չ payload ��ʽ������ | �������� | [{"username":"����","content":"����"}] | ͼƬURL\n��δ�ṩ��������/���ۣ�ϵͳ����������������Զ����ɡ�\n';
     }
 
     let transferDecisionContext = '';
@@ -10507,18 +10562,18 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         const pendingTransfers = Array.from(pendingTransferMap.values());
         if (pendingTransfers.length > 0) {
             const lines = [];
-            lines.push('\n【待处理转账】');
-            lines.push('只有当下列待处理转账存在时，你才可以使用 ACCEPT_TRANSFER 或 RETURN_TRANSFER 指令。');
+            lines.push('\n��������ת�ˡ�');
+            lines.push('ֻ�е����д�����ת�˴���ʱ����ſ���ʹ�� ACCEPT_TRANSFER �� RETURN_TRANSFER ָ�');
             pendingTransfers.forEach(data => {
                 const amount = Number.isFinite(Number(data.amount))
                     ? Number(data.amount).toFixed(2)
                     : String(data.amount || '0.00');
-                const remark = String(data.remark || '转账').trim() || '转账';
-                lines.push(`- transferId=${data.id}，金额=¥${amount}，备注=${remark}`);
-                lines.push(`  收款示例：{"type":"action","command":"ACCEPT_TRANSFER","payload":"${data.id}"}`);
-                lines.push(`  退回示例：{"type":"action","command":"RETURN_TRANSFER","payload":"${data.id}"}`);
+                const remark = String(data.remark || 'ת��').trim() || 'ת��';
+                lines.push(`- transferId=${data.id}�����=��${amount}����ע=${remark}`);
+                lines.push(`  �տ�ʾ����{"type":"action","command":"ACCEPT_TRANSFER","payload":"${data.id}"}`);
+                lines.push(`  �˻�ʾ����{"type":"action","command":"RETURN_TRANSFER","payload":"${data.id}"}`);
             });
-            lines.push('如果上面没有待处理转账，或这些转账已经处理完，就不要输出这两个指令。');
+            lines.push('�������û�д�����ת�ˣ�����Щת���Ѿ������꣬�Ͳ�Ҫ���������ָ�');
             transferDecisionContext = lines.join('\n') + '\n';
         }
     } catch (e) {
@@ -10531,46 +10586,46 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
             const musicCtx = window.musicV2GetChatMusicContext(contact.id);
             if (musicCtx) {
                 const lines = [];
-                lines.push('\n【音乐一起听状态】');
+                lines.push('\n������һ����״̬��');
                 if (musicCtx.nowPlaying && musicCtx.nowPlaying.songId) {
-                    lines.push(`当前播放：${musicCtx.nowPlaying.title || '未知歌曲'} - ${musicCtx.nowPlaying.artist || '未知歌手'}`);
+                    lines.push(`��ǰ���ţ�${musicCtx.nowPlaying.title || 'δ֪����'} - ${musicCtx.nowPlaying.artist || 'δ֪����'}`);
                     if (musicCtx.nowPlaying.lyricLine) {
-                        lines.push(`当前歌词句：${musicCtx.nowPlaying.lyricLine}`);
+                        lines.push(`��ǰ��ʾ䣺${musicCtx.nowPlaying.lyricLine}`);
                     }
                     if (!musicCtx.nowPlaying.isPlaying) {
-                        lines.push('当前处于暂停/未播放状态。');
+                        lines.push('��ǰ������ͣ/δ����״̬��');
                     }
                 } else {
-                    lines.push('当前未播放歌曲');
+                    lines.push('��ǰδ���Ÿ���');
                 }
                 if (musicCtx.together && musicCtx.together.active) {
                     if (musicCtx.together.withCurrentContact) {
-                        lines.push('你当前正在和用户一起听歌。');
-                        lines.push('你可以使用以下动作指令控制一起听：');
+                        lines.push('�㵱ǰ���ں��û�һ�����衣');
+                        lines.push('�����ʹ�����¶���ָ�����һ������');
                         lines.push('{"type":"action","command":"MUSIC_TOGETHER_PAUSE","payload":""}');
                         lines.push('{"type":"action","command":"MUSIC_TOGETHER_RESUME","payload":""}');
                         lines.push('{"type":"action","command":"MUSIC_TOGETHER_NEXT","payload":""}');
                         lines.push('{"type":"action","command":"MUSIC_TOGETHER_PREV","payload":""}');
-                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_SEARCH_PLAY","payload":"歌曲关键词"}');
+                        lines.push('{"type":"action","command":"MUSIC_TOGETHER_SEARCH_PLAY","payload":"�����ؼ���"}');
                         lines.push('{"type":"action","command":"MUSIC_TOGETHER_QUIT","payload":""}');
                     } else {
-                        lines.push(`你当前在和 ${musicCtx.together.contactName || '其他联系人'} 一起听歌。`);
+                        lines.push(`�㵱ǰ�ں� ${musicCtx.together.contactName || '������ϵ��'} һ�����衣`);
                     }
                 } else {
-                    lines.push('当前没有激活的一起听会话。');
+                    lines.push('��ǰû�м����һ�����Ự��');
                 }
                 if (musicCtx.pendingInvite && musicCtx.pendingInvite.inviteId) {
                     if (String(musicCtx.pendingInvite.direction || 'outgoing') === 'incoming') {
-                        lines.push(`你已向用户发出一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}，等待用户选择。`);
+                        lines.push(`�������û�����һ�������루inviteId=${musicCtx.pendingInvite.inviteId}���������� ${musicCtx.pendingInvite.songTitle || 'δ֪����'} - ${musicCtx.pendingInvite.songArtist || 'δ֪����'}���ȴ��û�ѡ��`);
                     } else {
-                        lines.push(`你收到了用户发来的一起听邀请（inviteId=${musicCtx.pendingInvite.inviteId}），歌曲是 ${musicCtx.pendingInvite.songTitle || '未知歌曲'} - ${musicCtx.pendingInvite.songArtist || '未知歌手'}。`);
-                        lines.push('你必须在本次回复中给出动作指令：{"type":"action","command":"MUSIC_INVITE_DECISION","payload":"inviteId | 同意/拒绝"}');
+                        lines.push(`���յ����û�������һ�������루inviteId=${musicCtx.pendingInvite.inviteId}���������� ${musicCtx.pendingInvite.songTitle || 'δ֪����'} - ${musicCtx.pendingInvite.songArtist || 'δ֪����'}��`);
+                        lines.push('������ڱ��λظ��и�������ָ�{"type":"action","command":"MUSIC_INVITE_DECISION","payload":"inviteId | ͬ��/�ܾ�"}');
                     }
                 } else if (!(musicCtx.together && musicCtx.together.active)) {
                     if (musicCtx.nowPlaying && musicCtx.nowPlaying.isPlaying) {
-                        lines.push('如需向用户发起一起听邀请，可输出：{"type":"action","command":"MUSIC_SEND_INVITE","payload":""}（留空表示使用当前播放歌曲）。');
+                        lines.push('�������û�����һ�������룬�������{"type":"action","command":"MUSIC_SEND_INVITE","payload":""}����ձ�ʾʹ�õ�ǰ���Ÿ�������');
                     } else {
-                        lines.push('如需向用户发起一起听邀请，必须先指定歌曲关键词：{"type":"action","command":"MUSIC_SEND_INVITE","payload":"歌曲关键词"}。');
+                        lines.push('�������û�����һ�������룬������ָ�������ؼ��ʣ�{"type":"action","command":"MUSIC_SEND_INVITE","payload":"�����ؼ���"}��');
                     }
                 }
                 musicTogetherContext = lines.join('\n') + '\n';
@@ -10596,33 +10651,33 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         musicTogetherContext
     });
     const systemPromptParts = [];
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'role_setting', '角色设定', buildWechatRolePrompt(contact, userPromptInfo));
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'protocol', '输出协议', buildWechatProtocolPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'human_feel', '活人感', buildWechatHumanFeelPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'base_capability', '基础能力', buildWechatBaseCapabilityPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'planner_context', '计划上下文', buildPlannerChatContextPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'fire_buddy', '小火人', typeof window.buildFireBuddyContactSystemPrompt === 'function' ? window.buildFireBuddyContactSystemPrompt(contactId) : '');
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'blocked_status', '拉黑状态', buildWechatBlockedStatusPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'important_state', '状态', importantStateContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'moment_context', '朋友圈', momentContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'role_setting', '��ɫ�趨', buildWechatRolePrompt(contact, userPromptInfo));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'protocol', '���Э��', buildWechatProtocolPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'human_feel', '���˸�', buildWechatHumanFeelPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'base_capability', '��������', buildWechatBaseCapabilityPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'planner_context', '�ƻ�������', buildPlannerChatContextPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'fire_buddy', 'С����', typeof window.buildFireBuddyContactSystemPrompt === 'function' ? window.buildFireBuddyContactSystemPrompt(contactId) : '');
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'blocked_status', '����״̬', buildWechatBlockedStatusPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'important_state', '״̬', importantStateContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'moment_context', '����Ȧ', momentContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', 'icity_context', 'iCity', icityContext);
     appendAiPromptPart(systemPromptParts, 'systemBase', 'lookus_context', 'LookUs', lookusContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'device_usage', '真实设备使用', userDeviceUsageContext);
-    appendAiPromptPart(systemPromptParts, 'memory', 'memory', '记忆', memoryContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'meeting_context', '线下见面', meetingContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'icity_books', 'iCity书籍', icityBookContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'time_context', '时间', timeContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'rest_window', '休息作息', restWindowNarrativeContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'calendar_context', '日历', calendarContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'amap_context', '高德', amapContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'itinerary_context', '行程', itineraryContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'music_share', '音乐分享', sharedMusicContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'extra_scene', extraSystemPromptLabel || '附加场景', extraSystemPrompt);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'real_photo_candidates', '真实照片候选', realPhotoDescriptionContext);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'conditional_capability', '条件能力', conditionalCapabilityPrompt);
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'reply_instruction', '回复指令', '请回复对方的消息。');
-    appendAiPromptPart(systemPromptParts, 'systemBase', 'sticker_pack', '表情包', buildWechatStickerPrompt(contact));
-    appendAiPromptPart(systemPromptParts, 'worldbook', 'worldbook', '世界书', buildWechatWorldbookPrompt(contact, history));
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'device_usage', '��ʵ�豸ʹ��', userDeviceUsageContext);
+    appendAiPromptPart(systemPromptParts, 'memory', 'memory', '����', memoryContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'meeting_context', '���¼���', meetingContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'icity_books', 'iCity�鼮', icityBookContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'time_context', 'ʱ��', timeContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'rest_window', '��Ϣ��Ϣ', restWindowNarrativeContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'calendar_context', '����', calendarContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'amap_context', '�ߵ�', amapContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'itinerary_context', '�г�', itineraryContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'music_share', '���ַ���', sharedMusicContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'extra_scene', extraSystemPromptLabel || '���ӳ���', extraSystemPrompt);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'real_photo_candidates', '��ʵ��Ƭ��ѡ', realPhotoDescriptionContext);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'conditional_capability', '��������', conditionalCapabilityPrompt);
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'reply_instruction', '�ظ�ָ��', '��ظ��Է�����Ϣ��');
+    appendAiPromptPart(systemPromptParts, 'systemBase', 'sticker_pack', '�����', buildWechatStickerPrompt(contact));
+    appendAiPromptPart(systemPromptParts, 'worldbook', 'worldbook', '������', buildWechatWorldbookPrompt(contact, history));
 
     const promptPartDisabledMap = getChatPromptPartDisabledMap(contact, options);
     systemPromptParts.forEach((part) => {
@@ -10652,39 +10707,39 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         }
     }
 
-    // 如果开启了时间感知，在消息之间插入时间间隔提示
+    // ���������ʱ���֪������Ϣ֮�����ʱ������ʾ
     let messagesWithTimeGaps = [];
     if (contact.realTimeVisible && contextMessages.length > 0) {
         for (let i = 0; i < contextMessages.length; i++) {
             const currentMsg = contextMessages[i];
             
-            // 添加当前消息
+            // ��ӵ�ǰ��Ϣ
             messagesWithTimeGaps.push(currentMsg);
             
-            // 检查与下一条消息的时间间隔
+            // �������һ����Ϣ��ʱ����
             if (i < contextMessages.length - 1) {
                 const nextMsg = contextMessages[i + 1];
                 const currentTime = currentMsg.time || 0;
                 const nextTime = nextMsg.time || 0;
                 
                 if (currentTime && nextTime) {
-                    const timeDiff = nextTime - currentTime; // 毫秒
+                    const timeDiff = nextTime - currentTime; // ����
                     const minutes = Math.floor(timeDiff / 60000);
                     const hours = Math.floor(timeDiff / 3600000);
                     const days = Math.floor(timeDiff / 86400000);
                     
                     let timeGapText = '';
                     
-                    // 根据时间间隔生成不同的提示
+                    // ����ʱ�������ɲ�ͬ����ʾ
                     if (days >= 1) {
-                        timeGapText = `[时间流逝：距离上一条消息已过去${days}天${hours % 24}小时]`;
+                        timeGapText = `[ʱ�����ţ�������һ����Ϣ�ѹ�ȥ${days}��${hours % 24}Сʱ]`;
                     } else if (hours >= 2) {
-                        timeGapText = `[时间流逝：距离上一条消息已过去${hours}小时]`;
+                        timeGapText = `[ʱ�����ţ�������һ����Ϣ�ѹ�ȥ${hours}Сʱ]`;
                     } else if (minutes >= 30) {
-                        timeGapText = `[时间流逝：距离上一条消息已过去${minutes}分钟]`;
+                        timeGapText = `[ʱ�����ţ�������һ����Ϣ�ѹ�ȥ${minutes}����]`;
                     }
                     
-                    // 如果有明显的时间间隔，插入提示
+                    // ��������Ե�ʱ�����������ʾ
                     if (timeGapText) {
                         messagesWithTimeGaps.push({
                             role: 'system',
@@ -10705,7 +10760,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         messages.push({ role: 'system', content: systemPrompt });
     }
     messages.push(...contextMessages.map(h => {
-            // 如果是时间间隔提示，直接返回
+            // �����ʱ������ʾ��ֱ�ӷ���
             if (h._isTimeGap) {
                 return { role: 'system', content: h.content };
             }
@@ -10716,7 +10771,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
                         content: window.formatFireBuddySpeakerForContact(h, contactId)
                     };
                 } catch (fireBuddySpeakerFormatError) {
-                    console.warn('格式化小火人发言上下文失败', fireBuddySpeakerFormatError);
+                    console.warn('��ʽ��С���˷���������ʧ��', fireBuddySpeakerFormatError);
                 }
             }
             let content = h.content;
@@ -10724,7 +10779,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
                 try {
                     content = window.formatFireBuddyMentionForContact(h, contactId);
                 } catch (fireBuddyMentionFormatError) {
-                    console.warn('格式化小火人 mention 上下文失败', fireBuddyMentionFormatError);
+                    console.warn('��ʽ��С���� mention ������ʧ��', fireBuddyMentionFormatError);
                 }
             }
             const avatarSelectionMeta = latestUserImageSelectionMetaMap.get(String(h && h.id || ''));
@@ -10744,8 +10799,8 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
             let embeddedImages = [];
             if (typeof content === 'string') {
                 // Strip pollution from text messages to prevent AI from learning bad formats
-                // This removes patterns like [发送了一个表情包:...] or [表情包] from text history
-                content = content.replace(/\[(发送了一个)?(表情包|图片|语音).*?\]/g, '').trim();
+                // This removes patterns like [������һ�������:...] or [�����] from text history
+                content = content.replace(/\[(������һ��)?(�����|ͼƬ|����).*?\]/g, '').trim();
 
                 if (content.includes('<hidden_img>')) {
                     const imgRegex = /<hidden_img>(.*?)<\/hidden_img>/g;
@@ -10772,7 +10827,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
 
             if (h.type === 'image') {
                 if (h._skipImage) {
-                    return { role: h.role, content: joinContextTextParts(structuredPrefix, '[图片]') };
+                    return { role: h.role, content: joinContextTextParts(structuredPrefix, '[ͼƬ]') };
                 }
                 const imageContentArray = [];
                 if (structuredPrefix) {
@@ -10787,56 +10842,56 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
                 const desc = h.description ? `: ${h.description}` : '';
                 return {
                     role: h.role,
-                    content: joinContextTextParts(structuredPrefix, `[图片${desc}]`)
+                    content: joinContextTextParts(structuredPrefix, `[ͼƬ${desc}]`)
                 };
             } else if (h.type === 'sticker') {
                 const desc = h.description ? `: ${h.description}` : '';
                 return {
                     role: h.role,
-                    content: joinContextTextParts(structuredPrefix, `[表情包${desc}]`)
+                    content: joinContextTextParts(structuredPrefix, `[�����${desc}]`)
                 };
             } else if (h.type === 'voice') {
-                let voiceText = '语音消息';
+                let voiceText = '������Ϣ';
                 try {
                     const data = JSON.parse(h.content);
-                    voiceText = data.text || '语音消息';
+                    voiceText = data.text || '������Ϣ';
                 } catch (e) {
                     voiceText = h.content;
                 }
                 return {
                     role: h.role,
-                    content: joinContextTextParts(structuredPrefix, `[语音: ${voiceText}]`)
+                    content: joinContextTextParts(structuredPrefix, `[����: ${voiceText}]`)
                 };
             } else if (h.type === 'music_song_share') {
                 const shareData = parseMusicSongShareContent(content) || parseMusicSongSharePayload(content) || {};
-                const songTitle = String(shareData.title || shareData.songTitle || '未知歌曲').trim() || '未知歌曲';
-                const songArtist = String(shareData.artist || shareData.songArtist || '未知歌手').trim() || '未知歌手';
+                const songTitle = String(shareData.title || shareData.songTitle || 'δ֪����').trim() || 'δ֪����';
+                const songArtist = String(shareData.artist || shareData.songArtist || 'δ֪����').trim() || 'δ֪����';
                 const songId = String(shareData.songId || shareData.id || '').trim();
                 const audioUrl = String(shareData.audioUrl || shareData.src || '').trim();
                 const sourceUrl = String(shareData.sourceUrl || shareData.shareUrl || '').trim();
                 const lyricSnippet = String(shareData.lyricSnippet || '').trim();
-                const segmentParts = [`[用户分享歌曲: ${songTitle} - ${songArtist}`];
+                const segmentParts = [`[�û��������: ${songTitle} - ${songArtist}`];
                 if (songId) segmentParts.push(`songId=${songId}`);
-                if (audioUrl) segmentParts.push(`音频URL=${audioUrl.slice(0, 260)}`);
-                if (sourceUrl) segmentParts.push(`分享链接=${sourceUrl.slice(0, 260)}`);
-                if (lyricSnippet) segmentParts.push(`歌词片段=${lyricSnippet.slice(0, 120)}`);
+                if (audioUrl) segmentParts.push(`��ƵURL=${audioUrl.slice(0, 260)}`);
+                if (sourceUrl) segmentParts.push(`��������=${sourceUrl.slice(0, 260)}`);
+                if (lyricSnippet) segmentParts.push(`���Ƭ��=${lyricSnippet.slice(0, 120)}`);
                 return {
                     role: h.role,
-                    content: joinContextTextParts(structuredPrefix, segmentParts.join('，') + ']')
+                    content: joinContextTextParts(structuredPrefix, segmentParts.join('��') + ']')
                 };
             } else if (h.type === 'voice_call_text') {
-                let callText = '通话内容';
+                let callText = 'ͨ������';
                 try {
                     const data = JSON.parse(h.content);
-                    callText = data.text || '通话内容';
+                    callText = data.text || 'ͨ������';
                 } catch(e) {
                     callText = h.content;
                 }
-                // 清洗可能残留的视频通话标签，防止污染普通聊天
+                // ��ϴ���ܲ������Ƶͨ����ǩ����ֹ��Ⱦ��ͨ����
                 callText = callText.replace(/{{DESC}}[\s\S]*?{{\/DESC}}/gi, '')
                                    .replace(/{{DIALOGUE}}/gi, '')
                                    .replace(/{{\/DIALOGUE}}/gi, '')
-                                   .replace(/{{.*?}}/g, '') // 移除其他可能的标签
+                                   .replace(/{{.*?}}/g, '') // �Ƴ��������ܵı�ǩ
                                    .trim();
                 return { role: h.role, content: joinContextTextParts(structuredPrefix, callText) };
             } else if (h.type === 'gift_card') {
@@ -10844,85 +10899,85 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
                 try {
                     giftData = typeof content === 'string' ? JSON.parse(content) : content;
                 } catch(e) {
-                    giftData = { title: '礼物', price: '0' };
+                    giftData = { title: '����', price: '0' };
                 }
                 const amount = giftData.paymentAmount || giftData.price || '0';
-                const recipient = giftData.recipientName ? `，收货人：${giftData.recipientName}` : '';
-                const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[送出礼物：${giftData.title}，金额：${amount}元${recipient}${payMethod}] (这是我在闲鱼上看到你收藏的商品，特意买来送给你的)`) };
+                const recipient = giftData.recipientName ? `���ջ��ˣ�${giftData.recipientName}` : '';
+                const payMethod = giftData.paymentMethodLabel ? `��֧����ʽ��${giftData.paymentMethodLabel}` : '';
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[�ͳ����${giftData.title}����${amount}Ԫ${recipient}${payMethod}] (�������������Ͽ������ղص���Ʒ�����������͸����)`) };
             } else if (h.type === 'shopping_gift') {
                 let giftData = {};
                 try {
                     giftData = typeof content === 'string' ? JSON.parse(content) : content;
                 } catch(e) {}
-                const items = giftData.items ? giftData.items.map(i => i.title).join(', ') : '礼物';
+                const items = giftData.items ? giftData.items.map(i => i.title).join(', ') : '����';
                 const amount = giftData.paymentAmount || giftData.total || '0';
-                const recipient = (giftData.recipientName || giftData.recipientText) ? `，收货人：${giftData.recipientName || giftData.recipientText}` : '';
-                const payMethod = giftData.paymentMethodLabel ? `，支付方式：${giftData.paymentMethodLabel}` : '';
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[送出礼物：${items}，总价值：${amount}元${recipient}${payMethod}] (这是我在购物APP购买并送给你的)`) };
+                const recipient = (giftData.recipientName || giftData.recipientText) ? `���ջ��ˣ�${giftData.recipientName || giftData.recipientText}` : '';
+                const payMethod = giftData.paymentMethodLabel ? `��֧����ʽ��${giftData.paymentMethodLabel}` : '';
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[�ͳ����${items}���ܼ�ֵ��${amount}Ԫ${recipient}${payMethod}] (�������ڹ���APP�����͸����)`) };
             } else if (h.type === 'savings_invite') {
                 let inviteData = {};
                 try {
                     inviteData = typeof content === 'string' ? JSON.parse(content) : content;
                 } catch(e) {}
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[共同存钱邀请: 计划${inviteData.title || '共同存钱计划'}，目标¥${Number(inviteData.targetAmount || 0).toFixed(2)}，基础年化${Number(inviteData.aprBase || 0).toFixed(2)}%]`) };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[��ͬ��Ǯ����: �ƻ�${inviteData.title || '��ͬ��Ǯ�ƻ�'}��Ŀ�꣤${Number(inviteData.targetAmount || 0).toFixed(2)}�������껯${Number(inviteData.aprBase || 0).toFixed(2)}%]`) };
             } else if (h.type === 'savings_withdraw_request') {
                 let reqData = {};
                 try {
                     reqData = typeof content === 'string' ? JSON.parse(content) : content;
                 } catch(e) {}
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[共同存钱转出申请: 金额¥${Number(reqData.amount || 0).toFixed(2)}，状态待确认]`) };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[��ͬ��Ǯת������: ��${Number(reqData.amount || 0).toFixed(2)}��״̬��ȷ��]`) };
             } else if (h.type === 'icity_card') {
                 let cardData = {};
                 try {
                     cardData = typeof content === 'string' ? JSON.parse(content) : content;
                 } catch(e) {}
                 
-                let authorInfo = `作者: ${cardData.authorName || '未知'}`;
+                let authorInfo = `����: ${cardData.authorName || 'δ֪'}`;
                 if (cardData.source === 'diary') {
-                    authorInfo = `作者: 我(用户)`;
+                    authorInfo = `����: ��(�û�)`;
                 }
                 
                 let commentsInfo = '';
                 if (cardData.comments && cardData.comments.length > 0) {
                     // Limit to last 5 comments to avoid token limit
                     const recentComments = cardData.comments.slice(-5);
-                    commentsInfo = '\n评论区:\n' + recentComments.map(c => `${c.name}: ${c.content}`).join('\n');
+                    commentsInfo = '\n������:\n' + recentComments.map(c => `${c.name}: ${c.content}`).join('\n');
                 }
                 
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了 iCity 日记 (${authorInfo}): "${cardData.content || '内容'}"${commentsInfo}]`) };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[������ iCity �ռ� (${authorInfo}): "${cardData.content || '����'}"${commentsInfo}]`) };
             } else if (h.type === 'pdd_cash_share') {
                 let data = {};
                 try { data = JSON.parse(content); } catch(e) {}
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了天天领现金链接：差 ${data.diff} 元提现]`) };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[�������������ֽ����ӣ��� ${data.diff} Ԫ����]`) };
             } else if (h.type === 'pdd_bargain_share') {
                 let data = {};
                 try { data = JSON.parse(content); } catch(e) {}
-                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[分享了砍价免费拿链接：${data.title}，当前价格 ¥${data.currentPrice}，商品ID: ${data.productId}]`) };
+                return { role: h.role, content: joinContextTextParts(structuredPrefix, `[�����˿�����������ӣ�${data.title}����ǰ�۸� ��${data.currentPrice}����ƷID: ${data.productId}]`) };
             } else {
                 if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
                      try {
                          if (h.type === 'red_packet') {
                              const data = JSON.parse(content);
-                             const modeText = String(data.mode || '') === 'targeted' ? '专属红包' : '拼手气红包';
+                             const modeText = String(data.mode || '') === 'targeted' ? 'ר����' : 'ƴ�������';
                              const claimCount = Array.isArray(data.claims) ? data.claims.length : 0;
                              const totalCount = Number(data.totalCount || 0) || 1;
-                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[红包: ${modeText}, ${data.amount}元, 已领取${claimCount}/${totalCount}] (红包ID: ${data.id || 'unknown'})`) };
+                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[���: ${modeText}, ${data.amount}Ԫ, ����ȡ${claimCount}/${totalCount}] (���ID: ${data.id || 'unknown'})`) };
                          } else if (h.type === 'private_chat_invite') {
                              const data = JSON.parse(content);
                              const inviter = data.initiatorId || 'unknown';
                              const status = String(data.status || 'pending');
-                             const text = String(data.message || data.content || '想和你私聊一下').trim() || '想和你私聊一下';
-                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[私聊邀请: 发起人=${inviter}, 状态=${status}, 内容=${text}] (邀请ID: ${data.id || 'unknown'})`) };
+                             const text = String(data.message || data.content || '�����˽��һ��').trim() || '�����˽��һ��';
+                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[˽������: ������=${inviter}, ״̬=${status}, ����=${text}] (����ID: ${data.id || 'unknown'})`) };
                          } else if (h.type === 'transfer') {
                              const data = JSON.parse(content);
-                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[转账: ${data.amount}元] (ID: ${data.id})`) };
+                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[ת��: ${data.amount}Ԫ] (ID: ${data.id})`) };
                          } else if (h.type === 'family_card') {
                              const data = JSON.parse(content);
-                             const modeText = data.mode === 'grant' ? '给予' : '索要';
+                             const modeText = data.mode === 'grant' ? '����' : '��Ҫ';
                              const statusText = data.status || 'pending';
-                             const limitText = data.monthlyLimit ? `${data.monthlyLimit}元/月` : '待设置';
-                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[亲属卡: ${modeText}, 状态:${statusText}, 额度:${limitText}] (ID: ${data.id})`) };
+                             const limitText = data.monthlyLimit ? `${data.monthlyLimit}Ԫ/��` : '������';
+                             return { role: h.role, content: joinContextTextParts(structuredPrefix, `[�����: ${modeText}, ״̬:${statusText}, ���:${limitText}] (ID: ${data.id})`) };
                          }
                      } catch(e) {}
                 }
@@ -10960,9 +11015,9 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
 
                 const screenShareParts = [];
                 if (screenShareContext.summaryText) {
-                    let screenShareInstruction = `${screenShareContext.summaryText}. You are currently the one actively checking the user's phone, not letting the user check yours. The shared-screen content below is visible right now as evidence from the user's device. You may proactively continue inspecting related areas if the situation calls for it. You may output multiple SCREEN_TAP / SCREEN_TYPE actions in one reply, and they will execute strictly in order. Screen actions are not limited by the normal “do not stack many actions” rule. If the current screen already makes the next steps obvious, output the full action chain at once.`;
+                    let screenShareInstruction = `${screenShareContext.summaryText}. You are currently the one actively checking the user's phone, not letting the user check yours. The shared-screen content below is visible right now as evidence from the user's device. You may proactively continue inspecting related areas if the situation calls for it. You may output multiple SCREEN_TAP / SCREEN_TYPE actions in one reply, and they will execute strictly in order. Screen actions are not limited by the normal ��do not stack many actions�� rule. If the current screen already makes the next steps obvious, output the full action chain at once.`;
                     if (isAlbumScreenShareContext) {
-                        screenShareInstruction += ' For a private-album password, you may use SCREEN_TYPE only when the password is grounded in known facts already in context: either the user explicitly provided it in chat history, or it can be directly inferred from established chat-settings persona/profile dates such as the user\'s birthday, your birthday, or another clearly stated important date. Prefer exact MMDD-style conversions like 12月24日 -> 1224. If the password page shows an error, do not guess again.';
+                        screenShareInstruction += ' For a private-album password, you may use SCREEN_TYPE only when the password is grounded in known facts already in context: either the user explicitly provided it in chat history, or it can be directly inferred from established chat-settings persona/profile dates such as the user\'s birthday, your birthday, or another clearly stated important date. Prefer exact MMDD-style conversions like 12��24�� -> 1224. If the password page shows an error, do not guess again.';
                     }
                     screenShareParts.push({
                         type: 'text',
@@ -10982,7 +11037,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
 
                         mergedContent.push({
                             type: 'text',
-                            text: '【当前共享屏幕补充】'
+                            text: '����ǰ������Ļ���䡿'
                         });
                         mergedContent.push(...screenShareParts);
                         messages[lastUserMsgIndex].content = mergedContent;
@@ -11024,7 +11079,7 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
     if (instruction) {
         messages.push({
             role: 'system',
-            content: `[系统提示]: ${instruction}`
+            content: `[ϵͳ��ʾ]: ${instruction}`
         });
     }
 

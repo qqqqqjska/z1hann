@@ -172,6 +172,7 @@ let currentEditingVoiceCallMsgId = null;
 let chatOotdGenerateRequestSeq = 0;
 let chatLootGenerateRequestSeq = 0;
 let chatVlogGenerateRequestSeq = 0;
+const VIDEO_SNAPSHOT_MAX_EDGE = 640;
 const CHAT_STICKER_SUGGESTION_LIMIT = 24;
 const AI_PROFILE_HIGHLIGHT_KEYS = ['vlog', 'ootd', 'cafe', 'moment'];
 const AI_PROFILE_CUSTOMIZE_TRANSITION_MS = 360;
@@ -182,6 +183,7 @@ let chatLootModalHideTimer = null;
 let chatVlogModalHideTimer = null;
 let chatLootV1DetailHideTimer = null;
 let chatLootV2DetailHideTimer = null;
+let videoSnapshotCaptureInProgress = false;
 const chatOotdV5DragState = {
     active: false,
     pointerId: null,
@@ -6888,41 +6890,116 @@ function handleVideoCallBgUpload(e) {
     e.target.value = '';
 }
 
-function handleVideoSnapshot() {
-    const videoEl = document.getElementById('video-local-stream');
-    if (!videoCallLocalStream || !videoEl || videoEl.paused || videoEl.ended) {
-        alert('请先开启摄像头');
+function showVideoCallToast(text) {
+    if (window.showChatToast) {
+        window.showChatToast(text);
         return;
     }
 
-    const canvas = document.createElement('canvas');
-    canvas.width = videoEl.videoWidth;
-    canvas.height = videoEl.videoHeight;
-    const ctx = canvas.getContext('2d');
-    
-    // 绘制视频帧
-    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-    
-    const base64 = canvas.toDataURL('image/jpeg', 0.8);
-    
-    // 暂存截图，不发送也不显示
-    pendingVideoSnapshot = base64;
-    
-    // 提示用户
-    if (window.showChatToast) {
-        window.showChatToast('画面已截取，将随下条消息发送');
-    } else {
-        // Fallback toast implementation
-        const toast = document.createElement('div');
-        toast.className = 'chat-toast';
-        toast.textContent = '画面已截取，将随下条消息发送';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.classList.remove('hidden'), 10);
-        setTimeout(() => {
-            toast.classList.add('hidden');
-            setTimeout(() => toast.remove(), 300);
-        }, 2000);
+    const toast = document.createElement('div');
+    toast.className = 'chat-toast';
+    toast.textContent = text;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.classList.remove('hidden'), 10);
+    setTimeout(() => {
+        toast.classList.add('hidden');
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
+}
+
+function buildVideoSnapshotBase64(videoEl, maxEdge = VIDEO_SNAPSHOT_MAX_EDGE, quality = 0.65) {
+    return new Promise((resolve, reject) => {
+        if (!videoEl || !videoEl.videoWidth || !videoEl.videoHeight) {
+            reject(new Error('视频画面尚未准备好'));
+            return;
+        }
+
+        const srcWidth = videoEl.videoWidth;
+        const srcHeight = videoEl.videoHeight;
+        const longestEdge = Math.max(srcWidth, srcHeight);
+        const scale = longestEdge > maxEdge ? maxEdge / longestEdge : 1;
+        const targetWidth = Math.max(1, Math.round(srcWidth * scale));
+        const targetHeight = Math.max(1, Math.round(srcHeight * scale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true }) || canvas.getContext('2d');
+        if (!ctx) {
+            reject(new Error('无法创建截图画布'));
+            return;
+        }
+
+        ctx.drawImage(videoEl, 0, 0, targetWidth, targetHeight);
+
+        if (canvas.toBlob) {
+            canvas.toBlob(blob => {
+                if (!blob) {
+                    resolve(canvas.toDataURL('image/jpeg', quality));
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('截图转码失败'));
+                reader.readAsDataURL(blob);
+            }, 'image/jpeg', quality);
+            return;
+        }
+
+        resolve(canvas.toDataURL('image/jpeg', quality));
+    });
+}
+
+async function storeVideoSnapshot({ notify = false, source = 'manual' } = {}) {
+    const videoEl = document.getElementById('video-local-stream');
+    const canCapture = !!videoCallLocalStream
+        && !!videoEl
+        && !videoEl.paused
+        && !videoEl.ended
+        && videoEl.videoWidth > 0
+        && videoEl.videoHeight > 0;
+
+    if (!canCapture) {
+        if (notify) {
+            alert('请先开启摄像头');
+        }
+        return false;
     }
+
+    if (videoSnapshotCaptureInProgress) {
+        if (notify) {
+            showVideoCallToast('画面正在处理中，请稍后');
+        }
+        return false;
+    }
+
+    videoSnapshotCaptureInProgress = true;
+    try {
+        const base64 = await buildVideoSnapshotBase64(videoEl);
+        if (!base64) return false;
+
+        pendingVideoSnapshot = base64;
+
+        if (source === 'manual' && notify) {
+            showVideoCallToast('画面已截取，将随下条消息发送');
+        } else if (source === 'auto') {
+            console.log('自动截图已暂存，等待用户发送消息');
+        }
+
+        return true;
+    } catch (err) {
+        console.error('视频截图失败', err);
+        if (notify) {
+            alert('画面截取失败，请稍后重试');
+        }
+        return false;
+    } finally {
+        videoSnapshotCaptureInProgress = false;
+    }
+}
+
+async function handleVideoSnapshot() {
+    await storeVideoSnapshot({ notify: true, source: 'manual' });
 }
 
 function startOutgoingVideoCall() {
@@ -7365,22 +7442,7 @@ function startAutoSnapshot(contact) {
     console.log(`启动自动截图，间隔 ${interval} 秒`);
 
     autoSnapshotTimer = setInterval(() => {
-        const videoEl = document.getElementById('video-local-stream');
-        if (!videoCallLocalStream || !videoEl || videoEl.paused || videoEl.ended) {
-            return;
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = videoEl.videoWidth;
-        canvas.height = videoEl.videoHeight;
-        const ctx = canvas.getContext('2d');
-        
-        ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-        const base64 = canvas.toDataURL('image/jpeg', 0.6); // 稍微降低质量以加快传输
-
-        // 暂存截图，不立即发送
-        pendingVideoSnapshot = base64;
-        console.log('自动截图已暂存，等待用户发送消息');
+        void storeVideoSnapshot({ notify: false, source: 'auto' });
 
     }, interval * 1000);
 }
