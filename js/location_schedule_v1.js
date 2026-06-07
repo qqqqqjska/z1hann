@@ -57,6 +57,11 @@
         autoAdjustInFlight: false,
         autoAdjustSettings: null,
         autoAdjustContactId: '',
+        planModeOverlay: null,
+        planModeClose: null,
+        planModeDailyButton: null,
+        planModeFullButton: null,
+        planModeCancelButton: null,
         initPromise: null,
         ready: false
     };
@@ -226,6 +231,17 @@
         }
     }
 
+    function removePlannerStorage(key) {
+        try {
+            if (!key || typeof localStorage === 'undefined') return false;
+            localStorage.removeItem(key);
+            return true;
+        } catch (error) {
+            console.warn('[location-schedule-v1] failed to remove planner storage:', error);
+            return false;
+        }
+    }
+
     function getPlannerChatHistory(contact) {
         if (!contact) return [];
         const stateRoot = window.iphoneSimState || {};
@@ -235,6 +251,52 @@
 
     function getPlannerCurrentDateKey(date = new Date()) {
         return formatPlannerDateKey(date);
+    }
+
+    function getPlannerMonthlyPhotoStorageKey(contact = getPlannerTargetContact()) {
+        return getPlannerStorageKey('photo', 'monthly-cover', contact);
+    }
+
+    function applyPlannerMonthlyPhoto(photoDataUrl = '', options = {}) {
+        const src = String(photoDataUrl || '').trim();
+        const shouldShow = Boolean(src);
+
+        if (state.ui.uploadedPhoto) {
+            state.ui.uploadedPhoto.src = shouldShow ? src : '';
+            state.ui.uploadedPhoto.style.display = shouldShow ? 'block' : 'none';
+        }
+        if (state.ui.uploadPlaceholder) {
+            state.ui.uploadPlaceholder.style.display = shouldShow ? 'none' : 'block';
+        }
+        if (state.ui.photoUploadArea) {
+            state.ui.photoUploadArea.classList.toggle('has-image', shouldShow);
+        }
+
+        if (options.persist) {
+            const contact = getPlannerTargetContact();
+            const storageKey = getPlannerMonthlyPhotoStorageKey(contact);
+            if (shouldShow) {
+                writePlannerStorage(storageKey, {
+                    version: 1,
+                    updatedAt: Date.now(),
+                    dataUrl: src
+                });
+            } else {
+                removePlannerStorage(storageKey);
+            }
+        }
+
+        return src;
+    }
+
+    function restorePlannerMonthlyPhoto() {
+        const contact = getPlannerTargetContact();
+        const storageKey = getPlannerMonthlyPhotoStorageKey(contact);
+        const record = readPlannerStorage(storageKey);
+        const photoDataUrl = typeof record === 'string'
+            ? record
+            : String(record && (record.dataUrl || record.src) || '').trim();
+        applyPlannerMonthlyPhoto(photoDataUrl, { persist: false });
     }
 
     function resolvePlannerContactLike(contactLike) {
@@ -554,6 +616,20 @@
                 entries: daily.entries
             }
         };
+    }
+
+    function createGeneratedDailyPlan(basePlan = state.generatedPlan) {
+        const context = getPlannerDateContext();
+        const generatedAt = new Date();
+        const fallbackPlan = createGeneratedPlan();
+        const sourceMonthEvents = basePlan && basePlan.month && Array.isArray(basePlan.month.events) && basePlan.month.events.length
+            ? basePlan.month.events
+            : (fallbackPlan.month && Array.isArray(fallbackPlan.month.events) ? fallbackPlan.month.events : []);
+        const sourceWeekGoalGroups = basePlan && basePlan.week && Array.isArray(basePlan.week.goalGroups) && basePlan.week.goalGroups.length
+            ? basePlan.week.goalGroups
+            : (fallbackPlan.week && Array.isArray(fallbackPlan.week.goalGroups) ? fallbackPlan.week.goalGroups : []);
+
+        return buildPlannerDailyEntries(context, sourceMonthEvents, sourceWeekGoalGroups, generatedAt);
     }
 
     function getPlannerAiSettings() {
@@ -1247,9 +1323,10 @@
             .join('\n');
     }
 
-    function buildPlannerPlanSnapshot(plan, now = new Date()) {
+    function buildPlannerPlanSnapshot(plan, now = new Date(), options = {}) {
         if (!plan || typeof plan !== 'object') return '当前没有已生成的计划。';
 
+        const includeDaily = options.includeDaily !== false;
         const lines = [];
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
@@ -1290,7 +1367,7 @@
             }
         }
 
-        if (plan.daily && typeof plan.daily === 'object') {
+        if (includeDaily && plan.daily && typeof plan.daily === 'object') {
             const dailySummary = String(plan.daily.summary || '').trim();
             const dailyChips = normalizeStringList(plan.daily.chips, []);
             const dailyEntries = Array.isArray(plan.daily.entries) ? plan.daily.entries.slice().sort((a, b) => getPlannerTimeMinutes(a.time) - getPlannerTimeMinutes(b.time)) : [];
@@ -1408,6 +1485,114 @@
                     '      {"dayNum":20,"weekday":"周一","items":["...","..."]}',
                     '    ]',
                     '  },',
+                    '  "daily": {',
+                    `    "dateKey": "${currentDateLabel}",`,
+                    `    "cutoffTime": "${currentTimeLabel}",`,
+                    '    "summary": "一句话概括今日全天的行程",',
+                    '    "chips": ["3 个左右的短标签"],',
+                    '    "entries": [',
+                    '      {"time":"08:00","title":"晨间收整","desc":"...","type":"blue"}',
+                    '    ]',
+                    '  }',
+                    '}'
+                ].join('\n')
+            }
+        ];
+
+        const response = await fetch(fetchUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: String(settings.model || 'gpt-4o-mini').trim() || 'gpt-4o-mini',
+                messages,
+                temperature: 0.6
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`API Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const content = data && data.choices && data.choices[0] && data.choices[0].message
+            ? String(data.choices[0].message.content || '').trim()
+            : '';
+        if (!content) {
+            throw new Error('API returned empty content');
+        }
+
+        const jsonText = extractJsonPayload(content);
+        const parsed = JSON.parse(jsonText);
+        return normalizePlanObject(parsed, { fillFallback: false });
+    }
+
+    async function requestPlannerDailyGenerationFromApi() {
+        const settings = getPlannerAiSettings();
+        if (!settings) {
+            console.warn('[location-schedule-v1] AI settings missing, using local fallback daily plan.');
+            return normalizePlanObject({
+                daily: createGeneratedDailyPlan()
+            }, { fillFallback: false });
+        }
+
+        const apiUrl = String(settings.url || '').trim();
+        const apiKey = String(settings.key || '').trim();
+        const fetchUrl = apiUrl.endsWith('/chat/completions')
+            ? apiUrl
+            : (apiUrl.endsWith('/') ? `${apiUrl}chat/completions` : `${apiUrl}/chat/completions`);
+        const contact = getPlannerTargetContact();
+        const contactLabel = String(contact && (contact.remark || contact.name) || '当前联系人').trim() || '当前联系人';
+        const contactContext = buildPlannerPromptContext(contact);
+        const amapVenueContext = await buildPlannerAmapVenueContext(contact);
+        const dateContext = getPlannerDateContext();
+        const now = new Date();
+        const currentMonthLabel = `${dateContext.monthNameEn} ${dateContext.year}`;
+        const currentWeekRange = formatPlannerWeekRange(dateContext.weekStart, dateContext.weekEnd);
+        const currentDateLabel = formatPlannerDateKey(now);
+        const currentTimeLabel = formatPlannerClockTime(now);
+        const alignmentPlan = state.generatedPlan || loadPersistedGeneratedPlan(contact, now) || createGeneratedPlan();
+        const currentPlanSnapshot = buildPlannerPlanSnapshot(alignmentPlan, now, { includeDaily: false });
+        const humanLifeGuidance = buildPlannerHumanLifeGuidance();
+
+        const messages = [
+            {
+                role: 'system',
+                content: '你是一个中文“今日行程”生成助手。你会根据联系人设定、用户人设、世界书、记忆、最近聊天上下文，以及现有月计划和周计划，为位置页只生成当天的完整行程。现有月计划和周计划是硬约束，今日行程必须与它们一致，不得出现明显冲突或跳脱。请把联系人写成一个真实生活中的人，行程里要体现社交、出门、吃饭、通勤、休息、临时变动和日常琐事，不要像模板化排班。请只输出严格 JSON，不要输出 Markdown、解释、代码块或额外文本。'
+            },
+            {
+                role: 'user',
+                content: [
+                    '请只生成“今日行程”部分，不要生成月计划和周计划。今日行程必须优先服从下面给出的现有月计划和周计划，日计划只可作为参考，不可与月/周计划冲突。',
+                    `目标联系人：${contactLabel}`,
+                    `当前页面月份：${currentMonthLabel}。`,
+                    `当前周范围：${currentWeekRange}。`,
+                    `当前日期：${currentDateLabel}。`,
+                    `当前生成时刻：${currentTimeLabel}。`,
+                    '',
+                    contactContext ? `上下文：\n${contactContext}` : '上下文：无',
+                    '',
+                    amapVenueContext ? `高德真实候选：\n${amapVenueContext}` : '高德真实候选：无',
+                    '',
+                    `现有月/周计划快照：\n${currentPlanSnapshot || '无'}`,
+                    '',
+                    `活人感要求：\n${humanLifeGuidance}`,
+                    '',
+                    '今日行程规则：',
+                    '1. daily.entries 必须覆盖当天 00:00 到 23:59 的完整行程，前端会按时间逐步显示。',
+                    '2. cutoffTime 仍填当前生成时刻，格式为 HH:MM，用作最后一次生成时间记录。',
+                    '3. entries 必须按时间正序排列，建议 6 到 10 条。',
+                    '4. 可以自然加入一条轻微幸运事件或轻微波折事件，但概率不要太高，不要戏剧化。',
+                    '5. 今日行程必须从现有月计划和周计划中提炼，不要生成与它们无关的全新主题。',
+                    '6. 如果月计划里有考试、会议、DDL、出行、朋友见面、旅行、家里安排等事项，今日行程要体现对应的准备、执行、路上、收尾或缓冲。',
+                    '7. 如果周计划里有本周重点或每日拆分，今日行程要对齐这些重点，尽量复用相同关键词和同一节奏。',
+                    '8. 今日行程也可以有真实生活里的动作，比如出门吃饭、见朋友、通勤、路上、回家、休息、临时改时间。',
+                    '9. 每条 entries 项包含 time、title、desc、type，其中 type 只能使用 blue、purple、orange、green、pink、yellow 之一。',
+                    '10. 不要输出任何解释性说明、背景句、总结句、铺垫句、basis、focus、description 之类的文本。',
+                    '只输出下面这个 JSON 对象结构，不要输出任何额外字段：',
+                    '{',
                     '  "daily": {',
                     `    "dateKey": "${currentDateLabel}",`,
                     `    "cutoffTime": "${currentTimeLabel}",`,
@@ -2020,6 +2205,137 @@
                 text-align: center;
                 letter-spacing: 1px;
             }
+            .plan-mode-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 190;
+                display: flex;
+                align-items: flex-end;
+                justify-content: center;
+                padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.22s ease;
+            }
+            .plan-mode-overlay.active {
+                opacity: 1;
+                pointer-events: auto;
+            }
+            .plan-mode-backdrop {
+                position: fixed;
+                inset: 0;
+                background: rgba(18, 18, 18, 0.24);
+                opacity: 0;
+                transition: opacity 0.22s ease;
+            }
+            .plan-mode-overlay.active .plan-mode-backdrop {
+                opacity: 1;
+            }
+            .plan-mode-sheet {
+                position: relative;
+                z-index: 1;
+                width: min(100%, 420px);
+                border: 1px solid var(--border-color);
+                border-radius: 26px;
+                background: rgba(255, 255, 255, 0.98);
+                box-shadow: 0 18px 70px rgba(0, 0, 0, 0.18);
+                padding: 16px;
+                transform: translate3d(0, 18px, 0) scale(0.98);
+                opacity: 0;
+                transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+                will-change: transform, opacity;
+            }
+            .plan-mode-overlay.active .plan-mode-sheet {
+                transform: translate3d(0, 0, 0) scale(1);
+                opacity: 1;
+            }
+            .plan-mode-head {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                align-items: flex-start;
+                margin-bottom: 14px;
+            }
+            .plan-mode-meta {
+                font-size: 10px;
+                letter-spacing: 2px;
+                color: var(--text-light);
+                text-transform: uppercase;
+            }
+            .plan-mode-title {
+                font-size: 28px;
+                font-weight: 400;
+                line-height: 1.05;
+                margin-top: 6px;
+            }
+            .plan-mode-close {
+                width: 34px;
+                height: 34px;
+                border: 1px solid var(--border-color);
+                border-radius: 50%;
+                background: #ffffff;
+                color: var(--text-main);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: 0.2s;
+                flex-shrink: 0;
+            }
+            .plan-mode-close:active {
+                transform: scale(0.94);
+                background: #fafafa;
+            }
+            .plan-mode-list {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .plan-mode-option {
+                width: 100%;
+                border: 1px solid var(--border-color);
+                border-radius: 18px;
+                background: #ffffff;
+                padding: 14px 15px;
+                text-align: left;
+                cursor: pointer;
+                transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+            }
+            .plan-mode-option:active {
+                transform: scale(0.985);
+                box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
+            }
+            .plan-mode-option strong {
+                display: block;
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--text-main);
+                line-height: 1.35;
+            }
+            .plan-mode-option span {
+                display: block;
+                margin-top: 4px;
+                font-size: 12px;
+                line-height: 1.6;
+                color: var(--text-sub);
+            }
+            .plan-mode-cancel {
+                margin-top: 12px;
+                width: 100%;
+                border: 1px solid var(--border-color);
+                border-radius: 16px;
+                background: #fafafa;
+                color: var(--text-main);
+                font-size: 13px;
+                padding: 12px 14px;
+                cursor: pointer;
+                transition: 0.2s;
+            }
+            .plan-mode-cancel:active {
+                transform: scale(0.985);
+                background: #f4f4f4;
+            }
         `;
     }
 
@@ -2041,10 +2357,50 @@
         `;
     }
 
+    function buildPlanModeMarkup() {
+        return `
+            <div class="plan-mode-overlay" id="plan-mode-overlay" aria-hidden="true">
+                <div class="plan-mode-backdrop" data-plan-mode-dismiss></div>
+                <div class="plan-mode-sheet" role="dialog" aria-modal="true" aria-labelledby="plan-mode-title">
+                    <div class="plan-mode-head">
+                        <div>
+                            <div class="plan-mode-meta">PLAN OPTIONS</div>
+                            <h3 class="plan-mode-title serif" id="plan-mode-title">生成行程</h3>
+                        </div>
+                        <button type="button" class="plan-mode-close" id="plan-mode-close" aria-label="关闭">×</button>
+                    </div>
+                    <div class="plan-mode-list">
+                        <button type="button" class="plan-mode-option" id="plan-mode-daily">
+                            <strong>仅生成今日行程</strong>
+                            <span>只更新今天的行程记录，保留现有日/周/月内容不动。</span>
+                        </button>
+                        <button type="button" class="plan-mode-option" id="plan-mode-full">
+                            <strong>同时生成日、周、月</strong>
+                            <span>一次性重做三套计划，并覆盖之前的内容。</span>
+                        </button>
+                    </div>
+                    <button type="button" class="plan-mode-cancel" id="plan-mode-cancel">取消</button>
+                </div>
+            </div>
+        `;
+    }
+
     function closeMonthlyDayPreview() {
         if (!state.ui.dayPreviewOverlay) return;
         state.ui.dayPreviewOverlay.classList.remove('active');
         state.ui.dayPreviewOverlay.setAttribute('aria-hidden', 'true');
+    }
+
+    function openPlanModeChoice() {
+        if (!state.ui.planModeOverlay || state.planGenerating) return;
+        state.ui.planModeOverlay.classList.add('active');
+        state.ui.planModeOverlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function closePlanModeChoice() {
+        if (!state.ui.planModeOverlay) return;
+        state.ui.planModeOverlay.classList.remove('active');
+        state.ui.planModeOverlay.setAttribute('aria-hidden', 'true');
     }
 
     function getMonthlyDayEvents(day) {
@@ -2330,8 +2686,10 @@
         }
     }
 
-    function applyGeneratedPlan(plan) {
-        state.generatedPlan = normalizePlanObject(plan);
+    function applyGeneratedPlan(plan, options = {}) {
+        state.generatedPlan = normalizePlanObject(plan, {
+            fillFallback: options.fillFallback !== false
+        });
         decorateMonthlyPlanColors(state.generatedPlan);
         persistGeneratedPlan(state.generatedPlan);
         renderMonthly();
@@ -2339,26 +2697,62 @@
         renderDaily(getPlannerDateContext().date.getDate(), { activate: false });
     }
 
-    async function openPlanGenerator() {
-        if (state.planGenerating) return;
-        state.planGenerating = true;
-        if (state.ui.planToggleButton) {
-            state.ui.planToggleButton.classList.add('loading');
+    function setPlanGenerationButtonLoading(isLoading) {
+        if (!state.ui.planToggleButton) return;
+        state.ui.planToggleButton.classList.toggle('loading', Boolean(isLoading));
+        if (isLoading) {
             state.ui.planToggleButton.setAttribute('aria-busy', 'true');
+        } else {
+            state.ui.planToggleButton.removeAttribute('aria-busy');
         }
+    }
+
+    async function runPlanGeneration(mode = 'full') {
+        if (state.planGenerating) return;
+        const normalizedMode = String(mode || 'full').toLowerCase() === 'daily' ? 'daily' : 'full';
+        state.planGenerating = true;
+        closePlanModeChoice();
+        setPlanGenerationButtonLoading(true);
 
         try {
-            const plan = await requestPlanGenerationFromApi();
-            applyGeneratedPlan(plan);
+            const plan = normalizedMode === 'daily'
+                ? await requestPlannerDailyGenerationFromApi()
+                : await requestPlanGenerationFromApi();
+            if (normalizedMode === 'daily' && (!plan || !plan.daily)) {
+                throw new Error('API returned empty daily plan');
+            }
+            if (normalizedMode === 'daily') {
+                const basePlan = state.generatedPlan && typeof state.generatedPlan === 'object' ? state.generatedPlan : null;
+                const nextPlan = basePlan
+                    ? {
+                        ...basePlan,
+                        daily: plan && plan.daily ? plan.daily : (plan && plan.daily === null ? null : basePlan.daily)
+                    }
+                    : plan;
+                applyGeneratedPlan(nextPlan, { fillFallback: false });
+            } else {
+                applyGeneratedPlan(plan);
+            }
         } catch (error) {
             console.error('[location-schedule-v1] plan generation failed, using fallback:', error);
-            applyGeneratedPlan(createGeneratedPlan());
+            if (normalizedMode === 'daily') {
+                const basePlan = state.generatedPlan && typeof state.generatedPlan === 'object' ? state.generatedPlan : null;
+                const fallbackDailyPlan = normalizePlanObject({
+                    daily: createGeneratedDailyPlan(basePlan)
+                }, { fillFallback: false });
+                const nextPlan = basePlan
+                    ? {
+                        ...basePlan,
+                        daily: fallbackDailyPlan.daily || basePlan.daily || null
+                    }
+                    : fallbackDailyPlan;
+                applyGeneratedPlan(nextPlan, { fillFallback: false });
+            } else {
+                applyGeneratedPlan(createGeneratedPlan());
+            }
         } finally {
             state.planGenerating = false;
-            if (state.ui.planToggleButton) {
-                state.ui.planToggleButton.classList.remove('loading');
-                state.ui.planToggleButton.removeAttribute('aria-busy');
-            }
+            setPlanGenerationButtonLoading(false);
         }
     }
 
@@ -2397,7 +2791,12 @@
             dayPreviewMeta: root.getElementById('day-preview-meta'),
             dayPreviewTitle: root.getElementById('day-preview-title'),
             dayPreviewList: root.getElementById('day-preview-list'),
-            dayPreviewClose: root.getElementById('day-preview-close')
+            dayPreviewClose: root.getElementById('day-preview-close'),
+            planModeOverlay: root.getElementById('plan-mode-overlay'),
+            planModeClose: root.getElementById('plan-mode-close'),
+            planModeDailyButton: root.getElementById('plan-mode-daily'),
+            planModeFullButton: root.getElementById('plan-mode-full'),
+            planModeCancelButton: root.getElementById('plan-mode-cancel')
         };
     }
 
@@ -2750,16 +3149,10 @@
 
         const reader = new FileReader();
         reader.onload = (e) => {
-            if (state.ui.uploadedPhoto) {
-                state.ui.uploadedPhoto.src = e.target.result;
-                state.ui.uploadedPhoto.style.display = 'block';
-            }
-            if (state.ui.uploadPlaceholder) {
-                state.ui.uploadPlaceholder.style.display = 'none';
-            }
-            if (state.ui.photoUploadArea) {
-                state.ui.photoUploadArea.classList.add('has-image');
-            }
+            applyPlannerMonthlyPhoto(String(e.target && e.target.result ? e.target.result : ''), { persist: true });
+        };
+        reader.onerror = () => {
+            console.warn('[location-schedule-v1] photo upload read failed');
         };
         reader.readAsDataURL(file);
     }
@@ -2786,7 +3179,7 @@
             state.ui.settingsToggleButton.addEventListener('click', () => toggleSettings());
         }
         if (state.ui.planToggleButton) {
-            state.ui.planToggleButton.addEventListener('click', openPlanGenerator);
+            state.ui.planToggleButton.addEventListener('click', openPlanModeChoice);
         }
         if (state.ui.autoAdjustSwitch) {
             state.ui.autoAdjustSwitch.addEventListener('click', toggleAutoAdjust);
@@ -2803,6 +3196,25 @@
         }
         if (state.ui.dayPreviewClose) {
             state.ui.dayPreviewClose.addEventListener('click', closeMonthlyDayPreview);
+        }
+        if (state.ui.planModeOverlay) {
+            state.ui.planModeOverlay.addEventListener('click', (event) => {
+                if (event.target === state.ui.planModeOverlay || event.target.hasAttribute('data-plan-mode-dismiss')) {
+                    closePlanModeChoice();
+                }
+            });
+        }
+        if (state.ui.planModeClose) {
+            state.ui.planModeClose.addEventListener('click', closePlanModeChoice);
+        }
+        if (state.ui.planModeCancelButton) {
+            state.ui.planModeCancelButton.addEventListener('click', closePlanModeChoice);
+        }
+        if (state.ui.planModeDailyButton) {
+            state.ui.planModeDailyButton.addEventListener('click', () => runPlanGeneration('daily'));
+        }
+        if (state.ui.planModeFullButton) {
+            state.ui.planModeFullButton.addEventListener('click', () => runPlanGeneration('full'));
         }
         state.ui.paletteItems.forEach((item) => {
             const paletteNames = ['default', 'mono', 'custom'];
@@ -2872,10 +3284,12 @@
             <style>${styleText}</style>
             ${parsed.body.innerHTML}
             ${buildDayPreviewMarkup()}
+            ${buildPlanModeMarkup()}
         `;
 
         cacheElements();
         bindEvents();
+        restorePlannerMonthlyPhoto();
         refreshPersistedGeneratedPlan();
         refreshPlannerAutoAdjustState();
         startPlannerAutoAdjustMonitor();
@@ -2893,6 +3307,7 @@
     function closeLocationApp() {
         if (!state.host) return;
         closeMonthlyDayPreview();
+        closePlanModeChoice();
         clearPlannerDailyRevealTimer();
         state.host.classList.add('hidden');
         toggleSettings(false);
@@ -2911,7 +3326,9 @@
             if (state.host) {
                 state.host.classList.remove('hidden');
             }
+            closePlanModeChoice();
             if (state.ready) {
+                restorePlannerMonthlyPhoto();
                 refreshPersistedGeneratedPlan();
                 refreshPlannerAutoAdjustState();
                 startPlannerAutoAdjustMonitor();
@@ -2939,6 +3356,10 @@
         if (event.key !== 'Escape') return;
         if (state.ui.dayPreviewOverlay && state.ui.dayPreviewOverlay.classList.contains('active')) {
             closeMonthlyDayPreview();
+            return;
+        }
+        if (state.ui.planModeOverlay && state.ui.planModeOverlay.classList.contains('active')) {
+            closePlanModeChoice();
             return;
         }
         if (state.host && !state.host.classList.contains('hidden')) {
