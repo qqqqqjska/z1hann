@@ -341,17 +341,18 @@ function renderIconSettings() {
         const currentIcon = window.iphoneSimState.icons[appId];
         const currentColor = window.iphoneSimState.iconColors[appId] || appInfo.color;
         const currentName = window.iphoneSimState.appNames[appId] || appInfo.name;
+        const previewBackground = currentIcon ? 'transparent' : currentColor;
         let previewContent = '';
         
         if (currentIcon) {
-            previewContent = `<img src="${currentIcon}" style="width:100%;height:100%;object-fit:cover;">`;
+            previewContent = `<img src="${currentIcon}" style="width:100%;height:100%;object-fit:cover;display:block;">`;
         } else {
             previewContent = `<i class="${appInfo.icon}" style="color: ${currentColor === '#ffffff' ? '#000' : '#fff'}"></i>`;
         }
 
         item.innerHTML = `
             <div class="icon-row">
-                <div class="icon-preview-small" id="preview-${appId}" style="background-color: ${currentColor};">
+                <div class="icon-preview-small" id="preview-${appId}" style="background-color: ${previewBackground};">
                     ${previewContent}
                 </div>
                 <div class="icon-info column">
@@ -398,7 +399,7 @@ function handleIconUpload(e, appId) {
     const file = e.target.files[0];
     if (!file) return;
 
-    compressImage(file, 300, 0.7).then(base64 => {
+    compressImage(file, 300, 0.92, { preserveAlpha: true }).then(base64 => {
         window.iphoneSimState.icons[appId] = base64;
         applyIcons();
         renderIconSettings();
@@ -414,7 +415,8 @@ function handleIconColorChange(e, appId) {
     
     const preview = document.getElementById(`preview-${appId}`);
     if (preview) {
-        preview.style.backgroundColor = color;
+        const hasCustomIcon = !!window.iphoneSimState.icons[appId];
+        preview.style.backgroundColor = hasCustomIcon ? 'transparent' : color;
         const icon = preview.querySelector('i');
         if (icon) {
             icon.style.color = color === '#ffffff' ? '#000' : '#fff';
@@ -435,6 +437,8 @@ window.resetAppIcon = function(appId) {
 };
 
 function applyIcons() {
+    if (window.applyAppIconShadowPreference) window.applyAppIconShadowPreference();
+
     // 清除应用类型项目的缓存元素，强制重新创建以反映新图标
     if (typeof itemElementMap !== 'undefined' && typeof homeScreenData !== 'undefined') {
         homeScreenData.forEach(item => {
@@ -465,10 +469,11 @@ function applyIcons() {
         const customColor = window.iphoneSimState.iconColors[appId];
         const finalColor = customColor || appInfo.color;
 
-        iconContainer.style.backgroundColor = finalColor;
+        iconContainer.style.backgroundColor = customIcon ? 'transparent' : finalColor;
+        iconContainer.style.overflow = 'hidden';
 
         if (customIcon) {
-            iconContainer.innerHTML = `<img src="${customIcon}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--icon-radius);">`;
+            iconContainer.innerHTML = `<img src="${customIcon}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block;">`;
         } else {
             iconContainer.innerHTML = `<i class="${appInfo.icon}" style="color: ${finalColor === '#ffffff' ? '#000' : '#fff'}"></i>`;
         }
@@ -1024,6 +1029,16 @@ function setupThemeListeners() {
         });
     }
 
+    const appIconShadowToggle = document.getElementById('app-icon-shadow-toggle');
+    if (appIconShadowToggle) {
+        appIconShadowToggle.checked = window.iphoneSimState.appIconShadowEnabled !== false;
+        appIconShadowToggle.addEventListener('change', () => {
+            window.iphoneSimState.appIconShadowEnabled = appIconShadowToggle.checked;
+            if (window.applyAppIconShadowPreference) window.applyAppIconShadowPreference();
+            saveConfig();
+        });
+    }
+
     const saveIconsBtn = document.getElementById('save-icons-btn');
     if (saveIconsBtn) {
         saveIconsBtn.addEventListener('click', () => {
@@ -1310,6 +1325,11 @@ window.updateThemeUi = function() {
     const cssEditor = document.getElementById('css-editor');
     if (cssEditor && window.iphoneSimState.css) {
         cssEditor.value = window.iphoneSimState.css;
+    }
+
+    const appIconShadowToggle = document.getElementById('app-icon-shadow-toggle');
+    if (appIconShadowToggle) {
+        appIconShadowToggle.checked = window.iphoneSimState.appIconShadowEnabled !== false;
     }
 };
 

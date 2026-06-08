@@ -30,6 +30,96 @@ let phoneDockContainer;
 
 // 缓存 DOM 元素
 let phoneItemElementMap = new Map();
+let phoneDragPreviewEl = null;
+
+function setPhoneReorderingState(active) {
+    if (!phonePagesWrapper) return;
+    phonePagesWrapper.classList.toggle('is-reordering', !!active);
+}
+
+function clearPhoneDragPreview() {
+    if (phoneDragPreviewEl && phoneDragPreviewEl.parentNode) {
+        phoneDragPreviewEl.parentNode.removeChild(phoneDragPreviewEl);
+    }
+    phoneDragPreviewEl = null;
+}
+
+function preparePhoneDragPreview(sourceEl) {
+    if (!sourceEl) return null;
+    clearPhoneDragPreview();
+
+    const rect = sourceEl.getBoundingClientRect();
+    const preview = sourceEl.cloneNode(true);
+    preview.setAttribute('aria-hidden', 'true');
+    preview.style.position = 'fixed';
+    preview.style.left = '-9999px';
+    preview.style.top = '0';
+    preview.style.margin = '0';
+    preview.style.width = rect.width + 'px';
+    preview.style.height = rect.height + 'px';
+    preview.style.pointerEvents = 'none';
+    preview.style.transform = 'none';
+    preview.style.transition = 'none';
+    preview.style.animation = 'none';
+    preview.style.opacity = '1';
+    preview.style.zIndex = '99999';
+
+    preview.querySelectorAll('img').forEach(img => {
+        img.setAttribute('draggable', 'false');
+        img.style.pointerEvents = 'none';
+        img.style.userSelect = 'none';
+        img.style.webkitUserDrag = 'none';
+        img.style.webkitTouchCallout = 'none';
+    });
+
+    document.body.appendChild(preview);
+    phoneDragPreviewEl = preview;
+    return preview;
+}
+
+function clearPhonePageSwitchTimer() {
+    if (!phonePageSwitchTimer) return;
+    clearTimeout(phonePageSwitchTimer);
+    phonePageSwitchTimer = null;
+}
+
+function schedulePhonePageSwitch(clientX) {
+    if (!phonePagesContainer || typeof clientX !== 'number') return;
+
+    const containerRect = phonePagesContainer.getBoundingClientRect();
+
+    if (clientX < containerRect.left + PHONE_EDGE_SCROLL_THRESHOLD) {
+        if (!phonePageSwitchTimer && currentPhonePage > 0) {
+            phonePageSwitchTimer = setTimeout(() => {
+                phonePagesContainer.scrollBy({ left: -containerRect.width, behavior: 'smooth' });
+                phonePageSwitchTimer = null;
+            }, PHONE_EDGE_SCROLL_DELAY);
+        }
+        return;
+    }
+
+    if (clientX > containerRect.right - PHONE_EDGE_SCROLL_THRESHOLD) {
+        if (!phonePageSwitchTimer && currentPhonePage < totalPhonePages - 1) {
+            phonePageSwitchTimer = setTimeout(() => {
+                phonePagesContainer.scrollBy({ left: containerRect.width, behavior: 'smooth' });
+                phonePageSwitchTimer = null;
+            }, PHONE_EDGE_SCROLL_DELAY);
+        }
+        return;
+    }
+
+    clearPhonePageSwitchTimer();
+}
+
+function handlePhoneEdgeDragOver(e) {
+    if (!phoneDragItem && !isPhoneTouchDragging) return;
+    schedulePhonePageSwitch(e.clientX);
+}
+
+if (!window.__phoneEdgeDragOverBound) {
+    document.addEventListener('dragover', handlePhoneEdgeDragOver, true);
+    window.__phoneEdgeDragOverBound = true;
+}
 
 // 拖拽相关
 let phoneDragItem = null;
@@ -46,6 +136,8 @@ let isPhoneTouchDragging = false;
 let phoneTouchDragClone = null;
 let phoneTouchDraggedElement = null;
 let phoneTouchDraggedItem = null;
+const PHONE_EDGE_SCROLL_THRESHOLD = 50;
+const PHONE_EDGE_SCROLL_DELAY = 450;
 
 // 查手机当前联系人
 let currentCheckPhoneContactId = null;
@@ -159,7 +251,7 @@ function createPhoneAppElement(item, draggable) {
     const displayName = (themeStore.appNames && themeStore.appNames[item.appId]) || item.name || '应用';
 
     const iconContent = customIcon
-        ? `<img src="${customIcon}" style="width:100%; height:100%; object-fit:cover; border-radius:14px;">`
+        ? `<img src="${customIcon}" draggable="false" style="width:100%; height:100%; object-fit:cover; border-radius:14px; pointer-events:none; user-select:none; -webkit-user-drag:none; -webkit-touch-callout:none;">`
         : `<i class="${item.iconClass}" style="color: ${finalColor === '#fff' || finalColor === '#ffffff' ? '#000' : '#fff'};"></i>`;
 
     div.innerHTML = `
@@ -289,7 +381,7 @@ function createPhoneDockElement(item) {
 
     let iconContent = `<i class="${item.iconClass}" style="color: ${finalColor === '#fff' || finalColor === '#ffffff' ? '#000' : '#fff'};"></i>`;
     if (themeStore.icons && themeStore.icons[item.appId]) {
-        iconContent = `<img src="${themeStore.icons[item.appId]}" style="width:100%;height:100%;object-fit:cover;border-radius:18px;">`;
+        iconContent = `<img src="${themeStore.icons[item.appId]}" draggable="false" style="width:100%;height:100%;object-fit:cover;border-radius:18px;pointer-events:none;user-select:none;-webkit-user-drag:none;-webkit-touch-callout:none;">`;
     }
 
     let displayName = item.name || '';
@@ -6181,10 +6273,11 @@ function renderPhoneItems() {
             el.ondragstart = (e) => handlePhoneDragStart(e, item);
             el.ondragend = (e) => handlePhoneDragEnd(e, item);
             
-            if (canDrag) {
+            if (canDrag && !el._phoneTouchDragBound) {
                 el.addEventListener('touchstart', (e) => handlePhoneItemTouchStart(e, item), { passive: false });
                 el.addEventListener('touchmove', handlePhoneItemTouchMove, { passive: false });
                 el.addEventListener('touchend', (e) => handlePhoneItemTouchEnd(e, item), { passive: false });
+                el._phoneTouchDragBound = true;
             }
 
             if (item.size && window.applyWidgetSize) {
@@ -6228,7 +6321,15 @@ function removePhoneItem(item) {
 function handlePhoneDragStart(e, item) {
     phoneDragItem = item;
     isPhoneDropped = false;
+    setPhoneReorderingState(true);
     e.dataTransfer.effectAllowed = 'move';
+
+    const preview = preparePhoneDragPreview(e.currentTarget);
+    if (preview && typeof e.dataTransfer.setDragImage === 'function') {
+        const rect = e.currentTarget.getBoundingClientRect();
+        e.dataTransfer.setDragImage(preview, Math.round(rect.width / 2), Math.round(rect.height / 2));
+    }
+
     phoneScreenData.forEach(i => i._originalIndex = i.index);
     setTimeout(() => {
         if (phoneItemElementMap.has(item._internalId)) {
@@ -6241,6 +6342,9 @@ function handlePhoneDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (!phoneDragItem) return;
+
+    schedulePhonePageSwitch(e.clientX);
+
     if (phoneDragThrottleTimer) return;
     phoneDragThrottleTimer = setTimeout(() => { phoneDragThrottleTimer = null; }, 50);
     const targetSlot = e.target.closest('.grid-slot');
@@ -6258,6 +6362,7 @@ function handlePhoneDragOver(e) {
 function handlePhoneDrop(e) {
     e.preventDefault();
     isPhoneDropped = true;
+    clearPhonePageSwitchTimer();
     savePhoneLayout();
 }
 
@@ -6274,6 +6379,9 @@ function handlePhoneDragEnd(e, item) {
     }
     phoneDragItem = null;
     lastPhoneDragTargetIndex = -1;
+    clearPhonePageSwitchTimer();
+    setPhoneReorderingState(false);
+    clearPhoneDragPreview();
 }
 
 function reorderPhoneItems(draggedItem, targetIndex) {
@@ -6403,11 +6511,13 @@ function handlePhoneItemTouchMove(e) {
     const dy = phoneTouchCurrentPos.y - phoneTouchStartPos.y;
     if (!isPhoneTouchDragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
         isPhoneTouchDragging = true;
+        setPhoneReorderingState(true);
         if (navigator.vibrate) navigator.vibrate(10);
     }
     if (isPhoneTouchDragging) {
         phoneTouchDragClone.style.left = (phoneTouchCurrentPos.x - phoneTouchStartPos.offsetX) + 'px';
         phoneTouchDragClone.style.top = (phoneTouchCurrentPos.y - phoneTouchStartPos.offsetY) + 'px';
+        schedulePhonePageSwitch(phoneTouchCurrentPos.x);
         const targetSlot = document.elementFromPoint(phoneTouchCurrentPos.x, phoneTouchCurrentPos.y)?.closest('.grid-slot');
         if (targetSlot) {
             const targetIndex = parseInt(targetSlot.dataset.index);
@@ -6450,6 +6560,8 @@ function handlePhoneItemTouchEnd(e, item) {
     phoneTouchDraggedElement = null;
     isPhoneTouchDragging = false;
     lastPhoneDragTargetIndex = -1;
+    clearPhonePageSwitchTimer();
+    setPhoneReorderingState(false);
 }
 
 // --- 工具栏与组件库 ---
@@ -6459,7 +6571,11 @@ function togglePhoneEditMode() {
     const toolbar = document.getElementById('phone-edit-mode-toolbar');
     if (toolbar) {
         if (isPhoneEditMode) toolbar.classList.remove('hidden');
-        else toolbar.classList.add('hidden');
+        else {
+            toolbar.classList.add('hidden');
+            clearPhonePageSwitchTimer();
+            setPhoneReorderingState(false);
+        }
     }
     renderPhoneItems();
 }

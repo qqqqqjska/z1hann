@@ -726,7 +726,7 @@ function getChatHistoryBucketForImageDebug(contactId) {
     return Array.isArray(history) ? history : null;
 }
 
-function refreshChatImageResultViews(contactId, channelHint = 'wechat') {
+function refreshChatImageResultViews(contactId, channelHint = 'wechat', msgId = null, mediaRef = '') {
     const normalizedChannel = String(channelHint || '').trim() === 'messages-app' ? 'messages-app' : 'wechat';
 
     if (normalizedChannel === 'messages-app' && window.MessagesApp && typeof window.MessagesApp.refresh === 'function') {
@@ -734,15 +734,78 @@ function refreshChatImageResultViews(contactId, channelHint = 'wechat') {
     }
 
     const currentContactId = window.iphoneSimState && window.iphoneSimState.currentChatContactId;
-    if (String(currentContactId || '') === String(contactId || '') && typeof window.renderChatHistory === 'function') {
+    const isCurrentContact = String(currentContactId || '') === String(contactId || '');
+    const hasMediaRef = typeof window.isChatMediaReference === 'function'
+        ? window.isChatMediaReference(mediaRef)
+        : false;
+    const usedInlineRefresh = isCurrentContact
+        && msgId != null
+        && hasMediaRef
+        && typeof window.refreshRenderedChatMessageMedia === 'function'
+        && window.refreshRenderedChatMessageMedia(contactId, msgId, mediaRef);
+
+    if (isCurrentContact && !usedInlineRefresh && typeof window.renderChatHistory === 'function') {
         renderChatHistory(contactId, true);
     }
 }
 
-function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base64Image, finalPrompt, negativePrompt, channelHint = 'wechat') {
+async function persistGeneratedChatImageSource(imageSource, metadata = {}) {
+    const rawSource = String(imageSource || '').trim();
+    if (!rawSource) return '';
+
+    if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(rawSource)) {
+        return rawSource;
+    }
+
+    const metadataName = String(metadata && metadata.name || '').trim() || 'ai-generated-image';
+    const normalizedMetadata = {
+        type: String(metadata && metadata.type || '').trim() || 'image/png',
+        name: metadataName
+    };
+
+    if (rawSource.startsWith('data:image')) {
+        if (typeof window.persistInlineChatImagePayload === 'function') {
+            const persisted = await window.persistInlineChatImagePayload(rawSource, normalizedMetadata);
+            if (persisted) return persisted;
+        }
+        return rawSource;
+    }
+
+    if (/^blob:|^https?:\/\//i.test(rawSource) && typeof window.saveChatMediaBlob === 'function') {
+        try {
+            const response = await fetch(rawSource);
+            if (response && response.ok !== false) {
+                const blob = await response.blob();
+                if (blob instanceof Blob) {
+                    const storedReference = await window.saveChatMediaBlob(blob, {
+                        type: blob.type || normalizedMetadata.type,
+                        name: normalizedMetadata.name
+                    });
+                    if (rawSource.startsWith('blob:') && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+                        try {
+                            URL.revokeObjectURL(rawSource);
+                        } catch (revokeError) {
+                            console.warn('释放AI图片临时URL失败', revokeError);
+                        }
+                    }
+                    return storedReference;
+                }
+            }
+        } catch (error) {
+            console.warn('AI图片转存失败，继续使用原始地址', error);
+        }
+    }
+
+    return rawSource;
+}
+
+async function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base64Image, finalPrompt, negativePrompt, channelHint = 'wechat') {
     const placeholderMsgId = placeholderMsg && placeholderMsg.id != null ? String(placeholderMsg.id) : '';
     const history = getChatHistoryBucketForImageDebug(contactId);
     const normalizedChannel = String(channelHint || '').trim() === 'messages-app' ? 'messages-app' : 'wechat';
+    const imageMetadataName = placeholderMsg && placeholderMsg.description
+        ? String(placeholderMsg.description).slice(0, 80)
+        : `ai-image-${placeholderMsgId || Date.now()}`;
 
     logChatImageStage('placeholder:update-attempt', {
         contactId,
@@ -752,6 +815,16 @@ function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base
     });
 
     let targetMessage = null;
+    let storedImageSource = String(base64Image || '').trim();
+    try {
+        storedImageSource = await persistGeneratedChatImageSource(storedImageSource, {
+            type: 'image/png',
+            name: imageMetadataName
+        }) || storedImageSource;
+    } catch (error) {
+        console.warn('AI图片持久化失败，继续使用原始资源', error);
+    }
+
     if (placeholderMsgId && Array.isArray(history)) {
         targetMessage = history.find(item => item && String(item.id || '') === placeholderMsgId) || null;
     }
@@ -777,7 +850,7 @@ function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base
             placeholderMsgId,
             channel: normalizedChannel
         });
-        const fallbackMessage = sendMessage(base64Image, false, 'image', placeholderMsg && placeholderMsg.description ? placeholderMsg.description : null, contactId, {
+        const fallbackMessage = sendMessage(storedImageSource, false, 'image', placeholderMsg && placeholderMsg.description ? placeholderMsg.description : null, contactId, {
             channel: normalizedChannel,
             readInMessagesApp: normalizedChannel === 'messages-app'
         });
@@ -790,14 +863,14 @@ function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base
                 channel: normalizedChannel
             });
             saveConfig();
-            refreshChatImageResultViews(contactId, normalizedChannel);
+            refreshChatImageResultViews(contactId, normalizedChannel, fallbackMessage && fallbackMessage.id ? fallbackMessage.id : null, storedImageSource);
             return true;
         }
         return false;
     }
 
     targetMessage.type = 'image';
-    targetMessage.content = base64Image;
+    targetMessage.content = storedImageSource;
     targetMessage.novelaiPrompt = finalPrompt;
     targetMessage.novelaiNegativePrompt = negativePrompt;
     if (normalizedChannel === 'messages-app') {
@@ -813,7 +886,7 @@ function applyGeneratedImageToPlaceholderMessage(contactId, placeholderMsg, base
     });
 
     saveConfig();
-    refreshChatImageResultViews(contactId, targetMessage.channel || normalizedChannel);
+    refreshChatImageResultViews(contactId, targetMessage.channel || normalizedChannel, targetMessage.id || null, storedImageSource);
     return true;
 }
 
@@ -8221,7 +8294,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                                     imageType: String(base64Image || '').slice(0, 20),
                                     imageLength: String(base64Image || '').length
                                 });
-                                applyGeneratedImageToPlaceholderMessage(
+                                void applyGeneratedImageToPlaceholderMessage(
                                     contactId,
                                     placeholderMsg,
                                     base64Image,
@@ -8501,7 +8574,7 @@ async function generateAiReply(instruction = null, targetContactId = null, optio
                                 imageType: String(base64Image || '').slice(0, 20),
                                 imageLength: String(base64Image || '').length
                             });
-                            applyGeneratedImageToPlaceholderMessage(
+                            void applyGeneratedImageToPlaceholderMessage(
                                 contactId,
                                 placeholderMsg,
                                 base64Image,

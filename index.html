@@ -31,6 +31,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&display=swap">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Libre+Barcode+39&display=swap">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/whisper_challenge_palette.css">
     <link rel="stylesheet" href="css/chat_tail_style.css">
@@ -40,7 +41,6 @@
     <link rel="stylesheet" href="css/shopping_new.css">
     <link rel="stylesheet" href="css/settings_v3.css">
     <link rel="stylesheet" href="css/beautify_center.css">
-    <link rel="stylesheet" href="css/schedule_v4.css">
     <!-- 替换为国内更稳定的静态链接，避免 Live Server 自动刷新时因 jsdelivr 被墙而报错 -->
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/regular/style.css">
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.2/src/fill/style.css">
@@ -125,12 +125,6 @@
         <!-- 心声气泡 (移到此处以确保层级高于总结通知) -->
         <div id="thought-bubble" class="thought-bubble hidden">
             <div class="thought-content" id="thought-content-text"></div>
-        </div>
-
-        <!-- 行程生成通知横幅 -->
-        <div id="itinerary-notification" class="notification-banner hidden" style="top: 110px;">
-            <i class="fas fa-spinner fa-spin"></i>
-            <span id="itinerary-notification-text">正在加载行程...</span>
         </div>
 
         <!-- 状态栏模拟 -->
@@ -1078,6 +1072,14 @@
                                     <div id="chat-setting-token-meta" class="chat-token-preview-meta editorial-token-meta">按当前未保存设置实时估算</div>
                                     <button id="chat-setting-request-preview-btn" type="button" class="mag-btn" style="width:100%;margin-top:12px;justify-content:center;">查看实际请求预览</button>
                                 </div>
+                            </div>
+
+                            <div class="mag-toggle" style="margin-top: 12px;">
+                                <span class="mag-toggle-text">Plan Context <span class="separator">/</span> <span class="mag-zh">发送计划上下文</span></span>
+                                <label><input type="checkbox" id="chat-setting-planner-context-enabled" class="mag-toggle-input"><div class="mag-toggle-switch"></div></label>
+                            </div>
+                            <div class="mag-field" style="margin-top: 8px;">
+                                <div class="chat-token-preview-meta editorial-token-meta">开启后，聊天请求会附带当前联系人已生成的月 / 周 / 日计划，让对方知道自己接下来要做什么。</div>
                             </div>
 
                             <div id="chat-request-preview-modal" class="modal hidden">
@@ -4128,85 +4130,6 @@
             </div>
         </div>
 
-        <!-- 位置/行程全屏App -->
-        <div id="location-app" class="app-screen hidden" style="background-color: #ffffff; color: #000000; z-index: 200;">
-            <!-- Background Decoration -->
-            <div class="bg-deco">
-                <div class="bg-char">24</div>
-                <div class="bg-char">◆</div>
-                <div class="bg-char">↗</div>
-            </div>
-
-            <!-- Floating Tiny Symbols -->
-            <div class="float-sym" style="top: 20%; left: 5%; animation-delay: 0s; animation-duration: 12s;">✦</div>
-            <div class="float-sym" style="top: 70%; left: 8%; animation-delay: -3s; animation-duration: 15s;">◇</div>
-            <div class="float-sym" style="top: 40%; right: 6%; animation-delay: -6s; animation-duration: 18s;">×</div>
-            <div class="float-sym" style="top: 85%; right: 12%; animation-delay: -9s; animation-duration: 10s;">—</div>
-            <div class="float-sym" style="top: 15%; right: 20%; animation-delay: -2s; animation-duration: 22s;">∙</div>
-
-            <!-- Floating particle symbols (background) -->
-            <div class="particle-container" id="particles"></div>
-
-            <!-- Frosted Header -->
-            <header>
-                <div class="header-left">
-                    <div id="close-location-btn-new" class="header-symbol" style="cursor: pointer;">✦</div>
-                    <div id="itinerary-settings-btn-new" class="header-ticks" style="cursor: pointer;">
-                        <div class="tick"></div>
-                        <div class="tick"></div>
-                        <div class="tick"></div>
-                    </div>
-                    <div class="header-date" id="location-header-date">Monday, 23 February</div>
-                </div>
-                <div class="header-right">
-                    <div id="refresh-location-btn-new" class="header-status" style="cursor: pointer;">
-                        <div class="pulse-dot"></div>
-                        In Progress
-                    </div>
-                </div>
-            </header>
-
-            <!-- Main Content -->
-            <div class="container">
-                <div class="intro-index" id="location-intro-date">
-                    ★ Daily Itinerary / Feb 23
-                </div>
-
-                <div class="agenda-list" id="agendaList">
-                    <div class="agenda-progress" id="progressLine" style="height: 35%;"></div>
-                    <!-- 行程节点将通过 JS 动态渲染 -->
-                </div>
-            </div>
-
-            <!-- 行程设置弹窗 (保留原有功能) -->
-            <div id="itinerary-settings-modal" class="modal hidden" style="z-index: 210;">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h3>行程生成设置</h3>
-                        <button class="close-btn" id="close-itinerary-settings">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="setting-group">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                                <label>开启自动生成行程</label>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="auto-itinerary-toggle">
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                            <div style="font-size: 12px; color: #888; margin-bottom: 15px;">
-                                开启后，消息累计达到指定条数时会自动生成一个新的行程。
-                            </div>
-                        </div>
-                        <div class="setting-group">
-                            <label>触发条数 (消息数量)</label>
-                            <input type="number" id="auto-itinerary-interval" placeholder="默认 10" min="1">
-                        </div>
-                        <button id="save-itinerary-settings-btn" class="ios-btn-block">保存</button>
-                    </div>
-                </div>
-            </div>
-        </div>
                 <!-- ================= 见面功能 HTML 开始 ================= -->
         <!-- 1. 见面记录列表页 -->
         <div id="meetings-screen" class="sub-screen hidden" style="z-index: 180; background-color: #fdfdfc; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
@@ -5958,6 +5881,19 @@
                         <span class="theme-form-hint" style="margin-bottom: 12px;">展开列表修改各应用的图标和名称</span>
                         <div class="ios-list-group" id="icon-setting-list" style="background: transparent; box-shadow: none; padding: 0;">
                             <!-- 图标设置项将通过JS动态生成 -->
+                        </div>
+                    </div>
+
+                    <div class="theme-form-group">
+                        <div class="theme-toggle-container">
+                            <div>
+                                <label class="theme-form-label" style="margin-bottom: 0;">应用图标阴影</label>
+                                <span class="theme-form-hint" style="margin-top: 2px;">关闭后，主屏和 Dock 图标周围的阴影会一起隐藏</span>
+                            </div>
+                            <label class="theme-toggle-switch">
+                                <input type="checkbox" id="app-icon-shadow-toggle" checked>
+                                <span class="theme-toggle-slider"></span>
+                            </label>
                         </div>
                     </div>
 
@@ -9871,6 +9807,7 @@
     <script src="js/chat/01-contact-settings.js"></script>
     <script src="js/chat/02-message-bank.js"></script>
     <script src="js/chat/03-ai-engine.js"></script>
+    <script src="js/location_schedule_v1.js"></script>
     <script src="js/chat/04-media-init.js"></script>
     <script src="js/chat/05-addressbook-friends.js"></script>
     <script src="js/chat/06-oracle-quick-replies.js"></script>
@@ -10189,6 +10126,8 @@
                     </div>
                 </div>
             </div>
+
+            <div id="location-app" class="app-screen hidden" style="background-color: #ffffff; color: #000000; z-index: 260; overflow: hidden;"></div>
 
             <div id="preset-app" class="app-screen hidden preset-app-screen">
                 <div class="preset-shell">

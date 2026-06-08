@@ -15,6 +15,8 @@ let isTouchDragging = false;
 let touchDraggedElement = null;
 let touchDraggedItem = null;
 let touchDragClone = null;
+const HOME_EDGE_SCROLL_THRESHOLD = 50;
+const HOME_EDGE_SCROLL_DELAY = 450;
 
 // 主屏幕上正在显示的图标/组件
 let homeScreenData = [
@@ -59,6 +61,96 @@ const widgetInput = document.getElementById('widget-file-input');
 
 // 缓存 DOM 元素以支持 FLIP 动画和复用
 let itemElementMap = new Map();
+let homeDragPreviewEl = null;
+
+function setHomeReorderingState(active) {
+    if (!pagesWrapper) return;
+    pagesWrapper.classList.toggle('is-reordering', !!active);
+}
+
+function clearHomeDragPreview() {
+    if (homeDragPreviewEl && homeDragPreviewEl.parentNode) {
+        homeDragPreviewEl.parentNode.removeChild(homeDragPreviewEl);
+    }
+    homeDragPreviewEl = null;
+}
+
+function prepareHomeDragPreview(sourceEl) {
+    if (!sourceEl) return null;
+    clearHomeDragPreview();
+
+    const rect = sourceEl.getBoundingClientRect();
+    const preview = sourceEl.cloneNode(true);
+    preview.setAttribute('aria-hidden', 'true');
+    preview.style.position = 'fixed';
+    preview.style.left = '-9999px';
+    preview.style.top = '0';
+    preview.style.margin = '0';
+    preview.style.width = rect.width + 'px';
+    preview.style.height = rect.height + 'px';
+    preview.style.pointerEvents = 'none';
+    preview.style.transform = 'none';
+    preview.style.transition = 'none';
+    preview.style.animation = 'none';
+    preview.style.opacity = '1';
+    preview.style.zIndex = '99999';
+
+    preview.querySelectorAll('img').forEach(img => {
+        img.setAttribute('draggable', 'false');
+        img.style.pointerEvents = 'none';
+        img.style.userSelect = 'none';
+        img.style.webkitUserDrag = 'none';
+        img.style.webkitTouchCallout = 'none';
+    });
+
+    document.body.appendChild(preview);
+    homeDragPreviewEl = preview;
+    return preview;
+}
+
+function clearHomePageSwitchTimer() {
+    if (!pageSwitchTimer) return;
+    clearTimeout(pageSwitchTimer);
+    pageSwitchTimer = null;
+}
+
+function scheduleHomePageSwitch(clientX) {
+    if (!pagesContainer || typeof clientX !== 'number') return;
+
+    const containerRect = pagesContainer.getBoundingClientRect();
+
+    if (clientX < containerRect.left + HOME_EDGE_SCROLL_THRESHOLD) {
+        if (!pageSwitchTimer && currentPage > 0) {
+            pageSwitchTimer = setTimeout(() => {
+                pagesContainer.scrollBy({ left: -containerRect.width, behavior: 'smooth' });
+                pageSwitchTimer = null;
+            }, HOME_EDGE_SCROLL_DELAY);
+        }
+        return;
+    }
+
+    if (clientX > containerRect.right - HOME_EDGE_SCROLL_THRESHOLD) {
+        if (!pageSwitchTimer && currentPage < totalPages - 1) {
+            pageSwitchTimer = setTimeout(() => {
+                pagesContainer.scrollBy({ left: containerRect.width, behavior: 'smooth' });
+                pageSwitchTimer = null;
+            }, HOME_EDGE_SCROLL_DELAY);
+        }
+        return;
+    }
+
+    clearHomePageSwitchTimer();
+}
+
+function handleHomeEdgeDragOver(e) {
+    if (!currentDraggedItem && !isTouchDragging) return;
+    scheduleHomePageSwitch(e.clientX);
+}
+
+if (!window.__homeEdgeDragOverBound) {
+    document.addEventListener('dragover', handleHomeEdgeDragOver, true);
+    window.__homeEdgeDragOverBound = true;
+}
 
 // --- 1. 初始化与渲染 ---
 
@@ -417,10 +509,6 @@ function renderPages() {
             slot.addEventListener('dragleave', handleDragLeave);
             slot.addEventListener('drop', handleDrop);
             
-            // 长按空白处进入编辑模式
-            slot.addEventListener('touchstart', handleSlotTouchStart, { passive: false });
-            slot.addEventListener('mousedown', handleSlotMouseDown);
-            
             grid.appendChild(slot);
         }
         
@@ -552,10 +640,11 @@ function renderItems() {
             el.ondragend = (e) => handleDragEnd(e, item);
             
             // 添加触摸事件支持
-            if (canDrag) {
+            if (canDrag && !el._homeTouchDragBound) {
                 el.addEventListener('touchstart', (e) => handleItemTouchStart(e, item), { passive: false });
                 el.addEventListener('touchmove', handleItemTouchMove, { passive: false });
                 el.addEventListener('touchend', (e) => handleItemTouchEnd(e, item), { passive: false });
+                el._homeTouchDragBound = true;
             }
 
             // Fix: 更新 pointer-events，确保退出编辑模式后组件可交互
@@ -644,9 +733,10 @@ function createAppElement(item, draggable) {
         finalColor = window.iphoneSimState.iconColors[item.appId];
     }
 
+    const customIcon = typeof window.iphoneSimState !== 'undefined' && window.iphoneSimState.icons && window.iphoneSimState.icons[item.appId];
     let iconContent = `<i class="${item.iconClass}" style="color: ${finalColor === '#fff' ? '#000' : '#fff'};"></i>`;
-    if (typeof window.iphoneSimState !== 'undefined' && window.iphoneSimState.icons && window.iphoneSimState.icons[item.appId]) {
-        iconContent = `<img src="${window.iphoneSimState.icons[item.appId]}" style="width:100%; height:100%; object-fit:cover; border-radius:14px;">`;
+    if (customIcon) {
+        iconContent = `<img src="${customIcon}" draggable="false" style="width:100%; height:100%; object-fit:cover; border-radius:inherit; pointer-events:none; user-select:none; -webkit-user-drag:none; -webkit-touch-callout:none; display:block;">`;
     }
 
     let displayName = item.name;
@@ -655,7 +745,7 @@ function createAppElement(item, draggable) {
     }
 
     div.innerHTML = `
-        <div class="app-icon-img" style="background-color: ${finalColor}">
+        <div class="app-icon-img" style="background-color: ${customIcon ? 'transparent' : finalColor}; overflow:hidden;">
             ${iconContent}
         </div>
         <span class="app-name">${displayName}</span>
@@ -851,8 +941,15 @@ function getOccupiedSlots(startIndex, size) {
 function handleDragStart(e, item) {
     currentDraggedItem = item;
     isDropped = false;
+    setHomeReorderingState(true);
     e.dataTransfer.setData('text/plain', JSON.stringify(item));
     e.dataTransfer.effectAllowed = 'move';
+
+    const preview = prepareHomeDragPreview(e.currentTarget);
+    if (preview && typeof e.dataTransfer.setDragImage === 'function') {
+        const rect = e.currentTarget.getBoundingClientRect();
+        e.dataTransfer.setDragImage(preview, Math.round(rect.width / 2), Math.round(rect.height / 2));
+    }
     
     // 记录初始位置，用于每次重排前还原，确保“未受影响”的图标回到原位
     homeScreenData.forEach(i => i._originalIndex = i.index);
@@ -872,32 +969,7 @@ function handleDragOver(e) {
     if (!currentDraggedItem) return;
 
     // 自动翻页逻辑
-    const containerRect = pagesContainer.getBoundingClientRect();
-    const mouseX = e.clientX;
-    
-    // 靠近左边缘翻上一页
-    if (mouseX < containerRect.left + 50) {
-        if (!pageSwitchTimer && currentPage > 0) {
-            pageSwitchTimer = setTimeout(() => {
-                pagesContainer.scrollBy({ left: -containerRect.width, behavior: 'smooth' });
-                pageSwitchTimer = null;
-            }, 800);
-        }
-    } 
-    // 靠近右边缘翻下一页
-    else if (mouseX > containerRect.right - 50) {
-        if (!pageSwitchTimer && currentPage < totalPages - 1) {
-            pageSwitchTimer = setTimeout(() => {
-                pagesContainer.scrollBy({ left: containerRect.width, behavior: 'smooth' });
-                pageSwitchTimer = null;
-            }, 800);
-        }
-    } else {
-        if (pageSwitchTimer) {
-            clearTimeout(pageSwitchTimer);
-            pageSwitchTimer = null;
-        }
-    }
+    scheduleHomePageSwitch(e.clientX);
 
     // 节流
     if (dragThrottleTimer) return;
@@ -938,10 +1010,7 @@ function handleDragLeave(e) {
 function handleDrop(e) {
     e.preventDefault();
     isDropped = true;
-    if (pageSwitchTimer) {
-        clearTimeout(pageSwitchTimer);
-        pageSwitchTimer = null;
-    }
+    clearHomePageSwitchTimer();
     saveLayout(); 
 }
 
@@ -966,10 +1035,10 @@ function handleDragEnd(e, item) {
     lastDragTargetIndex = -1;
     pagesWrapper.querySelectorAll('.grid-slot').forEach(s => s.classList.remove('drag-preview'));
     
-    if (pageSwitchTimer) {
-        clearTimeout(pageSwitchTimer);
-        pageSwitchTimer = null;
-    }
+    clearHomePageSwitchTimer();
+
+    setHomeReorderingState(false);
+    clearHomeDragPreview();
 }
 
 // --- 4. 布局算法 ---
@@ -1104,6 +1173,13 @@ function toggleEditMode() {
         toolbar.classList.remove('hidden');
     } else {
         toolbar.classList.add('hidden');
+        clearHomePageSwitchTimer();
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+        document.querySelectorAll('.blank-long-press-active').forEach(el => {
+            el.classList.remove('blank-long-press-active');
+        });
+        setHomeReorderingState(false);
     }
     renderItems();
 }
@@ -1243,90 +1319,78 @@ function applyWidgetSize(slot, size) {
 
 // --- 8. 长按和触摸拖拽功能 ---
 
-// 处理空白格子的触摸开始（用于长按进入编辑模式）
-function handleSlotTouchStart(e) {
-    const slot = e.currentTarget;
-    if (e.target !== slot) return; // 只处理空白格子
-    
+function isHomeLongPressInteractiveTarget(target) {
+    return !!target.closest('.draggable-item, .custom-widget, .delete-btn, .touch-drag-clone, #music-widget, #polaroid-widget');
+}
+
+function getHomeLongPressFeedbackTarget(target) {
+    return target.closest('.grid-slot') || target.closest('.home-screen-page') || pagesContainer;
+}
+
+function startHomeBlankLongPress(point, feedbackTarget, isTouch) {
+    if (!point) return;
+
     clearTimeout(longPressTimer);
-    
-    const touch = e.touches[0];
-    touchStartPos = { x: touch.clientX, y: touch.clientY };
-    
-    // 添加长按反馈效果
-    slot.style.transition = 'background-color 0.5s';
-    
+    touchStartPos = { x: point.clientX, y: point.clientY };
+
+    if (feedbackTarget) {
+        feedbackTarget.classList.add('blank-long-press-active');
+    }
+
     longPressTimer = setTimeout(() => {
         if (!isEditMode) {
-            // 震动反馈（如果设备支持）
             if (navigator.vibrate) {
                 navigator.vibrate(50);
             }
-            slot.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
             toggleEditMode();
         }
-    }, 500); // 500ms 长按
-    
-    // 监听移动和结束事件来取消长按
+    }, 500);
+
+    let checkMove = null;
     const cancelLongPress = () => {
         clearTimeout(longPressTimer);
-        slot.style.backgroundColor = '';
-        slot.style.transition = '';
-        document.removeEventListener('touchmove', checkMove);
-        document.removeEventListener('touchend', cancelLongPress);
+        longPressTimer = null;
+        if (feedbackTarget) {
+            feedbackTarget.classList.remove('blank-long-press-active');
+        }
+        if (isTouch) {
+            document.removeEventListener('touchmove', checkMove);
+            document.removeEventListener('touchend', cancelLongPress);
+        } else {
+            document.removeEventListener('mousemove', checkMove);
+            document.removeEventListener('mouseup', cancelLongPress);
+        }
     };
-    
-    const checkMove = (e) => {
-        const touch = e.touches[0];
+
+    checkMove = (moveEvent) => {
+        const touch = moveEvent.touches && moveEvent.touches[0] ? moveEvent.touches[0] : moveEvent;
+        if (!touch) return;
         const dx = Math.abs(touch.clientX - touchStartPos.x);
         const dy = Math.abs(touch.clientY - touchStartPos.y);
         if (dx > 10 || dy > 10) {
             cancelLongPress();
         }
     };
-    
-    document.addEventListener('touchmove', checkMove, { passive: true });
-    document.addEventListener('touchend', cancelLongPress, { once: true });
+
+    if (isTouch) {
+        document.addEventListener('touchmove', checkMove, { passive: true });
+        document.addEventListener('touchend', cancelLongPress, { once: true });
+    } else {
+        document.addEventListener('mousemove', checkMove);
+        document.addEventListener('mouseup', cancelLongPress, { once: true });
+    }
 }
 
-// 处理空白格子的鼠标按下（用于长按进入编辑模式）
-function handleSlotMouseDown(e) {
-    const slot = e.currentTarget;
-    if (e.target !== slot) return; // 只处理空白格子
-    
-    clearTimeout(longPressTimer);
-    
-    touchStartPos = { x: e.clientX, y: e.clientY };
-    
-    // 添加长按反馈效果
-    slot.style.transition = 'background-color 0.5s';
-    
-    longPressTimer = setTimeout(() => {
-        if (!isEditMode) {
-            slot.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-            toggleEditMode();
-        }
-    }, 500); // 500ms 长按
-    
-    // 监听移动和结束事件来取消长按
-    const cancelLongPress = () => {
-        clearTimeout(longPressTimer);
-        slot.style.backgroundColor = '';
-        slot.style.transition = '';
-        document.removeEventListener('mousemove', checkMove);
-        document.removeEventListener('mouseup', cancelLongPress);
-    };
-    
-    const checkMove = (e) => {
-        const dx = Math.abs(e.clientX - touchStartPos.x);
-        const dy = Math.abs(e.clientY - touchStartPos.y);
-        if (dx > 10 || dy > 10) {
-            cancelLongPress();
-        }
-    };
-    
-    document.addEventListener('mousemove', checkMove);
-    document.addEventListener('mouseup', cancelLongPress, { once: true });
+function handleHomeBlankAreaTouchStart(e) {
+    if (!e.touches || !e.touches[0]) return;
+    if (isHomeLongPressInteractiveTarget(e.target)) return;
+    startHomeBlankLongPress(e.touches[0], getHomeLongPressFeedbackTarget(e.target), true);
+}
+
+function handleHomeBlankAreaMouseDown(e) {
+    if (e.button !== 0) return;
+    if (isHomeLongPressInteractiveTarget(e.target)) return;
+    startHomeBlankLongPress(e, getHomeLongPressFeedbackTarget(e.target), false);
 }
 
 // 处理图标的触摸开始
@@ -1398,6 +1462,7 @@ function handleItemTouchMove(e) {
     // 开始拖拽
     if (!isTouchDragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
         isTouchDragging = true;
+        setHomeReorderingState(true);
         if (navigator.vibrate) {
             navigator.vibrate(10);
         }
@@ -1407,6 +1472,7 @@ function handleItemTouchMove(e) {
         // 更新克隆位置 - 使用触摸点减去偏移量
         touchDragClone.style.left = (touchCurrentPos.x - touchStartPos.offsetX) + 'px';
         touchDragClone.style.top = (touchCurrentPos.y - touchStartPos.offsetY) + 'px';
+        scheduleHomePageSwitch(touchCurrentPos.x);
         
         // 查找当前触摸位置下的格子
         const targetSlot = document.elementFromPoint(touchCurrentPos.x, touchCurrentPos.y)?.closest('.grid-slot');
@@ -1416,29 +1482,6 @@ function handleItemTouchMove(e) {
             
             if (targetIndex !== lastDragTargetIndex && !isNaN(targetIndex)) {
                 lastDragTargetIndex = targetIndex;
-                
-                // 自动翻页逻辑
-                const containerRect = pagesContainer.getBoundingClientRect();
-                if (touchCurrentPos.x < containerRect.left + 50 && currentPage > 0) {
-                    if (!pageSwitchTimer) {
-                        pageSwitchTimer = setTimeout(() => {
-                            pagesContainer.scrollBy({ left: -containerRect.width, behavior: 'smooth' });
-                            pageSwitchTimer = null;
-                        }, 800);
-                    }
-                } else if (touchCurrentPos.x > containerRect.right - 50 && currentPage < totalPages - 1) {
-                    if (!pageSwitchTimer) {
-                        pageSwitchTimer = setTimeout(() => {
-                            pagesContainer.scrollBy({ left: containerRect.width, behavior: 'smooth' });
-                            pageSwitchTimer = null;
-                        }, 800);
-                    }
-                } else {
-                    if (pageSwitchTimer) {
-                        clearTimeout(pageSwitchTimer);
-                        pageSwitchTimer = null;
-                    }
-                }
                 
                 // 重新排列
                 const oldPositions = capturePositions();
@@ -1511,15 +1554,20 @@ function handleItemTouchEnd(e, item) {
     touchDraggedElement = null;
     isTouchDragging = false;
     lastDragTargetIndex = -1;
+
+    setHomeReorderingState(false);
     
-    if (pageSwitchTimer) {
-        clearTimeout(pageSwitchTimer);
-        pageSwitchTimer = null;
-    }
+    clearHomePageSwitchTimer();
 }
 
 // 初始化监听器
 function setupHomeListeners() {
+    if (pagesContainer && !pagesContainer._blankLongPressBound) {
+        pagesContainer.addEventListener('touchstart', handleHomeBlankAreaTouchStart, { passive: false });
+        pagesContainer.addEventListener('mousedown', handleHomeBlankAreaMouseDown);
+        pagesContainer._blankLongPressBound = true;
+    }
+
     document.getElementById('add-widget-btn').onclick = () => {
         libraryModal.classList.add('show');
         renderLibrary();

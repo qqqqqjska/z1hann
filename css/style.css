@@ -9,6 +9,8 @@
     --dock-icon-size: 64px;
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --app-icon-shadow: var(--shadow-sm);
+    --app-icon-image-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
     
     /* Theme Variables */
     --font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -658,7 +660,8 @@ body {
     align-items: center;
     color: white;
     font-size: 28px;
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--app-icon-shadow, var(--shadow-sm));
+    overflow: hidden;
 }
 
 .app-label {
@@ -5759,6 +5762,20 @@ input.msg-select-checkbox {
     display: none; /* Chrome/Safari */
 }
 
+#pages-container.blank-long-press-active .home-screen-page {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+.home-screen-page.blank-long-press-active {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+.grid-slot.blank-long-press-active {
+    background-color: rgba(255, 255, 255, 0.12) !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}
+
 .pages-wrapper {
     display: flex;
     height: 100%;
@@ -5845,7 +5862,7 @@ input.msg-select-checkbox {
 .edit-mode .grid-slot {
     /* 稍微调整背景色，让它看起来像个占位符 */
     background-color: rgba(200, 200, 200, 0.3);
-    border: 1px dashed rgba(0, 0, 0, 0.3);
+    border: 1px dashed transparent;
     overflow: visible; 
 }
 
@@ -5887,8 +5904,9 @@ input.msg-select-checkbox {
     align-items: center;
     justify-content: center;
     font-size: 28px; /* 恢复原来的图标字�?*/
-    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    box-shadow: var(--app-icon-image-shadow, 0 2px 10px rgba(0,0,0,0.15));
     flex-shrink: 0; /* 防止被挤�?*/
+    overflow: hidden;
 }
 
 /* 应用名字 - 移到格子下方 */
@@ -5974,6 +5992,18 @@ input.msg-select-checkbox {
 .edit-mode .draggable-item:active,
 .edit-mode .custom-widget:active {
     cursor: grabbing;
+}
+
+/* 拖拽重排时暂停抖动，避免与 FLIP 的 transform 动画互相覆盖 */
+#pages-wrapper.is-reordering .draggable-item,
+#pages-wrapper.is-reordering .custom-widget,
+#pages-wrapper.is-reordering .music-widget,
+#pages-wrapper.is-reordering .polaroid-widget,
+#phone-pages-wrapper.is-reordering .draggable-item,
+#phone-pages-wrapper.is-reordering .custom-widget,
+#phone-pages-wrapper.is-reordering .music-widget,
+#phone-pages-wrapper.is-reordering .polaroid-widget {
+    animation: none !important;
 }
 
 /* --- 6. 删除按钮 (�?iOS 减号) --- */

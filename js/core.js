@@ -471,6 +471,7 @@ const state = {
     iconColors: {}, // { appId: '#ffffff' }
     appNames: {}, // { appId: 'Custom Name' }
     iconPresets: [], // { name, icons, iconColors, appNames }
+    appIconShadowEnabled: true,
     showStatusBar: true,
     css: '',
     currentFont: 'default',
@@ -646,6 +647,15 @@ const state = {
 };
 
 window.iphoneSimState = state;
+
+function applyAppIconShadowPreference() {
+    const enabled = state.appIconShadowEnabled !== false;
+    document.documentElement.style.setProperty('--app-icon-shadow', enabled ? 'var(--shadow-sm)' : 'none');
+    document.documentElement.style.setProperty('--app-icon-image-shadow', enabled ? '0 2px 10px rgba(0,0,0,0.15)' : 'none');
+}
+
+window.applyAppIconShadowPreference = applyAppIconShadowPreference;
+applyAppIconShadowPreference();
 
 const GROUP_CHAT_CONTACT_GROUP = '群聊';
 const LEGACY_GROUP_CHAT_CONTACT_GROUP_ALIASES = new Set(['缇よ亰', '緋よ京']);
@@ -1513,6 +1523,7 @@ const knownApps = {
     'wechat-app': { name: 'WeChat', icon: 'fab fa-weixin', color: '#07C160' },
     'worldbook-app': { name: 'Worldbook', icon: 'fas fa-globe', color: '#007AFF' },
     'settings-app': { name: 'Settings', icon: 'fas fa-cog', color: '#8E8E93' },
+    'garden-app': { name: '家园', icon: 'fas fa-house-chimney', color: '#F59E0B' },
     'theme-app': { name: 'Theme', icon: 'fas fa-paint-brush', color: '#5856D6' },
     'calendar-app': { name: 'Calendar', icon: 'fas fa-calendar-alt', color: '#FF3B30' },
     'shopping-app': { name: 'Shop', icon: 'fas fa-shopping-bag', color: '#FF9500' },
@@ -1522,11 +1533,17 @@ const knownApps = {
     'bank-app': { name: 'Bank', icon: 'fas fa-building-columns', color: '#1E66F5' },
     'icity-app': { name: 'iCity', icon: 'fas fa-city', color: '#000000' },
     'lookus-app': { name: 'LookUS', icon: 'fas fa-eye', color: '#FF2D55' },
+    'preset-app': { name: '预设', icon: 'fas fa-sliders-h', color: '#111111' },
     'music-app': { name: 'Music', icon: 'fas fa-music', color: '#FF2D55' },
     'studio-app': { name: 'Studio', icon: 'fas fa-pen-ruler', color: '#8B5CF6' }
 };
 
-function compressImage(file, maxWidth = 1024, quality = 0.7) {
+function compressImage(file, maxWidth = 1024, quality = 0.7, options = {}) {
+    const compressOptions = options && typeof options === 'object' ? options : {};
+    const preserveAlpha = !!compressOptions.preserveAlpha;
+    const outputType = preserveAlpha ? (compressOptions.outputType || 'image/png') : (compressOptions.outputType || 'image/jpeg');
+    const backgroundColor = typeof compressOptions.backgroundColor === 'string' ? compressOptions.backgroundColor : '#FFFFFF';
+
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -1544,10 +1561,14 @@ function compressImage(file, maxWidth = 1024, quality = 0.7) {
                 canvas.width = width;
                 canvas.height = height;
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(0, 0, width, height);
+                if (!preserveAlpha) {
+                    ctx.fillStyle = backgroundColor;
+                    ctx.fillRect(0, 0, width, height);
+                }
                 ctx.drawImage(img, 0, 0, width, height);
-                const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+                const compressedDataUrl = preserveAlpha
+                    ? canvas.toDataURL(outputType)
+                    : canvas.toDataURL(outputType, quality);
                 resolve(compressedDataUrl);
             };
             img.onerror = (err) => reject(err);
@@ -2386,6 +2407,7 @@ async function loadConfig() {
             if (!state.iconColors) state.iconColors = {};
             if (!state.appNames) state.appNames = {};
             if (!state.iconPresets) state.iconPresets = [];
+            if (state.appIconShadowEnabled === undefined) state.appIconShadowEnabled = true;
             if (!state.stickerCategories) state.stickerCategories = [];
             if (!state.contactGroups) state.contactGroups = [];
             ensureGroupChatTabRegistered();
@@ -2488,6 +2510,7 @@ async function loadConfig() {
             if (memoryMigrationChanged || socialContentSanitized || chatMediaMigrated || groupChatLabelMigrated) {
                 saveConfig();
             }
+            if (window.applyAppIconShadowPreference) applyAppIconShadowPreference();
         } else {
             await loadPersistedChatHistories(rawChatHistoryState);
         }
@@ -2673,6 +2696,7 @@ function applyConfig() {
         applyMeetingFont(state.currentMeetingFont);
     }
     if (window.applyWallpaper) applyWallpaper(state.currentWallpaper);
+    if (window.applyAppIconShadowPreference) applyAppIconShadowPreference();
     if (window.applyIcons) applyIcons();
     if (window.applyCSS) applyCSS(state.css);
     if (window.applyMeetingCss) applyMeetingCss(state.meetingCss);
