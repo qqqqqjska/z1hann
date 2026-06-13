@@ -170,7 +170,7 @@
 
         return `
             <div class="messages-bubble-media-shell ${mediaKindClass}">
-                <img class="messages-bubble-media ${mediaKindClass}" src="${escapeHtml(initialImageSrc)}"${deferredAttr} alt="${escapeHtml(altText)}" loading="lazy" decoding="async" onclick="showImagePreview(this.src)">
+                <img class="messages-bubble-media ${mediaKindClass}" src="${escapeHtml(initialImageSrc)}"${deferredAttr} alt="${escapeHtml(altText)}" loading="lazy" decoding="async" onclick="showImagePreview(this)">
             </div>
         `;
     }

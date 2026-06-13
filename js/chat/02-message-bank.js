@@ -739,6 +739,7 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
         channel: deliveryChannel,
         replyTo
     };
+    const isVoiceCallTranscript = type === 'voice_call_text';
 
     if (contact && typeof window.isGroupChatContact === 'function' && window.isGroupChatContact(contact)) {
         if (typeof window.decorateGroupChatMessageMeta === 'function') {
@@ -848,7 +849,7 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
         }
     }
 
-    if (isUser && text && text.includes('ACTION:')) {
+    if (!isVoiceCallTranscript && isUser && text && text.includes('ACTION:')) {
         const liveMatch = text.match(/ACTION:\s*START_FORUM_LIVE:\s*(.*?)(?:\n|$)/);
         if (liveMatch && liveMatch[1] !== undefined) {
             const parsedLive = window.parseStartForumLivePayload ? window.parseStartForumLivePayload(liveMatch[1]) : null;
@@ -866,60 +867,62 @@ function sendMessage(text, isUser, type = 'text', description = null, targetCont
         }
     }
 
-    if (window.iphoneSimState.replyingToMsg && !normalizedMeta.ignoreReplyingState && (!targetContactId || targetContactId === window.iphoneSimState.currentChatContactId)) cancelQuote();
+    if (!isVoiceCallTranscript && window.iphoneSimState.replyingToMsg && !normalizedMeta.ignoreReplyingState && (!targetContactId || targetContactId === window.iphoneSimState.currentChatContactId)) cancelQuote();
 
     if (contact) {
         if (typeof window.ensureContactRestWindowFields === 'function') {
             window.ensureContactRestWindowFields(contact);
         }
-        if (contact.autoItineraryEnabled) {
-            if (typeof contact.messagesSinceLastItinerary !== 'number') {
-                contact.messagesSinceLastItinerary = 0;
-            }
-            contact.messagesSinceLastItinerary++;
-
-            if (contact.messagesSinceLastItinerary >= (contact.autoItineraryInterval || 10)) {
-                if (window.generateNewItinerary) {
-                    window.generateNewItinerary(contact);
+        if (!isVoiceCallTranscript) {
+            if (contact.autoItineraryEnabled) {
+                if (typeof contact.messagesSinceLastItinerary !== 'number') {
                     contact.messagesSinceLastItinerary = 0;
                 }
+                contact.messagesSinceLastItinerary++;
+
+                if (contact.messagesSinceLastItinerary >= (contact.autoItineraryInterval || 10)) {
+                    if (window.generateNewItinerary) {
+                        window.generateNewItinerary(contact);
+                        contact.messagesSinceLastItinerary = 0;
+                    }
+                }
+            } else {
+                contact.messagesSinceLastItinerary = 0;
             }
-        } else {
-            contact.messagesSinceLastItinerary = 0;
-        }
-        if (!isUser && typeof window.updateContactRestStateOnAssistantMessage === 'function') {
-            window.updateContactRestStateOnAssistantMessage(contactId, text, type, msg.time);
+            if (!isUser && typeof window.updateContactRestStateOnAssistantMessage === 'function') {
+                window.updateContactRestStateOnAssistantMessage(contactId, text, type, msg.time);
+            }
         }
     }
 
     saveConfig();
 
-    if (window.syncToFloatingChat && window.isScreenSharing) {
+    if (!isVoiceCallTranscript && window.syncToFloatingChat && window.isScreenSharing) {
         window.syncToFloatingChat({ content: text, type: type, role: isUser ? 'user' : 'assistant' }, contactId);
         if (typeof window.loadFloatingChatHistory === 'function') {
             window.loadFloatingChatHistory();
         }
     }
 
-    if (deliveryChannel === 'wechat' && window.iphoneSimState.currentChatContactId === contactId) {
+    if (!isVoiceCallTranscript && deliveryChannel === 'wechat' && window.iphoneSimState.currentChatContactId === contactId) {
         appendMessageToUI(text, isUser, type, description, msg.replyTo, msg.id, msg.time);
         scrollToBottom();
     }
 
-    if (window.renderContactList) window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
+    if (!isVoiceCallTranscript && window.renderContactList) window.renderContactList(window.iphoneSimState.currentContactGroup || 'all');
 
-    if (deliveryChannel === 'messages-app' && window.MessagesApp && typeof window.MessagesApp.refresh === 'function') {
+    if (!isVoiceCallTranscript && deliveryChannel === 'messages-app' && window.MessagesApp && typeof window.MessagesApp.refresh === 'function') {
         window.MessagesApp.refresh(contactId);
     }
 
-    if (!isUser && deliveryChannel === 'wechat' && normalizedMeta.showNotification === true && typeof window.showChatNotification === 'function') {
+    if (!isVoiceCallTranscript && !isUser && deliveryChannel === 'wechat' && normalizedMeta.showNotification === true && typeof window.showChatNotification === 'function') {
         const notificationText = typeof formatLastMsgPreview === 'function'
             ? formatLastMsgPreview(msg, contact)
             : (String(text || '').trim() || '[消息]');
         window.showChatNotification(contactId, notificationText);
     }
 
-    if (window.checkAndSummarize) window.checkAndSummarize(contactId);
+    if (!isVoiceCallTranscript && window.checkAndSummarize) window.checkAndSummarize(contactId);
 
     return msg;
 }

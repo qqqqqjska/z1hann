@@ -9,6 +9,214 @@ let selectedMemoryIds = new Set();
 let memoryRefinePanelVisible = false;
 let pendingRefineMemoryIds = [];
 let pendingRefinePreviewPayload = null;
+const momentAiImageGenQueue = new Set();
+const momentAiImageRetryState = new Map();
+
+function getMomentImageGenerationSettings() {
+    const settings = window.iphoneSimState && window.iphoneSimState.novelaiSettings;
+    if (!settings || typeof settings !== 'object') return null;
+    const provider = settings.provider === 'custom' ? 'custom' : 'novelai';
+    const key = provider === 'custom'
+        ? String(settings.customApiKey || settings.key || '').trim()
+        : String(settings.key || '').trim();
+    if (!key) return null;
+    return {
+        provider,
+        key,
+        model: provider === 'custom'
+            ? String(settings.customModel || settings.model || 'nai-diffusion-3').trim()
+            : String(settings.model || 'nai-diffusion-3').trim(),
+        steps: Number(settings.steps || 28),
+        scale: Number(settings.cfg || 5),
+        seed: -1,
+        width: Number(settings.width || 832),
+        height: Number(settings.height || 1216),
+        referenceStrength: Number(settings.referenceStrength || 0.78),
+        referenceInfoExtracted: Number(settings.referenceInfoExtracted || 0.92),
+        negativePrompt: String(settings.negativePrompt || '')
+    };
+}
+
+function getMomentGenerationPrompt(moment, image) {
+    const contact = moment && moment.contactId !== 'me' && Array.isArray(window.iphoneSimState && window.iphoneSimState.contacts)
+        ? window.iphoneSimState.contacts.find(c => String(c && c.id) === String(moment.contactId))
+        : null;
+    const contactName = contact ? String(contact.remark || contact.nickname || contact.name || '').trim() : '';
+    const momentText = String(moment && moment.content || '').trim();
+    const imageDesc = typeof window.cleanMomentImageDescription === 'function'
+        ? window.cleanMomentImageDescription(image && (image.desc || image.description || ''))
+        : String(image && (image.desc || image.description || '') || '').trim();
+    const summaryParts = [
+        contactName ? `人物是${contactName}，气质符合其人设。` : '人物气质自然，符合真实朋友圈。',
+        momentText ? `动态文案：${momentText}` : '',
+        imageDesc ? `图片内容：${imageDesc}` : ''
+    ].filter(Boolean);
+    const basePrompt = [
+        'realistic social feed photo, natural lighting, everyday life snapshot, candid photo, high detail, realistic colors',
+        summaryParts.join(' ')
+    ].filter(Boolean).join(', ');
+    return typeof window.optimizePromptForNovelAI === 'function'
+        ? window.optimizePromptForNovelAI(basePrompt)
+        : basePrompt;
+}
+
+async function persistGeneratedMomentImageSource(imageSource, metadata = {}) {
+    const rawSource = String(imageSource || '').trim();
+    if (!rawSource) return '';
+    if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(rawSource)) {
+        return rawSource;
+    }
+
+    const normalizedMetadata = {
+        type: String(metadata.type || 'image/png'),
+        name: String(metadata.name || '')
+    };
+
+    if (rawSource.startsWith('data:image')) {
+        if (typeof window.persistInlineChatImagePayload === 'function') {
+            const persisted = await window.persistInlineChatImagePayload(rawSource, normalizedMetadata);
+            if (persisted) return persisted;
+        }
+        return rawSource;
+    }
+
+    if (/^blob:|^https?:\/\//i.test(rawSource) && typeof window.saveChatMediaBlob === 'function') {
+        try {
+            const response = await fetch(rawSource);
+            if (response && response.ok !== false) {
+                const blob = await response.blob();
+                if (blob instanceof Blob) {
+                    const storedReference = await window.saveChatMediaBlob(blob, {
+                        type: blob.type || normalizedMetadata.type,
+                        name: normalizedMetadata.name
+                    });
+                    if (rawSource.startsWith('blob:') && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+                        try {
+                            URL.revokeObjectURL(rawSource);
+                        } catch (revokeError) {
+                            console.warn('朋友圈图片临时URL释放失败', revokeError);
+                        }
+                    }
+                    return storedReference;
+                }
+            }
+        } catch (error) {
+            console.warn('朋友圈图片转存失败，继续使用原始地址', error);
+        }
+    }
+
+    return rawSource;
+}
+
+function hydrateMomentImage(moment, image, imageIndex) {
+    if (!moment || !image || typeof image !== 'object') return;
+    const cleanDesc = typeof window.cleanMomentImageDescription === 'function'
+        ? window.cleanMomentImageDescription(image.desc || image.description || '')
+        : String(image.desc || image.description || '').trim();
+    if (!cleanDesc || image.isVirtual !== true) return;
+    const currentSrc = String(image.src || image.url || '').trim();
+    if (currentSrc && typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(currentSrc)) {
+        return;
+    }
+
+    const queueKey = `${moment.id}::${imageIndex}`;
+    if (momentAiImageGenQueue.has(queueKey)) return;
+    const lastFailedAt = momentAiImageRetryState.get(queueKey) || 0;
+    if (lastFailedAt && Date.now() - lastFailedAt < 10 * 60 * 1000) return;
+    momentAiImageGenQueue.add(queueKey);
+
+    (async () => {
+        try {
+            const settings = getMomentImageGenerationSettings();
+            if (!settings || !window.generateNovelAiImageApi) return;
+
+            const prompt = getMomentGenerationPrompt(moment, image);
+            if (!prompt) return;
+
+            const generatedImage = await window.generateNovelAiImageApi({
+                ...settings,
+                prompt
+            });
+            const storedImage = await persistGeneratedMomentImageSource(generatedImage, {
+                type: 'image/png',
+                name: `${moment.contactId || 'moment'}-${moment.id}-${imageIndex}`
+            });
+            if (!storedImage) return;
+
+            const targetMoment = Array.isArray(window.iphoneSimState && window.iphoneSimState.moments)
+                ? window.iphoneSimState.moments.find(item => item && String(item.id) === String(moment.id))
+                : null;
+            if (!targetMoment || !Array.isArray(targetMoment.images) || !targetMoment.images[imageIndex]) return;
+
+            targetMoment.images[imageIndex] = {
+                ...targetMoment.images[imageIndex],
+                src: storedImage,
+                isVirtual: false,
+                generatedAt: Date.now()
+            };
+            saveConfig();
+            renderMomentsList();
+
+            const personalMomentsScreen = document.getElementById('personal-moments-screen');
+            const currentPersonalMomentsContactId = String(window.iphoneSimState?.currentPersonalMomentsContactId || '');
+            if (personalMomentsScreen && !personalMomentsScreen.classList.contains('hidden') && currentPersonalMomentsContactId === String(moment.contactId || '')) {
+                renderPersonalMoments(currentPersonalMomentsContactId);
+            }
+        } catch (error) {
+            console.warn('朋友圈生图失败，保留占位图', error);
+            momentAiImageRetryState.set(queueKey, Date.now());
+        } finally {
+            momentAiImageGenQueue.delete(queueKey);
+        }
+    })();
+}
+
+function hydrateMomentImages(moment) {
+    if (!moment || !Array.isArray(moment.images) || moment.images.length === 0) return;
+    if (String(moment.contactId || '') === 'me') return;
+
+    moment.images.forEach((image, index) => {
+        if (!image || typeof image !== 'object' || image.isVirtual !== true) return;
+        hydrateMomentImage(moment, image, index);
+    });
+}
+
+function hydrateMomentImageNodes(container) {
+    if (!container || typeof window.resolveChatMediaSrc !== 'function') return;
+
+    container.querySelectorAll('img[data-moment-media-ref]').forEach((img) => {
+        if (!img || img.dataset.momentMediaHydrated === '1' || img.dataset.momentMediaHydrating === '1') return;
+        const encodedRef = img.getAttribute('data-moment-media-ref');
+        if (!encodedRef) return;
+
+        let mediaRef = encodedRef;
+        try {
+            mediaRef = decodeURIComponent(encodedRef);
+        } catch (error) {
+            mediaRef = encodedRef;
+        }
+
+        if (!mediaRef) return;
+
+        img.dataset.momentMediaHydrating = '1';
+        void (async () => {
+            try {
+                let resolvedSrc = await window.resolveChatMediaSrc(mediaRef);
+                if (!resolvedSrc && typeof window.resolveChatMediaDataUrl === 'function') {
+                    resolvedSrc = await window.resolveChatMediaDataUrl(mediaRef);
+                }
+                if (resolvedSrc) {
+                    img.src = resolvedSrc;
+                    img.dataset.momentMediaHydrated = '1';
+                }
+            } catch (error) {
+                console.warn('朋友圈图片引用加载失败', error);
+            } finally {
+                img.dataset.momentMediaHydrating = '0';
+            }
+        })();
+    });
+}
 
 // --- 朋友圈功能 ---
 
@@ -19,35 +227,67 @@ function buildMomentImagesHtml(moment) {
     return `<div class="moment-images ${gridClass}">
         ${moment.images.map(img => {
             const isVirtual = (typeof img === 'object' && img && img.isVirtual);
+            const rawSrc = typeof img === 'string' ? img : String(img && (img.src || img.url) || '').trim();
+            const mediaRef = typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(rawSrc)
+                ? rawSrc
+                : '';
 
             if (isVirtual) {
                 const cleanDesc = typeof window.cleanMomentImageDescription === 'function'
                     ? window.cleanMomentImageDescription(img.desc || img.description || '')
                     : String(img.desc || img.description || '').replace(/^\[图片描述\][:：]?\s*/, '').trim();
-                let displaySrc = window.iphoneSimState.defaultMomentVirtualImageUrl;
-                if (!displaySrc) {
-                    displaySrc = img.src || window.iphoneSimState.defaultVirtualImageUrl || 'https://placehold.co/600x400/png?text=Photo';
-                }
+                const displaySrc = resolveMomentImageDisplaySrc(img);
+                const altText = escapeHtml(cleanDesc || '图片');
+                const refAttrs = mediaRef
+                    ? ` data-moment-media-ref="${escapeHtml(mediaRef)}" data-moment-media-hydrated="0"`
+                    : '';
 
                 return `
-                <div class="virtual-image-container" style="position: relative; cursor: pointer; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; overflow: hidden; background-color: #f2f2f7;">
-                    <img src="${displaySrc}" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+                <div class="virtual-image-container" style="position: relative; cursor: zoom-in; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; overflow: hidden; background-color: #f2f2f7;">
+                    <img src="${escapeHtml(displaySrc)}" class="moment-img" alt="${altText}" style="width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in;" onclick="showImagePreview(this)"${refAttrs}>
                     <div class="virtual-image-overlay" style="position: absolute; bottom: 0; left: 0; width: 100%; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); padding: 20px 10px 5px; box-sizing: border-box; pointer-events: none;">
-                        <div style="font-size: 12px; color: #fff; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; text-align: left;">${cleanDesc}</div>
+                        <div style="font-size: 12px; color: #fff; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; text-align: left;">${escapeHtml(cleanDesc)}</div>
                     </div>
                 </div>
                 `;
             }
 
-            const src = typeof img === 'string' ? img : (img && (img.src || img.url)) || '';
-            return `<img src="${src}" class="moment-img">`;
+            const src = resolveMomentImageDisplaySrc(img);
+            const altText = escapeHtml(typeof img === 'object' && img
+                ? (String(img.desc || img.description || '').trim() || '图片')
+                : '图片');
+            const refAttrs = mediaRef
+                ? ` data-moment-media-ref="${escapeHtml(mediaRef)}" data-moment-media-hydrated="0"`
+                : '';
+            return `<img src="${escapeHtml(src)}" class="moment-img" alt="${altText}" style="cursor: zoom-in;" onclick="showImagePreview(this)"${refAttrs}>`;
         }).join('')}
     </div>`;
 }
 
 function buildMomentTextHtml(content) {
     const text = String(content || '').trim();
-    return text ? `<div class="moment-text">${text}</div>` : '';
+    return text ? `<div class="moment-text">${escapeHtml(text)}</div>` : '';
+}
+
+function buildMomentCommentsHtml(moment) {
+    if (!moment || !Array.isArray(moment.comments) || moment.comments.length === 0) return '';
+
+    return `<div class="moment-comments">
+        ${moment.comments.map((comment, index) => {
+            const authorDisplayName = getMomentCommentAuthorDisplayName(comment, moment);
+            const replyTargetDisplayName = getMomentCommentReplyTargetDisplayName(comment, moment);
+            const commentContent = String(comment && comment.content || '').trim();
+            const isSelfComment = String(comment && comment.authorType || '').trim() === 'me' || String(comment && comment.authorId || '').trim() === 'me';
+            const replyHtml = replyTargetDisplayName
+                ? `回复<span class="moment-comment-user">${escapeHtml(replyTargetDisplayName)}</span>`
+                : '';
+
+            return `<div class="moment-comment-item" onclick="event.stopPropagation(); window.handleCommentClick(this, ${moment.id}, ${index})" style="display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; padding: 2px 4px; border-radius: 2px;">
+                <span style="flex: 1;"><span class="moment-comment-user${isSelfComment ? ' is-self' : ''}">${escapeHtml(authorDisplayName)}</span>${replyHtml ? replyHtml : ''}：<span class="moment-comment-content">${escapeHtml(commentContent)}</span></span>
+                <span class="moment-comment-delete-btn" style="display: none; color: #576b95; margin-left: 8px; font-size: 12px; padding: 0 4px;">✕</span>
+            </div>`;
+        }).join('')}
+    </div>`;
 }
 
 function renderMoments() {
@@ -110,57 +350,26 @@ function renderMomentsList() {
     const sortedMoments = [...window.iphoneSimState.moments].sort((a, b) => b.time - a.time);
 
     sortedMoments.forEach(moment => {
-        let avatar, name;
-        
-        if (moment.contactId === 'me') {
-            avatar = window.iphoneSimState.userProfile.avatar;
-            name = window.iphoneSimState.userProfile.name;
-        } else {
-            const contact = window.iphoneSimState.contacts.find(c => c.id === moment.contactId);
-            if (contact) {
-                avatar = contact.avatar;
-                name = contact.remark || contact.nickname || contact.name;
-            } else {
-                avatar = 'https://api.dicebear.com/7.x/avataaars/svg?seed=Unknown';
-                name = '未知用户';
-            }
-        }
+        const contact = moment.contactId === 'me'
+            ? null
+            : window.iphoneSimState.contacts.find(c => String(c.id) === String(moment.contactId));
+        const avatar = moment.contactId === 'me'
+            ? window.iphoneSimState.userProfile.avatar
+            : (contact ? contact.avatar : 'https://api.dicebear.com/7.x/avataaars/svg?seed=Unknown');
+        const name = moment.contactId === 'me'
+            ? window.iphoneSimState.userProfile.name
+            : (getContactDisplayName(contact) || '未知用户');
 
         const item = document.createElement('div');
         item.className = 'moment-item';
         
         const imagesHtml = buildMomentImagesHtml(moment);
         const momentTextHtml = buildMomentTextHtml(moment.content);
+        const commentsHtml = buildMomentCommentsHtml(moment);
 
         let likesHtml = '';
         if (moment.likes && moment.likes.length > 0) {
-            likesHtml = `<div class="moment-likes"><i class="far fa-heart"></i> ${moment.likes.join(', ')}</div>`;
-        }
-
-        let commentsHtml = '';
-        if (moment.comments && moment.comments.length > 0) {
-            commentsHtml = `<div class="moment-comments">
-                ${moment.comments.map((c, index) => {
-                    let displayName = c.user;
-                    if (moment.contactId !== 'me') {
-                        const contact = window.iphoneSimState.contacts.find(cnt => cnt.id === moment.contactId);
-                        if (contact && contact.remark) {
-                            if (c.user === contact.name || c.user === contact.nickname) {
-                                displayName = contact.remark;
-                            }
-                        }
-                    }
-
-                    let userHtml = `<span class="moment-comment-user">${displayName}</span>`;
-                    if (c.replyTo) {
-                        userHtml += `回复<span class="moment-comment-user">${c.replyTo}</span>`;
-                    }
-                    return `<div class="moment-comment-item" onclick="event.stopPropagation(); window.handleCommentClick(this, ${moment.id}, ${index}, '${c.user}')" style="display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; padding: 2px 4px; border-radius: 2px;">
-                        <span style="flex: 1;">${userHtml}：<span class="moment-comment-content">${c.content}</span></span>
-                        <span class="moment-comment-delete-btn" style="display: none; color: #576b95; margin-left: 8px; font-size: 12px; padding: 0 4px;">✕</span>
-                    </div>`;
-                }).join('')}
-            </div>`;
+            likesHtml = `<div class="moment-likes"><i class="far fa-heart"></i> ${moment.likes.map(name => escapeHtml(name)).join(', ')}</div>`;
         }
 
         let footerHtml = '';
@@ -172,14 +381,14 @@ function renderMomentsList() {
         const timeStr = `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
 
         item.innerHTML = `
-            <img src="${avatar}" class="moment-avatar">
+            <img src="${escapeHtml(avatar)}" class="moment-avatar">
             <div class="moment-content">
-                <div class="moment-name">${name}</div>
+                <div class="moment-name">${escapeHtml(name)}</div>
                 ${momentTextHtml}
                 ${imagesHtml}
                 <div class="moment-info">
                     <div style="display: flex; align-items: center;">
-                        <span class="moment-time">${timeStr}</span>
+                        <span class="moment-time">${escapeHtml(timeStr)}</span>
                         <span class="moment-delete" onclick="window.deleteMoment(${moment.id})">删除</span>
                     </div>
                     <div style="position: relative;">
@@ -195,7 +404,10 @@ function renderMomentsList() {
         `;
         
         listContainer.appendChild(item);
+        hydrateMomentImages(moment);
     });
+
+    hydrateMomentImageNodes(listContainer);
 }
 
 function addMoment(contactId, content, images = [], options = {}) {
@@ -411,11 +623,13 @@ window.deleteMoment = function(id) {
     }
 };
 
-window.handleCommentClick = function(el, momentId, index, user) {
+window.handleCommentClick = function(el, momentId, index) {
     const deleteBtn = el.querySelector('.moment-comment-delete-btn');
+    const moment = window.iphoneSimState.moments.find(m => m.id === momentId);
+    const comment = moment && Array.isArray(moment.comments) ? moment.comments[index] : null;
     
     if (deleteBtn.style.display !== 'none') {
-        window.replyToComment(momentId, user);
+        window.replyToComment(momentId, comment);
     } else {
         document.querySelectorAll('.moment-comment-delete-btn').forEach(btn => btn.style.display = 'none');
         document.querySelectorAll('.moment-comment-item').forEach(item => item.style.backgroundColor = '');
@@ -493,8 +707,38 @@ window.showCommentInput = function(id) {
     if (menu) menu.classList.remove('show');
 };
 
-window.replyToComment = function(momentId, toUser) {
-    if (toUser === window.iphoneSimState.userProfile.name) {
+window.replyToComment = function(momentId, commentRef) {
+    const moment = window.iphoneSimState.moments.find(m => m.id === momentId);
+    if (!moment || !Array.isArray(moment.comments)) return;
+
+    let targetComment = null;
+    if (typeof commentRef === 'number' && Number.isInteger(commentRef)) {
+        targetComment = moment.comments[commentRef] || null;
+    } else if (commentRef && typeof commentRef === 'object') {
+        targetComment = commentRef;
+    } else {
+        const refText = String(commentRef || '').trim();
+        targetComment = moment.comments.find((comment) => {
+            const candidates = [
+                comment.authorDisplayName,
+                comment.authorName,
+                comment.user,
+                comment.replyTo
+            ].map(value => String(value || '').trim()).filter(Boolean);
+            return candidates.includes(refText);
+        }) || null;
+    }
+
+    const toUser = targetComment
+        ? (getMomentCommentAuthorDisplayName(targetComment, moment) || String(targetComment.user || '').trim())
+        : String(commentRef || '').trim();
+    const isSelfComment = targetComment && (
+        String(targetComment.authorType || '').trim() === 'me'
+        || String(targetComment.authorId || '').trim() === 'me'
+        || toUser === window.iphoneSimState.userProfile.name
+    );
+
+    if (isSelfComment) {
         alert('不能回复自己');
         return;
     }
@@ -509,13 +753,43 @@ window.submitComment = function(id, content, replyTo = null, userName = null) {
     if (!moment) return;
 
     if (!moment.comments) moment.comments = [];
-    
-    const commenterName = userName || window.iphoneSimState.userProfile.name;
+    const normalizedContent = String(content || '').trim();
+    if (!normalizedContent) return null;
 
-    moment.comments.push({
-        user: commenterName,
-        content: content,
-        replyTo: replyTo
+    const userProfileName = String(window.iphoneSimState?.userProfile?.name || '').trim();
+    const contact = moment.contactId !== 'me' && Array.isArray(window.iphoneSimState?.contacts)
+        ? window.iphoneSimState.contacts.find(c => String(c && c.id) === String(moment.contactId))
+        : null;
+    const commenterName = String(userName || '').trim();
+    const authorType = commenterName && commenterName !== userProfileName ? 'contact' : 'me';
+    const authorId = authorType === 'me' ? 'me' : (contact ? String(contact.id || '') : '');
+    const authorName = authorType === 'me'
+        ? (userProfileName || '我')
+        : (contact ? String(contact.name || '').trim() : commenterName || '联系人');
+    const authorDisplayName = authorType === 'me'
+        ? (userProfileName || '我')
+        : (commenterName || getContactDisplayName(contact) || authorName || '联系人');
+
+    const commentEntry = typeof window.normalizeMomentCommentEntry === 'function'
+        ? window.normalizeMomentCommentEntry({
+            content: normalizedContent,
+            replyTo: replyTo || '',
+            authorType,
+            authorId,
+            authorName,
+            authorDisplayName,
+            user: authorDisplayName
+        }, moment)
+        : null;
+
+    moment.comments.push(commentEntry || {
+        user: authorDisplayName,
+        content: normalizedContent,
+        replyTo: replyTo || '',
+        authorType,
+        authorId,
+        authorName,
+        authorDisplayName
     });
 
     if (moment.contactId !== 'me' && !userName) {
@@ -658,15 +932,23 @@ ${contextDesc}
             replyContent = replyContent.slice(1, -1);
         }
 
-        if (!moment.comments) moment.comments = [];
-        moment.comments.push({
-            user: contact.remark || contact.name,
-            content: replyContent,
-            replyTo: userComment.user
-        });
-        
-        saveConfig();
-        renderMomentsList();
+        if (window.submitComment) {
+            window.submitComment(moment.id, replyContent, userComment.user, contact.remark || contact.name);
+        } else {
+            if (!moment.comments) moment.comments = [];
+            moment.comments.push({
+                user: contact.remark || contact.name,
+                content: replyContent,
+                replyTo: userComment.user,
+                authorType: 'contact',
+                authorId: String(contact.id || ''),
+                authorName: contact.name || contact.remark || contact.nickname || '',
+                authorDisplayName: contact.remark || contact.name || contact.nickname || ''
+            });
+            
+            saveConfig();
+            renderMomentsList();
+        }
 
     } catch (error) {
         console.error('AI回复评论失败:', error);
@@ -835,6 +1117,8 @@ function renderPersonalMoments(contactId) {
     const contact = window.iphoneSimState.contacts.find(c => c.id === contactId);
     if (!contact) return;
 
+    window.iphoneSimState.currentPersonalMomentsContactId = contactId;
+
     const bg = contact.momentsBg || contact.profileBg || '';
     const name = contact.remark || contact.name;
     const avatar = contact.avatar;
@@ -874,36 +1158,11 @@ function renderPersonalMoments(contactId) {
         
         const imagesHtml = buildMomentImagesHtml(moment);
         const momentTextHtml = buildMomentTextHtml(moment.content);
+        const commentsHtml = buildMomentCommentsHtml(moment);
 
         let likesHtml = '';
         if (moment.likes && moment.likes.length > 0) {
-            likesHtml = `<div class="moment-likes"><i class="far fa-heart"></i> ${moment.likes.join(', ')}</div>`;
-        }
-
-        let commentsHtml = '';
-        if (moment.comments && moment.comments.length > 0) {
-            commentsHtml = `<div class="moment-comments">
-                ${moment.comments.map((c, index) => {
-                    let displayName = c.user;
-                    if (contactId !== 'me') {
-                        const contact = window.iphoneSimState.contacts.find(cnt => cnt.id === contactId);
-                        if (contact && contact.remark) {
-                            if (c.user === contact.name || c.user === contact.nickname) {
-                                displayName = contact.remark;
-                            }
-                        }
-                    }
-
-                    let userHtml = `<span class="moment-comment-user">${displayName}</span>`;
-                    if (c.replyTo) {
-                        userHtml += `回复<span class="moment-comment-user">${c.replyTo}</span>`;
-                    }
-                    return `<div class="moment-comment-item" onclick="event.stopPropagation(); window.handleCommentClick(this, ${moment.id}, ${index}, '${c.user}')" style="display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; padding: 2px 4px; border-radius: 2px;">
-                        <span style="flex: 1;">${userHtml}：<span class="moment-comment-content">${c.content}</span></span>
-                        <span class="moment-comment-delete-btn" style="display: none; color: #576b95; margin-left: 8px; font-size: 12px; padding: 0 4px;">✕</span>
-                    </div>`;
-                }).join('')}
-            </div>`;
+            likesHtml = `<div class="moment-likes"><i class="far fa-heart"></i> ${moment.likes.map(name => escapeHtml(name)).join(', ')}</div>`;
         }
 
         let footerHtml = '';
@@ -924,7 +1183,7 @@ function renderPersonalMoments(contactId) {
                 ${imagesHtml}
                 <div class="moment-info">
                     <div style="display: flex; align-items: center;">
-                        <span class="moment-time" style="display: none;">${timeStr}</span>
+                        <span class="moment-time" style="display: none;">${escapeHtml(timeStr)}</span>
                     </div>
                     <div style="position: relative;">
                         <button class="moment-action-btn" onclick="window.toggleActionMenu(this, ${moment.id})"><i class="fas fa-ellipsis-h"></i></button>
@@ -937,9 +1196,12 @@ function renderPersonalMoments(contactId) {
                 ${footerHtml}
             </div>
         `;
-        
+
         listContainer.appendChild(item);
+        hydrateMomentImages(moment);
     });
+
+    hydrateMomentImageNodes(listContainer);
 }
 
 // --- 个人资料功能 ---
@@ -1674,7 +1936,165 @@ const MEMORY_DEFAULT_IMPORTANCE_BY_TAG = {
 };
 
 function escapeHtml(text) {
-    return String(text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getContactDisplayName(contact) {
+    if (!contact || typeof contact !== 'object') return '';
+    return String(contact.remark || contact.nickname || contact.name || '').trim();
+}
+
+function isLegacyMomentPlaceholderUrl(url) {
+    return typeof window.isLegacyPlaceholderImageUrl === 'function' && window.isLegacyPlaceholderImageUrl(url);
+}
+
+function getMomentPlaceholderImageUrl() {
+    const customMomentUrl = String(window.iphoneSimState?.defaultMomentVirtualImageUrl || '').trim();
+    if (customMomentUrl && !isLegacyMomentPlaceholderUrl(customMomentUrl)) {
+        return customMomentUrl;
+    }
+
+    const customDefaultUrl = String(window.iphoneSimState?.defaultVirtualImageUrl || '').trim();
+    if (customDefaultUrl && !isLegacyMomentPlaceholderUrl(customDefaultUrl)) {
+        return customDefaultUrl;
+    }
+
+    if (typeof window.createMomentPlaceholderImageDataUrl === 'function') {
+        return window.createMomentPlaceholderImageDataUrl();
+    }
+
+    return '';
+}
+
+function resolveMomentImageDisplaySrc(img) {
+    if (!img) return getMomentPlaceholderImageUrl();
+
+    if (typeof img === 'string') {
+        const src = img.trim();
+        if (!src || isLegacyMomentPlaceholderUrl(src)) return getMomentPlaceholderImageUrl();
+        if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(src)) {
+            return getMomentPlaceholderImageUrl();
+        }
+        return src;
+    }
+
+    if (typeof img !== 'object') return getMomentPlaceholderImageUrl();
+
+    const src = String(img.src || img.url || '').trim();
+    if (src && !isLegacyMomentPlaceholderUrl(src)) {
+        if (typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(src)) {
+            return getMomentPlaceholderImageUrl();
+        }
+        return src;
+    }
+
+    const customMomentUrl = String(window.iphoneSimState?.defaultMomentVirtualImageUrl || '').trim();
+    if (customMomentUrl && !isLegacyMomentPlaceholderUrl(customMomentUrl)) {
+        return customMomentUrl;
+    }
+
+    const customDefaultUrl = String(window.iphoneSimState?.defaultVirtualImageUrl || '').trim();
+    if (customDefaultUrl && !isLegacyMomentPlaceholderUrl(customDefaultUrl)) {
+        return customDefaultUrl;
+    }
+
+    return getMomentPlaceholderImageUrl();
+}
+
+function getMomentCommentAuthorDisplayName(comment, moment = null) {
+    if (!comment || typeof comment !== 'object') return '联系人';
+
+    const explicitDisplayName = String(comment.authorDisplayName || '').trim();
+    if (explicitDisplayName) return explicitDisplayName;
+
+    const authorType = String(comment.authorType || '').trim();
+    const authorId = String(comment.authorId || '').trim();
+    const authorName = String(comment.authorName || '').trim();
+    const legacyUser = String(comment.user || '').trim();
+    const userProfileName = String(window.iphoneSimState?.userProfile?.name || '').trim();
+
+    if (authorType === 'me' || authorId === 'me') {
+        return userProfileName || legacyUser || '我';
+    }
+
+    const contacts = Array.isArray(window.iphoneSimState?.contacts) ? window.iphoneSimState.contacts : [];
+    const matchedContact = contacts.find((contact) => {
+        if (!contact) return false;
+        const contactId = String(contact.id || '').trim();
+        const contactName = String(contact.name || '').trim();
+        const contactNickname = String(contact.nickname || '').trim();
+        const contactRemark = String(contact.remark || '').trim();
+        const contactDisplayName = getContactDisplayName(contact);
+        return [authorId, authorName, legacyUser].some(value => {
+            const candidate = String(value || '').trim();
+            return candidate && (
+                candidate === contactId
+                || candidate === contactName
+                || candidate === contactNickname
+                || candidate === contactRemark
+                || candidate === contactDisplayName
+            );
+        });
+    });
+
+    if (matchedContact) {
+        return getContactDisplayName(matchedContact) || String(matchedContact.name || '').trim() || legacyUser || authorName || '联系人';
+    }
+
+    if (moment && String(moment.contactId || '') === 'me' && legacyUser === userProfileName) {
+        return userProfileName || legacyUser || '我';
+    }
+
+    return legacyUser || authorName || (moment && String(moment.contactId || '') !== 'me' ? '联系人' : (userProfileName || '我'));
+}
+
+function getMomentCommentReplyTargetDisplayName(comment, moment = null) {
+    if (!comment || typeof comment !== 'object') return '';
+    const authorType = String(comment.authorType || '').trim();
+    const authorId = String(comment.authorId || '').trim();
+    if (authorType === 'me' || authorId === 'me') return '';
+
+    const replyTarget = String(comment.replyTo || '').trim();
+    if (replyTarget) return replyTarget;
+
+    return getMomentCommentAuthorDisplayName(comment, moment);
+}
+
+function buildMomentCommentEntry(content, moment, options = {}) {
+    const normalizedContent = String(content || '').trim();
+    if (!normalizedContent) return null;
+
+    const userProfileName = String(window.iphoneSimState?.userProfile?.name || '').trim() || '我';
+    const contact = moment && moment.contactId && String(moment.contactId) !== 'me' && Array.isArray(window.iphoneSimState?.contacts)
+        ? window.iphoneSimState.contacts.find(item => String(item && item.id) === String(moment.contactId))
+        : null;
+    const contactDisplayName = getContactDisplayName(contact);
+    const authorType = String(options.authorType || '').trim() || (options.authorId ? 'contact' : 'me');
+    const authorId = String(options.authorId || (authorType === 'me' ? 'me' : (contact ? String(contact.id || '') : ''))).trim();
+    const authorName = String(options.authorName || (authorType === 'me' ? userProfileName : (contact ? String(contact.name || '').trim() : ''))).trim();
+    const authorDisplayName = String(options.authorDisplayName || (authorType === 'me' ? userProfileName : (contactDisplayName || authorName || '联系人'))).trim();
+    const replyTo = String(options.replyTo || '').trim();
+
+    const rawComment = {
+        content: normalizedContent,
+        user: authorDisplayName || authorName || userProfileName,
+        replyTo,
+        authorType,
+        authorId,
+        authorName,
+        authorDisplayName
+    };
+
+    if (typeof window.normalizeMomentCommentEntry === 'function') {
+        return window.normalizeMomentCommentEntry(rawComment, moment) || rawComment;
+    }
+
+    return rawComment;
 }
 
 function normalizeStateExtractText(text) {
@@ -11026,6 +11446,7 @@ function setupAppsListeners() {
             if (window.iphoneSimState.personalMomentsSource === 'ai-profile') {
                 document.getElementById('ai-profile-screen')?.classList.remove('hidden');
             }
+            window.iphoneSimState.currentPersonalMomentsContactId = null;
             window.iphoneSimState.personalMomentsSource = null;
         });
     }

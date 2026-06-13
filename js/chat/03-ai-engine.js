@@ -1014,12 +1014,23 @@ window.refreshAiImage = async function(msgId, event) {
             imageLength: String(base64Image || '').length
         });
 
-        // 更新消息
-        msg.type = 'image';
-        msg.content = base64Image;
-        
-        saveConfig();
-        refreshChatImageResultViews(contactId, msg.channel || 'wechat');
+        const applied = await applyGeneratedImageToPlaceholderMessage(
+            contactId,
+            msg,
+            base64Image,
+            msg.novelaiPrompt,
+            msg.novelaiNegativePrompt,
+            msg.channel || 'wechat'
+        );
+
+        if (!applied) {
+            // 兜底：如果没有命中占位消息，也直接更新当前消息内容
+            msg.type = 'image';
+            msg.content = base64Image;
+            delete msg._hiddenBySanitizer;
+            saveConfig();
+            refreshChatImageResultViews(contactId, msg.channel || 'wechat', msg.id || null, base64Image);
+        }
 
     } catch (e) {
         console.error("Regeneration failed", e);
@@ -1598,7 +1609,7 @@ function formatPlainTextMessageContent(text) {
         if (isLikelyChatImageUrl(trimmed)) {
             flushText();
             const safeUrl = escapeChatMessageHtml(trimmed);
-            htmlParts.push(`<div class="text-message-inline-image"><img src="${safeUrl}" onclick="showImagePreview(this.src)" style="max-width: 200px; border-radius: 8px; display: block;"></div>`);
+            htmlParts.push(`<div class="text-message-inline-image"><img src="${safeUrl}" onclick="showImagePreview(this)" style="max-width: 200px; border-radius: 8px; display: block;"></div>`);
             return;
         }
         textBuffer.push(line);
@@ -2028,7 +2039,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const deferredAttr = isDeferredChatMedia
             ? ` data-chat-media-ref="${encodeURIComponent(text)}"`
             : '';
-        contentHtml = `<img src="${initialImageSrc}"${deferredAttr} onclick="showImagePreview(this.src)" loading="lazy" decoding="async" style="max-width: 200px; border-radius: 4px;">`;
+        contentHtml = `<img src="${initialImageSrc}"${deferredAttr} onclick="showImagePreview(this)" loading="lazy" decoding="async" style="max-width: 200px; border-radius: 4px;">`;
     } else if (type === 'voice') {
         let duration = '0:01';
         let transText = '[语音]';
@@ -2349,17 +2360,18 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         
         contentHtml = `
             <div class="virtual-image-container" style="position: relative; cursor: pointer; display: flex; justify-content: center; align-items: center;">
-                <img id="${imgId}" src="${text}" loading="lazy" decoding="async" style="max-width: 200px; border-radius: 4px; display: block; width: auto; height: auto;">
+                <img id="${imgId}" src="${text}" loading="lazy" decoding="async" style="max-width: 200px; border-radius: 4px; display: block; width: auto; height: auto; cursor: pointer;">
                 <div id="${overlayId}" class="virtual-image-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.8); border-radius: 4px; display: flex; align-items: center; justify-content: center; padding: 10px; box-sizing: border-box; opacity: 0; transition: opacity 0.3s; pointer-events: none;">
-                    <div style="font-size: 14px; color: #333; line-height: 1.4; overflow-y: auto; max-height: 100%; text-align: center;">${cleanDesc}</div>
+                    <div style="font-size: 14px; color: #333; line-height: 1.4; overflow-y: auto; max-height: 100%; text-align: center; white-space: pre-wrap;">${cleanDesc}</div>
                 </div>
             </div>
         `;
-        
+
         setTimeout(() => {
-            const container = document.getElementById(imgId).parentElement;
+            const imgEl = document.getElementById(imgId);
+            const container = imgEl ? imgEl.parentElement : null;
             const overlay = document.getElementById(overlayId);
-            
+
             if (container && overlay) {
                 container.onclick = () => {
                     const isVisible = overlay.style.opacity === '1';
@@ -2403,7 +2415,7 @@ function appendMessageToUI(text, isUser, type = 'text', description = null, repl
         const isDeferredSticker = typeof window.isChatMediaReference === 'function' && window.isChatMediaReference(text);
         const stickerSrc = isDeferredSticker ? (window.CHAT_MEDIA_PIXEL_PLACEHOLDER || '') : text;
         const stickerRefAttr = isDeferredSticker ? ` data-chat-media-ref="${encodeURIComponent(text)}"` : '';
-        contentHtml = `<img src="${stickerSrc}"${stickerRefAttr} onclick="showImagePreview(this.src)" loading="lazy" decoding="async">`;
+        contentHtml = `<img src="${stickerSrc}"${stickerRefAttr} onclick="showImagePreview(this)" loading="lazy" decoding="async">`;
     } else if (type === 'voice') {
         extraClass = 'voice-msg'; 
     } else if (type === 'description') {
@@ -5903,6 +5915,9 @@ function buildWechatHumanFeelPrompt() {
         '- 像真实微信聊天，不像客服、机器人或任务执行器。',
         '- 说话自然口语化，顺着上下文接话；不要写成说明文、规则复读或系统播报。',
         '- 联系人要像真实的人，会吃饭、会出门、会和朋友一起行动、会旅行、会临时改计划，也会有想偷懒、想休息或被事情打断的时候。',
+        '- 不要把“发朋友圈”理解成只有用户提到才触发的功能；在合适的日常场景里，你可以主动想到发朋友圈，不需要等用户先提到。',
+        '- 主动发朋友圈更适合这些自然场景：刚吃完饭、出门路上、通勤、下班、夜里感慨、拍到好看的东西、临时旅行、和朋友聚会、心情波动、想记录一下生活。',
+        '- 是否发朋友圈要看情绪和节奏，保持克制，不要每轮都发；但也不要因为用户没提就永远不发。',
         '- 当你是在接用户某句话、某个细节、某个情绪点时，优先使用 quote_reply；特别适合用户一条消息信息很多、连续发很多条、在吐槽/撒娇/委屈/分享日常/发计划/发长文时。',
         '- 可以偶尔主动发照片、语音、朋友圈、轻度关心或轻度延续话题，但要自然、克制、符合关系和情绪；不要每轮堆很多动作。',
         '- 正常回复不要机械地说“我点赞了”“我收钱了”“我帮你记录了状态”。',
@@ -5938,6 +5953,8 @@ function buildWechatBaseCapabilityPrompt() {
     return [
         '【常驻能力】',
         '- 你拥有“微信朋友圈”“微信转账”“亲属卡”等能力。',
+        '- 朋友圈不是只能在用户提到“朋友圈/动态”时才使用；正常聊天中，只要场景自然、情绪合适，你也可以主动发一条朋友圈动作。',
+        '- 如果你觉得当前聊天内容很生活化，但又不适合继续在聊天里展开，可以优先用朋友圈记录这一刻。',
         '- 常用 action：',
         '  {"type":"action","command":"POST_MOMENT","payload":"正文 [图片描述: 画面1] [图片描述: 画面2]"}',
         '  {"type":"action","command":"POST_ICITY_DIARY","payload":"内容"}',
@@ -10373,7 +10390,18 @@ window.buildAiPromptMessages = async function(contactId, instruction = null, opt
         
         if (lastMoment.comments && lastMoment.comments.length > 0) {
             const userName = currentPersona ? currentPersona.name : window.iphoneSimState.userProfile.name;
-            const userComments = lastMoment.comments.filter(c => c.user === userName);
+            const userComments = lastMoment.comments.filter(c => {
+                const authorType = String(c && c.authorType || '').trim();
+                const authorId = String(c && c.authorId || '').trim();
+                const authorDisplayName = String(c && c.authorDisplayName || '').trim();
+                const authorName = String(c && c.authorName || '').trim();
+                const legacyUser = String(c && c.user || '').trim();
+                return authorType === 'me'
+                    || authorId === 'me'
+                    || authorDisplayName === userName
+                    || authorName === userName
+                    || legacyUser === userName;
+            });
             if (userComments.length > 0) {
                 const lastComment = userComments[userComments.length - 1];
                 momentContext += `用户刚刚评论了你的朋友圈：“${lastComment.content}”\n`;

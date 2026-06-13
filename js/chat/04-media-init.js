@@ -1,4 +1,4 @@
-﻿function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null, options = {}) {
+﻿﻿function typewriterEffect(text, avatarUrl, thought = null, replyTo = null, type = 'text', targetContactId = null, options = {}) {
     return new Promise(resolve => {
         const contactId = targetContactId || window.iphoneSimState.currentChatContactId;
         if (!contactId) {
@@ -4648,6 +4648,7 @@ async function generateMinimaxTTS(text, voiceId, options = {}) {
     const requestOptions = options && typeof options === 'object' ? options : {};
     const requestModel = String(requestOptions.model || settings.model || 'speech-01-turbo').trim() || 'speech-01-turbo';
     const suppressAlert = !!requestOptions.suppressAlert;
+    const returnObjectUrl = !!requestOptions.returnObjectUrl;
     const debugTraceId = String(requestOptions.debugTraceId || createVoiceDebugTraceId('tts')).trim();
     const requestBody = {
         model: requestModel,
@@ -4712,6 +4713,15 @@ async function generateMinimaxTTS(text, voiceId, options = {}) {
     try {
         voiceDebugLog(debugTraceId, 'TTS:request:start', { url });
 
+        const convertBase64AudioToObjectUrl = (base64Audio) => {
+            const binary = atob(String(base64Audio || ''));
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return URL.createObjectURL(new Blob([bytes], { type: 'audio/mp3' }));
+        };
+
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -4746,17 +4756,23 @@ async function generateMinimaxTTS(text, voiceId, options = {}) {
             }
             return null;
         }
-        
+
         if (data.data && data.data.audio) {
             const hexAudio = data.data.audio;
-            const match = hexAudio.match(/.{1,2}/g);
-            if (!match) {
+            if (!hexAudio || !/^[0-9a-f]+$/i.test(hexAudio) || hexAudio.length % 2 !== 0) {
                  console.error('Invalid hex audio data');
                  return null;
             }
-            const bytes = new Uint8Array(match.map(byte => parseInt(byte, 16)));
-            
+            const bytes = new Uint8Array(hexAudio.length / 2);
+            for (let i = 0, j = 0; i < hexAudio.length; i += 2, j++) {
+                bytes[j] = parseInt(hexAudio.slice(i, i + 2), 16);
+            }
             const blob = new Blob([bytes], { type: 'audio/mp3' });
+            if (returnObjectUrl) {
+                const objectUrl = URL.createObjectURL(blob);
+                voiceDebugLog(debugTraceId, 'TTS:result:object_url_from_hex', summarizeVoiceAudioValue(objectUrl));
+                return objectUrl;
+            }
             return new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onloadend = () => {
@@ -4766,10 +4782,20 @@ async function generateMinimaxTTS(text, voiceId, options = {}) {
                 reader.readAsDataURL(blob);
             });
         } else if (data.base64) {
+            if (returnObjectUrl) {
+                const objectUrl = convertBase64AudioToObjectUrl(data.base64);
+                voiceDebugLog(debugTraceId, 'TTS:result:object_url_from_base64', summarizeVoiceAudioValue(objectUrl));
+                return objectUrl;
+            }
             const result = `data:audio/mp3;base64,${data.base64}`;
             voiceDebugLog(debugTraceId, 'TTS:result:data_url_from_base64', summarizeVoiceAudioValue(result));
             return result;
         } else if (data.audio) {
+            if (returnObjectUrl) {
+                const objectUrl = convertBase64AudioToObjectUrl(data.audio);
+                voiceDebugLog(debugTraceId, 'TTS:result:object_url_from_audio_field', summarizeVoiceAudioValue(objectUrl));
+                return objectUrl;
+            }
             const result = `data:audio/mp3;base64,${data.audio}`;
             voiceDebugLog(debugTraceId, 'TTS:result:data_url_from_audio_field', summarizeVoiceAudioValue(result));
             return result;
@@ -4810,6 +4836,20 @@ function normalizeMinimaxAudioPayloadToDataUrl(rawAudio, preferMime = 'audio/mp3
         return `data:${preferMime};base64,${source}`;
     }
     return null;
+}
+
+let currentVoiceCallAudioObjectUrl = null;
+
+function releaseCurrentVoiceCallAudioObjectUrl() {
+    if (!currentVoiceCallAudioObjectUrl) return;
+    if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+        try {
+            URL.revokeObjectURL(currentVoiceCallAudioObjectUrl);
+        } catch (e) {
+            console.warn('释放语音通话 TTS URL 失败', e);
+        }
+    }
+    currentVoiceCallAudioObjectUrl = null;
 }
 
 function extractMinimaxMusicAudioCandidate(payload) {
@@ -6281,6 +6321,21 @@ function closeVoiceCallScreen(hangupType = 'user') {
     const screen = document.getElementById('voice-call-screen');
     const floatWindow = document.getElementById('voice-call-float');
     
+    if (globalVoicePlayer) {
+        try {
+            globalVoicePlayer.pause();
+            globalVoicePlayer.currentTime = 0;
+            globalVoicePlayer.onended = null;
+            globalVoicePlayer.onerror = null;
+            globalVoicePlayer.onloadeddata = null;
+            globalVoicePlayer.src = '';
+            globalVoicePlayer.load();
+        } catch (e) {
+            console.warn('关闭语音通话时停止播放失败', e);
+        }
+    }
+    releaseCurrentVoiceCallAudioObjectUrl();
+
     screen.classList.add('hidden');
     if (floatWindow) floatWindow.classList.add('hidden');
     
@@ -7398,6 +7453,21 @@ function closeVideoCallScreen() {
     const screen = document.getElementById('video-call-screen');
     const floatWindow = document.getElementById('voice-call-float');
 
+    if (globalVoicePlayer) {
+        try {
+            globalVoicePlayer.pause();
+            globalVoicePlayer.currentTime = 0;
+            globalVoicePlayer.onended = null;
+            globalVoicePlayer.onerror = null;
+            globalVoicePlayer.onloadeddata = null;
+            globalVoicePlayer.src = '';
+            globalVoicePlayer.load();
+        } catch (e) {
+            console.warn('关闭视频通话时停止播放失败', e);
+        }
+    }
+    releaseCurrentVoiceCallAudioObjectUrl();
+
     screen.classList.add('hidden');
     if (floatWindow) floatWindow.classList.add('hidden');
 
@@ -7547,7 +7617,9 @@ function playVoiceCallAudio(audioData) {
     }
     
     // 验证音频数据格式
-    if (!audioData.startsWith('data:audio/')) {
+    const isDataAudio = typeof audioData === 'string' && audioData.startsWith('data:audio/');
+    const isObjectAudio = typeof audioData === 'string' && audioData.startsWith('blob:');
+    if (!isDataAudio && !isObjectAudio) {
         console.error('playVoiceCallAudio: Invalid audio data format:', audioData.substring(0, 50));
         return;
     }
@@ -7577,9 +7649,11 @@ function playVoiceCallAudio(audioData) {
     } catch (e) {
         console.log('playVoiceCallAudio: Error stopping previous audio:', e);
     }
+    releaseCurrentVoiceCallAudioObjectUrl();
 
     // 设置音频源
     globalVoicePlayer.src = audioData;
+    currentVoiceCallAudioObjectUrl = isObjectAudio ? audioData : null;
     
     // 监听加载完成事件
     globalVoicePlayer.onloadeddata = () => {
@@ -7591,6 +7665,7 @@ function playVoiceCallAudio(audioData) {
         isProcessingResponse = false;
         console.log('AI stopped speaking, VAD resumed');
         if (statusEl) statusEl.textContent = '正在聆听...';
+        releaseCurrentVoiceCallAudioObjectUrl();
     };
     
     globalVoicePlayer.onerror = (e) => {
@@ -7598,6 +7673,7 @@ function playVoiceCallAudio(audioData) {
         isAiSpeaking = false;
         isProcessingResponse = false;
         if (statusEl) statusEl.textContent = '音频播放失败';
+        releaseCurrentVoiceCallAudioObjectUrl();
         
         // 显示友好提示
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -7619,6 +7695,7 @@ function playVoiceCallAudio(audioData) {
             console.error('playVoiceCallAudio: Auto play failed:', e.name, e.message);
             isAiSpeaking = false;
             isProcessingResponse = false;
+            releaseCurrentVoiceCallAudioObjectUrl();
             
             if (statusEl) {
                 if (e.name === 'NotAllowedError') {
@@ -7968,7 +8045,11 @@ ${worldbookContext}
         }
 
         if (isSpeakerOn && normalizedDialogueText) {
-            audioData = await generateMinimaxTTS(normalizedDialogueText, contact.ttsVoiceId);
+            audioData = await generateMinimaxTTS(normalizedDialogueText, contact.ttsVoiceId, {
+                suppressAlert: true,
+                debugTraceId,
+                returnObjectUrl: true
+            });
         }
 
         if (audioData) {
@@ -7982,7 +8063,6 @@ ${worldbookContext}
         const msgPayload = {
             text: normalizedDialogueText,
             description: desc,
-            audio: audioData,
             bilingualTranslation: bilingualTranslationMeta
         };
         
@@ -8037,6 +8117,10 @@ async function startVoiceCallVAD() {
 
         voiceCallAnalyser.fftSize = 512;
         voiceCallAnalyser.smoothingTimeConstant = 0.8;  // 增加平滑度
+        const frequencyData = new Uint8Array(voiceCallAnalyser.frequencyBinCount);
+        const voiceStatusEl = document.getElementById('voice-call-status');
+        const videoStatusEl = document.getElementById('video-call-status');
+        const videoScreen = document.getElementById('video-call-screen');
         
         // 连接链路: Mic -> Gain -> Analyser -> Processor -> Destination
         voiceCallMicrophone.connect(gainNode);
@@ -8088,13 +8172,12 @@ async function startVoiceCallVAD() {
         const VAD_THRESHOLD = isMobile ? 15 : 10;
         const SILENCE_DURATION = isMobile ? 1800 : 1500;  // 移动端延长静音判定时间
 
-        voiceCallScriptProcessor.onaudioprocess = (event) => {
-            const array = new Uint8Array(voiceCallAnalyser.frequencyBinCount);
-            voiceCallAnalyser.getByteFrequencyData(array);
+        voiceCallScriptProcessor.onaudioprocess = () => {
+            voiceCallAnalyser.getByteFrequencyData(frequencyData);
             let values = 0;
-            const length = array.length;
+            const length = frequencyData.length;
             for (let i = 0; i < length; i++) {
-                values += array[i];
+                values += frequencyData[i];
             }
             let average = values / length;
 
@@ -8103,11 +8186,7 @@ async function startVoiceCallVAD() {
                 average = 0;
             }
 
-            let statusEl = document.getElementById('voice-call-status');
-            const videoScreen = document.getElementById('video-call-screen');
-            if (videoScreen && !videoScreen.classList.contains('hidden')) {
-                statusEl = document.getElementById('video-call-status');
-            }
+            const statusEl = videoScreen && !videoScreen.classList.contains('hidden') ? videoStatusEl : voiceStatusEl;
             
             if (average > VAD_THRESHOLD) {
                 if (!voiceCallIsSpeaking) {
@@ -8420,7 +8499,7 @@ window.playVoiceMsg = async function(msgId, textElId, event) {
                     shouldUseSingStyleMode ? (ttsSourceText || String(msgData.text || '').trim()) : String(msgData.text || '').trim(),
                     contact.ttsVoiceId,
                     shouldUseSingStyleMode
-                        ? (shouldUseSingCoverMode ? plainSingTtsOptions : { ...singOptions, suppressAlert: true, debugTraceId })
+                        ? (shouldUseSingCoverMode ? { ...plainSingTtsOptions } : { ...singOptions, suppressAlert: true, debugTraceId })
                         : { suppressAlert: true, debugTraceId }
                 );
                 voiceDebugLog(debugTraceId, 'PLAY:generate:tts:result', summarizeVoiceAudioValue(audioData));
@@ -12735,4 +12814,3 @@ if (window.appInitFunctions) {
         if (window.startForumAutoPostScheduler) window.startForumAutoPostScheduler();
     });
 }
-
