@@ -1665,3 +1665,19 @@
 .messages-quick-action-btn:active {
     background: rgba(255, 255, 255, 0.34);
 }
+
+/* Prevent iOS text selection on message bubbles */
+#messages-chat-scroll,
+#messages-chat-scroll *,
+#phone-messages-chat-scroll,
+#phone-messages-chat-scroll *,
+.messages-app-screen .messages-bubble,
+.messages-app-screen .messages-bubble *,
+.messages-app-screen .messages-reply-source,
+.messages-app-screen .messages-reply-source *,
+.messages-app-screen .messages-typing-bubble,
+.messages-app-screen .messages-typing-bubble * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-touch-callout: none !important;
+}

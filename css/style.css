@@ -8320,6 +8320,133 @@ html body .chat-message.user .voice-icon-box i { transform: rotate(-90deg); }
     font-style: italic;
 }
 
+.global-image-preview-modal {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0);
+    padding: 20px;
+    cursor: zoom-out;
+    z-index: 4000;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: scale(1.015);
+    transition: opacity 280ms cubic-bezier(0.16, 1, 0.3, 1), transform 280ms cubic-bezier(0.16, 1, 0.3, 1), background-color 280ms ease, visibility 0s linear 280ms;
+}
+
+.global-image-preview-modal.hidden {
+    display: flex;
+}
+
+.global-image-preview-modal.is-open {
+    background: rgba(0, 0, 0, 0.94);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: scale(1);
+    transition: opacity 280ms cubic-bezier(0.16, 1, 0.3, 1), transform 280ms cubic-bezier(0.16, 1, 0.3, 1), background-color 280ms ease, visibility 0s;
+}
+
+.global-image-preview-shell {
+    width: min(92vw, 980px);
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    pointer-events: auto;
+    transform: translateY(16px) scale(0.92);
+    opacity: 0;
+    transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 280ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform, opacity;
+}
+
+.global-image-preview-modal.is-open .global-image-preview-shell {
+    transform: scale(1);
+    opacity: 1;
+}
+
+.global-image-preview-shell img {
+    display: block;
+    max-width: 100%;
+    max-height: calc(92vh - 56px);
+    width: auto;
+    height: auto;
+    border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    user-select: none;
+    -webkit-user-drag: none;
+    object-fit: contain;
+    cursor: zoom-out;
+    background: rgba(255, 255, 255, 0.02);
+    transform: translateY(10px) scale(0.96);
+    opacity: 0;
+    transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 280ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform, opacity;
+}
+
+.global-image-preview-modal.is-open .global-image-preview-shell img {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+
+.global-image-preview-tip {
+    max-width: min(92vw, 560px);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    line-height: 1.2;
+    color: rgba(255, 255, 255, 0.88);
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    text-align: center;
+    user-select: none;
+    transform: translateY(6px);
+    opacity: 0;
+    transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.global-image-preview-modal.is-open .global-image-preview-tip {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+body.image-preview-open {
+    overflow: hidden;
+    touch-action: none;
+}
+
+/* Prevent iOS long-press text selection on the home screens and dock */
+#pages-container .home-screen-page,
+#pages-container .home-screen-page *,
+#phone-pages-container .home-screen-page,
+#phone-pages-container .home-screen-page *,
+.dock-bar,
+.dock-bar *,
+#phone-dock-bar,
+#phone-dock-bar * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-touch-callout: none !important;
+}
+
+#pages-container .home-screen-page input,
+#pages-container .home-screen-page textarea,
+#pages-container .home-screen-page select,
+#pages-container .home-screen-page [contenteditable="true"],
+#pages-container .home-screen-page [contenteditable="plaintext-only"],
+#phone-pages-container .home-screen-page input,
+#phone-pages-container .home-screen-page textarea,
+#phone-pages-container .home-screen-page select,
+#phone-pages-container .home-screen-page [contenteditable="true"],
+#phone-pages-container .home-screen-page [contenteditable="plaintext-only"] {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    -webkit-touch-callout: default !important;
+}
 
 
 

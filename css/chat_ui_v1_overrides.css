@@ -275,6 +275,21 @@
     gap: 4px;
 }
 
+/* Prevent iOS text selection on the main chat bubbles */
+#chat-screen #chat-messages.chat-body,
+#chat-screen #chat-messages.chat-body *,
+#studio-chat-screen #studio-chat-messages,
+#studio-chat-screen #studio-chat-messages *,
+#chat-screen .message-content,
+#chat-screen .message-content *,
+#chat-screen .message-original-text,
+#chat-screen .message-translated-text,
+#chat-screen .bubble-inline-time {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-touch-callout: none !important;
+}
+
 /* Generic bubble */
 #chat-screen .message-content {
     border-radius: 20px;
